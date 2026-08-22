@@ -1,0 +1,46 @@
+# The other half of the golden path. Backstage creates a repo; this discovers it.
+# No Application resource is ever written by hand — that's the point.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: golden-path
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - scmProvider:
+        gitea:
+          owner: services
+          api: http://gitea.lab:3000/
+          allBranches: false
+          insecure: true
+          tokenRef:
+            secretName: gitea-token
+            key: token
+        # {{ .url }} defaults to the SSH clone URL, and this gitea runs with
+        # DISABLE_SSH=true, so without cloneProtocol Argo CD gets
+        # git@localhost:... and dies with "SSH agent requested but SSH_AUTH_SOCK
+        # not-specified". 'https' makes it use the HTTP clone_url instead, which
+        # gitea derives from the request Host -- i.e. gitea.lab:3000, reachable
+        # from inside the cluster via the CoreDNS entry.
+        cloneProtocol: https
+        # Only repos that actually carry deployable manifests get an Application.
+        filters:
+          - pathsExist: [k8s/overlays/dev]
+        requeueAfterSeconds: 30
+  template:
+    metadata:
+      name: '{{ .repository }}-dev'
+    spec:
+      project: default
+      source:
+        repoURL: '{{ .url }}'
+        targetRevision: '{{ .branch }}'
+        path: k8s/overlays/dev
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{ .repository }}-dev'
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        syncOptions: [CreateNamespace=true]

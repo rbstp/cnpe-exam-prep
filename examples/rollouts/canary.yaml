@@ -1,0 +1,49 @@
+# Argo Rollouts canary with a metric gate. The AnalysisTemplate queries the
+# Prometheus you installed with `make obs` and aborts the rollout automatically.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata: { name: success-rate, namespace: team-a }
+spec:
+  args:
+    - { name: service-name }
+  metrics:
+    - name: success-rate
+      interval: 30s
+      count: 3
+      successCondition: result[0] >= 0.95
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090
+          query: |
+            sum(rate(http_requests_total{service="{{args.service-name}}",status!~"5.."}[2m]))
+            /
+            sum(rate(http_requests_total{service="{{args.service-name}}"}[2m]))
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata: { name: demo, namespace: team-a }
+spec:
+  replicas: 4
+  selector: { matchLabels: { app: demo } }
+  template:
+    metadata: { labels: { app: demo } }
+    spec:
+      containers:
+        - name: web
+          image: ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine
+          ports: [{ containerPort: 8080 }]
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+  strategy:
+    canary:
+      analysis:
+        templates: [{ templateName: success-rate }]
+        startingStep: 2
+        args: [{ name: service-name, value: demo }]
+      steps:
+        - setWeight: 25
+        - pause: { duration: 30s }
+        - setWeight: 50
+        - pause: {}            # manual gate: kubectl argo rollouts promote demo -n team-a
+        - setWeight: 100

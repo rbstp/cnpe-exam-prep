@@ -1,0 +1,118 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: golden-path-service
+  title: Golden path service
+  description: |
+    Creates a Gitea repo containing a deployable service, its Kustomize manifests,
+    and a catalog-info.yaml. Argo CD's SCM-provider ApplicationSet discovers the
+    new repo and deploys it — no Application resource is written by hand.
+  tags: [recommended, kubernetes, gitops]
+spec:
+  owner: group:default/platform
+  type: service
+
+  parameters:
+    - title: Identity
+      required: [name, owner]
+      properties:
+        name:
+          title: Name
+          type: string
+          description: Lowercase, DNS-safe. Becomes the repo name and the namespace prefix.
+          pattern: '^[a-z]([-a-z0-9]*[a-z0-9])?$'
+          ui:autofocus: true
+        description:
+          title: Description
+          type: string
+        owner:
+          title: Owner
+          type: string
+          description: Team that owns this service
+          ui:field: OwnerPicker
+          ui:options:
+            catalogFilter:
+              kind: [Group, User]
+
+    - title: Runtime shape
+      required: [replicas]
+      properties:
+        replicas:
+          title: Replicas
+          type: integer
+          default: 2
+          minimum: 1
+          maximum: 6
+        cpuRequest:
+          title: CPU request
+          type: string
+          default: 50m
+          enum: [25m, 50m, 100m, 250m]
+        memoryRequest:
+          title: Memory request
+          type: string
+          default: 64Mi
+          enum: [32Mi, 64Mi, 128Mi, 256Mi]
+
+    - title: Repository
+      required: [repoUrl]
+      properties:
+        repoUrl:
+          title: Location
+          type: string
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts: ['gitea.lab:3000']
+            allowedOwners: ['services']
+
+  steps:
+    - id: render
+      name: Render the skeleton
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          name: ${{ parameters.name }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          replicas: ${{ parameters.replicas }}
+          cpuRequest: ${{ parameters.cpuRequest }}
+          memoryRequest: ${{ parameters.memoryRequest }}
+          repoUrl: ${{ parameters.repoUrl }}
+          destination: ${{ parameters.repoUrl | parseRepoUrl }}
+
+    - id: publish
+      name: Create the Gitea repository
+      action: publish:gitea
+      input:
+        repoUrl: ${{ parameters.repoUrl }}
+        description: ${{ parameters.description }}
+        defaultBranch: main
+        repoVisibility: public
+        gitCommitMessage: 'scaffold ${{ parameters.name }} from golden-path-service'
+        gitAuthorName: backstage
+        gitAuthorEmail: backstage@lab.local
+
+    - id: register
+      name: Register in the catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+
+  output:
+    links:
+      - title: Repository
+        url: ${{ steps.publish.output.remoteUrl }}
+      - title: Open in catalog
+        icon: catalog
+        entityRef: ${{ steps.register.output.entityRef }}
+    text:
+      - title: What happens next
+        content: |
+          Argo CD's `golden-path` ApplicationSet polls Gitea every 30s. Once it
+          sees `k8s/overlays/dev` in the new repo it creates an Application and
+          syncs into namespace `${{ parameters.name }}-dev`.
+
+              kubectl -n argocd get applicationset golden-path -w
+              kubectl -n argocd get app

@@ -1,0 +1,20 @@
+# Kyverno's current policy types are separate kinds with CEL, not the old
+# ClusterPolicy typed-rules format. Start in Audit, then flip to Enforce.
+apiVersion: policies.kyverno.io/v1alpha1
+kind: ValidatingPolicy
+metadata:
+  name: require-resource-requests
+spec:
+  validationActions: [Audit]      # change to [Deny] to enforce
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE","UPDATE"]
+        resources: ["pods"]
+  validations:
+    - expression: >-
+        object.spec.containers.all(c,
+          has(c.resources) && has(c.resources.requests) &&
+          has(c.resources.requests.cpu) && has(c.resources.requests.memory))
+      message: "every container must set cpu and memory requests"

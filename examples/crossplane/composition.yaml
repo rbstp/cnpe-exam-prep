@@ -1,0 +1,72 @@
+# "XRD = schema, XR = instance, Composition = recipe."
+# NOTE: uses the NAMESPACED Object (kubernetes.m.crossplane.io) because the XRD
+# is scope: Namespaced -- Crossplane v2 refuses to let a namespaced XR compose a
+# cluster-scoped resource ("cannot apply cluster scoped composed resource ...").
+# This recipe turns one AppEnvironment into a Namespace + ResourceQuota.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: appenvironment-kubernetes
+spec:
+  compositeTypeRef:
+    apiVersion: platform.lab.local/v1alpha1
+    kind: AppEnvironment
+  mode: Pipeline
+  pipeline:
+    - step: patch-and-transform
+      functionRef: { name: function-patch-and-transform }
+      input:
+        apiVersion: pt.fn.crossplane.io/v1beta1
+        kind: Resources
+        resources:
+          - name: namespace
+            base:
+              apiVersion: kubernetes.m.crossplane.io/v1alpha1
+              kind: Object
+              spec:
+                providerConfigRef: { kind: ClusterProviderConfig, name: default }
+                forProvider:
+                  manifest:
+                    apiVersion: v1
+                    kind: Namespace
+                    metadata:
+                      name: placeholder
+                      labels:
+                        pod-security.kubernetes.io/enforce: baseline
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.team
+                toFieldPath: spec.forProvider.manifest.metadata.name
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.team
+                toFieldPath: spec.forProvider.manifest.metadata.labels[tenant]
+              - type: ToCompositeFieldPath
+                fromFieldPath: spec.forProvider.manifest.metadata.name
+                toFieldPath: status.namespace
+          - name: quota
+            base:
+              apiVersion: kubernetes.m.crossplane.io/v1alpha1
+              kind: Object
+              spec:
+                providerConfigRef: { kind: ClusterProviderConfig, name: default }
+                forProvider:
+                  manifest:
+                    apiVersion: v1
+                    kind: ResourceQuota
+                    metadata: { name: tenant-quota, namespace: placeholder }
+                    spec:
+                      hard:
+                        requests.cpu: "2"
+                        requests.memory: 4Gi
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.team
+                toFieldPath: spec.forProvider.manifest.metadata.namespace
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.cpuQuota
+                toFieldPath: spec.forProvider.manifest.spec.hard[requests.cpu]
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.memoryQuota
+                toFieldPath: spec.forProvider.manifest.spec.hard[requests.memory]
+    - step: ready
+      functionRef: { name: function-auto-ready }

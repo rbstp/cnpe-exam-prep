@@ -1,0 +1,75 @@
+# One namespace per tenant, with every guardrail the syllabus lists.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-b
+  labels:
+    # Pod Security Standards, enforced by the built-in admission controller.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    tenant: team-b
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata: { name: team-b-quota, namespace: team-b }
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    limits.cpu: "4"
+    limits.memory: 8Gi
+    pods: "20"
+    persistentvolumeclaims: "4"
+    count/services.loadbalancers: "1"
+---
+apiVersion: v1
+kind: LimitRange
+metadata: { name: team-b-limits, namespace: team-b }
+spec:
+  limits:
+    - type: Container
+      default:        { cpu: 200m, memory: 256Mi }
+      defaultRequest: { cpu: 50m,  memory: 64Mi }
+      max:            { cpu: "1",  memory: 1Gi }
+      min:            { cpu: 10m,  memory: 16Mi }
+---
+# Deny-all baseline. Enforced by Cilium; kindnet would silently ignore this.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: default-deny, namespace: team-b }
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: allow-dns-and-same-namespace, namespace: team-b }
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from: [{ podSelector: {} }]
+  egress:
+    - to: [{ podSelector: {} }]
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+          podSelector: { matchLabels: { k8s-app: kube-dns } }
+      ports: [{ protocol: UDP, port: 53 }, { protocol: TCP, port: 53 }]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: developer, namespace: team-b }
+rules:
+  - apiGroups: ["", "apps", "batch"]
+    resources: ["pods","pods/log","services","deployments","statefulsets","jobs","configmaps"]
+    verbs: ["get","list","watch","create","update","patch","delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get","list"]      # read-only on purpose — least privilege
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: developer, namespace: team-b }
+subjects: [{ kind: User, name: dev-b, apiGroup: rbac.authorization.k8s.io }]
+roleRef: { kind: Role, name: developer, apiGroup: rbac.authorization.k8s.io }

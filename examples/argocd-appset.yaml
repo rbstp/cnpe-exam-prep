@@ -1,0 +1,27 @@
+# App-of-apps + ApplicationSet: one Application per overlay directory found in
+# git. This is the pattern the exam expects you to recognise.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata: { name: demo-envs, namespace: argocd }
+spec:
+  generators:
+    - git:
+        repoURL: http://gitea.lab:3000/lab/platform.git
+        revision: main
+        directories:
+          - path: demo-app/overlays/*
+  template:
+    metadata:
+      name: 'demo-{{path.basename}}'
+    spec:
+      project: default
+      source:
+        repoURL: http://gitea.lab:3000/lab/platform.git
+        targetRevision: main
+        path: '{{path}}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{path.basename}}'
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        syncOptions: [CreateNamespace=true]

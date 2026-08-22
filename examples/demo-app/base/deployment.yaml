@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo
+  labels: { app: demo }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: demo } }
+  template:
+    metadata:
+      labels: { app: demo }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: web
+          image: ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine
+          ports: [{ containerPort: 8080, name: http }]
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits:   { cpu: 200m, memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - { name: cache, mountPath: /tmp }
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            initialDelaySeconds: 2
+      volumes:
+        - name: cache
+          emptyDir: {}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector: { matchLabels: { app: demo } }
