@@ -6,6 +6,18 @@ The exam is hands-on and covers five domains, so reading docs is not enough. Thi
 
 Every layer installs and uninstalls on its own. That matters on a laptop, because running all of it at once will saturate the CPU.
 
+## Curriculum
+
+The lab is the machinery; [curriculum/](curriculum/README.md) is the study plan that drives it. It covers all five domains and every competency in the official curriculum PDF, split into 29 evening-sized sections, each one concepts plus exercises against this lab, each exercise ending with a command that proves the thing worked. The [index](curriculum/README.md) maps every official competency to a section and to the `make validate` check or exercise that demonstrates it, and there is a [15-task mock exam](curriculum/mock-exam.md) with grading commands to run under the real 120-minute clock.
+
+| | |
+|---|---|
+| [1. Platform architecture and infrastructure](curriculum/01-architecture/) (15%) | networking, right-sizing, storage, multi-tenancy, cost |
+| [2. GitOps and continuous delivery](curriculum/02-gitops/) (25%) | GitOps fundamentals, Argo CD, Flux, Tekton, progressive delivery, troubleshooting |
+| [3. Platform APIs and self-service](curriculum/03-platform-apis/) (25%) | the platforms white paper, CRDs, operators, Argo Workflows, Crossplane, kro + Backstage |
+| [4. Observability and operations](curriculum/04-observability/) (20%) | Prometheus, alerting, dashboards + logs, tracing, DORA metrics, incident response |
+| [5. Security and policy enforcement](curriculum/05-security/) (15%) | RBAC + secrets, policy engines, PSS, audit + SBOM, mTLS + SPIRE, pipeline security |
+
 ## What it builds
 
 | Layer | Tools | Exam domain |
@@ -15,7 +27,7 @@ Every layer installs and uninstalls on its own. That matters on a laptop, becaus
 | `gitops` | [Argo CD](https://argo-cd.readthedocs.io/), [Argo Rollouts](https://argo-rollouts.readthedocs.io/), [Argo Workflows](https://argo-workflows.readthedocs.io/), [Flux](https://fluxcd.io/) | GitOps (25%) |
 | `cicd` | [Tekton](https://tekton.dev/) Pipelines/Triggers/Dashboard, [Trivy Operator](https://aquasecurity.github.io/trivy-operator/) | GitOps, Security |
 | `api` | [Crossplane](https://crossplane.io/) v2, provider-kubernetes, provider-helm, [CloudNativePG](https://cloudnative-pg.io/), [kro](https://kro.run/) | Platform APIs (25%) |
-| `obs` | [Prometheus](https://prometheus.io/), [Grafana](https://grafana.com/oss/grafana/), [OpenTelemetry](https://opentelemetry.io/), [Jaeger](https://www.jaegertracing.io/), [Loki](https://grafana.com/oss/loki/), [OpenCost](https://www.opencost.io/) | Observability (20%) |
+| `obs` | [Prometheus](https://prometheus.io/), [Grafana](https://grafana.com/oss/grafana/), [OpenTelemetry](https://opentelemetry.io/), [Jaeger](https://www.jaegertracing.io/), [Loki](https://grafana.com/oss/loki/) + [Alloy](https://grafana.com/docs/alloy/latest/), [OpenCost](https://www.opencost.io/) | Observability (20%) |
 | `sec` | [Kyverno](https://kyverno.io/), [OPA Gatekeeper](https://open-policy-agent.github.io/gatekeeper/), [Sealed Secrets](https://github.com/bitnami/sealed-secrets), [External Secrets](https://external-secrets.io/), Pod Security Standards, quotas | Security (15%) |
 | `spire` | [SPIFFE/SPIRE](https://spiffe.io/), workload identity | Security (15%) |
 | `mesh` | Second cluster with [Istio](https://istio.io/) ambient and [Flagger](https://flagger.app/) | Security (15%) |
@@ -73,6 +85,7 @@ Observability and cost:
 [OpenTelemetry](https://opentelemetry.io/) ·
 [Jaeger](https://www.jaegertracing.io/) ·
 [Loki](https://grafana.com/oss/loki/) ·
+[Alloy](https://grafana.com/docs/alloy/latest/) ·
 [OpenCost](https://www.opencost.io/) ·
 [kubectl-cost](https://github.com/kubecost/kubectl-cost)
 
@@ -130,7 +143,7 @@ make host                       # sysctls, docker, kernel limits. needs sudo
 make tools                      # every CLI into ~/.local/bin
 make core                       # cluster + git server + Argo CD/Flux/Rollouts/Workflows
 make cicd api obs sec spire     # the rest, one at a time
-make validate                   # 69 functional checks
+make validate                   # 71 functional checks
 make urls                       # where everything is
 ```
 
@@ -158,7 +171,7 @@ make gitea           Local git server, seeded repos, CoreDNS entry
 make gitops          Argo CD, Argo Rollouts, Argo Workflows, Flux
 make cicd            Tekton Pipelines/Triggers/Dashboard, Trivy Operator
 make api             Crossplane, CloudNativePG, kro
-make obs             Prometheus, Grafana, OTel, Jaeger, Loki, OpenCost
+make obs             Prometheus, Grafana, OTel, Jaeger, Loki+Alloy, OpenCost
 make sec             Kyverno, Gatekeeper, sealed/external secrets, PSS
 make spire           SPIFFE/SPIRE workload identity
 make mesh            Second cluster + Istio ambient + Flagger
@@ -204,7 +217,7 @@ The part I care about most. It checks behaviour, not pod status.
   ✓ Applications auto-generated from git           1
 
 ──────────────────────────────────────────────
-  PASS 69   FAIL 0   SKIP 0
+  PASS 71   FAIL 0   SKIP 0
 ──────────────────────────────────────────────
 
 Lab is fully functional.
@@ -254,7 +267,7 @@ No-UI things worth knowing
   API audit log    docker exec -it cnpe-control-plane tail -f /var/log/kubernetes/audit.log | jq .
   Rollouts TUI     kubectl argo rollouts dashboard
   Hubble CLI       cilium hubble port-forward &  then: hubble observe
-  Cost CLI         kubectl cost namespace --show-all-resources
+  Cost CLI         kubectl cost --opencost namespace --show-all-resources
   Compliance       kubectl get clustercompliancereports,vulnerabilityreports,sbomreports -A
   SPIRE identities kubectl -n spire exec sts/spire-server -c spire-server -- \
                      /opt/spire/bin/spire-server entry show
@@ -316,6 +329,10 @@ These cost me real time, and none of them are obvious from the upstream docs.
 **Backstage wants an even LTS Node.** It supports 20, 22 and 24. Arch ships 26, and `create-app` fails on it. `mise.toml` pins 22 for this directory. `create-app` also has no `--name` flag and always prompts, so it hangs when scripted, and the `.yarnrc.yml` it generates sets `npmMinimalAgeGate: 3d` which can reject one of Backstage's own fresh dependencies.
 
 **Trivy's node-collector needs a toleration.** It is pinned to each node by nodeSelector but does not tolerate the control-plane taint, so that node silently produces no compliance report. `nodeCollector.tolerations` and `trivyOperator.scanJobTolerations` are separate chart keys and you need both.
+
+**The local registry needs two names and a CoreDNS entry.** Pods pull `localhost:5001/...` through a containerd mirror, but anything that runs *inside* a pod and talks to the registry itself (kaniko pushing, Kyverno fetching signatures) needs `kind-registry:5000`, and pods cannot resolve that name until CoreDNS is taught it. The cluster script now wires both names into containerd and the registry IP into CoreDNS. Kyverno additionally needs `features.registryClient.allowInsecure=true` or every image verification dies on `server gave HTTP response to HTTPS client`.
+
+**cosign v3 signs in a format Kyverno does not read yet.** Its default is the new bundle format (a `sha256-<digest>` tag); Kyverno's ImageValidatingPolicy looks for the legacy `sha256-<digest>.sig`. Sign with `--use-signing-config=false --new-bundle-format=false --tlog-upload=false` and verification works. "no signatures found" on an image you definitely signed is a format-skew symptom, not a key problem.
 
 ## Not included
 

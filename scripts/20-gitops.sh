@@ -11,7 +11,10 @@ helmi argocd argo/argo-cd argocd \
   --set server.service.type=LoadBalancer \
   --set notifications.enabled=false \
   --set dex.enabled=false \
-  --set applicationSet.replicas=1
+  --set applicationSet.replicas=1 \
+  --set controller.metrics.enabled=true \
+  --set server.metrics.enabled=true \
+  --set repoServer.metrics.enabled=true
 ARGO_PW=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "<already rotated>")
 
 log "Argo Rollouts (progressive delivery — blue/green + canary)"

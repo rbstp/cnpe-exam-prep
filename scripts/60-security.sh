@@ -10,7 +10,11 @@ helmi kyverno kyverno/kyverno kyverno \
   --set backgroundController.replicas=1 \
   --set cleanupController.replicas=1 \
   --set reportsController.replicas=1 \
-  --set features.policyExceptions.enabled=true
+  --set features.policyExceptions.enabled=true \
+  --set features.registryClient.allowInsecure=true
+  # allowInsecure: the lab registry (kind-registry:5000) is plain http, and
+  # without this every ImageValidatingPolicy dies on "server gave HTTP response
+  # to HTTPS client" before it ever sees a signature.
 
 log "OPA Gatekeeper (the other engine on the exam list — know both)"
 repo_add gatekeeper https://open-policy-agent.github.io/gatekeeper/charts
