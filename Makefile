@@ -24,7 +24,7 @@ cicd:    ## Tekton Pipelines/Triggers/Dashboard, Trivy Operator [domain 2]
 	@$(S)/30-cicd.sh
 api:     ## Crossplane, CloudNativePG, kro, kubebuilder hints   [domain 3]
 	@$(S)/40-platform-api.sh
-obs:     ## Prometheus, Grafana, OTel, Jaeger, Loki, OpenCost    [domain 4]
+obs:     ## Prometheus, Grafana, OTel, Jaeger, Loki+Alloy, OpenCost    [domain 4]
 	@$(S)/50-observability.sh
 sec:     ## Kyverno, Gatekeeper, sealed/external secrets, PSS   [domain 5]
 	@$(S)/60-security.sh

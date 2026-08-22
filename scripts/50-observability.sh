@@ -122,6 +122,51 @@ helmi loki grafana/loki monitoring \
   --set lokiCanary.enabled=false --set test.enabled=false \
   || warn "Loki install failed — optional, skip it if tight on CPU"
 
+# Loki without a shipper is a database with no writers. Alloy tails every pod
+# through the kubelet API (one replica is enough for a lab) and pushes to Loki.
+log "Alloy (ships pod logs into Loki)"
+cat > /tmp/cnpe-lab/alloy-values.yaml <<'VALUES'
+controller:
+  type: deployment
+  replicas: 1
+alloy:
+  configMap:
+    content: |
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app"]
+          target_label  = "app"
+        }
+      }
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pods.output
+        forward_to = [loki.write.local.receiver]
+      }
+      loki.write "local" {
+        endpoint {
+          url = "http://loki.monitoring.svc:3100/loki/api/v1/push"
+        }
+      }
+VALUES
+helmi alloy grafana/alloy monitoring -f /tmp/cnpe-lab/alloy-values.yaml \
+  || warn "Alloy install failed — Loki will hold no logs until a shipper exists"
+
 log "OpenCost (cost allocation from Prometheus metrics)"
 repo_add opencost-charts https://opencost.github.io/opencost-helm-chart
 helmi opencost opencost-charts/opencost opencost \
@@ -139,7 +184,7 @@ cat <<'INFO'
   Prometheus                      kubectl -n monitoring get svc prometheus-kube-prometheus-prometheus
   Jaeger UI                       kubectl -n tracing get svc jaeger        (port 16686)
   OpenCost                        kubectl -n opencost get svc opencost     (UI on 9090)
-                                  kubectl cost namespace --show-all-resources
+                                  kubectl cost --opencost namespace --show-all-resources
 
   Drill: annotate a deployment to get traces with zero code changes —
     kubectl patch deploy/<name> -p \

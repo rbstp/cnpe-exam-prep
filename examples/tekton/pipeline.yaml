@@ -16,12 +16,13 @@ spec:
       image: aquasec/trivy:latest
       script: |
         #!/bin/sh
-        trivy image --exit-code 1 --severity HIGH,CRITICAL --no-progress $(params.image)
+        # --insecure: the lab registry speaks plain http
+        trivy image --insecure --exit-code 1 --severity HIGH,CRITICAL --no-progress $(params.image)
     - name: sbom
       image: aquasec/trivy:latest
       script: |
         #!/bin/sh
-        trivy image --format cyclonedx --output $(workspaces.source.path)/sbom.json $(params.image)
+        trivy image --insecure --format cyclonedx --output $(workspaces.source.path)/sbom.json $(params.image)
         sha256sum $(workspaces.source.path)/sbom.json | cut -d' ' -f1 | tr -d '\n' > $(results.sbom-digest.path)
 ---
 apiVersion: tekton.dev/v1
@@ -30,7 +31,10 @@ metadata: { name: build-and-scan }
 spec:
   params:
     - { name: repo-url, type: string }
-    - { name: image,    type: string, default: "localhost:5001/demo:v1" }
+    # kind-registry:5000, not localhost:5001 — the pipeline pods push and scan
+    # from INSIDE the cluster, where localhost is the pod itself. The host still
+    # sees the result as localhost:5001/demo:v1; same registry, two names.
+    - { name: image,    type: string, default: "kind-registry:5000/demo:v1" }
   workspaces:
     - { name: shared }
   tasks:

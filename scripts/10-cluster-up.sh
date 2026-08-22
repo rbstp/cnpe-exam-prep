@@ -49,11 +49,16 @@ kubectl config use-context "kind-$CLUSTER" >/dev/null
 # ── tell every node where the local registry lives ───────────────────────
 log "Wiring nodes to the local registry"
 for node in $(kind get nodes --name "$CLUSTER"); do
-  docker exec "$node" mkdir -p "/etc/containerd/certs.d/localhost:$REGISTRY_PORT"
-  docker exec -i "$node" sh -c "cat > /etc/containerd/certs.d/localhost:$REGISTRY_PORT/hosts.toml" <<TOML
+  # Two names for one registry: localhost:$REGISTRY_PORT for host-side muscle
+  # memory, $REGISTRY_NAME:5000 so in-cluster pushers (kaniko) and verifiers
+  # (Kyverno) can reach the same store. Both map to plain http.
+  for reg in "localhost:$REGISTRY_PORT" "$REGISTRY_NAME:5000"; do
+    docker exec "$node" mkdir -p "/etc/containerd/certs.d/$reg"
+    docker exec -i "$node" sh -c "cat > '/etc/containerd/certs.d/$reg/hosts.toml'" <<TOML
 [host."http://$REGISTRY_NAME:5000"]
   capabilities = ["pull", "resolve"]
 TOML
+  done
 done
 docker network connect kind "$REGISTRY_NAME" 2>/dev/null || true
 kubectl apply -f - >/dev/null <<CM
@@ -80,6 +85,35 @@ if [ "$CNI" = "cilium" ]; then
   cilium status --wait --context "kind-$CLUSTER" || warn "cilium not fully ready yet"
   log "Waiting for all nodes to reach Ready now that a CNI exists"
   kubectl wait --for=condition=Ready nodes --all --timeout=5m || warn "some nodes still NotReady"
+fi
+
+# ── make the registry resolvable from PODS, not just from containerd ─────
+# containerd resolves $REGISTRY_NAME through docker's DNS, but pods ask
+# CoreDNS, which has never heard of it. Without this entry, kaniko cannot
+# push and Kyverno cannot verify signatures against the local registry.
+REGISTRY_IP=$(docker inspect -f '{{(index .NetworkSettings.Networks "kind").IPAddress}}' "$REGISTRY_NAME" 2>/dev/null || true)
+if [ -n "$REGISTRY_IP" ]; then
+  log "Teaching CoreDNS about $REGISTRY_NAME ($REGISTRY_IP)"
+  python3 - "$REGISTRY_IP" "$REGISTRY_NAME" <<'PY'
+import subprocess, sys, json, re
+ip, host = sys.argv[1], sys.argv[2]
+cm = json.loads(subprocess.check_output(
+    ["kubectl","-n","kube-system","get","cm","coredns","-o","json"]))
+corefile = cm["data"]["Corefile"]
+if host in corefile:
+    print("    CoreDNS already knows", host); sys.exit(0)
+m = re.search(r"(    hosts \{\n)", corefile)
+if m:  # extend the existing hosts block (CoreDNS allows only one per server)
+    corefile = corefile.replace(m.group(1), m.group(1) + f"        {ip} {host}\n", 1)
+else:
+    block = f"    hosts {{\n        {ip} {host}\n        fallthrough\n    }}\n"
+    corefile = corefile.replace("    ready\n", "    ready\n" + block, 1)
+cm["data"]["Corefile"] = corefile
+subprocess.run(["kubectl","apply","-f","-"], input=json.dumps(cm).encode(), check=True)
+print("    CoreDNS patched")
+PY
+  kubectl -n kube-system rollout restart deploy/coredns >/dev/null
+  kubectl -n kube-system rollout status deploy/coredns --timeout=3m >/dev/null || true
 fi
 
 # ── LoadBalancer services actually get IPs ───────────────────────────────

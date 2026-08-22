@@ -73,6 +73,11 @@ log "Teaching the HOST about ${GITEA_HOST}"
 # works from your shell, from Backstage, and from inside the cluster.
 if grep -qE "^${GITEA_IP}[[:space:]]+${GITEA_HOST}\$" /etc/hosts; then
   ok "/etc/hosts already correct (no sudo needed)"
+elif ! sudo -n true 2>/dev/null && ! [ -t 0 ]; then
+  # Unattended run and sudo would prompt: warn and carry on. Everything
+  # in-cluster still works; only host-side ${GITEA_HOST} URLs are stale.
+  warn "/etc/hosts needs updating but sudo cannot prompt here — run this yourself:"
+  warn "  sudo sed -i -E 's|^[0-9.]+[[:space:]]+${GITEA_HOST}\$|${GITEA_IP} ${GITEA_HOST}|' /etc/hosts   # or append if missing"
 elif grep -qE "[[:space:]]${GITEA_HOST}\$" /etc/hosts; then
   sudo sed -i -E "s|^[0-9.]+[[:space:]]+${GITEA_HOST}\$|${GITEA_IP} ${GITEA_HOST}|" /etc/hosts
 else
@@ -83,15 +88,19 @@ curl -fsS "http://${GITEA_HOST}:3000/api/healthz" >/dev/null && ok "http://${GIT
 
 log "Teaching CoreDNS about ${GITEA_HOST}"
 python3 - "$GITEA_IP" "$GITEA_HOST" <<'PY'
-import subprocess, sys, json
+import subprocess, sys, json, re
 ip, host = sys.argv[1], sys.argv[2]
 cm = json.loads(subprocess.check_output(
     ["kubectl","-n","kube-system","get","cm","coredns","-o","json"]))
 corefile = cm["data"]["Corefile"]
 if host in corefile:
     print("    CoreDNS already knows", host); sys.exit(0)
-block = f"    hosts {{\n        {ip} {host}\n        fallthrough\n    }}\n"
-corefile = corefile.replace("    ready\n", "    ready\n" + block, 1)
+m = re.search(r"(    hosts \{\n)", corefile)
+if m:  # extend the existing hosts block (CoreDNS allows only one per server)
+    corefile = corefile.replace(m.group(1), m.group(1) + f"        {ip} {host}\n", 1)
+else:
+    block = f"    hosts {{\n        {ip} {host}\n        fallthrough\n    }}\n"
+    corefile = corefile.replace("    ready\n", "    ready\n" + block, 1)
 cm["data"]["Corefile"] = corefile
 subprocess.run(["kubectl","apply","-f","-"], input=json.dumps(cm).encode(), check=True)
 print("    CoreDNS patched")

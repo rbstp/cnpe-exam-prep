@@ -76,6 +76,7 @@ ge "prometheus ready" 1 "$($K -n monitoring get sts prometheus-prometheus-kube-p
 ge "grafana ready" 1 "$($K -n monitoring get deploy prometheus-grafana -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"
 ge "alertmanager ready" 1 "$($K -n monitoring get sts alertmanager-prometheus-kube-prometheus-alertmanager -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"
 ge "loki ready" 1 "$($K -n monitoring get sts loki -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"
+ge "alloy log shipper ready" 1 "$($K -n monitoring get deploy alloy -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"
 ge "jaeger ready" 1 "$($K -n tracing get deploy jaeger -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"
 ge "otel collector ready" 1 "$($K -n tracing get deploy otel-collector -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"
 $K get instrumentation auto -n default >/dev/null 2>&1 && ok_ "otel auto-instrumentation CR" || bad_ "otel auto-instrumentation CR"
@@ -103,6 +104,18 @@ HINT
   fi
 else
   skip_ "prometheus target health" "FAST=1"
+fi
+# Loki actually HOLDS streams — a running Loki with no shipper stays empty
+if [ "${FAST:-0}" != "1" ]; then
+  $K -n monitoring port-forward svc/loki 13100:3100 >/dev/null 2>&1 &
+  LPID=$!; sleep 4
+  STREAMS=$(curl -s --get "http://localhost:13100/loki/api/v1/query" \
+    --data-urlencode 'query=count_over_time({namespace="monitoring"}[10m])' 2>/dev/null \
+    | jq '.data.result | length' 2>/dev/null)
+  kill $LPID 2>/dev/null
+  ge "loki holds log streams" 1 "${STREAMS:-0}"
+else
+  skip_ "loki holds log streams" "FAST=1"
 fi
 # API audit trail
 AUDIT_BYTES=$(docker exec "${CLUSTER}-control-plane" stat -c %s /var/log/kubernetes/audit.log 2>/dev/null || echo 0)
