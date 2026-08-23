@@ -80,7 +80,7 @@
 
     <p>Derive it rather than recall it. Set the four numbers and read the class, the eviction rank and the two runtime behaviours:</p>
     <div class="widget" data-widget="qos"></div>
-    <p>Under node memory pressure the kubelet ranks victims by QoS class and by how far each pod exceeds its memory <em>request</em>; the same ranking is fed to the kernel via <code>oom_score_adj</code> so a system-level OOM picks the same victim. CPU pressure never evicts anything — it only throttles. If someone tells you a pod was "evicted for CPU", they are describing something else.</p>
+    <p>Under node memory pressure the kubelet ranks victims in a specific order: pods whose usage exceeds their requests first, then by <strong>Pod Priority</strong> (lowest goes first), then by how far over the request they are. QoS class is a consequence of that first test rather than an input — a BestEffort pod requested nothing, so it always exceeds. The practical corollary: a high-priority Burstable pod outlives a low-priority BestEffort one, which is why <code>PriorityClass</code> protects platform components from <em>eviction</em>, not just from preemption. The same ranking is mirrored to the kernel via <code>oom_score_adj</code> so a system-level OOM picks the same victim. CPU pressure never evicts anything — it only throttles. If someone tells you a pod was "evicted for CPU", they are describing something else.</p>
   </div>
 </section>
 
@@ -122,13 +122,14 @@
           <tr><td class="mono">HPA</td><td>replica count</td><td>live metrics (Resource, Pods, Object, External)</td><td>needs metrics-server; percentage targets are relative to <em>requests</em></td></tr>
           <tr><td class="mono">VPA</td><td>the requests themselves</td><td>historical usage</td><td>fights an HPA on the same resource; <code>updateMode: Off</code> makes it advisory</td></tr>
           <tr><td class="mono">Cluster Autoscaler / Karpenter</td><td>node count / node shape</td><td>unschedulable pods</td><td>reacts to <em>Pending</em> pods, so it is downstream of requests too</td></tr>
+          <tr><td class="mono">KEDA</td><td>replicas, including 0</td><td>queue depth, topic lag, cron, any external source</td><td>a <code>ScaledObject</code> generates an HPA underneath — it is the thing that produces those "External" metrics, and the only way to scale to zero</td></tr>
         </tbody>
       </table>
     </div>
 
     <h3>The HPA formula, which explains every surprise</h3>
     <div class="cb" data-lang="text"><pre><code>desiredReplicas = ceil( currentReplicas × ( currentMetricValue / desiredMetricValue ) )</code></pre></div>
-    <p>With <code>--cpu-percent=20</code> and containers requesting 25m, the target is 5m of actual usage per pod. That is why a demo app with a tiny request scales up under a trivial load: the percentage is a fraction of the request, not of the node. Change the request and you change the autoscaler's behaviour without touching the HPA — one of those couplings that looks like a bug the first time you meet it.</p>
+    <p>With one caveat that explains most "why didn't it scale" moments: the HPA does nothing while the ratio sits inside its <strong>tolerance</strong> (10% by default), and pods that are unready or missing metrics are left out of the average entirely. With <code>--cpu-percent=20</code> and containers requesting 25m, the target is 5m of actual usage per pod. That is why a demo app with a tiny request scales up under a trivial load: the percentage is a fraction of the request, not of the node. Change the request and you change the autoscaler's behaviour without touching the HPA — one of those couplings that looks like a bug the first time you meet it.</p>
     <p>Scaling up is fast; scaling down waits out a stabilisation window (300s by default) so a brief dip cannot flap your fleet. Both directions are configurable per-HPA under <code>spec.behavior</code> with policies (pods or percent, per period) and <code>selectPolicy</code>. Knowing that downscale lag exists — and that it is deliberate — is worth a mark on its own.</p>
 
     <h3>VPA modes</h3>
@@ -137,7 +138,7 @@
       <li><code>Initial</code> — apply recommendations at pod creation only.</li>
       <li><code>Auto</code> / <code>Recreate</code> — evict and recreate pods to resize them. Disruptive by design, because changing a running pod's requests historically required a new pod.</li>
     </ul>
-    <p>Newer clusters can resize CPU and memory in place (the <code>resize</code> subresource), which softens that trade-off. If the exam cluster supports it, <code>kubectl explain pod.spec.containers.resizePolicy</code> will say so — a good example of asking the cluster instead of your memory.</p>
+    <p>Newer clusters can resize CPU and memory in place, which softens that trade-off. Do not test for it with <code>kubectl explain pod.spec.containers.resizePolicy</code> — that field has been in the schema since 1.27 whether or not the feature is on. The honest check is whether the subresource exists: <code>kubectl get --raw /api/v1 | grep -o 'pods/resize'</code>, or simply try the patch and read the error.</p>
 
     <div class="callout reflex">
       <span class="tag">Command reflex</span>

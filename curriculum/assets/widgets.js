@@ -93,9 +93,11 @@
                 : "evicted first";
       var throttled = st.cpuLim && st.cpuUse > st.cpuLim;
       var oom = st.memLim && st.memUse > st.memLim;
-      var schedFit = st.cpuReq;
+      var claims = st.cpuReq || st.memReq;
 
+      var invalid = (st.cpuLim && st.cpuReq > st.cpuLim) || (st.memLim && st.memReq > st.memLim);
       out.innerHTML =
+        (invalid ? '<div class="wnote bad">The API server rejects this pod before any of the below applies: a container\'s request may not exceed its limit.</div>' : "") +
         '<div class="wgrid">' +
           '<div class="wcell"><span class="wk">QoS class</span>' + verdict(kcls, klass) + "</div>" +
           '<div class="wcell"><span class="wk">under memory pressure</span><span class="wv">' + evict + "</span></div>" +
@@ -105,9 +107,10 @@
           '<div class="wcell"><span class="wk">memory at runtime</span>' +
             (oom ? verdict("bad", "OOMKilled") : verdict("ok", "within the limit")) + "</div>" +
           '<div class="wcell wspan"><span class="wk">the scheduler reserves</span><span class="wv">' +
-            (schedFit ? st.cpuReq + "m cpu / " + st.memReq + "Mi on a node, whether or not it is used" +
-                        (st.cpuUse < st.cpuReq ? " — " + (st.cpuReq - st.cpuUse) + "m of that is waste you still pay for" : "")
-                       : "nothing — a BestEffort pod claims no capacity, so the scheduler will pack it anywhere") +
+            (claims ? (st.cpuReq ? st.cpuReq + "m cpu" : "no cpu") + " / " + (st.memReq ? st.memReq + "Mi" : "no memory") +
+                      " on a node, whether or not it is used" +
+                      (st.cpuReq && st.cpuUse < st.cpuReq ? " — " + (st.cpuReq - st.cpuUse) + "m of that is waste you still pay for" : "")
+                    : "nothing — a BestEffort pod claims no capacity, so the scheduler will pack it anywhere") +
           "</span></div>" +
         "</div>" +
         '<div class="wmeter"><span class="wk">cpu</span>' + bar(st.cpuUse / 10, throttled ? "warn" : "") +
@@ -206,9 +209,13 @@
           }).join("") +
         "</div>" +
         (binding
-          ? '<div class="wnote bad">exceeded quota: team-a-quota, requested: ' + binding.k + "=" + (used[binding.k] / st.replicas) +
-            ", used: " + (binding.max * (used[binding.k] / st.replicas)) + ", limited: " + binding.hard +
-            " — the ReplicaSet stalls at " + binding.max + " pods, and this line is the one named in the event.</div>"
+          ? (function () {
+              var per = used[binding.k] / st.replicas;
+              var q = function (v) { return binding.k === "pods" ? String(v) : (v % 1000 === 0 ? v / 1000 : v + "m"); };
+              return '<div class="wnote bad"><code>exceeded quota: team-a-quota, requested: ' + binding.k + "=" + q(per) +
+                ", used: " + binding.k + "=" + q(binding.max * per) + ", limited: " + binding.k + "=" + q(binding.hard) +
+                "</code><br>The ReplicaSet stalls at " + binding.max + " pods, and this is the line the event names.</div>";
+            })()
           : '<div class="wnote ok">all ' + st.replicas + " pods admit. Raise the replicas until something binds — note which line goes first.</div>");
     }
     f.body.appendChild(ctls); f.body.appendChild(out); sync(); draw();
@@ -233,8 +240,8 @@
     });
     function draw() {
       (draw.rows || []).forEach(function (r) { r.update(); });
-      var cpuCost = st.replicas * (st.req / 1000) * 28;
-      var memCost = st.replicas * (st.mem / 1024) * 3.5;
+      var cpuCost = st.replicas * (Math.max(st.req, st.use) / 1000) * 28;
+      var memCost = st.replicas * (Math.max(st.mem, st.memUse) / 1024) * 3.5;
       var billed = cpuCost + memCost;
       var wouldBe = st.replicas * ((Math.max(25, Math.round(st.use * 1.3 / 25) * 25)) / 1000) * 28 +
                     st.replicas * ((Math.max(64, Math.round(st.memUse * 1.25 / 64) * 64)) / 1024) * 3.5;
@@ -321,8 +328,9 @@
     function draw() {
       var s = steps[st.i];
       var want = st.aborted ? 0 : s.w;
-      var canaryPods = mode.input.checked ? Math.max(want > 0 ? 1 : 0, Math.round(st.replicas * want / 100))
-                                          : Math.round(st.replicas * want / 100);
+      var canaryPods = mode.input.checked
+        ? Math.round(st.replicas * want / 100)
+        : Math.max(want > 0 ? 1 : 0, Math.round(st.replicas * want / 100));
       var actual = mode.input.checked ? want : Math.round(canaryPods / st.replicas * 100);
       out.innerHTML =
         '<div class="wsteps">' + steps.map(function (x, i) {
@@ -406,7 +414,7 @@
       ylab.textContent = "http_requests_total";
       g.appendChild(ylab);
       // rate window shading, anchored at the right edge
-      var t1 = 30, t0 = Math.max(0, 30 - st.win * 2);
+      var t1 = 30, t0 = Math.max(0, 30 - st.win);
       var band = svg("rect", { x: x(t0), y: top, width: x(t1) - x(t0), height: base - top, fill: css("--blue"), opacity: .10 });
       g.appendChild(band);
       var d = pts.map(function (p, i) { return (i ? "L" : "M") + x(p.t) + " " + y(p.v); }).join(" ");
@@ -420,7 +428,7 @@
 
       var a = pts[Math.max(0, Math.round(t0))].v, b = pts[30].v;
       var naive = (b - a) / (st.win * 60);
-      var corrected = st.reset && t0 <= 20 ? (b + pts[20 - 1].v - a) / (st.win * 60) : naive;
+      var corrected = st.reset && t0 < 20 ? (b + pts[19].v - a) / (st.win * 60) : naive;
       var info = h("div", { "class": "wgrid" });
       info.innerHTML =
         '<div class="wcell"><span class="wk">raw counter now</span><span class="wv wnum">' + b + "</span></div>" +
@@ -458,10 +466,10 @@
       });
     function draw() {
       (draw.rows || []).forEach(function (r) { r.update(); });
-      var detect = st.evalI;                       // first evaluation that sees it
-      var fires = detect + st.forS;                // Pending → Firing
-      var notified = fires + st.groupWait;         // Alertmanager sends
-      var everFires = st.blip >= st.forS;
+      var detect = st.evalI;                                                  // first evaluation that sees it
+      var fires = Math.ceil((detect + st.forS) / st.evalI) * st.evalI;        // Pending → Firing, on an evaluation tick
+      var notified = fires + st.groupWait;                                    // Alertmanager sends
+      var everFires = st.blip >= fires;
       var total = Math.max(notified, st.blip) * 1.15;
       var pct = function (v) { return v / total * 100; };
       out.innerHTML =

@@ -96,7 +96,7 @@ kubectl cost --opencost namespace --historical --window 1d</code></pre></div>
       <p>From raw metrics, CPU requested minus used, per namespace (run in the Prometheus UI from <code>make urls</code>):</p>
       <div class="cb" data-lang="promql"><pre><code>sum by (namespace) (kube_pod_container_resource_requests{resource="cpu"})
   - sum by (namespace) (rate(container_cpu_usage_seconds_total{container!=""}[10m]))</code></pre></div>
-      <p>The <code>container!=""</code> matters: cadvisor also emits pod-level and node-level aggregate series, and without the filter you count the same CPU twice.</p>
+      <p>The label filters matter: cadvisor also emits pod-level and node-level aggregate series (empty <code>container</code>) and, on many versions, the pause container as <code>container="POD"</code>. Without <code>{container!="",container!="POD"}</code> you count the same CPU two or three times and the "gap" you compute is fiction.</p>
       <div class="verify"><b>verify</b> — the namespace at the top of the PromQL result matches the low efficiency scores in kubectl-cost. Name the top offender and what you would change.</div>
     </div>
 
@@ -123,7 +123,7 @@ kubectl set resources deploy demo --requests=cpu=500m,memory=512Mi</code></pre><
       <div class="answer"><p>Oversized requests (billed on reservation, not usage), or expensive attached objects — LoadBalancers, provisioned volumes, retained snapshots. Check efficiency first: very low efficiency points at requests; high efficiency with high cost points at the objects.</p></div></details>
 
     <details class="quiz"><summary>Why is <code>container!=""</code> in that PromQL query not optional?</summary>
-      <div class="answer"><p>cadvisor emits per-container series plus pod-level and node-level rollups with an empty container label. Summing everything counts the same CPU two or three times, and the resulting "gap" is fiction. Every aggregate over cadvisor series needs this filter or an equivalent.</p></div></details>
+      <div class="answer"><p>cadvisor emits per-container series plus pod-level and node-level rollups with an empty <code>container</code> label, and often the pause container as <code>container="POD"</code>. Summing everything counts the same CPU two or three times, so every aggregate over cadvisor series needs <code>{container!="",container!="POD"}</code> or an equivalent.</p></div></details>
 
     <details class="quiz"><summary>Should idle cost be spread across tenants or shown separately? Argue both.</summary>
       <div class="answer"><p>Spread: tenants see the true cost of the cluster they share, which discourages hoarding. Separate: the platform team owns bin-packing and node choice, so making idle visible as <em>their</em> number is what drives consolidation. Mature setups show both — tenant cost at request-level, plus a platform-owned idle line.</p></div></details>

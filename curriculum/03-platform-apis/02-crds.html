@@ -67,7 +67,7 @@
 
     <h3>Subresources and presentation</h3>
     <ul>
-      <li><code>subresources.status</code> splits <code>/status</code> into its own endpoint so controllers can update status without touching spec, and vice versa. Without it, <code>kubectl</code> writes to status silently vanish, and every operator convention in section 3.3 stops working.</li>
+      <li><code>subresources.status</code> splits <code>/status</code> into its own endpoint, and that split cuts both ways: writes to the <em>main</em> resource then ignore the <code>status</code> stanza, and writes to <code>/status</code> ignore everything else. So the classic "my controller's status writes vanish" is the subresource <em>working</em> — the controller is calling <code>Update()</code> where it needs <code>UpdateStatus()</code>, or <code>kubectl patch</code> without <code>--subresource=status</code>. Without the subresource, status is just another field and anyone can clobber it, which is why every operator convention in section 3.3 assumes it is on.</li>
       <li><code>subresources.scale</code> makes <code>kubectl scale</code> and HPAs work against your kind — three JSONPaths and your CRD is autoscalable.</li>
       <li><code>additionalPrinterColumns</code> decides what <code>kubectl get</code> shows. A platform API without a useful READY column is user-hostile, per section 3.1.</li>
     </ul>
@@ -169,7 +169,7 @@ kubectl get tb    # printer columns show Tier and SizeGB, default filled in else
       <div class="answer"><p>Pruning: the field is not in the schema, so the API server dropped it on write. Either add it to the schema or, rarely, mark that subtree with <code>x-kubernetes-preserve-unknown-fields</code>. The user experience argument is for adding it properly.</p></div></details>
 
     <details class="quiz"><summary>Your controller's status writes vanish. One likely cause?</summary>
-      <div class="answer"><p>The CRD has no <code>subresources.status</code>, so <code>/status</code> is not a separate endpoint and writes to <code>.status</code> through the main resource are dropped (or overwritten by the next spec update). Add the subresource; it also stops users editing status by accident.</p></div></details>
+      <div class="answer"><p>The status subresource is enabled and the writer is going through the main endpoint, which ignores the <code>status</code> stanza. Use <code>UpdateStatus()</code> (or <code>kubectl patch --subresource=status</code>). The mirror-image bug also exists: with no subresource at all, a spec update from anyone overwrites the status your controller just wrote.</p></div></details>
 
     <details class="quiz"><summary>You must forbid changing <code>spec.tier</code> after creation. How, without a webhook?</summary>
       <div class="answer"><p>A CEL validation on the field: <code>rule: "self == oldSelf"</code> with a message like "tier is immutable". <code>x-kubernetes-validations</code> is evaluated by the API server and can compare against the old object, which is exactly the immutability case.</p></div></details>

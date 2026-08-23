@@ -55,7 +55,7 @@
         <tbody>
           <tr><td class="mono">ClusterIP</td><td class="mono">default</td><td>inside the cluster</td><td>the 90% case; every internal call</td></tr>
           <tr><td class="mono">NodePort</td><td class="mono">nodePort: 3xxxx</td><td>any node IP</td><td>bootstrapping, bare metal, demos</td></tr>
-          <tr><td class="mono">LoadBalancer</td><td class="mono">loadBalancerClass</td><td>outside</td><td>real external entry point</td></tr>
+          <tr><td class="mono">LoadBalancer</td><td class="mono">type: LoadBalancer</td><td>outside</td><td>real external entry point (<code>loadBalancerClass</code> only picks between implementations)</td></tr>
           <tr><td class="mono">Headless</td><td class="mono">clusterIP: None</td><td>DNS returns pod IPs</td><td>StatefulSet peers, client-side LB</td></tr>
           <tr><td class="mono">ExternalName</td><td class="mono">externalName: host</td><td>DNS CNAME only</td><td>aliasing an out-of-cluster host</td></tr>
         </tbody>
@@ -94,7 +94,7 @@
     <pre class="diagram"><b>client pod</b>
    │ connect 10.96.0.42:80          ← ClusterIP, exists only as a rule
    ▼
-<i>[ datapath ]</i>  kube-proxy iptables/IPVS  <em>or</em>  <u>Eebpf (Cilium, this lab)</u>
+<i>[ datapath ]</i>  kube-proxy iptables/IPVS  <em>or</em>  <u>eBPF (Cilium, this lab)</u>
    │ DNAT → picks one endpoint from the EndpointSlice
    ▼
 <b>backend pod IP</b> 10.244.2.17:8080
@@ -182,6 +182,8 @@
       <span class="tag">Honest lab caveat</span>
       <p>This cluster installs the standard-channel Gateway API CRDs so you can author and schema-validate all of it, but no controller programs a data plane for them on the main cluster. Your Gateway will sit unprogrammed, and I would rather say so than let you believe a Gateway "worked". On the mesh cluster (<code>make mesh</code>), Istio serves Gateway API for real — the same manifests, an actual Programmed condition.</p>
     </div>
+
+    <p>One neighbour the Gateway needs and Kubernetes does not provide: <strong>certificates</strong>. A TLS listener references a Secret, and something has to keep that Secret valid. In practice that something is cert-manager — an <code>Issuer</code>/<code>ClusterIssuer</code> (ACME, CA, or Vault) plus a <code>Certificate</code>, or the <code>cert-manager.io/cluster-issuer</code> annotation on the Gateway — which issues into the Secret and renews before expiry. Not installed in this lab, but "who renews that certificate" is a fair question about any Gateway you design, and <em>ResolvedRefs: False</em> on a listener is usually its absence.</p>
 
     <p>Progressive delivery ties in here (section 2.5): weighted <code>backendRefs</code> on an HTTPRoute are how a mesh shifts traffic by route weight instead of by replica count, and Flagger drives exactly those weights.</p>
   </div>

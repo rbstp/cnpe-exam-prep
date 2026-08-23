@@ -85,6 +85,8 @@
 
     <h3>StatefulSets, where storage semantics become visible</h3>
     <p><code>volumeClaimTemplates</code> gives every replica its own PVC, named <code>&lt;template&gt;-&lt;sts&gt;-&lt;ordinal&gt;</code>. Deleting the StatefulSet does <em>not</em> delete those PVCs (unless you set <code>persistentVolumeClaimRetentionPolicy</code>, which newer versions offer), so scaling back up reattaches the old data. That retention is deliberate and it is the entire reason StatefulSets exist rather than "a Deployment with a volume": stable identity, stable storage, ordered rollout.</p>
+    <p>And the part GitOps cannot do for you: <strong>data</strong>. "Delete the namespace and the controller rebuilds it" restores manifests, never the contents of a PV. That gap is filled by CSI snapshots for point-in-time copies within a cluster, by a backup tool (Velero is the common one — it snapshots volumes and exports object state) for anything that must survive the cluster itself, and by the database operator's own backup story where one exists. Being able to say which of those three you are relying on is the whole DR answer.</p>
+
     <p>Snapshots round out the vocabulary: <code>VolumeSnapshotClass</code>, <code>VolumeSnapshot</code>, <code>VolumeSnapshotContent</code> — the same three-object shape as class/claim/volume, and the way a CSI driver exposes point-in-time copies. local-path has no snapshotter, so this lab teaches the nouns and CloudNativePG teaches the backup story instead.</p>
   </div>
 </section>
@@ -95,7 +97,7 @@
     <p>Section 3.1's "APIs as products" idea lands here concretely: StorageClasses <em>are</em> a platform API. You are choosing the menu your tenants order from, and each entry encodes a durability, performance and cost decision they should not have to make.</p>
     <ul>
       <li>Name classes for intent (<code>fast-ssd</code>, <code>cheap-hdd</code>, <code>shared-rwx</code>), never for the implementation that happens to back them today.</li>
-      <li>Set exactly one default class (<code>storageclass.kubernetes.io/is-default-class</code>) and know what it costs, because every PVC without an explicit class silently buys it. Two defaults is a misconfiguration the scheduler cannot resolve for you.</li>
+      <li>Set exactly one default class (<code>storageclass.kubernetes.io/is-default-class</code>) and know what it costs, because every PVC without an explicit class silently buys it. If two are marked default, the DefaultStorageClass <em>admission plugin</em> — not the scheduler — picks the most recently created one, which is worse than an error: it is silent, and it changes under you the next time someone adds a class.</li>
       <li>Prefer <code>WaitForFirstConsumer</code> in any topology-aware environment, or you will provision volumes in zones your pods cannot reach.</li>
       <li><code>Delete</code> for ephemeral tenant workloads, <code>Retain</code> for anything whose loss ends up in a postmortem.</li>
       <li>Cap storage per tenant with quota: <code>requests.storage</code> and <code>&lt;class&gt;.storageclass.storage.k8s.io/requests.storage</code> — per-class quota is how you stop everyone ordering the expensive one (section 1.4).</li>

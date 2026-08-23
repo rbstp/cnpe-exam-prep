@@ -74,7 +74,7 @@ spec:
         <thead><tr><th>Axis</th><th>Values</th><th>Answers</th></tr></thead>
         <tbody>
           <tr><td><strong>Sync</strong></td><td class="mono">Synced · OutOfSync · Unknown</td><td>does live match git?</td></tr>
-          <tr><td><strong>Health</strong></td><td class="mono">Healthy · Progressing · Degraded · Missing · Suspended</td><td>are the resources themselves okay?</td></tr>
+          <tr><td><strong>Health</strong></td><td class="mono">Healthy · Progressing · Degraded · Missing · Suspended · Unknown</td><td>are the resources themselves okay?</td></tr>
         </tbody>
       </table>
     </div>
@@ -122,7 +122,7 @@ spec:
    │                    │                              │
  db migration Job   CRDs, then CRs, then apps      smoke-test Job</pre>
 
-    <p>Hooks are ordinary manifests annotated with <code>argocd.argoproj.io/hook: PreSync|Sync|PostSync|SyncFail|Skip</code>, plus <code>hook-delete-policy</code> (<code>HookSucceeded</code>, <code>BeforeHookCreation</code>, <code>HookFailed</code>) so old Jobs do not pile up. The stock examples: a database migration Job in PreSync, a smoke test in PostSync.</p>
+    <p>Hooks are ordinary manifests annotated with <code>argocd.argoproj.io/hook: PreSync|Sync|PostSync|SyncFail|PostDelete|Skip</code>, plus <code>hook-delete-policy</code> (<code>HookSucceeded</code>, <code>BeforeHookCreation</code>, <code>HookFailed</code>) so old Jobs do not pile up. The stock examples: a database migration Job in PreSync, a smoke test in PostSync.</p>
 
     <div class="callout exam">
       <span class="tag">The "no matches for kind" fix has two shapes</span>
@@ -148,6 +148,9 @@ spec:
       <span class="tag">Where does the workload actually land?</span>
       <p>An ApplicationSet template sets <code>destination.namespace</code> per generated app, but an explicit <code>namespace:</code> inside a manifest (or a kustomization) always wins. So the lab's overlays land in <code>team-a</code>/<code>team-b</code> regardless of what the template's destination says. Predicting the winner between those two settings is exactly the kind of thing a task hinges on.</p>
     </div>
+
+    <h3>Other clusters</h3>
+    <p><code>destination.server: https://kubernetes.default.svc</code> (or <code>name: in-cluster</code>) is the local cluster. Any other cluster has to be registered first: <code>argocd cluster add &lt;context&gt;</code> creates a ServiceAccount there and stores its credentials in a Secret in <code>argocd</code> labelled <code>argocd.argoproj.io/secret-type: cluster</code>. That Secret is the thing an ApplicationSet's <code>clusters</code> generator iterates, which is why generator-driven fan-out and "deploy this to the second cluster" are the same mechanism. <code>argocd cluster list</code> tells you what is registered; the AppProject's <code>destinations</code> list decides who may target it.</p>
 
     <h3>Diffing quirks worth one line each</h3>
     <p><code>ignoreDifferences</code> (by group/kind/jsonPointers or a jq path) is how you stop a mutating webhook or an HPA-managed replica count from showing permanent drift. <code>argocd.argoproj.io/compare-options: IgnoreExtraneous</code> hides resources Argo did not create. Both exist because "OutOfSync forever on a field nobody edits" is a real and common state.</p>
@@ -211,7 +214,7 @@ kubectl -n team-a get deploy staging-demo -w</code></pre></div>
       <div class="answer"><p>Live matches git, so Argo CD has done its job; the desired state itself is broken (bad image, impossible resources, missing config key). The fix is a commit. Re-syncing changes nothing because the diff is already empty.</p></div></details>
 
     <details class="quiz"><summary>A sync fails with "field is immutable". Two ways forward?</summary>
-      <div class="answer"><p>Delete the resource and let Argo recreate it, or set <code>Replace=true</code> (per app or per resource) so the sync uses replace semantics. Choose deliberately: replace on a Service drops its clusterIP, and on a PVC it is not going to save you at all.</p></div></details>
+      <div class="answer"><p>Set <code>Replace=true</code> (per app or per resource) so the sync uses <code>kubectl replace</code> instead of apply, or delete the resource and let Argo recreate it — <code>Force=true</code> combines the two. Choose deliberately: replace is not a free pass, since a Service manifest that omits <code>clusterIP</code> is still rejected as immutable, and a shrinking PVC is not going to be saved by either option.</p></div></details>
 
     <details class="quiz"><summary>What is an AppProject for, in one sentence, and name two things it constrains?</summary>
       <div class="answer"><p>It is the guardrail around a set of Applications: permitted source repos and permitted destinations (cluster + namespace), plus allowed/denied resource kinds, per-project RBAC roles and sync windows. It is the answer to "let this team self-serve deployments without letting them deploy anything anywhere".</p></div></details>
