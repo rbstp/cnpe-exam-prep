@@ -167,6 +167,15 @@
     hb.addEventListener("click", function () { toggleOverlay(helpOverlay); });
     inner.appendChild(hb);
 
+    // Almost every section tells you to run a make target, so the lab has to be
+    // reachable from any page — someone can land on a deep section from a link.
+    var repo = el("a", "iconbtn", "repo");
+    repo.href = "https://github.com/rbstp/cnpe-exam-prep";
+    repo.title = "The lab this curriculum runs on \u2014 github.com/rbstp/cnpe-exam-prep";
+    repo.rel = "noopener";
+    repo.setAttribute("aria-label", "The lab repository on GitHub");
+    inner.appendChild(repo);
+
     bar.appendChild(inner);
     body.insertBefore(bar, body.firstChild);
 
