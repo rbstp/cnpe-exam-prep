@@ -40,12 +40,12 @@
           <tr><td class="mono">None</td><td>nothing</td><td>noise: leases, events, health endpoints</td></tr>
           <tr><td class="mono">Metadata</td><td>who, what, when, verb, response code</td><td>the sensible catch-all</td></tr>
           <tr><td class="mono">Request</td><td>+ the request body</td><td>RBAC and policy changes</td></tr>
-          <tr><td class="mono">RequestResponse</td><td>+ the response body</td><td>the highest-value resources only — it is enormous</td></tr>
+          <tr><td class="mono">RequestResponse</td><td>+ the response body</td><td>the highest-value resources only; it is enormous</td></tr>
         </tbody>
       </table>
     </div>
 
-    <p><strong>Stages</strong>: <code>RequestReceived</code>, <code>ResponseStarted</code> (long-running watches), <code>ResponseComplete</code>, <code>Panic</code>. Most analysis uses ResponseComplete. Policy rules match <em>in order, first hit wins</em> — the same mental model as Alertmanager routes — so the file reads as: drop the noise, elevate the sensitive, catch everything else at Metadata. Read <code>kind/audit-policy.yaml</code> in this repo and you will see exactly that shape.</p>
+    <p><strong>Stages</strong>: <code>RequestReceived</code>, <code>ResponseStarted</code> (long-running watches), <code>ResponseComplete</code>, <code>Panic</code>. Most analysis uses ResponseComplete. Policy rules match <em>in order, first hit wins</em> (the same mental model as Alertmanager routes), so the file reads as: drop the noise, elevate the sensitive, catch everything else at Metadata. Read <code>kind/audit-policy.yaml</code> in this repo and you will see exactly that shape.</p>
 
     <h3>Fields that answer real questions</h3>
     <div class="tbl-wrap">
@@ -65,12 +65,12 @@
 
     <div class="callout trap">
       <span class="tag">One operational scar the repo already documents</span>
-      <p>The apiserver is started with <code>--audit-policy-file</code> pointing into a mounted directory. If that file is missing, <strong>the API server does not start at all</strong>. An audit misconfiguration can therefore present as a completely dead cluster — file that away, because it is the least intuitive control-plane failure in this whole curriculum.</p>
+      <p>The apiserver is started with <code>--audit-policy-file</code> pointing into a mounted directory. If that file is missing, <strong>the API server does not start at all</strong>. An audit misconfiguration can therefore present as a completely dead cluster; file that away, because it is the least intuitive control-plane failure in this whole curriculum.</p>
     </div>
 
     <div class="callout exam">
       <span class="tag">What audit is and is not</span>
-      <p>It records <em>API requests</em>. It does not record what happened inside a container, what a pod did on the network, or anything that bypassed the API server. Pair it with Falco-style runtime detection, network flow logs (Hubble), and image scanning for the other layers — and say so if a scenario asks for "a complete audit trail".</p>
+      <p>It records <em>API requests</em>. It does not record what happened inside a container, what a pod did on the network, or anything that bypassed the API server. Pair it with Falco-style runtime detection, network flow logs (Hubble), and image scanning for the other layers, and say so if a scenario asks for "a complete audit trail".</p>
     </div>
   </div>
 </section>
@@ -100,9 +100,9 @@
     <h3>SBOM vocabulary, because the words get tested</h3>
     <ul>
       <li><strong>CycloneDX</strong> and <strong>SPDX</strong> are the two standard formats; Trivy emits both, and "which format" is a compatibility question, not a quality one.</li>
-      <li>An SBOM lists <em>components and versions</em>. It is not a vulnerability report — you join it against a CVE database, which is why an SBOM generated at build time stays useful after new CVEs are published.</li>
+      <li>An SBOM lists <em>components and versions</em>. It is not a vulnerability report; you join it against a CVE database, which is why an SBOM generated at build time stays useful after new CVEs are published.</li>
       <li>The one-sentence purpose: <em>when the next log4shell drops, you query your SBOMs for the package instead of rescanning the world.</em></li>
-      <li>Neighbours: <strong>provenance/attestation</strong> (how it was built — section 5.6), <strong>signatures</strong> (who vouches for it). Three different documents, one trust story.</li>
+      <li>Neighbours: <strong>provenance/attestation</strong> (how it was built; see section 5.6), <strong>signatures</strong> (who vouches for it). Three different documents, one trust story.</li>
     </ul>
   </div>
 </section>
@@ -149,19 +149,19 @@
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>Which audit level would you set for Secrets, and which for Events? Why?</summary>
-      <div class="answer"><p>Secrets: <code>Metadata</code> at minimum — never RequestResponse, or you write every secret value into a log file. Events: <code>None</code>; they are high-volume and low-value, and dropping them keeps the log readable. First-match-wins ordering makes those two rules the top of the file.</p></div></details>
+      <div class="answer"><p>Secrets: <code>Metadata</code> at minimum, never RequestResponse, or you write every secret value into a log file. Events: <code>None</code>; they are high-volume and low-value, and dropping them keeps the log readable. First-match-wins ordering makes those two rules the top of the file.</p></div></details>
 
     <details class="quiz"><summary>Find every request a specific ServiceAccount was denied. Shape of the query?</summary>
       <div class="answer"><p>Filter on <code>.user.username == "system:serviceaccount:&lt;ns&gt;:&lt;name&gt;"</code> and either <code>.responseStatus.code == 403</code> or <code>.annotations["authorization.k8s.io/decision"] == "forbid"</code>, then print verb and objectRef. That is the audit-log form of the RBAC debugging you did in 5.1.</p></div></details>
 
-    <details class="quiz"><summary>An SBOM and a vulnerability report — what is the difference and why keep both?</summary>
-      <div class="answer"><p>The SBOM is an inventory of components; the vulnerability report is that inventory joined against a CVE database at a point in time. Keep both because the inventory stays true while the CVE list changes daily — that is exactly why continuous rescanning (the operator) matters more than a scan at build time alone.</p></div></details>
+    <details class="quiz"><summary>An SBOM and a vulnerability report: what is the difference and why keep both?</summary>
+      <div class="answer"><p>The SBOM is an inventory of components; the vulnerability report is that inventory joined against a CVE database at a point in time. Keep both because the inventory stays true while the CVE list changes daily; that is exactly why continuous rescanning (the operator) matters more than a scan at build time alone.</p></div></details>
 
     <details class="quiz"><summary>Why is "compliance as CRDs" a platform-engineering idea rather than a Trivy feature?</summary>
-      <div class="answer"><p>Because it makes compliance data a first-class API object: queryable with kubectl, protected by RBAC, watchable by controllers, graphable in Grafana, and reviewable in git. The alternative — reports as files in a bucket — cannot be joined to anything the platform already does.</p></div></details>
+      <div class="answer"><p>Because it makes compliance data a first-class API object: queryable with kubectl, protected by RBAC, watchable by controllers, graphable in Grafana, and reviewable in git. The alternative, reports as files in a bucket, cannot be joined to anything the platform already does.</p></div></details>
 
     <details class="quiz"><summary>Your cluster's API server will not start after an audit change. First hypothesis?</summary>
-      <div class="answer"><p>The audit policy file is missing or unparseable at the path given by <code>--audit-policy-file</code> (or the volume mount is wrong). The API server refuses to start rather than run unaudited — a safety choice that presents as a dead control plane.</p></div></details>
+      <div class="answer"><p>The audit policy file is missing or unparseable at the path given by <code>--audit-policy-file</code> (or the volume mount is wrong). The API server refuses to start rather than run unaudited: a safety choice that presents as a dead control plane.</p></div></details>
   </div>
 </section>
 
@@ -171,7 +171,7 @@
     <ul class="docs">
       <li><b>kubernetes.io</b>: Auditing (policy levels, stages, and the event schema).</li>
       <li><b>aquasecurity.github.io/trivy-operator</b>: the CRD reference pages, one per report kind.</li>
-      <li><b>cyclonedx.org</b> / <b>spdx.dev</b> — enough to know which is which.</li>
+      <li><b>cyclonedx.org</b> / <b>spdx.dev</b>: enough to know which is which.</li>
       <li><b>Offline:</b> <code>jq</code> against the log file, and <code>kubectl explain clustercompliancereport.status</code>.</li>
     </ul>
   </div>

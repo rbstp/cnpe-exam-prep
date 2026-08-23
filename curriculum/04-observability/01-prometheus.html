@@ -24,10 +24,10 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 4.1 · monitoring solutions</span></div>
   <div class="pbody">
-    <p class="lede">Two skills, both testable: get a target scraped, and write a query that answers a question. Everything else in domain 4 — alerting, dashboards, DORA metrics, incident diagnosis — is built on those two.</p>
+    <p class="lede">Two skills, both testable: get a target scraped, and write a query that answers a question. Everything else in domain 4 (alerting, dashboards, DORA metrics, incident diagnosis) is built on those two.</p>
     <div class="callout model">
       <span class="tag">The pull model in one paragraph</span>
-      <p>Prometheus <em>scrapes</em> HTTP endpoints on an interval and stores samples in a local TSDB. Each series is a metric name plus a set of labels, and every distinct label combination is a separate series — which is why cardinality is the resource you actually manage. Service discovery (in Kubernetes: the API server) produces the target list; relabeling rewrites and filters it; the scrape either succeeds (<code>up = 1</code>) or does not (<code>up = 0</code>). Nothing is pushed, so a workload that only exists for ten seconds is invisible unless it pushes to a Pushgateway or emits an event elsewhere.</p>
+      <p>Prometheus <em>scrapes</em> HTTP endpoints on an interval and stores samples in a local TSDB. Each series is a metric name plus a set of labels, and every distinct label combination is a separate series, which is why cardinality is the resource you actually manage. Service discovery (in Kubernetes: the API server) produces the target list; relabeling rewrites and filters it; the scrape either succeeds (<code>up = 1</code>) or does not (<code>up = 0</code>). Nothing is pushed, so a workload that only exists for ten seconds is invisible unless it pushes to a Pushgateway or emits an event elsewhere.</p>
     </div>
   </div>
 </section>
@@ -47,7 +47,7 @@
 
     <div class="callout trap">
       <span class="tag">The hour everyone loses once</span>
-      <p>Prometheus only picks up ServiceMonitors matching its own <code>serviceMonitorSelector</code>, which on a stock kube-prometheus-stack matches the Helm release label (<code>release: prometheus</code>). A perfectly correct monitor without that label is <em>silently ignored</em> — no error, no event, no target. This lab deliberately disables that filter (<code>serviceMonitorSelectorNilUsesHelmValues=false</code>), so its selector is <code>{}</code> and every monitor everywhere is picked up. Both facts matter, and the durable habit is: <strong>read the selector first, then write the monitor.</strong></p>
+      <p>Prometheus only picks up ServiceMonitors matching its own <code>serviceMonitorSelector</code>, which on a stock kube-prometheus-stack matches the Helm release label (<code>release: prometheus</code>). A perfectly correct monitor without that label is <em>silently ignored</em>: no error, no event, no target. This lab deliberately disables that filter (<code>serviceMonitorSelectorNilUsesHelmValues=false</code>), so its selector is <code>{}</code> and every monitor everywhere is picked up. Both facts matter, and the durable habit is: <strong>read the selector first, then write the monitor.</strong></p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.serviceMonitorSelector}'; echo
 kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.serviceMonitorNamespaceSelector}'; echo</code></pre></div>
       <p>Prints <code>{}</code> on this cluster and the release-label selector on a stock install. That one command is the answer to "my target does not appear" everywhere, including the exam's cluster, whose selector you do not get to assume. The <em>namespace</em> selector is the second half of the same trap: a monitor in a namespace Prometheus does not watch is equally invisible.</p>
@@ -83,8 +83,8 @@ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.serviceMonitor
 
     <ul>
       <li><strong>Selectors:</strong> <code>up{namespace="argocd"}</code>, with <code>=</code>, <code>!=</code>, <code>=~</code>, <code>!~</code>. Regexes are fully anchored.</li>
-      <li><strong>Ranges:</strong> <code>[5m]</code> turns an instant vector into a range vector — required by <code>rate</code>/<code>increase</code>, and <em>forbidden</em> everywhere else. "Expected type instant vector" almost always means a stray range selector.</li>
-      <li><strong>Aggregation:</strong> <code>sum by (label) (...)</code> and <code>sum without (pod) (...)</code>. <code>by</code> keeps only what you name; <code>without</code> keeps everything else. Aggregating before <code>rate</code> is wrong — <code>rate</code> first, then <code>sum</code>.</li>
+      <li><strong>Ranges:</strong> <code>[5m]</code> turns an instant vector into a range vector: required by <code>rate</code>/<code>increase</code>, and <em>forbidden</em> everywhere else. "Expected type instant vector" almost always means a stray range selector.</li>
+      <li><strong>Aggregation:</strong> <code>sum by (label) (...)</code> and <code>sum without (pod) (...)</code>. <code>by</code> keeps only what you name; <code>without</code> keeps everything else. Aggregating before <code>rate</code> is wrong: <code>rate</code> first, then <code>sum</code>.</li>
       <li><strong>Arithmetic between vectors</strong> matches on labels; mismatched label sets produce an empty result, which is why <code>on()</code>/<code>ignoring()</code> and <code>group_left</code> exist. You used vector arithmetic for the cost gap in section 1.5.</li>
       <li><strong>Emptiness:</strong> <code>absent(x)</code> is 1 when <em>x</em> has no series (the way to alert on "the metric stopped existing"), and <code>… or vector(0)</code> is how you make a query return a number instead of nothing.</li>
       <li><code>rate</code> vs <code>irate</code>: <code>rate</code> averages over the window (use it for alerts and dashboards), <code>irate</code> uses the last two samples (spiky, for zooming in). <code>increase</code> is <code>rate × window</code>, useful for "how many in 24h".</li>
@@ -95,7 +95,7 @@ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.serviceMonitor
     <div class="widget" data-widget="promrate"></div>
     <div class="callout exam">
       <span class="tag"><code>up</code> deserves special respect</span>
-      <p>1 per healthy target, 0 per failing one — which makes <code>count(up == 0)</code> the cluster's own health check. <code>make validate</code> runs exactly that query and demands zero; the lab even patched kubeadm's localhost-bound control-plane metrics to make them reachable (<code>make fix-cp-metrics</code>). Any "is monitoring healthy" question starts with this query.</p>
+      <p>1 per healthy target, 0 per failing one, which makes <code>count(up == 0)</code> the cluster's own health check. <code>make validate</code> runs exactly that query and demands zero; the lab even patched kubeadm's localhost-bound control-plane metrics to make them reachable (<code>make fix-cp-metrics</code>). Any "is monitoring healthy" question starts with this query.</p>
     </div>
 
     <h3>What is already collected, for free</h3>
@@ -157,13 +157,13 @@ EOF</code></pre></div>
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>Your ServiceMonitor is correct and no target appears. List the checks in order.</summary>
-      <div class="answer"><p>1) Prometheus's <code>serviceMonitorSelector</code> and <code>serviceMonitorNamespaceSelector</code> — does it even consider your monitor? 2) Does the monitor's selector match the Service's labels? 3) Is <code>endpoints[].port</code> the port <em>name</em>, and does the Service name it? 4) Does the Service have ready endpoints? 5) RBAC and NetworkPolicy between monitoring and the target namespace.</p></div></details>
+      <div class="answer"><p>1) Prometheus's <code>serviceMonitorSelector</code> and <code>serviceMonitorNamespaceSelector</code>: does it even consider your monitor? 2) Does the monitor's selector match the Service's labels? 3) Is <code>endpoints[].port</code> the port <em>name</em>, and does the Service name it? 4) Does the Service have ready endpoints? 5) RBAC and NetworkPolicy between monitoring and the target namespace.</p></div></details>
 
     <details class="quiz"><summary>Why is <code>sum(rate(x[5m]))</code> right and <code>rate(sum(x)[5m])</code> wrong?</summary>
-      <div class="answer"><p>Counters reset per series; <code>rate</code> knows how to handle resets within a single series. Summing first merges series (and their resets) into a meaningless line, and the syntax is invalid anyway without a subquery. Rate first, aggregate second — always.</p></div></details>
+      <div class="answer"><p>Counters reset per series; <code>rate</code> knows how to handle resets within a single series. Summing first merges series (and their resets) into a meaningless line, and the syntax is invalid anyway without a subquery. Rate first, aggregate second, always.</p></div></details>
 
     <details class="quiz"><summary>How do you alert on "the metric disappeared entirely"?</summary>
-      <div class="answer"><p><code>absent(up{job="x"} == 1)</code> or <code>absent(metric)</code> — an ordinary comparison returns no series when there is nothing to compare, so it can never fire. <code>absent()</code> exists precisely to turn "no data" into a value of 1.</p></div></details>
+      <div class="answer"><p><code>absent(up{job="x"} == 1)</code> or <code>absent(metric)</code>: an ordinary comparison returns no series when there is nothing to compare, so it can never fire. <code>absent()</code> exists precisely to turn "no data" into a value of 1.</p></div></details>
 
     <details class="quiz"><summary>A p95 query returns NaN. Two plausible reasons?</summary>
       <div class="answer"><p>No observations in the window (nothing has been recorded yet, so all buckets are empty), or you aggregated away the <code>le</code> label that <code>histogram_quantile</code> needs. The canonical form keeps it: <code>histogram_quantile(0.95, sum by (le) (rate(x_bucket[5m])))</code>.</p></div></details>

@@ -42,10 +42,10 @@
   <div class="pbody">
     <h3>Scanning belongs at two points, and the difference is the insight</h3>
     <p><strong>In the pipeline</strong> (a Trivy task, <code>--exit-code 1 --severity HIGH,CRITICAL</code>) it is a <em>gate</em>: it stops a bad image before it exists in the registry. <strong>In the cluster</strong> (Trivy Operator, section 5.4) it is <em>surveillance</em>: it catches CVEs published after you shipped. Teams that only scan in CI are blind to every CVE younger than their last deploy. Say that sentence in an exam answer and mean it.</p>
-    <p>Practical gate design, because a gate that always fails gets disabled: scan for <code>HIGH,CRITICAL</code>, consider <code>--ignore-unfixed</code> (you cannot patch what has no fix), keep an auditable ignore file with expiry dates rather than a permanently loosened threshold, and fail the build rather than warning — a warning in CI is a warning nobody reads.</p>
+    <p>Practical gate design, because a gate that always fails gets disabled: scan for <code>HIGH,CRITICAL</code>, consider <code>--ignore-unfixed</code> (you cannot patch what has no fix), keep an auditable ignore file with expiry dates rather than a permanently loosened threshold, and fail the build rather than warning: a warning in CI is a warning nobody reads.</p>
 
     <h3>Signing</h3>
-    <p>cosign signs an image <strong>digest</strong> with a key and pushes the signature to the registry alongside the image (classically as a <code>sha256-&lt;digest&gt;.sig</code> tag; newer versions use an OCI bundle format). The thing being signed is the digest, which is why <em>tags are mutable but signed supply chains are not</em> — verifying <code>:latest</code> means resolving it to a digest first, and whoever can move the tag cannot forge the signature.</p>
+    <p>cosign signs an image <strong>digest</strong> with a key and pushes the signature to the registry alongside the image (classically as a <code>sha256-&lt;digest&gt;.sig</code> tag; newer versions use an OCI bundle format). The thing being signed is the digest, which is why <em>tags are mutable but signed supply chains are not</em>: verifying <code>:latest</code> means resolving it to a digest first, and whoever can move the tag cannot forge the signature.</p>
     <p><strong>Keyless</strong> mode is where the ecosystem is going: an OIDC identity (a CI workload's token) gets a short-lived certificate from <strong>Fulcio</strong>, the signature and certificate are recorded in <strong>Rekor</strong>, a public transparency log, and verification checks the identity and the log entry instead of a key you must store and rotate. Know those three nouns. Key-pair mode is what you can practise offline and what teaches the mechanics.</p>
 
     <h3>Verification at admission is what makes signatures matter</h3>
@@ -53,7 +53,7 @@
 
     <div class="callout exam">
       <span class="tag">SLSA, since the word appears everywhere</span>
-      <p>Levels of provenance rigour, from "you have a build process" to hermetic, attested builds. At exam depth, keep the three documents straight: <strong>provenance</strong> is an attestation of <em>how</em> an artifact was built; <strong>SBOMs</strong> say <em>what is inside</em>; <strong>signatures</strong> say <em>who vouches</em>. Three documents, one trust story — and an attestation is itself a signed statement, which is why cosign handles all of them.</p>
+      <p>Levels of provenance rigour, from "you have a build process" to hermetic, attested builds. At exam depth, keep the three documents straight: <strong>provenance</strong> is an attestation of <em>how</em> an artifact was built; <strong>SBOMs</strong> say <em>what is inside</em>; <strong>signatures</strong> say <em>who vouches</em>. Three documents, one trust story; an attestation is itself a signed statement, which is why cosign handles all of them.</p>
     </div>
   </div>
 </section>
@@ -106,16 +106,16 @@ kubectl -n team-b run unsigned --image=kind-registry:5000/demo:unsigned --restar
       <div class="answer"><p>The pipeline gate blocks known-bad before publication; it can say nothing about CVEs disclosed after the build. Continuous in-cluster scanning catches those, on images already running. Only-CI leaves you blind to every CVE younger than your last deploy; only-cluster lets bad images ship in the first place.</p></div></details>
 
     <details class="quiz"><summary>Why is signing by digest, not by tag, the point?</summary>
-      <div class="answer"><p>A digest names content; a tag is a mutable pointer. Signing the digest means the signature covers exactly those bytes, and anyone who moves the tag cannot forge it. Verification resolves the tag to a digest before checking — and a good admission policy also rewrites the pod's image to that digest so the runtime cannot drift from what you verified.</p></div></details>
+      <div class="answer"><p>A digest names content; a tag is a mutable pointer. Signing the digest means the signature covers exactly those bytes, and anyone who moves the tag cannot forge it. Verification resolves the tag to a digest before checking, and a good admission policy also rewrites the pod's image to that digest so the runtime cannot drift from what you verified.</p></div></details>
 
     <details class="quiz"><summary>Signatures exist and someone still deployed an unsigned image. What was missing?</summary>
-      <div class="answer"><p>Admission verification. Signing without an enforcement point is decoration: nothing checks it at the door. Add an image-verification policy that matches the registry glob and denies on failure — and make sure it matches the reference form the pods actually use.</p></div></details>
+      <div class="answer"><p>Admission verification. Signing without an enforcement point is decoration: nothing checks it at the door. Add an image-verification policy that matches the registry glob and denies on failure, and make sure it matches the reference form the pods actually use.</p></div></details>
 
     <details class="quiz"><summary>Kyverno reports "no signatures found" for an image you definitely signed. Three candidates?</summary>
       <div class="answer"><p>Registry name/reachability (Kyverno resolves from inside the cluster, so <code>localhost</code> is wrong), scheme (plain http needs the engine's insecure flag), and signature <em>format</em> skew (a new-bundle signature where the verifier expects the legacy <code>.sig</code> tag). Also check the transparency-log expectation if you signed without uploading to Rekor.</p></div></details>
 
     <details class="quiz"><summary>Distinguish SBOM, provenance and signature in one sentence each.</summary>
-      <div class="answer"><p>SBOM: what is inside the artifact. Provenance: how and by whom it was built (a SLSA-style attestation). Signature: who vouches for these exact bytes. Three documents, one trust story — and provenance and SBOMs are themselves usually signed attestations.</p></div></details>
+      <div class="answer"><p>SBOM: what is inside the artifact. Provenance: how and by whom it was built (a SLSA-style attestation). Signature: who vouches for these exact bytes. Three documents, one trust story; provenance and SBOMs are themselves usually signed attestations.</p></div></details>
   </div>
 </section>
 
@@ -126,7 +126,7 @@ kubectl -n team-b run unsigned --image=kind-registry:5000/demo:unsigned --restar
       <li><b>docs.sigstore.dev</b>: cosign sign/verify with keys; skim keyless (Fulcio, Rekor) so the words are familiar.</li>
       <li><b>kyverno.io</b>: image verification policies (current kind and fields).</li>
       <li><b>slsa.dev</b>: the levels table, five minutes.</li>
-      <li><b>Offline:</b> <code>cosign --help</code>, <code>trivy image --help</code>, <code>kubectl explain imagevalidatingpolicies.spec</code> — the last one is the version arbiter when docs and cluster disagree.</li>
+      <li><b>Offline:</b> <code>cosign --help</code>, <code>trivy image --help</code>, <code>kubectl explain imagevalidatingpolicies.spec</code>; the last one is the version arbiter when docs and cluster disagree.</li>
     </ul>
   </div>
 </section>

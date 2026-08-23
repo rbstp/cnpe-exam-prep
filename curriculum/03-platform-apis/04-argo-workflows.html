@@ -14,7 +14,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum">Argo Workflows runs DAGs of containers. It is not CI (Tekton's job here) and not reconciliation (operators' job); it is imperative orchestration with dependencies, retries and parameters — the right engine for provisioning sequences: validate the request, create the resources, register them elsewhere, notify.</p>
+  <p class="sum">Argo Workflows runs DAGs of containers. It is not CI (Tekton's job here) and not reconciliation (operators' job); it is imperative orchestration with dependencies, retries and parameters, which makes it the right engine for provisioning sequences: validate the request, create the resources, register them elsewhere, notify.</p>
 </header>
 
 <div class="stats"></div>
@@ -27,7 +27,7 @@
     <p class="lede">Run to completion, not converge forever. That distinction is section 3.6's whole decision table, and it is the reason a workflow is the right tool for "stamp this out once when asked" and the wrong tool for "keep this true for the next three years".</p>
     <div class="callout lab">
       <span class="tag">Lab note</span>
-      <p>Workflows installs with the <code>gitops</code> layer and the controller watches the <code>argo</code> and <code>default</code> namespaces. Workflows created elsewhere will sit untouched forever, looking exactly like a broken controller — worth knowing before you spend ten minutes on it.</p>
+      <p>Workflows installs with the <code>gitops</code> layer and the controller watches the <code>argo</code> and <code>default</code> namespaces. Workflows created elsewhere will sit untouched forever, looking exactly like a broken controller; worth knowing before you spend ten minutes on it.</p>
     </div>
   </div>
 </section>
@@ -51,7 +51,7 @@
       </table>
     </div>
 
-    <p>Parameters flow via <code>{{workflow.parameters.x}}</code> and between tasks via outputs (<code>{{tasks.a.outputs.result}}</code>); <code>when</code> gates conditional branches; <code>withItems</code>/<code>withParam</code> fan a template out over a list. Artifacts (S3/MinIO-backed files) move large data between steps — not configured in this lab, but know the word, because "results are small strings, artifacts are files" is the same distinction Tekton draws.</p>
+    <p>Parameters flow via <code>{{workflow.parameters.x}}</code> and between tasks via outputs (<code>{{tasks.a.outputs.result}}</code>); <code>when</code> gates conditional branches; <code>withItems</code>/<code>withParam</code> fan a template out over a list. Artifacts (S3/MinIO-backed files) move large data between steps; not configured in this lab, but know the word, because "results are small strings, artifacts are files" is the same distinction Tekton draws.</p>
 
     <p><strong>Reusable pieces:</strong> <code>WorkflowTemplate</code> (namespaced library, invoked with <code>workflowTemplateRef</code> or submitted from the UI), <code>ClusterWorkflowTemplate</code> (cluster-scoped version), and <code>CronWorkflow</code> (scheduled). Promoting a Workflow to a WorkflowTemplate is what turns a script into a self-service endpoint: it becomes a thing with a name, parameters and a submit button.</p>
 
@@ -74,10 +74,10 @@
 
     <div class="callout trap">
       <span class="tag">The one nobody guesses</span>
-      <p>Argo's executor reports each step's outcome through its own CRD, <code>workflowtaskresults.argoproj.io</code>. Every workflow ServiceAccount therefore needs <code>create,patch</code> on that resource — forget it and even a perfectly correct workflow fails, usually <em>before</em> your actual permission problem surfaces. Seeing that error once is worth an hour of doc reading.</p>
+      <p>Argo's executor reports each step's outcome through its own CRD, <code>workflowtaskresults.argoproj.io</code>. Every workflow ServiceAccount therefore needs <code>create,patch</code> on that resource; forget it and even a perfectly correct workflow fails, usually <em>before</em> your actual permission problem surfaces. Seeing that error once is worth an hour of doc reading.</p>
     </div>
 
-    <p>Two related permissions worth knowing exist: the SA also needs <code>get,list,watch</code> on pods to report progress in some configurations, and if you use artifacts, access to the artifact repository Secret. The general rule is the same as section 5.1's — least privilege, then prove it with <code>kubectl auth can-i --as=system:serviceaccount:&lt;ns&gt;:&lt;sa&gt;</code> before you blame the tool.</p>
+    <p>Two related permissions worth knowing exist: the SA also needs <code>get,list,watch</code> on pods to report progress in some configurations, and if you use artifacts, access to the artifact repository Secret. The general rule is the same as section 5.1's: least privilege, then prove it with <code>kubectl auth can-i --as=system:serviceaccount:&lt;ns&gt;:&lt;sa&gt;</code> before you blame the tool.</p>
 
     <h3>Diagnosing a failed workflow</h3>
     <div class="cb" data-lang="bash"><pre><code>kubectl get workflow &lt;name&gt; -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, phase, message}'
@@ -91,11 +91,11 @@ kubectl logs -l workflows.argoproj.io/workflow=&lt;name&gt; --all-containers --t
   <div class="phdr"><h2>Workflows as a self-service interface</h2><span class="meta">what makes it a product rather than a script</span></div>
   <div class="pbody">
     <ul>
-      <li><strong>Parameters at submit time</strong> — a WorkflowTemplate with typed, defaulted, documented parameters is an API. A Workflow with hard-coded values is a script you happened to run in a pod.</li>
-      <li><strong>Validation before side effects</strong> — a first DAG node that rejects bad input (a name that is not a DNS label, a quota over policy) is admission control one layer earlier, and it is much cheaper than half-provisioning and rolling back.</li>
-      <li><strong>Idempotency</strong> — a re-run should not double-create. <code>resource</code> templates with <code>action: apply</code> rather than <code>create</code>, or a <code>when</code> guard on an existence check, are the two usual answers. Workflows do not reconcile, so idempotency is <em>your</em> job.</li>
-      <li><strong>Observability</strong> — the workflow's own status is the audit trail; ship it somewhere. And verify the <em>artifacts</em>, not the runner: a green workflow that produced nothing is still a failure.</li>
-      <li><strong>Triggering</strong> — CronWorkflow for schedules, the API/CLI for portals, or Argo Events (not installed here) for event-driven runs. Backstage templates commonly call one of these underneath, which is how a form becomes infrastructure.</li>
+      <li><strong>Parameters at submit time</strong>: a WorkflowTemplate with typed, defaulted, documented parameters is an API. A Workflow with hard-coded values is a script you happened to run in a pod.</li>
+      <li><strong>Validation before side effects</strong>: a first DAG node that rejects bad input (a name that is not a DNS label, a quota over policy) is admission control one layer earlier, and it is much cheaper than half-provisioning and rolling back.</li>
+      <li><strong>Idempotency</strong>: a re-run should not double-create. <code>resource</code> templates with <code>action: apply</code> rather than <code>create</code>, or a <code>when</code> guard on an existence check, are the two usual answers. Workflows do not reconcile, so idempotency is <em>your</em> job.</li>
+      <li><strong>Observability</strong>: the workflow's own status is the audit trail; ship it somewhere. And verify the <em>artifacts</em>, not the runner: a green workflow that produced nothing is still a failure.</li>
+      <li><strong>Triggering</strong>: CronWorkflow for schedules, the API/CLI for portals, or Argo Events (not installed here) for event-driven runs. Backstage templates commonly call one of these underneath, which is how a form becomes infrastructure.</li>
     </ul>
     <div class="callout exam">
       <span class="tag">Verify the output, not the runner</span>
@@ -159,7 +159,7 @@ spec:
     </div>
 
     <div class="exercise" data-title="Break it on RBAC, on purpose">
-      <p>Rerun with <code>serviceAccountName: default</code> and a new team name. Which rule it names first is instructive: with the bare default SA the executor usually trips over <code>workflowtaskresults</code> (its own reporting channel) before your namespace rule even gets a chance — an Argo-specific wrinkle that looks baffling until you have seen it once.</p>
+      <p>Rerun with <code>serviceAccountName: default</code> and a new team name. Which rule it names first is instructive: with the bare default SA the executor usually trips over <code>workflowtaskresults</code> (its own reporting channel) before your namespace rule even gets a chance, an Argo-specific wrinkle that looks baffling until you have seen it once.</p>
       <div class="verify"><b>verify:</b> the workflow fails, and <code>kubectl get workflow &lt;name&gt; -o jsonpath='{.status.nodes}' | jq '.[] | {phase, message}'</code> contains a <code>forbidden</code> message naming a missing verb and resource. The message structure is identical for every RBAC failure you will ever debug.</div>
     </div>
 
@@ -180,13 +180,13 @@ spec:
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>Which template type creates Kubernetes objects, and what is its idempotency story?</summary>
-      <div class="answer"><p><code>resource</code>. With <code>action: create</code> a re-run fails on AlreadyExists; with <code>action: apply</code> it converges. Workflows do not reconcile, so if the same request may be submitted twice, you design for it — apply semantics, or a guard step.</p></div></details>
+      <div class="answer"><p><code>resource</code>. With <code>action: create</code> a re-run fails on AlreadyExists; with <code>action: apply</code> it converges. Workflows do not reconcile, so if the same request may be submitted twice, you design for it: apply semantics, or a guard step.</p></div></details>
 
     <details class="quiz"><summary>A workflow node says <code>forbidden</code>. Where do you look, and what is the classic first offender?</summary>
-      <div class="answer"><p>The workflow's ServiceAccount and its bindings — not the workflow spec. The classic first offender in Argo is missing <code>create,patch</code> on <code>workflowtaskresults.argoproj.io</code>, the executor's own reporting channel, which fails before your intended resource permission is even exercised.</p></div></details>
+      <div class="answer"><p>The workflow's ServiceAccount and its bindings, not the workflow spec. The classic first offender in Argo is missing <code>create,patch</code> on <code>workflowtaskresults.argoproj.io</code>, the executor's own reporting channel, which fails before your intended resource permission is even exercised.</p></div></details>
 
     <details class="quiz"><summary>When is a workflow the wrong tool, and what replaces it?</summary>
-      <div class="answer"><p>When the desired state must stay true indefinitely — a workflow runs once and forgets. Use a controller/operator, or a declarative composition engine (Crossplane, kro) whose CR keeps reconciling. Workflows are for sequences with an end.</p></div></details>
+      <div class="answer"><p>When the desired state must stay true indefinitely; a workflow runs once and forgets. Use a controller/operator, or a declarative composition engine (Crossplane, kro) whose CR keeps reconciling. Workflows are for sequences with an end.</p></div></details>
 
     <details class="quiz"><summary>Two DAG tasks with no <code>dependencies</code>: what happens, and how do you gate one on a condition?</summary>
       <div class="answer"><p>They run in parallel. Gate with <code>dependencies</code> for ordering and <code>when</code> for conditions (evaluated against parameters or a previous task's result). A validation node that everything depends on is the standard "fail before side effects" shape.</p></div></details>

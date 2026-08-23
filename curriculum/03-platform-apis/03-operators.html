@@ -14,7 +14,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum">The exam will not ask you to write a controller in Go. It will ask you to operate, integrate and above all <em>diagnose</em> operators — which means reading their outputs fluently: status conditions, events, owned resources, and logs, in that order.</p>
+  <p class="sum">The exam will not ask you to write a controller in Go. It will ask you to operate, integrate and above all <em>diagnose</em> operators, which means reading their outputs fluently: status conditions, events, owned resources, and logs, in that order.</p>
 </header>
 
 <div class="stats"></div>
@@ -27,7 +27,7 @@
     <p class="lede">Every layer of this lab is operators consuming CRDs: Crossplane, Kyverno, Prometheus Operator, Trivy Operator, CloudNativePG, Argo's controllers, Flux's controllers. An unfamiliar operator on the exam is the same four questions every time: what kind does it watch, what does it create, what does its status say, and where do its logs live?</p>
     <div class="callout model">
       <span class="tag">Level-based, not edge-based</span>
-      <p>A controller watches a kind and, for each object, runs the same function: observe actual state, compare with desired spec, take one step toward convergence, write status, requeue. It acts on the <em>state it finds</em>, not on the event that woke it — so missed events cost nothing, duplicate events are harmless, and the loop is safe to run at any time. That is why deleting an operator-owned pod is a non-event: the next reconcile recreates it without knowing or caring that you deleted it.</p>
+      <p>A controller watches a kind and, for each object, runs the same function: observe actual state, compare with desired spec, take one step toward convergence, write status, requeue. It acts on the <em>state it finds</em>, not on the event that woke it, so missed events cost nothing, duplicate events are harmless, and the loop is safe to run at any time. That is why deleting an operator-owned pod is a non-event: the next reconcile recreates it without knowing or caring that you deleted it.</p>
     </div>
   </div>
 </section>
@@ -39,13 +39,13 @@
     <p>Typed, with <code>type</code>, <code>status</code> (True/False/Unknown), <code>reason</code> (machine-speak, CamelCase), <code>message</code> (for you), <code>lastTransitionTime</code> and <code>observedGeneration</code>. <em>Ready</em> is the summary; the others tell you which phase is stuck. A well-behaved operator also emits Events, which carry the same story with timestamps and counts.</p>
 
     <h3>2 · <code>observedGeneration</code> versus <code>metadata.generation</code></h3>
-    <p>If they differ, the controller has not yet processed your latest edit, and whatever status says describes a <em>previous</em> spec. Checking this first avoids diagnosing stale information, and almost nobody does it. <code>metadata.generation</code> increments on spec changes only — <em>provided the CRD has the status subresource</em>. Without it, status writes bump generation too, and <code>observedGeneration</code> tells you nothing. That is one more reason the subresource is not optional for a real API (section 3.2).</p>
+    <p>If they differ, the controller has not yet processed your latest edit, and whatever status says describes a <em>previous</em> spec. Checking this first avoids diagnosing stale information, and almost nobody does it. <code>metadata.generation</code> increments on spec changes only, <em>provided the CRD has the status subresource</em>. Without it, status writes bump generation too, and <code>observedGeneration</code> tells you nothing. That is one more reason the subresource is not optional for a real API (section 3.2).</p>
 
     <h3>3 · Owner references</h3>
-    <p>Operator-created resources carry <code>ownerReferences</code> pointing at their parent. This answers "what keeps recreating this thing", drives cascade deletion (foreground, background, or orphan), and lets you reconstruct an operator's whole object tree without documentation. Note the rules: an owner must be in the same namespace (or be cluster-scoped), and a namespaced object cannot own a cluster-scoped one — the constraint that shapes Crossplane's design in 3.5.</p>
+    <p>Operator-created resources carry <code>ownerReferences</code> pointing at their parent. This answers "what keeps recreating this thing", drives cascade deletion (foreground, background, or orphan), and lets you reconstruct an operator's whole object tree without documentation. Note the rules: an owner must be in the same namespace (or be cluster-scoped), and a namespaced object cannot own a cluster-scoped one, the constraint that shapes Crossplane's design in 3.5.</p>
 
     <h3>4 · Finalizers</h3>
-    <p>A deletion sticks in <em>Terminating</em> while a finalizer is present, because the controller is doing teardown work — or is dead and cannot. A stuck namespace or CR almost always means "find whose finalizer, and why its controller is not running". Removing the finalizer by hand is the last resort, and it leaks whatever the teardown was supposed to clean up (external volumes, cloud resources, DNS records). Say that trade out loud before you do it.</p>
+    <p>A deletion sticks in <em>Terminating</em> while a finalizer is present, because the controller is doing teardown work, or is dead and cannot. A stuck namespace or CR almost always means "find whose finalizer, and why its controller is not running". Removing the finalizer by hand is the last resort, and it leaks whatever the teardown was supposed to clean up (external volumes, cloud resources, DNS records). Say that trade out loud before you do it.</p>
 
     <pre class="diagram"><b>Cluster/pg</b> (your CR)
  ├─ ownerRef ─▶ <i>StatefulSet-ish pods</i>  pg-1, pg-2         each with a <u>PVC</u>
@@ -70,10 +70,10 @@ kubectl -n &lt;operator-ns&gt; logs deploy/&lt;controller&gt; --tail=100</code><
   <div class="pbody">
     <ul>
       <li><strong>Operator capability levels</strong> (the OperatorHub model): 1 basic install → 2 seamless upgrades → 3 full lifecycle (backup, failover) → 4 deep insights (metrics, alerts) → 5 auto-pilot (auto-scaling, auto-tuning). A useful yardstick when a scenario asks whether to adopt an operator or run something yourself.</li>
-      <li><strong>OLM</strong> (Operator Lifecycle Manager) — installs and upgrades operators from catalogs. Not installed here; know the name.</li>
-      <li><strong>Kubebuilder / Operator SDK / controller-runtime</strong> — the scaffolding. <code>kubebuilder</code> is on your PATH from <code>make tools</code>, and scaffolding a controller once (<code>kubebuilder init</code>, <code>kubebuilder create api</code>) is genuinely instructive for understanding what operators are made of. It is also beyond what the CNPE tests. Rainy-day material.</li>
+      <li><strong>OLM</strong> (Operator Lifecycle Manager): installs and upgrades operators from catalogs. Not installed here; know the name.</li>
+      <li><strong>Kubebuilder / Operator SDK / controller-runtime</strong>: the scaffolding. <code>kubebuilder</code> is on your PATH from <code>make tools</code>, and scaffolding a controller once (<code>kubebuilder init</code>, <code>kubebuilder create api</code>) is genuinely instructive for understanding what operators are made of. It is also beyond what the CNPE tests. Rainy-day material.</li>
       <li><strong>Reconcile loop hazards</strong> worth naming: hot loops (a controller that writes status on every pass and re-triggers itself), requeue backoff, leader election (why an operator's Deployment is usually 1 replica or uses a lease), and cache staleness right after a write.</li>
-      <li><strong>Operator vs controller vs webhook</strong>: a controller reconciles; an operator is a controller plus domain knowledge shipped with its CRDs; a webhook intercepts writes synchronously. Different failure modes — a dead controller means nothing converges, a dead webhook (with <code>failurePolicy: Fail</code>) means nothing can be written at all.</li>
+      <li><strong>Operator vs controller vs webhook</strong>: a controller reconciles; an operator is a controller plus domain knowledge shipped with its CRDs; a webhook intercepts writes synchronously. Different failure modes: a dead controller means nothing converges, a dead webhook (with <code>failurePolicy: Fail</code>) means nothing can be written at all.</li>
     </ul>
     <div class="callout exam">
       <span class="tag">Integration is a competency word</span>
@@ -129,10 +129,10 @@ kubectl get cluster pg -w</code></pre></div>
       <div class="answer"><p>Find what is left (<code>kubectl api-resources --verbs=list --namespaced -o name | xargs -n1 kubectl get -n &lt;ns&gt;</code>), find the finalizer on it, and find whether the owning controller is running. The fix is usually reviving the controller; stripping the finalizer is a last resort that leaks whatever it was cleaning up.</p></div></details>
 
     <details class="quiz"><summary>Why is deleting an operator-managed pod not a way to "reset" anything?</summary>
-      <div class="answer"><p>Because reconciliation is level-based: the controller observes that a pod is missing and creates one, with no memory of the event. If you need a different outcome, change the spec (or the underlying cause) — the loop will faithfully restore whatever the spec says forever.</p></div></details>
+      <div class="answer"><p>Because reconciliation is level-based: the controller observes that a pod is missing and creates one, with no memory of the event. If you need a different outcome, change the spec (or the underlying cause); the loop will faithfully restore whatever the spec says forever.</p></div></details>
 
     <details class="quiz"><summary>An operator's CRs apply fine and nothing happens at all. Two checks?</summary>
-      <div class="answer"><p>Is the controller running (and did it win leader election)? And does its RBAC cover your namespace and your kind — a Forbidden in the controller's logs is the classic silent failure. Only after both: is the CR shaped in a way the controller ignores (a selector, a class field, a paused annotation)?</p></div></details>
+      <div class="answer"><p>Is the controller running (and did it win leader election)? And does its RBAC cover your namespace and your kind? A Forbidden in the controller's logs is the classic silent failure. Only after both: is the CR shaped in a way the controller ignores (a selector, a class field, a paused annotation)?</p></div></details>
 
     <details class="quiz"><summary>Name the five ways an operator integrates with the rest of a platform.</summary>
       <div class="answer"><p>Its CRs are delivered by GitOps; its metrics are scraped and alerted on; its connection Secrets are consumed by apps (or synced by ESO); its CRs are subject to policy at admission; and its API is fronted by a thinner developer-facing abstraction (Crossplane/kro/portal template). That list is the "integration" half of the competency.</p></div></details>

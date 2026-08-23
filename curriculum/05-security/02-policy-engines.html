@@ -37,7 +37,7 @@
       <span class="tag">Three consequences to carry</span>
       <ol>
         <li>Validating policies see the object <em>after</em> mutation, so a mutation can satisfy a validation the user never wrote (that is the LimitRange trap below).</li>
-        <li>Admission applies at write time only. Tightening a policy never touches existing objects — you need an audit/report mechanism for those.</li>
+        <li>Admission applies at write time only. Tightening a policy never touches existing objects; you need an audit/report mechanism for those.</li>
         <li>Every webhook is an availability dependency of the API server, and <code>failurePolicy</code> chooses which way you fail.</li>
       </ol>
     </div>
@@ -62,9 +62,9 @@
       </table>
     </div>
 
-    <p><strong>Kyverno speaks two dialects, and you need both.</strong> The classic one is <code>ClusterPolicy</code>/<code>Policy</code>: a list of typed rules (<code>validate</code>, <code>mutate</code>, <code>generate</code>, <code>verifyImages</code>) with <code>match</code>/<code>exclude</code> blocks and a JMESPath-flavoured pattern language, switched between reporting and enforcement by <code>spec.validationFailureAction: Audit|Enforce</code>. It is fully supported and it is what most installed Kyverno runs. The newer dialect — <code>ValidatingPolicy</code>, <code>MutatingPolicy</code>, <code>ImageValidatingPolicy</code>, CEL expressions, <code>spec.validationActions: [Audit|Deny|Warn]</code> — arrived in Kyverno 1.14/1.15 and is what this lab installs. You do not get to choose which one the exam's cluster has, so recognise both, and let <code>kubectl api-resources | grep kyverno</code> plus <code>kubectl explain</code> settle which is in front of you. The lab's <code>examples/kyverno/</code> pair is the newer form: <code>require-resources.yaml</code> validates that every container declares requests (in Audit mode; flip to Deny to enforce), and <code>add-tenant-label.yaml</code> mutates a cost-centre label onto Deployments at admission.</p>
+    <p><strong>Kyverno speaks two dialects, and you need both.</strong> The classic one is <code>ClusterPolicy</code>/<code>Policy</code>: a list of typed rules (<code>validate</code>, <code>mutate</code>, <code>generate</code>, <code>verifyImages</code>) with <code>match</code>/<code>exclude</code> blocks and a JMESPath-flavoured pattern language, switched between reporting and enforcement by <code>spec.validationFailureAction: Audit|Enforce</code>. It is fully supported and it is what most installed Kyverno runs. The newer dialect (<code>ValidatingPolicy</code>, <code>MutatingPolicy</code>, <code>ImageValidatingPolicy</code>, CEL expressions, <code>spec.validationActions: [Audit|Deny|Warn]</code>) arrived in Kyverno 1.14/1.15 and is what this lab installs. You do not get to choose which one the exam's cluster has, so recognise both, and let <code>kubectl api-resources | grep kyverno</code> plus <code>kubectl explain</code> settle which is in front of you. The lab's <code>examples/kyverno/</code> pair is the newer form: <code>require-resources.yaml</code> validates that every container declares requests (in Audit mode; flip to Deny to enforce), and <code>add-tenant-label.yaml</code> mutates a cost-centre label onto Deployments at admission.</p>
 
-    <p><strong>Gatekeeper</strong> is two-step by design: a ConstraintTemplate defines a parameterised policy in Rego <em>and generates a CRD</em>; a Constraint is an instance of that CRD binding it to resources with parameters. That indirection is what makes a library of reusable policies possible — and the <code>gatekeeper-library</code> repo is that library. This is also where the exam's "OPA" lives in practice: Rego inside templates.</p>
+    <p><strong>Gatekeeper</strong> is two-step by design: a ConstraintTemplate defines a parameterised policy in Rego <em>and generates a CRD</em>; a Constraint is an instance of that CRD binding it to resources with parameters. That indirection is what makes a library of reusable policies possible, and the <code>gatekeeper-library</code> repo is that library. This is also where the exam's "OPA" lives in practice: Rego inside templates.</p>
 
     <p><strong>ValidatingAdmissionPolicy</strong> is native: CEL, no controller to install, no webhook to keep alive, paired with a Binding that says which namespaces and what action. Worth one rep because it is what the other two increasingly compile down to, and because a task could hand it to you.</p>
 
@@ -79,7 +79,7 @@
   <div class="phdr"><h2>Operating policy safely</h2><span class="meta">failurePolicy, exemptions, and the blast radius</span></div>
   <div class="pbody">
     <ul>
-      <li><strong><code>failurePolicy</code>.</strong> <code>Fail</code> means an unreachable webhook blocks the write — secure, and capable of freezing the entire cluster if the policy pods die. <code>Ignore</code> means writes proceed unchecked — available, and a bypass window during an outage. There is no correct universal answer; there is only the answer you chose deliberately, plus <code>timeoutSeconds</code> and a well-scoped <code>namespaceSelector</code> to bound the risk.</li>
+      <li><strong><code>failurePolicy</code>.</strong> <code>Fail</code> means an unreachable webhook blocks the write: secure, and capable of freezing the entire cluster if the policy pods die. <code>Ignore</code> means writes proceed unchecked: available, and a bypass window during an outage. There is no correct universal answer; there is only the answer you chose deliberately, plus <code>timeoutSeconds</code> and a well-scoped <code>namespaceSelector</code> to bound the risk.</li>
       <li><strong>Scope your webhooks.</strong> <code>rules</code> (which resources and operations), <code>namespaceSelector</code> and <code>objectSelector</code> decide what is intercepted. Exempting <code>kube-system</code> is near-universal, and it is itself a governance decision: it means a cluster-admin path exists that your policies do not see.</li>
       <li><strong>Latency.</strong> Every intercepted write pays a round trip. Broad wildcard rules on <code>*/*</code> are how a policy engine becomes a cluster-wide performance problem.</li>
       <li><strong>Order.</strong> Mutating webhooks run in an order you do not fully control and may run more than once (re-invocation policy), so mutations must be idempotent.</li>
@@ -92,7 +92,7 @@
 kubectl get policyreports -A                    # kyverno findings, governance-as-data
 kubectl get constraints                         # gatekeeper, with violation counts
 kubectl -n kyverno logs deploy/kyverno-admission-controller | tail -50</code></pre></div>
-      <p>A cluster that rejects everything mysteriously usually has a policy engine's webhook with a dead backend — the first command finds it, and <code>failurePolicy</code> explains it.</p>
+      <p>A cluster that rejects everything mysteriously usually has a policy engine's webhook with a dead backend; the first command finds it, and <code>failurePolicy</code> explains it.</p>
     </div>
   </div>
 </section>
@@ -139,19 +139,19 @@ kubectl -n policy-test run naked2 --image=busybox:1.37 --restart=Never -- sleep 
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>A "require requests" policy never fires in a tenant namespace. Why?</summary>
-      <div class="answer"><p>Its LimitRange defaults the requests during <em>mutating</em> admission, before the validating webhook runs, so the object Kyverno inspects already complies. Admission order — mutate then validate — is the whole explanation, and it generalises to every defaulting mechanism.</p></div></details>
+      <div class="answer"><p>Its LimitRange defaults the requests during <em>mutating</em> admission, before the validating webhook runs, so the object Kyverno inspects already complies. Admission order (mutate then validate) is the whole explanation, and it generalises to every defaulting mechanism.</p></div></details>
 
-    <details class="quiz"><summary><code>failurePolicy: Fail</code> versus <code>Ignore</code> — argue both, then say what bounds the risk.</summary>
+    <details class="quiz"><summary><code>failurePolicy: Fail</code> versus <code>Ignore</code>: argue both, then say what bounds the risk.</summary>
       <div class="answer"><p>Fail: no unvalidated writes, at the cost of the API server refusing writes when the webhook is down (a cluster-wide outage from a policy pod). Ignore: writes keep flowing, at the cost of a bypass window. Bound it with a tight <code>namespaceSelector</code>, low <code>timeoutSeconds</code>, exemptions for system namespaces, and running the engine with enough replicas that it is not a single point of failure.</p></div></details>
 
     <details class="quiz"><summary>You tighten a policy to Deny. What happens to the workloads that already violate it?</summary>
-      <div class="answer"><p>Nothing — admission is write-time. They keep running until their next write (a rollout, a scale, a controller re-create), and then they fail, possibly at 3am. That is why the Audit → report → fix → Enforce sequence exists, and why you check the reports before flipping the dial.</p></div></details>
+      <div class="answer"><p>Nothing: admission is write-time. They keep running until their next write (a rollout, a scale, a controller re-create), and then they fail, possibly at 3am. That is why the Audit → report → fix → Enforce sequence exists, and why you check the reports before flipping the dial.</p></div></details>
 
     <details class="quiz"><summary>Which engine would you pick to also <em>create</em> a default NetworkPolicy in every new namespace?</summary>
-      <div class="answer"><p>Kyverno — generation is a first-class capability there (generate rules that create and keep resources in sync). Gatekeeper validates and can mutate but does not generate; ValidatingAdmissionPolicy only validates. Matching capability to requirement is the whole question.</p></div></details>
+      <div class="answer"><p>Kyverno: generation is a first-class capability there (generate rules that create and keep resources in sync). Gatekeeper validates and can mutate but does not generate; ValidatingAdmissionPolicy only validates. Matching capability to requirement is the whole question.</p></div></details>
 
     <details class="quiz"><summary>Why might a platform team prefer ValidatingAdmissionPolicy for a simple rule?</summary>
-      <div class="answer"><p>No extra controller, no webhook, no availability dependency, no version skew — the API server evaluates CEL in-process. The trade is a narrower feature set (no mutation in older versions, no generation, no reporting), so it suits simple invariants rather than a governance programme.</p></div></details>
+      <div class="answer"><p>No extra controller, no webhook, no availability dependency, no version skew; the API server evaluates CEL in-process. The trade is a narrower feature set (no mutation in older versions, no generation, no reporting), so it suits simple invariants rather than a governance programme.</p></div></details>
   </div>
 </section>
 
