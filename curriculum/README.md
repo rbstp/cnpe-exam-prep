@@ -7,7 +7,8 @@ GitHub will not render it in place; clone the repo (or use raw + a local browser
 - `index.html` — dashboard: the map, competency coverage, study plan, exam-day tactics
 - `mock-exam.html` — 15 timed tasks with grading commands and a 120-minute clock
 - `0*-…/*.html` — the 29 sections, each theory + exercises + self-check
-- `assets/` — one stylesheet, the section manifest (`nav.js`), and the page runtime (`app.js`)
+- `assets/` — one stylesheet, the section manifest (`nav.js`), the page runtime (`app.js`) and the interactive figures (`widgets.js`)
+- `tools/bundle.py` — bundles the whole console into one hash-routed HTML file (`python3 tools/bundle.py`), handy for sharing or reading it somewhere that takes a single document
 
 Press `/` in any page to jump to a section by name, tool or concept, and `?` for the shortcuts.
 Progress (exercises verified, sections completed) is stored in your browser's local storage.

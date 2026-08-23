@@ -7,10 +7,13 @@
   var NAV = window.CNPE_NAV || [];
   var DOMAINS = window.CNPE_DOMAINS || [];
   var body = document.body;
-  var ROOT = body.getAttribute("data-root") || "";
-  var PAGE_ID = body.getAttribute("data-id") || null;
-  var entry = NAV.filter(function (n) { return n.id === PAGE_ID; })[0] || null;
+  var ROOT = "", PAGE_ID = null, entry = null;
   var KEY = "cnpe:v2";
+  function readPage() {
+    ROOT = body.getAttribute("data-root") || "";
+    PAGE_ID = body.getAttribute("data-id") || null;
+    entry = NAV.filter(function (n) { return n.id === PAGE_ID; })[0] || null;
+  }
 
   /* ── storage ─────────────────────────────────────────────── */
   var store = (function () {
@@ -42,7 +45,13 @@
     return e;
   }
   function domainOf(n) { return DOMAINS.filter(function (d) { return d.n === n; })[0]; }
-  function href(path) { return ROOT + path; }
+  function href(path) {
+    if (window.CNPE_BUNDLE) {
+      var hit = NAV.filter(function (n) { return n.path === path; })[0];
+      return hit ? "#" + hit.id : (path === "index.html" ? "#index" : "#" + path);
+    }
+    return ROOT + path;
+  }
 
   /* ── top bar ─────────────────────────────────────────────── */
   function buildTopbar() {
@@ -50,7 +59,15 @@
     var bar = el("div", "topbar");
     var inner = el("div", "inner");
 
-    var logo = el("a", "logo", '<span class="dot"></span>CNPE <span class="sub">study console</span>');
+    var logo = el("a", "logo",
+      '<svg class="mark" viewBox="0 0 24 24" aria-hidden="true">' +
+        '<defs><linearGradient id="cnpeMark" x1="0" y1="0" x2="1" y2="1">' +
+          '<stop offset="0%" stop-color="var(--brand-2)"/><stop offset="100%" stop-color="var(--brand)"/>' +
+        '</linearGradient></defs>' +
+        '<path d="M12 1.9 20.7 7v10L12 22.1 3.3 17V7z" fill="none" stroke="url(#cnpeMark)" stroke-width="1.5" stroke-linejoin="round"/>' +
+        '<path d="M7.8 14.6l2.9-3.3 2.2 2.4 3.3-4.1" fill="none" stroke="url(#cnpeMark)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '</svg>' +
+      '<span class="word">CNPE</span><span class="sub">study console</span>');
     logo.href = href("index.html");
     inner.appendChild(logo);
 
@@ -548,15 +565,23 @@
   }
 
   /* ── boot ────────────────────────────────────────────────── */
-  buildTopbar();
-  buildHead();
-  buildCodeBlocks();
-  buildExercises();
-  buildToc();
-  buildFooter();
-  buildPalette();
-  buildHelp();
-  buildIndex();
-  buildExam();
-  keys();
+  var wired = false;
+  function boot() {
+    readPage();
+    Array.prototype.forEach.call(document.querySelectorAll(".topbar, .overlay"), function (n) { n.remove(); });
+    buildTopbar();
+    buildHead();
+    buildCodeBlocks();
+    buildExercises();
+    if (window.CNPE_WIDGETS) window.CNPE_WIDGETS.mount();
+    buildToc();
+    buildFooter();
+    buildPalette();
+    buildHelp();
+    buildIndex();
+    buildExam();
+    if (!wired) { keys(); wired = true; }
+  }
+  window.CNPE_BOOT = boot;
+  boot();
 })();
