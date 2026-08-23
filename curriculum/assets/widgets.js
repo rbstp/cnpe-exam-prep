@@ -410,28 +410,28 @@
       var g = svg("svg", { viewBox: "0 0 " + W + " " + H, "class": "wsvg" });
       [0, .25, .5, .75, 1].forEach(function (q) {
         var gy = y(maxV * q);
-        g.appendChild(svg("line", { x1: padL, x2: W - padR, y1: gy, y2: gy, stroke: css("--border"), "stroke-width": 1 }));
-        var tl = svg("text", { x: padL - 8, y: gy + 3.5, fill: css("--fg-3"), "font-size": 10, "text-anchor": "end" });
+        g.appendChild(svg("line", { x1: padL, x2: W - padR, y1: gy, y2: gy, stroke: css("--rule"), "stroke-width": 1 }));
+        var tl = svg("text", { x: padL - 8, y: gy + 3.5, fill: css("--paper-3"), "font-size": 10, "text-anchor": "end" });
         tl.textContent = Math.round(maxV * q);
         g.appendChild(tl);
       });
       [0, 10, 20, 30].forEach(function (t) {
-        var tl = svg("text", { x: x(t), y: H - 9, fill: css("--fg-3"), "font-size": 10, "text-anchor": "middle" });
+        var tl = svg("text", { x: x(t), y: H - 9, fill: css("--paper-3"), "font-size": 10, "text-anchor": "middle" });
         tl.textContent = t + "m";
         g.appendChild(tl);
       });
-      var ylab = svg("text", { x: 12, y: (top + base) / 2, fill: css("--fg-3"), "font-size": 10,
+      var ylab = svg("text", { x: 12, y: (top + base) / 2, fill: css("--paper-3"), "font-size": 10,
                                transform: "rotate(-90 12 " + (top + base) / 2 + ")", "text-anchor": "middle" });
       ylab.textContent = "http_requests_total";
       g.appendChild(ylab);
       // rate window shading, anchored at the right edge
       var t1 = 30, t0 = Math.max(0, 30 - st.win);
-      var band = svg("rect", { x: x(t0), y: top, width: x(t1) - x(t0), height: base - top, fill: css("--blue"), opacity: .10 });
+      var band = svg("rect", { x: x(t0), y: top, width: x(t1) - x(t0), height: base - top, fill: css("--copper"), opacity: .10 });
       g.appendChild(band);
       var d = pts.map(function (p, i) { return (i ? "L" : "M") + x(p.t) + " " + y(p.v); }).join(" ");
-      g.appendChild(svg("path", { d: d, fill: "none", stroke: css("--green"), "stroke-width": 2 }));
-      pts.forEach(function (p) { if (p.t % 5 === 0) g.appendChild(svg("circle", { cx: x(p.t), cy: y(p.v), r: 2.5, fill: css("--green") })); });
-      var lbl = svg("text", { x: x(t0) + 6, y: top + 13, fill: css("--blue"), "font-size": 11 });
+      g.appendChild(svg("path", { d: d, fill: "none", stroke: css("--moss"), "stroke-width": 2 }));
+      pts.forEach(function (p) { if (p.t % 5 === 0) g.appendChild(svg("circle", { cx: x(p.t), cy: y(p.v), r: 2.5, fill: css("--moss") })); });
+      var lbl = svg("text", { x: x(t0) + 6, y: top + 13, fill: css("--copper"), "font-size": 11 });
       lbl.textContent = "[" + st.win + "m] window";
       g.appendChild(lbl);
       out.innerHTML = "";

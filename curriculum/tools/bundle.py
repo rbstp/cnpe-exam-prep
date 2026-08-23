@@ -11,7 +11,7 @@ takes a single document.
 --fragment omits <!doctype>/<html>/<head>/<body> for hosts that supply their own
 document skeleton; the default output is a complete standalone page.
 """
-import os, re, sys, json
+import base64, os, re, sys, json
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -22,6 +22,16 @@ OUT = args[0] if args else os.path.join(ROOT, "cnpe-console.html")
 def read(p):
     with open(os.path.join(ROOT, p), encoding="utf-8") as fh:
         return fh.read()
+
+def inline_fonts(css):
+    """Turn url("fonts/x.woff2") into a data: URI so the bundle needs no sidecar files."""
+    def sub(m):
+        path = os.path.join(ROOT, "assets", m.group(1))
+        with open(path, "rb") as fh:
+            b64 = base64.b64encode(fh.read()).decode("ascii")
+        return 'url("data:font/woff2;base64,%s")' % b64
+    return re.sub(r'url\("(fonts/[^"]+\.woff2)"\)', sub, css)
+
 
 def article_of(page):
     src = read(page)
@@ -133,7 +143,7 @@ window.CNPE_EXAM_KEYS = %s;
 })();
 </script>
 """ % (
-    read("assets/style.css"),
+    inline_fonts(read("assets/style.css")),
     read("assets/nav.js"),
     "\n".join(parts),
     json.dumps(sorted(k for k, (_, ex) in seen.items() if ex)),
