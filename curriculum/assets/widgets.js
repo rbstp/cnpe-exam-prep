@@ -469,7 +469,10 @@
           '<div class="wtl-track"><i class="cond" style="left:0;width:' + pct(st.blip) + '%"><span>condition true</span></i></div>' +
           '<div class="wtl-track"><i class="pend" style="left:' + pct(detect) + '%;width:' + pct(Math.min(st.forS, Math.max(0, st.blip - detect))) + '%"><span>Pending</span></i>' +
             (everFires ? '<i class="fire" style="left:' + pct(fires) + '%;width:' + pct(Math.max(6, st.blip - fires)) + '%"><span>Firing</span></i>' : "") + "</div>" +
-          '<div class="wtl-track">' + (everFires ? '<i class="notif" style="left:' + pct(notified) + '%;width:' + pct(Math.max(8, total * 0.06)) + '%"><span>notified</span></i>' : "") + "</div>" +
+          '<div class="wtl-track">' + (everFires ? '<i class="notif" style="left:' + pct(notified) + '%;width:' + pct(Math.max(30, total * 0.11)) + '%"><span>notified</span></i>' : "") + "</div>" +
+          '<div class="wtl-axis">' + [0, 0.25, 0.5, 0.75, 1].map(function (q) {
+            return "<span>" + Math.round(total * q) + "s</span>";
+          }).join("") + "</div>" +
         "</div>" +
         '<div class="wgrid">' +
           '<div class="wcell"><span class="wk">seen by Prometheus at</span><span class="wv wnum">' + detect + "s</span></div>" +
