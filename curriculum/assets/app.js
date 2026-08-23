@@ -555,11 +555,34 @@
     });
     function paintScore() {
       if (!scoreVal) return;
-      var got = 0;
-      Array.prototype.forEach.call(tasks, function (t, i) { if (st.tasks[i]) got += +(t.getAttribute("data-pts") || 0); });
+      var got = 0, byDomain = {};
+      Array.prototype.forEach.call(tasks, function (t, i) {
+        var pts = +(t.getAttribute("data-pts") || 0);
+        var m = /domain (\d)/.exec(t.getAttribute("data-title") || "");
+        var d = m ? m[1] : "?";
+        byDomain[d] = byDomain[d] || { got: 0, max: 0 };
+        byDomain[d].max += pts;
+        if (st.tasks[i]) { got += pts; byDomain[d].got += pts; }
+      });
       scoreVal.innerHTML = got + '<span class="u">/ ' + maxPts + "</span>";
       var sp = document.querySelector("#stat-score .spark i");
       if (sp) sp.style.width = (maxPts ? got / maxPts * 100 : 0) + "%";
+
+      var host = document.getElementById("score-domains");
+      if (!host) return;
+      host.innerHTML = Object.keys(byDomain).sort().map(function (d) {
+        var b = byDomain[d], pct = b.max ? Math.round(b.got / b.max * 100) : 0;
+        var state = b.got === 0 ? "bad" : pct >= 70 ? "ok" : "warn";
+        return '<div class="wcell"><span class="wk">domain ' + d + '</span>' +
+          '<span class="wv wnum">' + b.got + '<span class="u" style="font-size:12px;color:var(--fg-3)"> / ' + b.max + '</span></span>' +
+          '<span class="wbar"><i class="' + (state === "ok" ? "green" : state === "warn" ? "warn" : "bad") +
+          '" style="width:' + pct + '%"></i></span></div>';
+      }).join("") +
+      '<div class="wcell wspan"><span class="wk">read this before the total</span><span class="wv">' +
+        (Object.keys(byDomain).some(function (d) { return byDomain[d].got === 0; })
+          ? "A domain at zero fails you in ways an average hides — re-drill that one first."
+          : "Every domain is on the board. Now push the weakest one above 70%.") +
+      "</span></div>";
     }
     paintScore();
   }
