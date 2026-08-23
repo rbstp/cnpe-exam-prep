@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>4.1 Prometheus: collection and PromQL · CNPE</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-id="4.1" data-root="../">
+<div class="wrap"><div class="cols">
+<article>
+
+<header class="pagehead">
+  <div class="eyebrow"></div>
+  <h1></h1>
+  <p class="sum">The <code>obs</code> layer installs kube-prometheus-stack, which is three things people conflate: Prometheus itself, the Prometheus Operator that configures it through CRDs, and a bundle of exporters and dashboards. On the exam you work through the operator's CRDs, so that is the layer to be fluent in.</p>
+</header>
+
+<div class="stats"></div>
+
+<div class="needs"><span class="lbl">needs</span><code>make up obs</code></div>
+
+<section class="panel" id="orientation">
+  <div class="phdr"><h2>Orientation</h2><span class="meta">competency 4.1 · monitoring solutions</span></div>
+  <div class="pbody">
+    <p class="lede">Two skills, both testable: get a target scraped, and write a query that answers a question. Everything else in domain 4 — alerting, dashboards, DORA metrics, incident diagnosis — is built on those two.</p>
+    <div class="callout model">
+      <span class="tag">The pull model in one paragraph</span>
+      <p>Prometheus <em>scrapes</em> HTTP endpoints on an interval and stores samples in a local TSDB. Each series is a metric name plus a set of labels, and every distinct label combination is a separate series — which is why cardinality is the resource you actually manage. Service discovery (in Kubernetes: the API server) produces the target list; relabeling rewrites and filters it; the scrape either succeeds (<code>up = 1</code>) or does not (<code>up = 0</code>). Nothing is pushed, so a workload that only exists for ten seconds is invisible unless it pushes to a Pushgateway or emits an event elsewhere.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-c" id="operator">
+  <div class="phdr"><h2>The operator model</h2><span class="meta">ServiceMonitor · PodMonitor · selectors</span></div>
+  <div class="pbody">
+    <p>What to scrape is <em>declared</em>, not configured. A <strong>ServiceMonitor</strong> says "scrape the endpoints of Services matching these labels, on this port name, at this path, every N seconds". A <strong>PodMonitor</strong> does the same without a Service. A <strong>ScrapeConfig</strong> (newer) covers targets outside Kubernetes. A <strong>Probe</strong> drives blackbox-exporter checks. The operator watches these CRDs and rewrites Prometheus's configuration live.</p>
+
+    <pre class="diagram"><b>ServiceMonitor</b> (selector: app=example, port: web, path: /metrics)
+      │  matched by Prometheus.spec.serviceMonitorSelector   ← <em>the filter people forget</em>
+      ▼
+<b>Service</b> app=example, ports: [{name: web, port: 8080}]
+      │  its <i>EndpointSlice</i> supplies the actual pod IPs
+      ▼
+<u>pod:8080/metrics</u>  ──scraped every 30s──▶  series {job="example", namespace=…, pod=…}</pre>
+
+    <div class="callout trap">
+      <span class="tag">The hour everyone loses once</span>
+      <p>Prometheus only picks up ServiceMonitors matching its own <code>serviceMonitorSelector</code>, which on a stock kube-prometheus-stack matches the Helm release label (<code>release: prometheus</code>). A perfectly correct monitor without that label is <em>silently ignored</em> — no error, no event, no target. This lab deliberately disables that filter (<code>serviceMonitorSelectorNilUsesHelmValues=false</code>), so its selector is <code>{}</code> and every monitor everywhere is picked up. Both facts matter, and the durable habit is: <strong>read the selector first, then write the monitor.</strong></p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.serviceMonitorSelector}'; echo
+kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.serviceMonitorNamespaceSelector}'; echo</code></pre></div>
+      <p>Prints <code>{}</code> on this cluster and the release-label selector on a stock install. That one command is the answer to "my target does not appear" everywhere, including the exam's cluster, whose selector you do not get to assume. The <em>namespace</em> selector is the second half of the same trap: a monitor in a namespace Prometheus does not watch is equally invisible.</p>
+    </div>
+
+    <h3>The other three ways a target goes missing</h3>
+    <ol>
+      <li><strong>Port name, not number.</strong> <code>endpoints[].port</code> is the Service's port <em>name</em>. An unnamed Service port cannot be referenced, and the monitor matches while scraping nothing.</li>
+      <li><strong>No endpoints.</strong> The Service selector matches no ready pods (section 1.1). Same symptom, different layer.</li>
+      <li><strong>RBAC or network.</strong> Prometheus's ServiceAccount must be able to list endpoints in that namespace, and NetworkPolicy must allow monitoring → workload. In a default-deny tenant namespace, that allow is a thing someone has to write.</li>
+    </ol>
+    <p>Diagnosis order: Status → Targets in the UI (it shows the <em>reason</em> for a failed scrape), then <code>up{job="…"}</code>, then the four causes above.</p>
+
+    <h3>Relabeling, at exam depth</h3>
+    <p><code>relabelings</code> act on discovered targets <em>before</em> the scrape (drop targets, rewrite the job or namespace labels); <code>metricRelabelings</code> act on samples <em>after</em> (drop expensive series). The one pattern worth remembering: dropping a high-cardinality metric at ingestion with <code>action: drop</code> on a <code>__name__</code> regex is how you rescue a Prometheus drowning in one bad exporter.</p>
+  </div>
+</section>
+
+<section class="panel accent-p" id="promql">
+  <div class="phdr"><h2>PromQL, the working subset</h2><span class="meta">90% of exam queries live here</span></div>
+  <div class="pbody">
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Type</th><th>Read it with</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Counter</strong> (only climbs, resets to 0)</td><td class="mono">rate() · increase()</td><td class="mono">rate(http_requests_total[5m])</td></tr>
+          <tr><td><strong>Gauge</strong> (up and down)</td><td>read it directly</td><td class="mono">kube_pod_status_ready</td></tr>
+          <tr><td><strong>Histogram</strong> (buckets)</td><td class="mono">histogram_quantile()</td><td class="mono">histogram_quantile(0.95, sum by (le) (rate(x_bucket[5m])))</td></tr>
+          <tr><td><strong>Summary</strong> (pre-computed quantiles)</td><td>read the quantile label</td><td class="mono">x{quantile="0.99"}</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <ul>
+      <li><strong>Selectors:</strong> <code>up{namespace="argocd"}</code>, with <code>=</code>, <code>!=</code>, <code>=~</code>, <code>!~</code>. Regexes are fully anchored.</li>
+      <li><strong>Ranges:</strong> <code>[5m]</code> turns an instant vector into a range vector — required by <code>rate</code>/<code>increase</code>, and <em>forbidden</em> everywhere else. "Expected type instant vector" almost always means a stray range selector.</li>
+      <li><strong>Aggregation:</strong> <code>sum by (label) (...)</code> and <code>sum without (pod) (...)</code>. <code>by</code> keeps only what you name; <code>without</code> keeps everything else. Aggregating before <code>rate</code> is wrong — <code>rate</code> first, then <code>sum</code>.</li>
+      <li><strong>Arithmetic between vectors</strong> matches on labels; mismatched label sets produce an empty result, which is why <code>on()</code>/<code>ignoring()</code> and <code>group_left</code> exist. You used vector arithmetic for the cost gap in section 1.5.</li>
+      <li><strong>Emptiness:</strong> <code>absent(x)</code> is 1 when <em>x</em> has no series (the way to alert on "the metric stopped existing"), and <code>… or vector(0)</code> is how you make a query return a number instead of nothing.</li>
+      <li><code>rate</code> vs <code>irate</code>: <code>rate</code> averages over the window (use it for alerts and dashboards), <code>irate</code> uses the last two samples (spiky, for zooming in). <code>increase</code> is <code>rate × window</code>, useful for "how many in 24h".</li>
+    </ul>
+
+
+    <p>Why the raw counter is useless, and what the window does to the answer:</p>
+    <div class="widget" data-widget="promrate"></div>
+    <div class="callout exam">
+      <span class="tag"><code>up</code> deserves special respect</span>
+      <p>1 per healthy target, 0 per failing one — which makes <code>count(up == 0)</code> the cluster's own health check. <code>make validate</code> runs exactly that query and demands zero; the lab even patched kubeadm's localhost-bound control-plane metrics to make them reachable (<code>make fix-cp-metrics</code>). Any "is monitoring healthy" question starts with this query.</p>
+    </div>
+
+    <h3>What is already collected, for free</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Source</th><th>Gives you</th><th>Typical series</th></tr></thead>
+        <tbody>
+          <tr><td>kube-state-metrics</td><td>object state from the API server</td><td class="mono">kube_pod_info, kube_deployment_status_replicas_unavailable, kube_pod_container_status_restarts_total</td></tr>
+          <tr><td>cAdvisor (kubelet)</td><td>container resource usage</td><td class="mono">container_cpu_usage_seconds_total, container_memory_working_set_bytes</td></tr>
+          <tr><td>node-exporter</td><td>host metrics</td><td class="mono">node_load1, node_filesystem_avail_bytes</td></tr>
+          <tr><td>kubelet / apiserver</td><td>control-plane health and latency</td><td class="mono">apiserver_request_duration_seconds_bucket</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Knowing these exist means you rarely need to instrument anything to answer an exam question about the cluster itself.</p>
+  </div>
+</section>
+
+<section class="panel accent-g" id="exercises">
+  <div class="phdr"><h2>Exercises</h2><span class="meta">tick the dot when its check passes</span></div>
+  <div class="pbody">
+    <p>Prometheus's UI address comes from <code>make urls</code>.</p>
+
+    <div class="exercise" data-title="Read the target map">
+      <p>In the UI under Status → Targets, or via API: count the scrape pools, find which ServiceMonitor each corresponds to (<code>kubectl -n monitoring get servicemonitors</code>), and confirm zero targets down.</p>
+      <div class="verify"><b>verify</b> — <code>curl -s 'http://&lt;prom&gt;/api/v1/query?query=count(up==0)' | jq -r '.data.result[0].value[1] // "0"'</code> prints 0. If not, the down target's job name points at the responsible ServiceMonitor.</div>
+    </div>
+
+    <div class="exercise" data-title="Bring your own target, and hit the port-name gotcha on purpose">
+      <p>Deploy an app that exposes metrics and monitor it, first wrong, then right:</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create deploy example --image=quay.io/brancz/prometheus-example-app:v0.5.0 --port=8080
+kubectl expose deploy example --port=8080 --name=example
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata: { name: example, namespace: default }
+spec:
+  selector: { matchLabels: { app: example } }
+  endpoints: [{ port: "8080" }]
+EOF</code></pre></div>
+      <p>Wait a minute, search Targets: nothing. The endpoint's <code>port</code> must be the Service's port <em>name</em>, and this Service has none, so the monitor matches the Service and then finds no endpoint. It fails silently, which is exactly why it is worth experiencing once. Fix it: patch the Service so the port is named (<code>kubectl patch svc example --type=json -p '[{"op":"add","path":"/spec/ports/0/name","value":"web"}]'</code>) and set <code>port: web</code> in the monitor.</p>
+      <div class="verify"><b>verify</b> — <code>up{job="example"}</code> returns 1 in the UI. Then add the <code>release: prometheus</code> label to your monitor anyway and confirm nothing changes here, while being able to say why it would be the difference between working and ignored on a stock install.</div>
+    </div>
+
+    <div class="exercise" data-title="Query like the exam">
+      <p>Generate a little traffic (<code>kubectl run curl --image=curlimages/curl:8.11.1 --restart=Never -- sh -c 'for i in $(seq 100); do curl -s example.default.svc:8080; done'</code>), then write, without copying: the request rate (<code>rate(http_requests_total{job="example"}[5m])</code>), summed by status code, and the p95 duration from <code>http_request_duration_seconds_bucket</code>.</p>
+      <div class="verify"><b>verify</b> — rates are non-zero and the quantile returns a number, not NaN. If it is NaN, reason about why (too few buckets observed yet); that reasoning is itself testable.</div>
+    </div>
+
+    <div class="exercise" data-title="Know what already exists">
+      <p>Answer three questions using only metrics already collected: how many pods per namespace (<code>kube_pod_info</code>), which container restarts most (<code>kube_pod_container_status_restarts_total</code>), and each node's CPU pressure (<code>node_load1</code> vs allocatable).</p>
+      <div class="verify"><b>verify</b> — each answer is one query in the UI. kube-state-metrics and node-exporter are pre-installed sources the exam expects you to know exist.</div>
+    </div>
+
+  </div>
+</section>
+
+<section class="panel accent-p" id="selfcheck">
+  <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
+  <div class="pbody">
+    <details class="quiz"><summary>Your ServiceMonitor is correct and no target appears. List the checks in order.</summary>
+      <div class="answer"><p>1) Prometheus's <code>serviceMonitorSelector</code> and <code>serviceMonitorNamespaceSelector</code> — does it even consider your monitor? 2) Does the monitor's selector match the Service's labels? 3) Is <code>endpoints[].port</code> the port <em>name</em>, and does the Service name it? 4) Does the Service have ready endpoints? 5) RBAC and NetworkPolicy between monitoring and the target namespace.</p></div></details>
+
+    <details class="quiz"><summary>Why is <code>sum(rate(x[5m]))</code> right and <code>rate(sum(x)[5m])</code> wrong?</summary>
+      <div class="answer"><p>Counters reset per series; <code>rate</code> knows how to handle resets within a single series. Summing first merges series (and their resets) into a meaningless line, and the syntax is invalid anyway without a subquery. Rate first, aggregate second — always.</p></div></details>
+
+    <details class="quiz"><summary>How do you alert on "the metric disappeared entirely"?</summary>
+      <div class="answer"><p><code>absent(up{job="x"} == 1)</code> or <code>absent(metric)</code> — an ordinary comparison returns no series when there is nothing to compare, so it can never fire. <code>absent()</code> exists precisely to turn "no data" into a value of 1.</p></div></details>
+
+    <details class="quiz"><summary>A p95 query returns NaN. Two plausible reasons?</summary>
+      <div class="answer"><p>No observations in the window (nothing has been recorded yet, so all buckets are empty), or you aggregated away the <code>le</code> label that <code>histogram_quantile</code> needs. The canonical form keeps it: <code>histogram_quantile(0.95, sum by (le) (rate(x_bucket[5m])))</code>.</p></div></details>
+
+    <details class="quiz"><summary>An exporter added a label with one value per request. What happens, and what is the fix?</summary>
+      <div class="answer"><p>Cardinality explosion: a new series per unique value, memory and TSDB growth, slow queries. Fix at ingestion with a <code>metricRelabeling</code> that drops the label or the metric, and upstream by removing it from the exporter. High-cardinality labels (user IDs, URLs with IDs, trace IDs) belong in logs and traces, not metric labels.</p></div></details>
+  </div>
+</section>
+
+<section class="panel" id="docs">
+  <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
+  <div class="pbody">
+    <ul class="docs">
+      <li><b>prometheus.io</b> — querying basics and the function reference (<code>rate</code>, <code>increase</code>, <code>histogram_quantile</code>, <code>absent</code>); metric types.</li>
+      <li><b>prometheus-operator.dev</b> — the ServiceMonitor troubleshooting page, which is the release-label story in official form; the API reference for ServiceMonitor/PodMonitor/ScrapeConfig.</li>
+      <li><b>Offline:</b> <code>kubectl explain servicemonitor.spec.endpoints</code>, the Prometheus UI's Status → Targets and Status → Configuration pages, and its built-in expression autocompletion.</li>
+    </ul>
+  </div>
+</section>
+
+</article>
+<aside class="toc" id="toc"></aside>
+</div></div>
+<script src="../assets/nav.js"></script>
+<script src="../assets/widgets.js"></script>
+<script src="../assets/app.js"></script>
+</body>
+</html>

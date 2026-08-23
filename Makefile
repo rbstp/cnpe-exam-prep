@@ -47,6 +47,11 @@ forward: ## Start a background port-forward for every UI
 	@$(S)/93-forward.sh start
 forward-stop: ## Kill all port-forwards started by 'make forward'
 	@$(S)/93-forward.sh stop
+study:   ## Open the CNPE study console (curriculum) in a browser
+	@f="$(CURDIR)/curriculum/index.html"; \
+	 if command -v xdg-open >/dev/null; then xdg-open "$$f" >/dev/null 2>&1 & \
+	 elif command -v open >/dev/null; then open "$$f"; \
+	 else echo "open file://$$f"; fi
 urls:    ## Every UI, its URL/port-forward, and credentials
 	@$(S)/91-urls.sh
 status:  ## Clusters, endpoints, unhealthy pods, host load
@@ -60,7 +65,7 @@ down:    ## Delete both clusters (keeps git history + registry)
 nuke:    ## Delete everything including Gitea data
 	@$(S)/99-down.sh all
 
-.PHONY: help host tools up gitea gitops cicd api obs sec mesh portal core full spire validate fix-cp-metrics urls forward forward-stop status break break-fix down nuke
+.PHONY: help host tools up gitea gitops cicd api obs sec mesh portal core full spire validate fix-cp-metrics study urls forward forward-stop status break break-fix down nuke
 
 break-answer: ## Reveal the last injected fault
 	@echo "Injected fault type: $$(cat /tmp/cnpe-lab/.last-fault 2>/dev/null || echo none)"

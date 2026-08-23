@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1.1 Platform networking · CNPE</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-id="1.1" data-root="../">
+<div class="wrap"><div class="cols">
+<article>
+
+<header class="pagehead">
+  <div class="eyebrow"></div>
+  <h1></h1>
+  <p class="sum">Being able to say, for any packet, what touches it and in what order: pod, CNI, Service, kube-proxy or its eBPF replacement, DNS, policy, ingress. Most delivery and incident tasks in the other four domains eventually collapse into this one.</p>
+</header>
+
+<div class="stats"></div>
+
+<div class="needs">
+  <span class="lbl">needs</span>
+  <code>make up</code><code>make gitea gitops</code><code>make sec</code>
+</div>
+
+<section class="panel" id="orientation">
+  <div class="phdr"><h2>Orientation</h2><span class="meta">competency 1.1 · architecture best practices</span></div>
+  <div class="pbody">
+    <p class="lede">Networking is the substrate every other domain stands on. A Crossplane XR that never goes Ready, an Argo CD app stuck Progressing, a Prometheus target that will not come up, a canary that never receives traffic — a surprising share of those are one Service selector, one missing DNS egress rule, or one unready endpoint.</p>
+
+    <div class="callout exam">
+      <span class="tag">What the exam actually asks</span>
+      <p>Not "explain CNI". It asks you to <em>make traffic work</em> or <em>make traffic stop</em>, then prove it: expose a workload, restrict a namespace, author a Gateway and an HTTPRoute, or explain why a Service resolves and then refuses connections. Every one of those is a five-minute task if the model in your head is exact, and a twenty-minute flail if it is fuzzy.</p>
+    </div>
+
+    <h3>The four rules of the Kubernetes network model</h3>
+    <ol>
+      <li>Every pod gets its own IP, cluster-routable, no NAT between pods.</li>
+      <li>Pods on a node can reach all pods on all nodes without NAT.</li>
+      <li>Agents on a node (kubelet, system daemons) can reach all pods on that node.</li>
+      <li>A pod sees its own IP as the same address other pods use to reach it.</li>
+    </ol>
+    <p>The CNI plugin is whatever implements those rules — routing, overlay, or eBPF datapath. Everything above (Services, DNS, policy, Gateways) is built on the assumption that the four rules already hold. When they do not, nothing above them behaves sanely, which is why "is it a CNI problem or a Service problem" is the first fork in any network diagnosis.</p>
+  </div>
+</section>
+
+<section class="panel accent-c" id="services">
+  <div class="phdr"><h2>Services and the thing that actually makes them work</h2><span class="meta">ClusterIP · NodePort · LoadBalancer · headless</span></div>
+  <div class="pbody">
+    <p><strong>ClusterIP</strong> is a virtual IP that exists only as translation rules on each node; nothing listens on it, no interface owns it, you cannot ping it in any meaningful sense. <strong>NodePort</strong> opens the same Service on a high port (30000–32767 by default) of <em>every</em> node. <strong>LoadBalancer</strong> is NodePort plus something external handing out a real IP — in this lab, <code>cloud-provider-kind</code>. <strong>Headless</strong> (<code>clusterIP: None</code>) skips the VIP entirely and returns pod IPs straight from DNS, which is what StatefulSets need for stable peer discovery. <strong>ExternalName</strong> is a CNAME with no proxying at all, and it exists mostly to trip you up in a multiple-choice question you will never see.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Type</th><th class="mono">spec bits</th><th>Reaches it from</th><th>Use it when</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">ClusterIP</td><td class="mono">default</td><td>inside the cluster</td><td>the 90% case; every internal call</td></tr>
+          <tr><td class="mono">NodePort</td><td class="mono">nodePort: 3xxxx</td><td>any node IP</td><td>bootstrapping, bare metal, demos</td></tr>
+          <tr><td class="mono">LoadBalancer</td><td class="mono">type: LoadBalancer</td><td>outside</td><td>real external entry point (<code>loadBalancerClass</code> only picks between implementations)</td></tr>
+          <tr><td class="mono">Headless</td><td class="mono">clusterIP: None</td><td>DNS returns pod IPs</td><td>StatefulSet peers, client-side LB</td></tr>
+          <tr><td class="mono">ExternalName</td><td class="mono">externalName: host</td><td>DNS CNAME only</td><td>aliasing an out-of-cluster host</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout model">
+      <span class="tag">The load-bearing idea</span>
+      <p>The thing that makes a Service work is not the Service. It is the <strong>EndpointSlice</strong> behind it, and the selector that fills it. A Service with no ready endpoints resolves fine and then refuses connections, which is one of the most common exam-shaped failures. Check order, every time: selector matches pod labels → pods are <em>Ready</em> (readiness gates endpoint membership) → <code>kubectl get endpointslices -l kubernetes.io/service-name=&lt;svc&gt;</code>.</p>
+    </div>
+
+    <p>Two related fields decide whether traffic reaches a pod at all. <code>readinessProbe</code> failure pulls the pod out of the slice, which is the intended way to drain a pod. <code>publishNotReadyAddresses: true</code> overrides that and is how headless Services for clustered databases let peers find each other <em>before</em> they are serving. And <code>terminationGracePeriodSeconds</code> plus a <code>preStop</code> sleep is the standard trick for the race where a pod is deleted but nodes have not yet removed its rules — connections refused during rollouts almost always trace here.</p>
+
+    <h3>Traffic policies, which cost people points</h3>
+    <ul>
+      <li><code>externalTrafficPolicy: Cluster</code> (default) SNATs and may hop to another node, so the backend sees the node's IP, not the client's. <code>Local</code> preserves the client source IP and only routes to pods on the receiving node — with the trade that a node holding no pod blackholes the traffic (health checks are what stop the external LB from sending there).</li>
+      <li><code>internalTrafficPolicy: Local</code> is the same idea for in-cluster traffic: node-local endpoints only. Used for node-local caches and log shippers.</li>
+      <li><code>sessionAffinity: ClientIP</code> is the only affinity a Service offers. Anything richer belongs in a mesh or gateway.</li>
+    </ul>
+
+    <p>Five conditions, one request. Turn any of them off and see which hop drops it, what the user reports, and the command that proves it:</p>
+    <div class="widget" data-widget="netpath"></div>
+
+    <div class="callout reflex">
+      <span class="tag">Command reflex</span>
+      <p><code>kubectl get endpointslices -l kubernetes.io/service-name=X</code> beats <code>describe svc</code>, because it shows you conditions per address (<code>ready</code>, <code>serving</code>, <code>terminating</code>) rather than a summarised list. When a rollout half-breaks, those three booleans tell the whole story.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-p" id="datapath">
+  <div class="phdr"><h2>The datapath: kube-proxy, eBPF, and this cluster's choice</h2><span class="meta">Cilium · Hubble · identities</span></div>
+  <div class="pbody">
+    <p>Classic kube-proxy watches Services and EndpointSlices and programs the node: <em>iptables</em> mode writes DNAT chains (simple, and linear-ish to rule count), <em>IPVS</em> mode uses kernel load balancing with real scheduling algorithms. eBPF datapaths (Cilium, Calico) replace kube-proxy entirely, doing the translation in the socket or TC layer, which removes the rule-table scaling problem and unlocks flow visibility.</p>
+
+    <pre class="diagram"><b>client pod</b>
+   │ connect 10.96.0.42:80          ← ClusterIP, exists only as a rule
+   ▼
+<i>[ datapath ]</i>  kube-proxy iptables/IPVS  <em>or</em>  <u>eBPF (Cilium, this lab)</u>
+   │ DNAT → picks one endpoint from the EndpointSlice
+   ▼
+<b>backend pod IP</b> 10.244.2.17:8080
+   │
+   ▼ policy is evaluated on the <s>pod identity</s>, not the Service VIP</pre>
+    <p class="figcap">Note the last line. This is why an <code>ipBlock</code> rule naming a ClusterIP never matches: by the time policy is evaluated, the destination has already been rewritten to a pod IP. That single fact resolves a whole family of "my NetworkPolicy does nothing" tasks — and it is exactly the trap section 3.3 springs on you with CloudNativePG.</p>
+
+    <p>This cluster runs <strong>Cilium instead of kindnet plus kube-proxy</strong> for one load-bearing reason: <em>kindnet does not enforce NetworkPolicy at all</em>. A lab where policies apply cleanly and change nothing teaches you the wrong lesson permanently. Cilium also brings identity-based policy (labels are compiled into numeric identities, so policy survives pod IP churn) and Hubble, which shows flows <em>with their verdict</em> — forwarded or dropped, and by which policy.</p>
+
+    <div class="callout lab">
+      <span class="tag">Cilium extras worth knowing by name</span>
+      <p><code>CiliumNetworkPolicy</code> adds what upstream NetworkPolicy cannot express: <code>toFQDNs</code> (allow <code>api.github.com</code> by name, enforced at DNS), <code>toEntities</code> (<code>kube-apiserver</code>, <code>world</code>, <code>host</code>, <code>remote-node</code>), and L7 rules for HTTP/DNS/Kafka. The exam will not test CRD field names, but "which policy engine can express egress to the API server" is a fair scenario, and the answer here is <code>toEntities: [kube-apiserver]</code>.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-y" id="dns">
+  <div class="phdr"><h2>DNS: the layer that fails quietly</h2><span class="meta">CoreDNS · search domains · ndots</span></div>
+  <div class="pbody">
+    <p>Names are <code>&lt;svc&gt;.&lt;ns&gt;.svc.cluster.local</code>, served by CoreDNS in <code>kube-system</code>, backed by a Service called <code>kube-dns</code> (the name is a fossil; the pods are CoreDNS). Pods get a <code>/etc/resolv.conf</code> with a search list and <code>ndots:5</code>, which means any name with fewer than five dots is tried against every search domain first. <code>backend</code> becomes four or five queries before the right one lands; a trailing dot (<code>backend.default.svc.cluster.local.</code>) skips the search list entirely, and that is the cheap fix for DNS-heavy workloads.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Record</th><th class="mono">Resolves to</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">svc.ns.svc.cluster.local</td><td>ClusterIP</td><td>the normal A record</td></tr>
+          <tr><td class="mono">svc.ns</td><td>ClusterIP</td><td>works via search domains</td></tr>
+          <tr><td class="mono">headless.ns.svc…</td><td>all ready pod IPs</td><td>multiple A records, client picks</td></tr>
+          <tr><td class="mono">pod-0.headless.ns.svc…</td><td>one pod</td><td>StatefulSet stable identity</td></tr>
+          <tr><td class="mono">_port._tcp.svc.ns.svc…</td><td>SRV record</td><td>named ports; how peers discover ports</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p><code>spec.dnsPolicy</code> and <code>dnsConfig</code> on a pod let you override all of this — <code>ClusterFirst</code> (default), <code>None</code> plus explicit nameservers, <code>Default</code> (inherit the node's). It comes up when a workload must resolve an external private zone.</p>
+
+    <div class="callout trap">
+      <span class="tag">The failure mode this lab teaches on purpose</span>
+      <p><code>team-a</code> allows DNS egress through one explicit NetworkPolicy rule (UDP/TCP 53 to <code>kube-dns</code>). The <code>netpol</code> break drill removes exactly that rule. Result: every pod stays <strong>Running</strong>, every probe stays green, and nothing can resolve anything. No pod listing will ever show it. You find it by making something try — <code>nslookup</code> from inside — and then reading Hubble's DROPPED verdicts on port 53. Filed away now, it costs you 90 seconds in section 4.6 instead of seven minutes.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-r" id="policy">
+  <div class="phdr"><h2>NetworkPolicy semantics, exactly</h2><span class="meta">additive allow-lists · both ends must open</span></div>
+  <div class="pbody">
+    <ul>
+      <li>Policies are <strong>namespaced</strong> and select <strong>pods</strong>, never Services.</li>
+      <li>A pod is "isolated" for a direction the moment <em>any</em> policy selects it for that direction. Until then, everything is allowed.</li>
+      <li>Rules are <strong>additive allow-lists</strong>. There is no deny rule. You loosen by adding, and you tighten only by removing — an asymmetry the break drill exploits, because a missing rule looks exactly like a rule that was never there.</li>
+      <li>Ingress and egress are independent. A cross-namespace call needs an <em>egress</em> allow on the caller's side <em>and</em> an <em>ingress</em> allow on the callee's. Discovering that empirically once (exercise 3 below) saves you re-deriving it under pressure.</li>
+      <li>Default-deny is itself a policy: empty <code>podSelector</code>, <code>policyTypes: [Ingress, Egress]</code>, no rules.</li>
+      <li>Selector scoping inside a rule matters: <code>namespaceSelector</code> and <code>podSelector</code> in the <em>same</em> list item is an AND (those pods in those namespaces); as two separate items it is an OR. This is the single most common authoring bug.</li>
+    </ul>
+
+    <div class="callout exam">
+      <span class="tag">Exam angle</span>
+      <p>A task that says "team-a must reach only team-b's web service and DNS" is asking for three objects, not one: default-deny in team-a, an egress allow in team-a, an ingress allow in team-b. Grade yourself the way a grader would — a curl that returns 200 and a second curl to something else that times out.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-c" id="gateway">
+  <div class="phdr"><h2>Ingress vs Gateway API</h2><span class="meta">the exam-era answer is Gateway API</span></div>
+  <div class="pbody">
+    <p>Ingress was one object owned by nobody in particular, extended by a swamp of controller-specific annotations. Gateway API replaces it with a role-split model, and the roles are the point:</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Kind</th><th>Owned by</th><th>Says</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">GatewayClass</td><td>infrastructure provider</td><td>which controller implements Gateways of this class</td></tr>
+          <tr><td class="mono">Gateway</td><td>platform team</td><td>listeners: ports, protocols, TLS, and which routes may attach</td></tr>
+          <tr><td class="mono">HTTPRoute / GRPCRoute / TCPRoute</td><td>application team</td><td>match rules, filters, weighted backends</td></tr>
+          <tr><td class="mono">ReferenceGrant</td><td>the namespace being referenced</td><td>consent for a cross-namespace backend reference</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Route attachment is two-sided, in the same spirit as NetworkPolicy: the route names a <code>parentRef</code>, and the Gateway's listener declares <code>allowedRoutes</code> (same namespace, selected namespaces, or all). Both must agree, and a route whose attachment is refused reports it in <em>status</em> rather than failing to apply.</p>
+
+    <p>Status conditions are how you grade your own work: <strong>Accepted</strong> (the controller understood it), <strong>Programmed</strong> (the data plane is configured), <strong>ResolvedRefs</strong> (backends and secrets exist and are permitted). Reading those three beats guessing every time.</p>
+
+    <div class="callout lab">
+      <span class="tag">Honest lab caveat</span>
+      <p>This cluster installs the standard-channel Gateway API CRDs so you can author and schema-validate all of it, but no controller programs a data plane for them on the main cluster. Your Gateway will sit unprogrammed, and I would rather say so than let you believe a Gateway "worked". On the mesh cluster (<code>make mesh</code>), Istio serves Gateway API for real — the same manifests, an actual Programmed condition.</p>
+    </div>
+
+    <p>One neighbour the Gateway needs and Kubernetes does not provide: <strong>certificates</strong>. A TLS listener references a Secret, and something has to keep that Secret valid. In practice that something is cert-manager — an <code>Issuer</code>/<code>ClusterIssuer</code> (ACME, CA, or Vault) plus a <code>Certificate</code>, or the <code>cert-manager.io/cluster-issuer</code> annotation on the Gateway — which issues into the Secret and renews before expiry. Not installed in this lab, but "who renews that certificate" is a fair question about any Gateway you design, and <em>ResolvedRefs: False</em> on a listener is usually its absence.</p>
+
+    <p>Progressive delivery ties in here (section 2.5): weighted <code>backendRefs</code> on an HTTPRoute are how a mesh shifts traffic by route weight instead of by replica count, and Flagger drives exactly those weights.</p>
+  </div>
+</section>
+
+<section class="panel accent-g" id="exercises">
+  <div class="phdr"><h2>Exercises</h2><span class="meta">click a title to collapse · tick the dot when its check passes</span></div>
+  <div class="pbody">
+
+    <div class="exercise" data-title="Trace one request end to end">
+      <p>With <code>gitops</code> up, Argo CD sits behind a LoadBalancer (running <code>server.insecure</code>, so plain http):</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd get svc argocd-server -o wide      # note the EXTERNAL-IP
+kubectl -n argocd get endpointslices -l kubernetes.io/service-name=argocd-server
+curl -s -o /dev/null -w '%{http_code}\n' http://&lt;EXTERNAL-IP&gt;</code></pre></div>
+      <p>The EXTERNAL-IP is real only while <code>cloud-provider-kind</code> runs; without it, <code>kubectl -n argocd port-forward svc/argocd-server 8080:80</code> and curl localhost:8080 instead, and the rest of the exercise is unchanged. Now break it in a way you can explain:</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd patch svc argocd-server --type=merge -p '{"spec":{"selector":{"app":"nope"}}}'</code></pre></div>
+      <p>Watch the endpointslice lose its endpoints and curl start failing while DNS still resolves. Then look at what your patch actually did before undoing it: <code>kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.selector}'</code> shows the original two labels <em>plus</em> <code>app: nope</code>, because a JSON merge patch merges maps rather than replacing them. So the honest restore is removing your key, not re-adding theirs: <code>--type=merge -p '{"spec":{"selector":{"app":null}}}'</code>.</p>
+      <div class="verify"><b>verify</b> — the selector is back to exactly <code>app.kubernetes.io/name: argocd-server</code> and <code>app.kubernetes.io/instance: argocd</code>, and curl returns 200. Two lessons for the price of one; the merge-patch semantics come up on their own exam tasks.</div>
+    </div>
+
+    <div class="exercise" data-title="Watch the CNI make a decision">
+      <p>Run a probe that policy must kill:</p>
+      <div class="cb" data-lang="bash"><pre><code>cilium hubble port-forward &amp;
+kubectl -n team-a run probe --image=curlimages/curl:8.11.1 --restart=Never \
+  -- curl -s -m 5 http://example.com
+hubble observe --namespace team-a --verdict DROPPED --last 20</code></pre></div>
+      <div class="verify"><b>verify</b> — DROPPED flows from the probe pod, and the pod's curl exits non-zero. This is the difference between "policy exists" and "policy enforces".</div>
+    </div>
+
+    <div class="exercise" data-title="Prove you can author Gateway API">
+      <p>Write a Gateway named <code>web</code> using listener port 80, protocol HTTP, plus an HTTPRoute that matches path <code>/demo</code> and backends a Service <code>demo:80</code>. Don't copy from docs; build it from <code>kubectl explain gateway.spec.listeners</code> and <code>kubectl explain httproute.spec.rules</code>.</p>
+      <div class="verify"><b>verify</b> — both apply cleanly (schema-valid), and <code>kubectl get gateway web -o yaml</code> shows the spec you meant. Status stays unprogrammed here; on the mesh cluster Istio would accept the same manifests.</div>
+    </div>
+
+    <div class="exercise" data-title="DNS from inside">
+      <p>From a pod in <code>default</code>, resolve short and long names:</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl run dnsprobe --image=busybox:1.37 --restart=Never -it --rm -- \
+  sh -c 'nslookup argocd-server.argocd &amp;&amp; nslookup argocd-server.argocd.svc.cluster.local'</code></pre></div>
+      <p>Then repeat inside <code>team-a</code> and explain why it still works (the tenant policy allows port 53 to kube-dns explicitly; find that rule in <code>examples/multitenancy/team-a.yaml</code>).</p>
+      <div class="verify"><b>verify</b> — both names resolve from both namespaces, and you can point at the exact policy rule that permits it.</div>
+    </div>
+
+  </div>
+</section>
+
+<section class="panel accent-p" id="selfcheck">
+  <div class="phdr"><h2>Self-check</h2><span class="meta">answer out loud before opening</span></div>
+  <div class="pbody">
+    <details class="quiz"><summary>A Service resolves in DNS but every connection is refused. Name the three things you check, in order.</summary>
+      <div class="answer"><p>Selector against actual pod labels; pod readiness (an unready pod is not in the slice); the EndpointSlice itself. If the slice has addresses with <code>ready: false</code>, it is a probe problem, not a Service problem. If the slice is empty, it is a selector or a scheduling problem.</p></div></details>
+
+    <details class="quiz"><summary>Why does a NetworkPolicy <code>ipBlock</code> naming a Service's ClusterIP never work?</summary>
+      <div class="answer"><p>Because DNAT happens before policy evaluation: by the time the packet is checked, its destination is a pod IP. Policy is expressed in pod selectors and identities, not virtual IPs. For the API server specifically, Cilium's <code>toEntities: [kube-apiserver]</code> is the expressible form.</p></div></details>
+
+    <details class="quiz"><summary>Your backend needs the real client IP. What do you change, and what breaks?</summary>
+      <div class="answer"><p><code>externalTrafficPolicy: Local</code> on the Service. The trade: nodes with no backing pod stop serving that traffic, so you now depend on the load balancer's health checks to avoid them, and you lose the even spread that <code>Cluster</code> gave you.</p></div></details>
+
+    <details class="quiz"><summary>What is the difference between a headless Service and a ClusterIP Service with one endpoint?</summary>
+      <div class="answer"><p>Headless has no VIP and no datapath translation — DNS returns pod IPs directly and the client chooses. A one-endpoint ClusterIP still goes through the VIP and its rules, so the client never learns the pod IP. StatefulSets need the former for stable per-pod names (<code>pod-0.svc…</code>).</p></div></details>
+
+    <details class="quiz"><summary>Team-a can curl team-b's Service after you added an egress allow, but it still fails. What did you forget?</summary>
+      <div class="answer"><p>Team-b's ingress side. Both ends must open; policies are additive allow-lists evaluated independently at each pod. Also check DNS: if egress is now restricted in team-a, resolving <code>web.team-b.svc</code> needs its own port-53 allow.</p></div></details>
+
+    <details class="quiz"><summary>An HTTPRoute applies cleanly but nothing routes. Where do you look first?</summary>
+      <div class="answer"><p><code>status.parents[].conditions</code> on the route: <em>Accepted</em> false usually means attachment was refused by the Gateway's <code>allowedRoutes</code>; <em>ResolvedRefs</em> false means a backend Service or a TLS secret is missing (or needs a ReferenceGrant across namespaces). On the Gateway, <em>Programmed</em> false means no data plane — which is the permanent state on this lab's main cluster.</p></div></details>
+  </div>
+</section>
+
+<section class="panel" id="docs">
+  <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
+  <div class="pbody">
+    <ul class="docs">
+      <li><b>kubernetes.io</b> — Services, DNS for Services and Pods, Network Policies. The DNS page's search-domain section is the one people never read.</li>
+      <li><b>gateway-api.sigs.k8s.io</b> — the API model page with the role diagram; the "route attachment" section.</li>
+      <li><b>docs.cilium.io</b> — Hubble observe reference; CiliumNetworkPolicy entities and FQDN rules.</li>
+      <li><b>Offline, in the exam:</b> <code>kubectl explain service.spec</code>, <code>kubectl explain networkpolicy.spec.egress</code>, <code>kubectl explain httproute.spec.rules --recursive</code>. Faster than docs and always version-correct for the cluster in front of you.</li>
+    </ul>
+  </div>
+</section>
+
+</article>
+<aside class="toc" id="toc"></aside>
+</div></div>
+<script src="../assets/nav.js"></script>
+<script src="../assets/widgets.js"></script>
+<script src="../assets/app.js"></script>
+</body>
+</html>

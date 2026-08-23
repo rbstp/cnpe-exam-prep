@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2.3 Flux: sources, kustomizations, helm releases · CNPE</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-id="2.3" data-root="../">
+<div class="wrap"><div class="cols">
+<article>
+
+<header class="pagehead">
+  <div class="eyebrow"></div>
+  <h1></h1>
+  <p class="sum">The exam names both Argo and Flux, and the lab installs both against the same Gitea for a reason: you should be able to express the same delivery in either. Flux has no Application object. It decomposes GitOps into small CRDs that reference each other, and reading those references is the skill.</p>
+</header>
+
+<div class="stats"></div>
+
+<div class="needs"><span class="lbl">needs</span><code>make core</code></div>
+
+<section class="panel" id="orientation">
+  <div class="phdr"><h2>Orientation</h2><span class="meta">competency 2.1 · the other engine</span></div>
+  <div class="pbody">
+    <p class="lede">Argo CD is one controller with one big CRD. Flux is a toolkit of small controllers with small CRDs, composed by reference. Neither is better; they fail differently, and the exam may hand you either. What transfers is the mental translation, which is the last exercise below.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Controller</th><th>Owns</th><th>Reads</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">source-controller</td><td>GitRepository, OCIRepository, HelmRepository, HelmChart, Bucket</td><td>fetches and publishes an <em>artifact</em> (a tarball + revision)</td></tr>
+          <tr><td class="mono">kustomize-controller</td><td>Kustomization</td><td>an artifact + a path → builds and applies</td></tr>
+          <tr><td class="mono">helm-controller</td><td>HelmRelease</td><td>a chart source → installs/upgrades a release</td></tr>
+          <tr><td class="mono">notification-controller</td><td>Alert, Provider, Receiver</td><td>events out (Slack, webhooks) and events in (git push → instant reconcile)</td></tr>
+          <tr><td class="mono">image-*-controller</td><td>ImageRepository, ImagePolicy, ImageUpdateAutomation</td><td>registry tags → commits back to git</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>That last row is worth knowing exists: Flux can close the CI→CD loop by <em>writing the new image tag into git itself</em>, which is the pull-based answer to "how does a new build get deployed without CI touching the cluster".</p>
+  </div>
+</section>
+
+<section class="panel accent-c" id="model">
+  <div class="phdr"><h2>Working model: sources and appliers</h2><span class="meta">one artifact, many consumers</span></div>
+  <div class="pbody">
+    <pre class="diagram"><b>GitRepository/platform</b>  (interval 1m, ref: main)
+        │ produces artifact @ revision main/9f2c1ab
+        ├────────────▶ <i>Kustomization/apps</i>     path ./apps      prune ✓  interval 5m
+        ├────────────▶ <i>Kustomization/infra</i>    path ./infra     prune ✓  dependsOn: []
+        └────────────▶ <i>Kustomization/tenants</i>  path ./tenants   dependsOn: [infra]
+
+<b>HelmRepository/podinfo</b> ──▶ <i>HelmRelease/podinfo</i> ──▶ release in target namespace</pre>
+
+    <p>The two-step split is the design: one GitRepository can feed many Kustomizations, each watching a different path with its own interval, health checks and prune setting. <code>dependsOn</code> then orders them, which is Flux's equivalent of Argo's sync waves — except it works <em>between</em> top-level objects rather than inside one sync.</p>
+
+    <div class="callout trap">
+      <span class="tag">Two things called Kustomization</span>
+      <p>Flux's <code>Kustomization</code> (<code>kustomize.toolkit.fluxcd.io</code>) is not kustomize's <code>Kustomization</code> (<code>kustomize.config.k8s.io</code>). The Flux one points at a directory; that directory may contain the other one. Exam tasks love this ambiguity, and <code>kubectl get kustomizations.kustomize.toolkit.fluxcd.io</code> versus reading a file resolves it.</p>
+    </div>
+
+    <h3>Kustomization fields that decide behaviour</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th class="mono">Field</th><th>Effect</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">interval</td><td>how often it re-applies — <em>drift correction is a side effect of re-applying</em>, there is no selfHeal toggle</td></tr>
+          <tr><td class="mono">prune</td><td>delete resources removed from git; same blast radius as Argo's</td></tr>
+          <tr><td class="mono">wait / healthChecks / timeout</td><td>block Ready until the listed objects are healthy — this is what makes <code>dependsOn</code> meaningful</td></tr>
+          <tr><td class="mono">targetNamespace</td><td>override the namespace for everything the path applies</td></tr>
+          <tr><td class="mono">postBuild.substitute / substituteFrom</td><td>variable substitution from ConfigMaps/Secrets after kustomize build — Flux's answer to "one manifest, per-cluster values"</td></tr>
+          <tr><td class="mono">serviceAccountName</td><td>apply as that SA — the multi-tenancy control: a tenant's Kustomization cannot exceed its own RBAC</td></tr>
+          <tr><td class="mono">decryption</td><td>SOPS: decrypt secrets in the repo at apply time</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>HelmRelease, in one paragraph</h3>
+    <p>It references a chart (from a HelmRepository, a GitRepository, or an OCIRepository), sets <code>values</code> inline and/or <code>valuesFrom</code> ConfigMaps and Secrets, and controls failure behaviour with <code>install.remediation</code> and <code>upgrade.remediation</code> (retries, and whether to roll back). Newer versions also detect and correct drift on the release's rendered manifests. When one fails, the useful discrimination is <em>which layer</em>: source resolution (the chart could not be fetched), install/upgrade (Helm itself errored), or health (the release installed but the workload never became ready). Each surfaces in a different condition, and reading the right one is the whole diagnosis.</p>
+
+    <h3>Daily verbs</h3>
+    <div class="cb" data-lang="bash"><pre><code>flux get sources git                      # and: helm, oci, bucket, all
+flux get kustomizations                   # Ready, revision, last applied
+flux reconcile kustomization demo --with-source   # force the loop now, refetch first
+flux suspend kustomization demo           # the sanctioned pause for surgery
+flux resume kustomization demo
+flux tree kustomization demo              # what did this thing create
+flux events --for Kustomization/demo
+flux logs --level=error --all-namespaces
+flux trace deploy/demo -n flux-demo       # which Flux object owns this resource</code></pre></div>
+    <p><code>flux trace</code> is the reverse lookup — hand it any live resource and it tells you which Kustomization or HelmRelease put it there. On an unfamiliar cluster that is the fastest orientation command Flux has.</p>
+
+    <div class="callout exam">
+      <span class="tag">Suspend is a real answer</span>
+      <p>"Stop the controller overwriting my hotfix while I debug" has a named, auditable answer in both engines: <code>flux suspend</code>, or disabling auto-sync in Argo. Doing it with <code>kubectl scale deploy/kustomize-controller --replicas=0</code> works and will cost you the mark, because it stops <em>everything</em> and leaves no record on the object.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-y" id="translate">
+  <div class="phdr"><h2>The translation table</h2><span class="meta">say the same thing in either dialect</span></div>
+  <div class="pbody">
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Intent</th><th>Argo CD</th><th>Flux</th></tr></thead>
+        <tbody>
+          <tr><td>where the manifests are</td><td class="mono">Application.spec.source</td><td class="mono">GitRepository + Kustomization.spec.path</td></tr>
+          <tr><td>auto-apply on change</td><td class="mono">syncPolicy.automated</td><td>implicit: every <code>interval</code></td></tr>
+          <tr><td>revert live drift</td><td class="mono">automated.selfHeal</td><td>implicit: re-apply at interval</td></tr>
+          <tr><td>delete removed resources</td><td class="mono">automated.prune</td><td class="mono">Kustomization.spec.prune</td></tr>
+          <tr><td>ordering</td><td>sync waves + hooks</td><td class="mono">dependsOn + healthChecks + wait</td></tr>
+          <tr><td>pause</td><td>disable auto-sync</td><td class="mono">flux suspend</td></tr>
+          <tr><td>per-env values</td><td>kustomize overlays / Helm values</td><td>same, plus <code>postBuild.substitute</code></td></tr>
+          <tr><td>tenant guardrails</td><td class="mono">AppProject</td><td class="mono">serviceAccountName + namespace isolation</td></tr>
+          <tr><td>instant trigger</td><td>webhook to argocd-server</td><td class="mono">Receiver (notification-controller)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>If you can move fluently across that table, "which tool will the exam give me" stops being a worry.</p>
+  </div>
+</section>
+
+<section class="panel accent-g" id="exercises">
+  <div class="phdr"><h2>Exercises</h2><span class="meta">tick the dot when its check passes</span></div>
+  <div class="pbody">
+
+    <div class="exercise" data-title="Build a Kustomization on the existing source">
+      <p>Deploy the demo base (not the overlays, which Argo owns in 2.2; two controllers fighting over one resource is a lesson, not a setup) into a Flux-owned namespace:</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create ns flux-demo
+flux create kustomization demo-flux \
+  --source=GitRepository/platform \
+  --path=./demo-app/base \
+  --target-namespace=flux-demo \
+  --prune=true --interval=1m \
+  --health-check-timeout=2m
+flux get kustomizations</code></pre></div>
+      <div class="verify"><b>verify</b> — Ready True with an applied revision SHA, and <code>kubectl -n flux-demo get deploy demo</code> shows 2/2. Then <code>flux tree kustomization demo-flux</code> and confirm it lists exactly the deployment, service, and nothing else.</div>
+    </div>
+
+    <div class="exercise" data-title="Watch the interval work">
+      <p>Scale the deployment by hand, then wait out one interval:</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n flux-demo scale deploy demo --replicas=5
+sleep 70 &amp;&amp; kubectl -n flux-demo get deploy demo -o jsonpath='{.spec.replicas}{"\n"}'</code></pre></div>
+      <div class="verify"><b>verify</b> — back to 2. Same experiment as Argo's selfHeal, different mechanism; be able to say which component did it (kustomize-controller re-applying at interval).</div>
+    </div>
+
+    <div class="exercise" data-title="Suspend, change, resume">
+      <p><code>flux suspend kustomization demo-flux</code>, scale to 5 again, confirm it stays at 5 for two intervals, then <code>flux resume kustomization demo-flux</code> and confirm it snaps back.</p>
+      <div class="verify"><b>verify</b> — suspend shows in <code>flux get kustomizations</code> as Suspended True. This is the answer to "make the controller stop overwriting my hotfix while I debug".</div>
+    </div>
+
+    <div class="exercise" data-title="A HelmRelease from a public chart">
+      <p>Sources need not be git:</p>
+      <div class="cb" data-lang="bash"><pre><code>flux create source helm podinfo --url=https://stefanprodan.github.io/podinfo --interval=10m
+flux create helmrelease podinfo --source=HelmRepository/podinfo \
+  --chart=podinfo --target-namespace=flux-demo --interval=5m
+kubectl -n flux-demo get deploy podinfo</code></pre></div>
+      <p>Break it once for the diagnostic reps: set <code>--chart-version='&gt;99.0.0'</code> on a new helmrelease, read the failure in <code>flux get helmreleases</code> and <code>kubectl describe helmrelease</code>, then delete it. Failed source resolution vs failed install vs failed health check appear in different conditions, and knowing which layer failed is the troubleshooting pattern.</p>
+      <div class="verify"><b>verify</b> — <code>flux get helmreleases</code> Ready True, release revision 1, and <code>helm list -n flux-demo</code> shows Flux as the release owner.</div>
+    </div>
+
+    <div class="exercise" data-title="Translate">
+      <p>Write down, from memory, the Flux equivalent of the Argo CD Application <code>demo-staging</code> from 2.2 (GitRepository exists; you need one Kustomization spec: path, targetNamespace, prune, interval). Verify against <code>flux create kustomization --export</code>.</p>
+      <div class="verify"><b>verify</b> — your hand-written spec matches the generated one field for field. If you can do this translation both directions, the "which tool will the exam give me" worry disappears.</div>
+    </div>
+
+  </div>
+</section>
+
+<section class="panel accent-p" id="selfcheck">
+  <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
+  <div class="pbody">
+    <details class="quiz"><summary>Flux has no <code>selfHeal</code> setting. Why is drift still corrected?</summary>
+      <div class="answer"><p>Because the Kustomization re-applies its rendered manifests every <code>interval</code>; correcting drift is a side effect of applying, not a separate feature. The corollary: your drift window is bounded by the interval, and shortening it costs API server load.</p></div></details>
+
+    <details class="quiz"><summary>A Kustomization is Ready False. Name the three layers where it could have failed.</summary>
+      <div class="answer"><p>Source (the GitRepository is not Ready — auth, ref, or network), build (kustomize build failed, bad path or invalid YAML), apply/health (the API server rejected something, or health checks timed out). The conditions and <code>flux logs</code> name the layer; do not skip straight to the manifests.</p></div></details>
+
+    <details class="quiz"><summary>How do you order "install CRDs, then the operator, then the tenant CRs" in Flux?</summary>
+      <div class="answer"><p>Three Kustomizations with <code>dependsOn</code>, each with <code>wait: true</code> (or explicit <code>healthChecks</code>) so a dependency counts as satisfied only when its objects are actually healthy. Without wait/healthChecks, <code>dependsOn</code> only orders the <em>apply</em>, not the readiness.</p></div></details>
+
+    <details class="quiz"><summary>What is <code>postBuild.substitute</code> for, and what is its Argo CD analogue?</summary>
+      <div class="answer"><p>Injecting per-cluster or per-environment values into manifests after kustomize build, sourced inline or from ConfigMaps/Secrets. Argo's analogues are kustomize overlays, Helm values per Application, or ApplicationSet template parameters — Flux just lets you do it without another overlay directory.</p></div></details>
+
+    <details class="quiz"><summary>How does Flux stop one tenant's Kustomization from deploying cluster-admin-level resources?</summary>
+      <div class="answer"><p><code>spec.serviceAccountName</code>: the controller impersonates that ServiceAccount when applying, so the tenant's manifests can never exceed the tenant's RBAC. Combined with disallowing cross-namespace source references, that is Flux's multi-tenancy story — the structural equivalent of Argo's AppProject.</p></div></details>
+  </div>
+</section>
+
+<section class="panel" id="docs">
+  <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
+  <div class="pbody">
+    <ul class="docs">
+      <li><b>fluxcd.io</b> — GitRepository, Kustomization, HelmRelease API references; the "flux CLI" cheat sheet; the multi-tenancy guide for the serviceAccountName pattern.</li>
+      <li><b>Offline:</b> <code>flux --help</code> and <code>flux create &lt;kind&gt; --help --export</code> generate correct YAML without docs, which is faster than searching during the exam.</li>
+    </ul>
+  </div>
+</section>
+
+</article>
+<aside class="toc" id="toc"></aside>
+</div></div>
+<script src="../assets/nav.js"></script>
+<script src="../assets/widgets.js"></script>
+<script src="../assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>4.2 Alerting: rules, Alertmanager, routing · CNPE</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-id="4.2" data-root="../">
+<div class="wrap"><div class="cols">
+<article>
+
+<header class="pagehead">
+  <div class="eyebrow"></div>
+  <h1></h1>
+  <p class="sum">Two systems, one handoff, and keeping their jobs separate answers half the questions about them. Prometheus evaluates rules and decides what is <em>true</em>. Alertmanager receives firing alerts and decides who <em>hears</em> about it.</p>
+</header>
+
+<div class="stats"></div>
+
+<div class="needs"><span class="lbl">needs</span><code>make up obs</code></div>
+
+<section class="panel" id="orientation">
+  <div class="phdr"><h2>Orientation</h2><span class="meta">competency 4.1 · alerting and notification routing</span></div>
+  <div class="pbody">
+    <p class="lede">"Where do I configure X" questions are really "which side of the handoff is X" questions. Thresholds, durations and labels: Prometheus. Grouping, routing, silencing, inhibition, receivers: Alertmanager. Get that boundary right and the rest is syntax.</p>
+    <pre class="diagram"><b>Prometheus</b>                              <b>Alertmanager</b>
+ rule groups, evaluated every 30s          receives firing alerts via HTTP
+   expr → <i>Inactive</i> → <i>Pending</i> (for:) → <u>Firing</u>  ─────▶  route → group → inhibit → silence → <em>receiver</em>
+   labels decide routing                      group_wait / group_interval / repeat_interval
+   annotations describe                       webhook · email · Slack · PagerDuty</pre>
+  </div>
+</section>
+
+<section class="panel accent-c" id="rules">
+  <div class="phdr"><h2>Rules</h2><span class="meta">PrometheusRule · states · recording rules</span></div>
+  <div class="pbody">
+    <p>A <code>PrometheusRule</code> CRD holds groups of rules. An <strong>alerting rule</strong> is a PromQL expression plus:</p>
+    <ul>
+      <li><code>for</code> — how long the expression must hold before Pending becomes Firing. This is your flap filter, and picking it is a real decision: too short and you page on transients, too long and you notice late.</li>
+      <li><code>labels</code> — <em>routing material</em>. <code>severity</code>, <code>team</code>, <code>service</code>. Whatever your routes match on must be produced here.</li>
+      <li><code>annotations</code> — human material: <code>summary</code>, <code>description</code>, <code>runbook_url</code>. Templated with <code>{{ $labels.x }}</code> and <code>{{ $value }}</code>.</li>
+      <li><code>keep_firing_for</code> — the opposite of <code>for</code>: keeps an alert firing briefly after it resolves, to damp flapping resolutions.</li>
+    </ul>
+
+    <p><strong>Recording rules</strong> are the other half of the CRD and are underrated: they precompute an expensive expression into a new series on a schedule (<code>job:http_errors:rate5m</code>, by convention <code>level:metric:operation</code>). Dashboards and alerts then read a cheap series. If a scenario says "this dashboard takes 30 seconds to load", a recording rule is the expected answer.</p>
+
+    <div class="callout trap">
+      <span class="tag">The same selector story as ServiceMonitors</span>
+      <p>Rules are only evaluated if they match the Prometheus object's <code>ruleSelector</code>. This lab's is <code>{}</code> (everything); a stock install's is the release label. An unmatched rule produces <em>no evaluation and no error</em>. Read the selector before blaming the rule — and note that this is the third place in domain 4 where a selector silently discards correct configuration.</p>
+    </div>
+
+    <div class="callout exam">
+      <span class="tag">Alert states, and where each is visible</span>
+      <p><em>Inactive</em> → <em>Pending</em> (expression true, <code>for</code> not yet satisfied) → <em>Firing</em>. Pending alerts appear in Prometheus's Alerts page and <strong>nowhere else</strong> — they have not been sent. That matters when someone asks why nothing reached the receiver "even though the alert is showing". Add evaluation interval + <code>for</code> + <code>group_wait</code> to compute how long a fire genuinely takes; on a stock stack that is easily 2–3 minutes, and knowing to wait is worth a mark.</p>
+    </div>
+
+
+    <p>Add the settings up before you conclude that alerting is broken:</p>
+    <div class="widget" data-widget="alertstate"></div>
+    <h3>What makes an alert worth having</h3>
+    <ul>
+      <li><strong>Symptom over cause.</strong> Alert on user-visible failure (error rate, latency, unavailability), not on every internal cause. Cause-based alerts multiply; symptom-based ones stay bounded.</li>
+      <li><strong>Actionable.</strong> If nobody would do anything at 3am, it is a dashboard panel, not a page.</li>
+      <li><strong>SLO-shaped, if you can.</strong> Burn-rate alerting (fast burn on a short window, slow burn on a long one) is the modern form: it pages on error budget consumption instead of arbitrary thresholds. Even knowing the phrase "multi-window multi-burn-rate" signals you have read the SRE material.</li>
+      <li><strong>Documented.</strong> A <code>runbook_url</code> annotation is the cheapest reliability improvement in this section.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="panel accent-p" id="routing">
+  <div class="phdr"><h2>Routing</h2><span class="meta">tree · grouping · silence · inhibition</span></div>
+  <div class="pbody">
+    <p>Note the order: <em>routing happens first</em>. The dispatcher matches an alert against the route tree, and the route it lands on decides the group (its <code>group_by</code>) and the timers; only then does the per-group pipeline run inhibition, silences, waiting and de-duplication before notifying. Reading it the other way round leads to conclusions like "the silence should have stopped it from grouping", which is not a thing.</p>
+
+    <p>Alertmanager's config is a <strong>tree of routes</strong>. Each alert enters at the root and descends to the most specific matching route; <code>continue: true</code> lets it match siblings too. A route names a receiver and grouping behaviour:</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th class="mono">Setting</th><th>Means</th><th>Typical</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">group_by</td><td>collapse alerts sharing these labels into one notification</td><td class="mono">[alertname, namespace]</td></tr>
+          <tr><td class="mono">group_wait</td><td>wait before the first send, to batch siblings</td><td class="mono">30s</td></tr>
+          <tr><td class="mono">group_interval</td><td>wait before sending <em>new</em> members of an existing group</td><td class="mono">5m</td></tr>
+          <tr><td class="mono">repeat_interval</td><td>how often to re-notify about an unresolved group</td><td class="mono">4h–12h</td></tr>
+          <tr><td class="mono">matchers</td><td>which alerts take this branch</td><td class="mono">severity="critical"</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p><strong>Silences</strong> mute matching alerts for a time window without touching config — created in the UI or via <code>amtool</code>, and they change <em>notification</em>, never truth: Prometheus still shows the alert firing. <strong>Inhibition</strong> suppresses alerts when a related, more severe one is already firing (node down inhibits everything on that node), matched by <code>source_matchers</code>, <code>target_matchers</code> and an <code>equal</code> label list. Distinguishing silence (temporary, human, targeted) from inhibition (permanent rule, relationship-based) is a fair exam question.</p>
+
+    <div class="callout lab">
+      <span class="tag">Verify the rendered truth</span>
+      <p>In this stack the live config is generated by the operator into a Secret, and the UI's Status page shows the rendered result. The operator also supports namespaced <code>AlertmanagerConfig</code> CRDs that merge into the tree — whether an Alertmanager picks them up depends on its <code>alertmanagerConfigSelector</code>. So verify pickup <em>in the rendered config</em> rather than trusting the apply. That habit transfers to every operator-managed config on the exam.</p>
+    </div>
+
+    <p>One special alert to recognise: <strong>Watchdog</strong>, which fires always, by design. It is a dead-man's switch — an external system watches for it and screams when it <em>stops</em> arriving, which is how you detect that your whole alerting pipeline died. If a question asks why an always-firing alert is a feature, that is the answer.</p>
+  </div>
+</section>
+
+<section class="panel accent-g" id="exercises">
+  <div class="phdr"><h2>Exercises</h2><span class="meta">tick the dot when its check passes</span></div>
+  <div class="pbody">
+    <p>Alertmanager has no LoadBalancer here: <code>kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-alertmanager 9093:9093</code> and browse localhost:9093.</p>
+
+    <div class="exercise" data-title="Fire an alert you control">
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: curriculum-drill
+  namespace: monitoring
+  labels: { release: prometheus }
+spec:
+  groups:
+    - name: drill
+      rules:
+        - alert: TooManyExamplePods
+          expr: count(kube_pod_info{namespace="default"}) &gt; 0
+          for: 1m
+          labels: { severity: warning, team: platform }
+          annotations:
+            summary: "{{ $value }} pods in default"
+            description: "Drill alert; fires whenever default has any pods."
+EOF</code></pre></div>
+      <p>Watch it walk the states: Prometheus UI → Alerts shows Pending, then Firing after the minute.</p>
+      <div class="verify"><b>verify</b> — it appears in the Alertmanager UI with your labels, grouped, and the annotation rendered the live value rather than the template text.</div>
+    </div>
+
+    <div class="exercise" data-title="Silence it like an operator would">
+      <p>In the Alertmanager UI, create a silence matching <code>alertname=TooManyExamplePods</code> for 2 hours with a comment.</p>
+      <div class="verify"><b>verify</b> — the alert leaves the active view and lands under Silences, while Prometheus still shows it Firing. That split is the lesson: silencing changes notification, never truth.</div>
+    </div>
+
+    <div class="exercise" data-title="Read the routing tree">
+      <p>Open Status in the Alertmanager UI and answer from the rendered config: what is the root receiver, what does <code>group_by</code> collapse on, which special route exists for the Watchdog alert (the stack ships one that fires always, as a dead-man's switch; know why that is a feature).</p>
+      <div class="verify"><b>verify</b> — you can trace where your drill alert's <code>severity: warning</code> lands in the tree and say which single config line you would change to route <code>team: platform</code> alerts to a new webhook receiver.</div>
+    </div>
+
+    <div class="exercise" data-title="Route to a receiver you can see (stretch)">
+      <p>Deploy a trivial webhook sink (<code>kubectl create deploy sink --image=mendhak/http-https-echo:31</code> plus a Service), add an AlertmanagerConfig in <code>default</code> routing <code>team: platform</code> to it, and then verify pickup honestly: does the rendered config in the UI now contain the route? If yes, <code>kubectl logs deploy/sink</code> shows the JSON payload when the drill alert fires — read it once; its structure (groupLabels, commonAnnotations, alerts[]) is what every receiver integration parses.</p>
+      <div class="verify"><b>verify</b> — either the payload arrives, or you can name the selector on the Alertmanager object that would have to change. Diagnosing that honestly is worth as much as the happy path. Clean up: delete the PrometheusRule; the silence expires on its own.</div>
+    </div>
+
+  </div>
+</section>
+
+<section class="panel accent-p" id="selfcheck">
+  <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
+  <div class="pbody">
+    <details class="quiz"><summary>An alert shows Firing in Prometheus and nothing arrived. Three candidate causes?</summary>
+      <div class="answer"><p>A silence matches it; an inhibition rule suppresses it; or routing sent it to a receiver that is failing (check Alertmanager's own logs and its <code>alertmanager_notifications_failed_total</code>). A fourth, if it only just fired: <code>group_wait</code> has not elapsed.</p></div></details>
+
+    <details class="quiz"><summary>Your rule applies cleanly and never evaluates. What did you not check?</summary>
+      <div class="answer"><p>The Prometheus object's <code>ruleSelector</code> (and its namespace selector). Unmatched rules are ignored silently — same failure shape as ServiceMonitors, same first command: read the selector.</p></div></details>
+
+    <details class="quiz"><summary>Silence versus inhibition — when do you use each?</summary>
+      <div class="answer"><p>Silence: temporary, human-initiated, targeted at a known maintenance or a known-noisy alert, with an expiry and a comment. Inhibition: a standing rule expressing a relationship — when the cause alert fires, suppress its downstream symptoms. Silences are operations; inhibitions are design.</p></div></details>
+
+    <details class="quiz"><summary>How long, roughly, from "condition becomes true" to "notification sent" on a stock stack?</summary>
+      <div class="answer"><p>Up to one evaluation interval (30s) to notice, plus <code>for</code> (say 1–5m), plus <code>group_wait</code> (30s). So a couple of minutes minimum — which is why you wait before declaring an alerting pipeline broken, and why <code>for: 15m</code> on a page-worthy symptom is usually too slow.</p></div></details>
+
+    <details class="quiz"><summary>What is the Watchdog alert for?</summary>
+      <div class="answer"><p>It fires permanently as a dead-man's switch: an external system expects to keep receiving it and alerts when it stops, catching the failure mode where Prometheus or Alertmanager itself dies and therefore cannot alert you about anything. Self-monitoring has to come from outside.</p></div></details>
+  </div>
+</section>
+
+<section class="panel" id="docs">
+  <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
+  <div class="pbody">
+    <ul class="docs">
+      <li><b>prometheus.io</b> — alerting rules, and the Alertmanager configuration page (route and inhibit_rule syntax).</li>
+      <li><b>prometheus-operator.dev</b> — PrometheusRule and AlertmanagerConfig CRD references.</li>
+      <li><b>sre.google</b> — the SRE workbook chapter on alerting on SLOs, for burn-rate vocabulary.</li>
+      <li><b>Offline:</b> <code>amtool config routes show</code> / <code>amtool config routes test</code> if the binary is present, and the Alertmanager UI's Status page.</li>
+    </ul>
+  </div>
+</section>
+
+</article>
+<aside class="toc" id="toc"></aside>
+</div></div>
+<script src="../assets/nav.js"></script>
+<script src="../assets/widgets.js"></script>
+<script src="../assets/app.js"></script>
+</body>
+</html>

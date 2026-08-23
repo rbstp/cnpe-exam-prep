@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>4.3 Grafana dashboards and Loki logs · CNPE</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-id="4.3" data-root="../">
+<div class="wrap"><div class="cols">
+<article>
+
+<header class="pagehead">
+  <div class="eyebrow"></div>
+  <h1></h1>
+  <p class="sum">Grafana is the pane of glass over both halves of this section: Prometheus metrics through dashboards, Loki logs through Explore. Credentials are genuinely admin/admin here; address from <code>make urls</code>.</p>
+</header>
+
+<div class="stats"></div>
+
+<div class="needs"><span class="lbl">needs</span><code>make up obs</code></div>
+
+<section class="panel" id="orientation">
+  <div class="phdr"><h2>Orientation</h2><span class="meta">competency 4.1 · logging and actionable dashboards</span></div>
+  <div class="pbody">
+    <p class="lede">The competency wording is "dashboards that provide actionable insight", which is a judgement claim, not a tooling claim. Two things make it real: dashboards shipped as code, and dashboards designed around a question someone actually asks during an incident.</p>
+  </div>
+</section>
+
+<section class="panel accent-c" id="dashboards">
+  <div class="phdr"><h2>Dashboards as code</h2><span class="meta">the sidecar pattern</span></div>
+  <div class="pbody">
+    <p>The exam-relevant fact about Grafana in a kube-prometheus-stack world: dashboards are <strong>provisioned, not clicked together</strong>. A sidecar container in the Grafana pod watches for ConfigMaps labelled <code>grafana_dashboard: "1"</code> and loads any dashboard JSON it finds inside. That is why the stack's forty-odd dashboards exist without anyone importing them, and it is how <em>you</em> ship a dashboard in a GitOps world: JSON in a ConfigMap in a git repo. Datasources provision the same way with <code>grafana_datasource: "1"</code>.</p>
+
+    <pre class="diagram"><b>git</b> ──▶ ConfigMap (label <i>grafana_dashboard=1</i>) ──▶ <b>sidecar</b> writes /tmp/dashboards ──▶ <u>Grafana loads it</u>
+                                                          │
+   a dashboard clicked together in the UI lives only in Grafana's database
+   and dies with the pod ────────────────────────────────┘</pre>
+
+    <h3>What makes a dashboard actionable rather than decorative</h3>
+    <ul>
+      <li><strong>Lead with the user-facing symptom.</strong> <strong>RED</strong> for services (Rate, Errors, Duration); <strong>USE</strong> for resources (Utilization, Saturation, Errors); the four <strong>golden signals</strong> (latency, traffic, errors, saturation) if you prefer that vocabulary. Know all three acronyms and which applies to what — it is a cheap question to set.</li>
+      <li><strong>Template over a variable</strong> (<code>$namespace</code>, <code>$pod</code>) instead of hardcoding, so one dashboard serves every tenant. Variables come from <code>label_values()</code> queries, which is how the stock dashboards populate their dropdowns.</li>
+      <li><strong>Every panel answers a question someone would ask during an incident.</strong> Forty panels of everything is a wall, not a dashboard.</li>
+      <li><strong>Annotations and links.</strong> Deployment markers turn "when did this start" into a glance, and a panel link to the matching logs query turns a metric spike into a root cause.</li>
+    </ul>
+    <p>Grafana specifics worth naming once: <em>datasources</em> (Prometheus, Loki, Jaeger here), <em>panels</em> with unit and threshold settings, <em>alerting</em> (Grafana has its own alert engine, deliberately unused in this lab — Prometheus rules are the exam's model), and <em>folders + permissions</em> for multi-team setups.</p>
+  </div>
+</section>
+
+<section class="panel accent-p" id="loki">
+  <div class="phdr"><h2>Loki and LogQL</h2><span class="meta">index labels, not content</span></div>
+  <div class="pbody">
+    <p>Loki indexes <strong>labels</strong>, not content: log lines are stored against a small label set (namespace, pod, container, app) and content matching happens at query time by scanning the selected streams. That is why it is cheap to run, and why every query must start from a label selector before filtering. It is also why label cardinality discipline matters even more than in Prometheus — a label per request ID would create a stream per request.</p>
+
+    <p>Collection here is <strong>Alloy</strong>, a single-replica deployment in <code>monitoring</code> that tails every pod through the kubelet API and pushes to Loki; Loki itself stores them as a StatefulSet next door. Two hops, and <code>make validate</code> proves the pair works by demanding Loki actually returns streams — because a running Loki with no shipper looks healthy and holds nothing.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>LogQL piece</th><th>Example</th><th>Does</th></tr></thead>
+        <tbody>
+          <tr><td>stream selector</td><td class="mono">{namespace="team-a"}</td><td>required first step; picks streams</td></tr>
+          <tr><td>line filter</td><td class="mono">|= "error" · != "/healthz" · |~ "5[0-9]{2}"</td><td>substring / regex match on the line</td></tr>
+          <tr><td>parser</td><td class="mono">| json · | logfmt · | pattern</td><td>extract fields into labels for filtering</td></tr>
+          <tr><td>label filter</td><td class="mono">| status &gt;= 500</td><td>filter on extracted fields</td></tr>
+          <tr><td>metric query</td><td class="mono">sum by (pod) (rate({ns="x"} |= "error" [5m]))</td><td>turns logs into a graphable series</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Those five constructs cover exam depth. The one to internalise is the last: a metric query over logs is how you alert on something that only exists in text, and it is the bridge between this section and 4.2.</p>
+
+    <div class="callout reflex">
+      <span class="tag">Terminal beats UI, often</span>
+      <p><code>stern &lt;pattern&gt; -n &lt;ns&gt;</code> tails many pods at once with colour-coded names, and <code>kubectl logs --previous</code> is the only way to read a crashed container's last words. Loki is for "what happened an hour ago across the fleet"; stern and kubectl are for "what is happening right now". Knowing which question you are asking picks the tool.</p>
+    </div>
+
+    <div class="callout exam">
+      <span class="tag">The three signals, and when logs are the right one</span>
+      <p>Metrics answer "how much / how often" cheaply over long windows. Logs answer "what exactly happened to this one thing", at higher cost per query. Traces (4.4) answer "where in the request path did it go wrong". An exam scenario that says "find the error message" is a log question; "how many failed" is a metric question; "which service is slow" is a trace question. Choosing wrong costs minutes.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-g" id="exercises">
+  <div class="phdr"><h2>Exercises</h2><span class="meta">tick the dot when its check passes</span></div>
+  <div class="pbody">
+
+    <div class="exercise" data-title="Wire the Loki datasource if it is missing">
+      <p>In Grafana: Connections → Data sources. If Loki is not there, add it the provisioned way rather than the UI way:</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-datasource
+  labels: { grafana_datasource: "1" }
+data:
+  loki.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        type: loki
+        url: http://loki.monitoring.svc:3100
+        access: proxy
+EOF</code></pre></div>
+      <p>The sidecar picks it up within a minute or so. If nothing arrives, bisect the two hops: shipper first (<code>kubectl -n monitoring get deploy alloy</code>, then its logs for push errors), Loki second.</p>
+      <div class="verify"><b>verify</b> — Explore → Loki → <code>{namespace="monitoring"}</code> returns log lines. Being able to say <em>which</em> hop is broken is the exercise inside the exercise.</div>
+    </div>
+
+    <div class="exercise" data-title="Query logs like an incident">
+      <p>Generate known lines, then find them:</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n team-a run chatty --image=busybox:1.37 --restart=Never -- \
+  sh -c 'for i in $(seq 60); do echo "level=error msg=payment_failed attempt=$i"; sleep 1; done'</code></pre></div>
+      <p>In Explore: <code>{namespace="team-a"} |= "payment_failed"</code>, then the metric form <code>sum(rate({namespace="team-a"} |= "payment_failed" [1m]))</code>.</p>
+      <div class="verify"><b>verify</b> — lines visible and the rate curve is about 1/s while the pod runs. Compare <code>stern chatty -n team-a</code> for the same lines live.</div>
+    </div>
+
+    <div class="exercise" data-title="Provision a dashboard as code">
+      <p>Build one panel in the UI first (New dashboard → add visualization → Prometheus → <code>sum by (namespace) (rate(container_cpu_usage_seconds_total[5m]))</code>), then export its JSON (share → Export → save JSON, set "export for sharing externally" off), and re-deliver it properly:</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring create configmap team-cpu-dashboard --from-file=dash.json=&lt;your-file&gt; \
+  --dry-run=client -o yaml | kubectl label -f - --local --dry-run=client -o yaml grafana_dashboard=1 | kubectl apply -f -</code></pre></div>
+      <div class="verify"><b>verify</b> — delete the hand-made dashboard in the UI, and the provisioned copy appears (default folder) and survives a Grafana pod delete, which the clicked one would not have. State the GitOps moral in one sentence.</div>
+    </div>
+
+    <div class="exercise" data-title="Read one stock dashboard critically">
+      <p>Open "Kubernetes / Compute Resources / Namespace (Pods)" for <code>team-a</code> while the chatty pod runs. Answer: which panels are RED, which are USE, and which single panel would you keep if you could keep one during a pod-crash incident.</p>
+      <div class="verify"><b>verify</b> — there is no single right answer; having <em>an</em> answer with a reason is the skill the "actionable insights" wording points at.</div>
+    </div>
+
+  </div>
+</section>
+
+<section class="panel accent-p" id="selfcheck">
+  <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
+  <div class="pbody">
+    <details class="quiz"><summary>How does a dashboard get into Grafana in a GitOps platform, and why not click it?</summary>
+      <div class="answer"><p>JSON in a ConfigMap labelled <code>grafana_dashboard: "1"</code>, delivered from git; the sidecar loads it. A clicked dashboard lives only in Grafana's database — unreviewable, unversioned, and gone with the pod unless persistence is configured.</p></div></details>
+
+    <details class="quiz"><summary>Explain RED and USE, and which you would use for a queue worker.</summary>
+      <div class="answer"><p>RED = Rate, Errors, Duration, for request-driven services. USE = Utilization, Saturation, Errors, for resources. A queue worker is best served by both plus queue depth: USE for the worker pool, RED-ish for message processing, and saturation is really "is the backlog growing".</p></div></details>
+
+    <details class="quiz"><summary>Loki returns nothing for <code>{namespace="team-a"}</code>. Two hops to check, in order.</summary>
+      <div class="answer"><p>The shipper first (Alloy running, not erroring on push, actually tailing that namespace), then Loki (ingester healthy, retention not eating the window, right tenant/org headers if multi-tenancy is on). A healthy Loki with no shipper looks perfectly fine and holds nothing — which is exactly why <code>make validate</code> demands streams, not readiness.</p></div></details>
+
+    <details class="quiz"><summary>Why is a per-request-ID label a bad idea in Loki?</summary>
+      <div class="answer"><p>Labels define streams, and Loki's index is per stream. A unique label value per request creates a stream per request: index explosion, slow queries, high memory. Put high-cardinality identifiers in the log <em>line</em> and filter or parse them at query time — that is what Loki's design is optimised for.</p></div></details>
+
+    <details class="quiz"><summary>Turn "alert me when payments start failing" into a LogQL-based rule, conceptually.</summary>
+      <div class="answer"><p>A metric query over logs: <code>sum(rate({namespace="payments"} |= "payment_failed" [5m])) &gt; 0.1</code>, evaluated by Loki's ruler (or mirrored into Prometheus via a recording pipeline). Same alerting mechanics as 4.2 — the only difference is where the series comes from.</p></div></details>
+  </div>
+</section>
+
+<section class="panel" id="docs">
+  <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
+  <div class="pbody">
+    <ul class="docs">
+      <li><b>grafana.com/docs</b> — provisioning (datasources and dashboards), dashboard variables, and the LogQL reference.</li>
+      <li>The Explore UI's query builder doubles as LogQL documentation under time pressure.</li>
+      <li><b>Offline:</b> <code>stern --help</code>, <code>kubectl logs --previous</code>, and the Grafana panel inspector (it shows the exact query and the raw response).</li>
+    </ul>
+  </div>
+</section>
+
+</article>
+<aside class="toc" id="toc"></aside>
+</div></div>
+<script src="../assets/nav.js"></script>
+<script src="../assets/widgets.js"></script>
+<script src="../assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2.2 Argo CD: applications, sync, drift · CNPE</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-id="2.2" data-root="../">
+<div class="wrap"><div class="cols">
+<article>
+
+<header class="pagehead">
+  <div class="eyebrow"></div>
+  <h1></h1>
+  <p class="sum">Argo CD is the tool most likely to be sitting in front of you on the exam, and the Application resource is its entire API. One spec: source, destination, syncPolicy. Everything in the UI is a view over that, and everything that goes wrong is visible in <code>status</code>.</p>
+</header>
+
+<div class="stats"></div>
+
+<div class="needs"><span class="lbl">needs</span><code>make core</code></div>
+
+<section class="panel" id="orientation">
+  <div class="phdr"><h2>Orientation</h2><span class="meta">competency 2.1 · GitOps workflows</span></div>
+  <div class="pbody">
+    <p class="lede">Two hours of Argo CD practice pays back more exam points than any other tool in this curriculum. Know the Application spec cold, know the two status axes, know the CLI, and know where the error text comes from when a sync fails.</p>
+
+    <h3>The components, because errors are attributable</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Component</th><th>Job</th><th>Errors it produces</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">repo-server</td><td>clones git, renders kustomize/Helm</td><td>auth failures, template/render errors, missing paths</td></tr>
+          <tr><td class="mono">application-controller</td><td>compares, syncs, reports health</td><td>API server rejections, prune/hook behaviour, OutOfSync</td></tr>
+          <tr><td class="mono">api-server</td><td>UI, CLI, RBAC, SSO</td><td>login and permission errors</td></tr>
+          <tr><td class="mono">redis</td><td>cache of rendered manifests and live state</td><td>weird staleness after a redis restart</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>When a task says "the app will not sync", the first fork is: did rendering fail (repo-server) or did applying fail (controller)? The message tells you, and knowing which pod's logs to read halves the time.</p>
+  </div>
+</section>
+
+<section class="panel accent-c" id="application">
+  <div class="phdr"><h2>The Application spec, field by field that matters</h2><span class="meta">source · destination · syncPolicy</span></div>
+  <div class="pbody">
+    <div class="cb" data-lang="yaml"><pre><code>apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: demo-staging
+  namespace: argocd                      # apps live in the controller's namespace
+spec:
+  project: default                       # AppProject = the guardrails (see below)
+  source:
+    repoURL: http://gitea.lab:3000/lab/platform.git
+    targetRevision: HEAD                 # branch, tag, or commit SHA
+    path: demo-app/overlays/staging      # or chart: + helm: for a chart source
+  destination:
+    server: https://kubernetes.default.svc   # or name: in-cluster
+    namespace: team-a
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 3
+      backoff: { duration: 5s, factor: 2, maxDuration: 3m }</code></pre></div>
+
+    <p><code>targetRevision</code> deserves a thought: <code>HEAD</code> or a branch means "whatever moves there", a tag or SHA means immutable. Production apps pinned to a SHA and promoted by bumping it is a legitimate — and auditable — pattern.</p>
+
+    <h3>The two status axes, and the mistake of conflating them</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Axis</th><th>Values</th><th>Answers</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Sync</strong></td><td class="mono">Synced · OutOfSync · Unknown</td><td>does live match git?</td></tr>
+          <tr><td><strong>Health</strong></td><td class="mono">Healthy · Progressing · Degraded · Missing · Suspended · Unknown</td><td>are the resources themselves okay?</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout model">
+      <span class="tag">Synced and Degraded is not a contradiction</span>
+      <p>Git said run a broken image, and the cluster faithfully runs it broken. Sync is green because the diff is empty; health is red because the Deployment cannot progress. Clicking <em>sync</em> again does nothing at all. The fix is a commit. Recognising this state on sight is worth several minutes on exam day, and section 2.6 opens with it.</p>
+    </div>
+
+    <p>Every combination means something different, and each has exactly one right first move:</p>
+    <div class="widget" data-widget="syncmatrix"></div>
+    <p>Health is computed per resource kind by built-in checks (a Deployment is Healthy when its available replicas match, a Service with a LoadBalancer waits for an IP…), and custom kinds get custom Lua health checks — which is how Argo CD reports on CRDs like Rollouts. If a custom resource sits forever in Progressing, either it has no health check or its status conditions never settle.</p>
+
+    <h3>syncPolicy, decided before you need it</h3>
+    <ul>
+      <li><strong>Manual</strong> — reports OutOfSync and waits. Correct for production changes that need a human.</li>
+      <li><code>automated</code> — syncs when git changes.</li>
+      <li><code>automated.selfHeal: true</code> — also reverts live drift, continuously.</li>
+      <li><code>automated.prune: true</code> — deletes live resources whose manifests vanished from git. The one that bites: without it, renaming a resource leaves the old one running forever; with it, removing a file deletes production.</li>
+    </ul>
+
+    <h3>Sync options worth memorising</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th class="mono">Option</th><th>What it fixes</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">CreateNamespace=true</td><td>destination namespace does not exist yet</td></tr>
+          <tr><td class="mono">Replace=true</td><td>immutable-field errors; does <code>kubectl replace</code> instead of apply</td></tr>
+          <tr><td class="mono">ServerSideApply=true</td><td>huge CRDs, field-manager conflicts, last-applied annotation limits</td></tr>
+          <tr><td class="mono">SkipDryRunOnMissingResource=true</td><td>CRs whose CRD arrives from elsewhere during the same sync</td></tr>
+          <tr><td class="mono">PrunePropagationPolicy=foreground</td><td>ordered deletion of owned resources</td></tr>
+          <tr><td class="mono">ApplyOutOfSyncOnly=true</td><td>huge apps where re-applying everything is slow</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>They can be set per-Application (<code>spec.syncPolicy.syncOptions</code>) or per-resource with the <code>argocd.argoproj.io/sync-options</code> annotation, and knowing both placements is the kind of detail a task quietly depends on.</p>
+  </div>
+</section>
+
+<section class="panel accent-p" id="ordering">
+  <div class="phdr"><h2>Ordering: waves and hooks</h2><span class="meta">CRDs before CRs, migrations before rollout</span></div>
+  <div class="pbody">
+    <p>A sync happens in phases, and within the Sync phase in <strong>waves</strong>. The annotation <code>argocd.argoproj.io/sync-wave: "-1"</code> runs earlier (lower first, default 0); Argo waits for each wave's resources to be healthy before starting the next.</p>
+
+    <pre class="diagram"><i>PreSync</i>  ──▶  <b>Sync</b> (wave -1 → 0 → 1 → …)  ──▶  <i>PostSync</i>  ──▶  <i>SyncFail</i> (only on failure)
+   │                    │                              │
+ db migration Job   CRDs, then CRs, then apps      smoke-test Job</pre>
+
+    <p>Hooks are ordinary manifests annotated with <code>argocd.argoproj.io/hook: PreSync|Sync|PostSync|SyncFail|PostDelete|Skip</code>, plus <code>hook-delete-policy</code> (<code>HookSucceeded</code>, <code>BeforeHookCreation</code>, <code>HookFailed</code>) so old Jobs do not pile up. The stock examples: a database migration Job in PreSync, a smoke test in PostSync.</p>
+
+    <div class="callout exam">
+      <span class="tag">The "no matches for kind" fix has two shapes</span>
+      <p>If you own both the CRD and the CR, put the CRD in wave <code>-1</code>. If the CRD arrives from somewhere you do not control, annotate the CR with <code>SkipDryRunOnMissingResource=true</code> so the pre-apply dry run stops failing. Knowing both is the difference between one fix and a toolbox.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-y" id="scale">
+  <div class="phdr"><h2>Scale patterns and guardrails</h2><span class="meta">AppProject · app-of-apps · ApplicationSet</span></div>
+  <div class="pbody">
+    <h3>AppProject: the part people skip and the exam likes</h3>
+    <p>An <code>AppProject</code> is a policy boundary around a set of Applications: which <code>sourceRepos</code> they may deploy from, which <code>destinations</code> (cluster + namespace pairs) they may target, which cluster-scoped and namespaced resource kinds are allowed or denied, plus per-project RBAC roles and sync windows (time ranges when syncing is permitted or blocked). In a multi-tenant platform this is how you let teams own Applications without letting them deploy a ClusterRoleBinding into kube-system. If a task says "team X must only deploy to namespace Y from repo Z", the answer is an AppProject, not a Role.</p>
+
+    <h3>app-of-apps vs ApplicationSet</h3>
+    <ul>
+      <li><strong>app-of-apps</strong>: one Application whose manifests are other Applications. Simple, explicit, reviewable; you write each child by hand. Great for bootstrapping a cluster's platform layer in a defined order (with waves).</li>
+      <li><strong>ApplicationSet</strong>: a template plus <em>generators</em> that stamp out Applications. Generators to recognise: <code>list</code>, <code>clusters</code>, <code>git</code> (directories or files in a repo), <code>scmProvider</code> (every repo in an org matching criteria), <code>pullRequest</code> (ephemeral preview environments), and <code>matrix</code>/<code>merge</code> to combine them. <code>goTemplate: true</code> switches the template engine to Go templating with sprig functions.</li>
+    </ul>
+    <p>For the exam, be able to <em>read a generator block and predict exactly which Applications will exist</em>. That is the testable skill, and it is also what makes the lab's two ApplicationSets legible: <code>examples/argocd-appset.yaml</code> generates one app per overlay directory found in git, and the Backstage golden path (section 3.6) generates apps from an SCM generator over the Gitea <code>services</code> org.</p>
+
+    <div class="callout trap">
+      <span class="tag">Where does the workload actually land?</span>
+      <p>An ApplicationSet template sets <code>destination.namespace</code> per generated app, but an explicit <code>namespace:</code> inside a manifest (or a kustomization) always wins. So the lab's overlays land in <code>team-a</code>/<code>team-b</code> regardless of what the template's destination says. Predicting the winner between those two settings is exactly the kind of thing a task hinges on.</p>
+    </div>
+
+    <h3>Other clusters</h3>
+    <p><code>destination.server: https://kubernetes.default.svc</code> (or <code>name: in-cluster</code>) is the local cluster. Any other cluster has to be registered first: <code>argocd cluster add &lt;context&gt;</code> creates a ServiceAccount there and stores its credentials in a Secret in <code>argocd</code> labelled <code>argocd.argoproj.io/secret-type: cluster</code>. That Secret is the thing an ApplicationSet's <code>clusters</code> generator iterates, which is why generator-driven fan-out and "deploy this to the second cluster" are the same mechanism. <code>argocd cluster list</code> tells you what is registered; the AppProject's <code>destinations</code> list decides who may target it.</p>
+
+    <h3>Diffing quirks worth one line each</h3>
+    <p><code>ignoreDifferences</code> (by group/kind/jsonPointers or a jq path) is how you stop a mutating webhook or an HPA-managed replica count from showing permanent drift. <code>argocd.argoproj.io/compare-options: IgnoreExtraneous</code> hides resources Argo did not create. Both exist because "OutOfSync forever on a field nobody edits" is a real and common state.</p>
+
+    <h3>CLI, because the UI wastes exam time</h3>
+    <div class="cb" data-lang="bash"><pre><code>argocd login &lt;server&gt; --username admin \
+  --password $(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d) --insecure
+argocd app list
+argocd app get demo-staging
+argocd app diff demo-staging          # what would change
+argocd app sync demo-staging          # --prune, --force, --resource
+argocd app history demo-staging       # and: argocd app rollback demo-staging &lt;id&gt;
+argocd app set demo-staging --sync-policy automated --self-heal</code></pre></div>
+    <p><code>argocd app get --refresh</code> forces a re-comparison against git; <code>--hard-refresh</code> also drops the manifest cache, which is what you reach for when the repo changed but Argo insists it did not.</p>
+  </div>
+</section>
+
+<section class="panel accent-g" id="exercises">
+  <div class="phdr"><h2>Exercises</h2><span class="meta">tick the dot when its check passes</span></div>
+  <div class="pbody">
+
+    <div class="exercise" data-title="Deploy from the ApplicationSet">
+      <p>Apply the example and predict its output before looking:</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f examples/argocd-appset.yaml
+kubectl -n argocd get applications
+kubectl -n team-a get deploy staging-demo &amp;&amp; kubectl -n team-b get deploy prod-demo</code></pre></div>
+      <p>Now the nuance that makes this a good exercise: the ApplicationSet template sets <code>destination.namespace</code> to the directory basename, but the overlays pin <code>namespace: team-a</code> and <code>team-b</code> in their kustomizations, and an explicit namespace in a manifest always wins over the Application's destination default. So the workloads land in the tenant namespaces, prefixed <code>staging-</code> and <code>prod-</code>. If an app is stuck, read its conditions: <code>kubectl -n argocd get app demo-staging -o jsonpath='{.status.conditions}' | jq</code>.</p>
+      <div class="verify"><b>verify</b> — <code>demo-staging</code> and <code>demo-prod</code> Applications exist (one per overlay directory in the platform repo), each Synced/Healthy.</div>
+    </div>
+
+    <div class="exercise" data-title="Close the loop from 2.1">
+      <p>Your replica change from the fundamentals section is already in the platform repo, so <code>demo-staging</code> picks it up on the next poll (up to ~3 min) or immediately with <code>argocd app sync demo-staging</code>.</p>
+      <div class="verify"><b>verify</b> — <code>kubectl -n team-a get deploy staging-demo -o jsonpath='{.spec.replicas}'</code> matches your commit, and <code>argocd app history demo-staging</code> shows the revision.</div>
+    </div>
+
+    <div class="exercise" data-title="Fight the controller and lose">
+      <p>The appset template sets automated + selfHeal + prune:</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n team-a scale deploy staging-demo --replicas=5
+kubectl -n team-a get deploy staging-demo -w</code></pre></div>
+      <p>Then prove you understand prune the safe way: the service manifest lives in <code>demo-app/base/</code>, so drop <code>service.yaml</code> from the base kustomization's resources list, push, and watch the live Service disappear from <em>both</em> tenants (a base edit hits every overlay, which is its own lesson in blast radius). Revert the commit and watch them return.</p>
+      <div class="verify"><b>verify</b> — replicas snap back to the git value within seconds, <code>argocd app get demo-staging</code> never settles OutOfSync, and the Service round-trips with the commit. Git history is your undo; that is the pitch, demonstrated.</div>
+    </div>
+
+    <div class="exercise" data-title="Break sync with ordering, fix with a wave">
+      <p>Add to the staging overlay a manifest for a CR whose CRD does not exist (any made-up kind), push, and read the sync error. Then fix it properly for the case where you control both: put the CRD in the same overlay with <code>argocd.argoproj.io/sync-wave: "-1"</code> and the CR at wave 0. The other tool for this job is the <code>argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true</code> annotation, for when the CRD arrives from somewhere you don't control.</p>
+      <div class="verify"><b>verify</b> — sync succeeds and <code>kubectl get &lt;your-kind&gt;</code> returns the CR. Clean up the overlay afterwards; you'll reuse it.</div>
+    </div>
+
+    <div class="exercise" data-title="Synced but Degraded">
+      <p>Push an image tag that doesn't exist (<code>newTag: does-not-exist</code> in the staging kustomization), sync, and read the two statuses side by side: <code>argocd app get demo-staging | head -20</code>. One timing note so you don't misread it: health shows Progressing for up to ten minutes (the Deployment's <code>progressDeadlineSeconds</code>) before flipping to Degraded, while the pod's ImagePullBackOff is visible in events immediately; Progressing-with-a-broken-pod already tells you everything.</p>
+      <div class="verify"><b>verify</b> — Sync status Synced, health on its way to Degraded, and you can articulate why clicking sync again is useless here. Revert the commit. This exact confusion is section 2.6's opening scenario.</div>
+    </div>
+
+  </div>
+</section>
+
+<section class="panel accent-p" id="selfcheck">
+  <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
+  <div class="pbody">
+    <details class="quiz"><summary>An app is Synced/Degraded. What are you allowed to conclude, and what is the fix?</summary>
+      <div class="answer"><p>Live matches git, so Argo CD has done its job; the desired state itself is broken (bad image, impossible resources, missing config key). The fix is a commit. Re-syncing changes nothing because the diff is already empty.</p></div></details>
+
+    <details class="quiz"><summary>A sync fails with "field is immutable". Two ways forward?</summary>
+      <div class="answer"><p>Set <code>Replace=true</code> (per app or per resource) so the sync uses <code>kubectl replace</code> instead of apply, or delete the resource and let Argo recreate it — <code>Force=true</code> combines the two. Choose deliberately: replace is not a free pass, since a Service manifest that omits <code>clusterIP</code> is still rejected as immutable, and a shrinking PVC is not going to be saved by either option.</p></div></details>
+
+    <details class="quiz"><summary>What is an AppProject for, in one sentence, and name two things it constrains?</summary>
+      <div class="answer"><p>It is the guardrail around a set of Applications: permitted source repos and permitted destinations (cluster + namespace), plus allowed/denied resource kinds, per-project RBAC roles and sync windows. It is the answer to "let this team self-serve deployments without letting them deploy anything anywhere".</p></div></details>
+
+    <details class="quiz"><summary>You are handed an ApplicationSet with a git directory generator over <code>apps/*/overlays/*</code>. How many Applications will exist?</summary>
+      <div class="answer"><p>One per matching directory in the repo at the current revision — so count the directories, then check the template for a name expression that could collide (two identical names silently overwrite). Predicting the exact set from the generator block is the testable skill; <code>kubectl -n argocd get applications</code> then confirms it.</p></div></details>
+
+    <details class="quiz"><summary>An app shows OutOfSync forever on a field no human edits. What is happening and what fixes it?</summary>
+      <div class="answer"><p>Something in-cluster mutates the resource after apply — a mutating webhook, an HPA writing replicas, a defaulting controller. Fix with <code>ignoreDifferences</code> for that path (or stop managing the field). This is a configuration decision, not a bug to chase.</p></div></details>
+
+    <details class="quiz"><summary>You changed the repo but Argo insists nothing changed. Sequence of moves?</summary>
+      <div class="answer"><p><code>argocd app get --refresh</code> first (recompare), then <code>--hard-refresh</code> (drop the manifest cache), then check the app is on the branch you pushed to (<code>targetRevision</code>), then check repo-server logs for auth or render errors. Cheapest first, always.</p></div></details>
+  </div>
+</section>
+
+<section class="panel" id="docs">
+  <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
+  <div class="pbody">
+    <ul class="docs">
+      <li><b>argo-cd.readthedocs.io</b> — Application spec reference, sync options, sync waves and hooks, AppProject, ApplicationSet generators.</li>
+      <li><b>Offline:</b> <code>argocd app --help</code> covers most of what the docs would, and <code>kubectl explain application.spec --recursive</code> works because the Application is just a CRD.</li>
+    </ul>
+  </div>
+</section>
+
+</article>
+<aside class="toc" id="toc"></aside>
+</div></div>
+<script src="../assets/nav.js"></script>
+<script src="../assets/widgets.js"></script>
+<script src="../assets/app.js"></script>
+</body>
+</html>

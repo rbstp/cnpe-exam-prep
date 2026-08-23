@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3.1 Platform APIs as products · CNPE</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-id="3.1" data-root="../">
+<div class="wrap"><div class="cols">
+<article>
+
+<header class="pagehead">
+  <div class="eyebrow"></div>
+  <h1></h1>
+  <p class="sum">The closest thing the CNPE has to a philosophy exam, and it is 13 pages. Read the <a href="https://tag-app-delivery.cncf.io/whitepapers/platforms/">CNCF Platforms white paper</a> once end to end; what follows is the compression I would want the night before, plus the API-design half that domain 3 then implements five different ways.</p>
+</header>
+
+<div class="stats"></div>
+
+<div class="needs"><span class="lbl">needs</span><code>nothing running</code></div>
+
+<section class="panel" id="orientation">
+  <div class="phdr"><h2>Orientation</h2><span class="meta">the design half of every domain 3 competency</span></div>
+  <div class="pbody">
+    <p class="lede">This is the one reading session in the curriculum, and it belongs <em>before</em> the other five sections, because they all implement ideas named here. Keep it short: 45 minutes, then go build something.</p>
+    <div class="callout exam">
+      <span class="tag">How this gets tested</span>
+      <p>Vocabulary and judgement, not commands. A scenario describes a platform that violates one of the paper's attributes and asks what is wrong; or it hands you a request and asks which capability and which interface should serve it. The words below are the answer key — using the paper's own terms is what makes an answer score.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-c" id="definitions">
+  <div class="phdr"><h2>Definitions that get tested as vocabulary</h2><span class="meta">learn the nouns</span></div>
+  <div class="pbody">
+    <p>A <strong>platform</strong> is an integrated collection of capabilities, defined and presented according to the needs of its users. The key move in that sentence is <em>users</em>: a platform is a product with internal customers, not an infrastructure inventory.</p>
+
+    <h3>The attribute list, worth memorising</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Attribute</th><th>Violated when…</th></tr></thead>
+        <tbody>
+          <tr><td>Platform as a product</td><td>no roadmap, no users consulted, success measured in tickets closed</td></tr>
+          <tr><td>Consistent user experience</td><td>every capability has its own bespoke interface and conventions</td></tr>
+          <tr><td>Documentation and onboarding</td><td>the platform is knowable only by asking a person in Slack</td></tr>
+          <tr><td>Self-service</td><td>a human approves each request; lead time measured in days</td></tr>
+          <tr><td>Reduced cognitive load</td><td>developers must understand the implementation to use the interface</td></tr>
+          <tr><td>Optional and composable</td><td>adoption is mandated, escape hatches are forbidden</td></tr>
+          <tr><td>Secure by default</td><td>the safe path is the harder path</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Four terms to be able to define cold</h3>
+    <ul>
+      <li><strong>Thinnest Viable Platform (TVP)</strong> — the smallest layer that provides consistency and accelerates delivery, deliberately kept small. The paper's example of a minimal platform is a wiki page of provisioning links. The instinct to carry: platform teams build <em>interfaces and experiences</em>, and should not rebuild capabilities that managed providers or upstream projects already offer.</li>
+      <li><strong>Golden path</strong> — a templated composition of well-integrated code and capabilities for rapid project development, documentation included. Paved, not mandatory. This lab implements one literally: Backstage template → new Gitea repo → ApplicationSet picks it up → running workload (section 3.6).</li>
+      <li><strong>Self-service</strong> — a user requests a capability and receives it automatically, with no human in the loop, through a portal, API or CLI. Every tool in domain 3 is a different way to deliver that property.</li>
+      <li><strong>Capability</strong> — a thing the platform offers (build automation, observability, secrets, data services), distinct from the <em>interface</em> through which it is offered. Scenario questions often turn on that distinction.</li>
+    </ul>
+
+    <h3>Capability domains the paper enumerates</h3>
+    <p>Web portals; APIs and CLIs; golden path templates; build and test automation; delivery and verification automation; development environments; observability; infrastructure services; data services; messaging; identity and secrets; security services; artifact storage. A "which capability is this" question is cheap to set, so skim the list until each one has an example attached.</p>
+
+    <div class="callout model">
+      <span class="tag">Maturity, in one line each</span>
+      <p>The paper's model runs <em>provisional</em> (ad hoc, individual effort) → <em>operational</em> (a team owns it, usage is requested) → <em>scalable</em> (self-service, documented, versioned) → <em>optimizing</em> (measured, funded as a product, continuously improved). If a scenario describes tickets and a shared spreadsheet, it is operational at best, and the named next step is self-service with documentation.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-p" id="apidesign">
+  <div class="phdr"><h2>What "API as contract" means when you design one</h2><span class="meta">the part that turns into YAML in 3.2–3.6</span></div>
+  <div class="pbody">
+    <p>"Designing platform APIs" cashes out in domain 3 as five decisions. Hold <code>examples/crossplane/xrd.yaml</code> against this list; it is the lab's concrete instance of every point.</p>
+
+    <ol>
+      <li><strong>Abstraction level.</strong> A developer asks for an <code>AppEnvironment</code> with a team name and a quota — not for a Namespace plus a LimitRange plus two NetworkPolicies. Choose the noun your user already has in their head. Too thin and you have added a layer without removing work; too thick and every request needs an escape hatch you did not build.</li>
+      <li><strong>Validate at admission.</strong> Enums, ranges, patterns, CEL rules with messages a human can act on. Mistakes should fail in the terminal within a second, not in a controller log an hour later.</li>
+      <li><strong>Report status.</strong> Conditions, phases and useful printer columns so consumers can self-diagnose. A platform API without a meaningful READY column is user-hostile, and the support burden lands on you.</li>
+      <li><strong>Version deliberately.</strong> <code>v1alpha1</code> means you may break it; once someone depends on it, a new served version and a conversion story are the price of changing your mind (section 3.2).</li>
+      <li><strong>Document in the schema.</strong> Field descriptions become <code>kubectl explain</code> output. That is the docs your users will actually read, because it is the docs that is where they are.</li>
+    </ol>
+
+    <div class="callout reflex">
+      <span class="tag">Design test</span>
+      <p>Write the ten-line YAML your user will type <em>before</em> you write the schema. If those ten lines contain a field whose value the user must look up in your implementation, the abstraction is leaking. <code>examples/crossplane/xr.yaml</code> is exactly this exercise, done: a team name and two quota numbers.</p>
+    </div>
+
+    <h3>Measuring a platform</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Category</th><th>Measures</th><th>Where the data lives</th></tr></thead>
+        <tbody>
+          <tr><td>User satisfaction and productivity</td><td>surveys, adoption, time to first contribution</td><td>outside the cluster — ask people</td></tr>
+          <tr><td>Organizational efficiency</td><td>latency from request to fulfillment of a capability</td><td>timestamps on your own CRs (section 4.5)</td></tr>
+          <tr><td>Product delivery (DORA)</td><td>deployment frequency, lead time for changes, time to restore, change failure rate</td><td>the CD tool's metrics (section 4.5)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Section 4.5 turns the bottom two rows into PromQL against Argo CD's metrics, which is the most exam-shaped thing you can do with this paper.</p>
+
+    <h3>Anti-patterns worth naming</h3>
+    <ul>
+      <li><strong>The platform as a gate.</strong> Self-service in the docs, a ticket queue in practice.</li>
+      <li><strong>The leaky abstraction.</strong> The interface exposes the implementation, so every provider change breaks users.</li>
+      <li><strong>The mandated platform.</strong> Adoption enforced rather than earned; teams route around it and you learn nothing about why.</li>
+      <li><strong>The rebuilt wheel.</strong> A homegrown Postgres operator, a bespoke CI engine, a custom secrets store — effort spent below the line where your users care, at the cost of the interface work only you can do.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="panel accent-g" id="exercises">
+  <div class="phdr"><h2>Exercises</h2><span class="meta">paper and pen, mostly</span></div>
+  <div class="pbody">
+
+    <div class="exercise" data-title="Map the lab to the capability domains">
+      <p>Take the lab's tool list from <code>make help</code> and assign every layer to one or more of the paper's capability domains. Then mark which interfaces each capability is exposed through (portal, API, CLI) in this lab. Where the lab has no coverage (dev environments, messaging), say so; knowing the map has empty squares is part of knowing the map.</p>
+      <div class="verify"><b>verify</b> — check yourself against the table in the white paper's "Capabilities of platforms" section.</div>
+    </div>
+
+    <div class="exercise" data-title="The three-sentence answer">
+      <p>Write, exam style: why should a platform team <em>not</em> build its own Postgres operator?</p>
+      <div class="verify"><b>verify</b> — if your answer touches TVP, delegation to existing capability providers, and where the platform team's effort should go instead (the interface, the golden path, the integration), you have absorbed the paper.</div>
+    </div>
+
+    <div class="exercise" data-title="Design the YAML before the schema">
+      <p>Invent one platform API your own organisation would use — a cache, a queue, a scheduled job, an internal endpoint. Write the ten-line manifest a developer would type. Then list, underneath, every real Kubernetes object it must expand into, and every field you deliberately did <em>not</em> expose.</p>
+      <div class="verify"><b>verify</b> — the not-exposed list is longer than the exposed one, and you can defend each omission with either "we choose it for them" or "they can escape-hatch to the underlying object". That defence is the platform product-management skill the paper is asking for.</div>
+    </div>
+
+  </div>
+</section>
+
+<section class="panel accent-p" id="selfcheck">
+  <div class="phdr"><h2>Self-check</h2><span class="meta">vocabulary, out loud</span></div>
+  <div class="pbody">
+    <details class="quiz"><summary>Define a platform in the paper's own terms.</summary>
+      <div class="answer"><p>An integrated collection of capabilities, defined and presented according to the needs of its users. The emphasis on <em>users</em> and on <em>presentation</em> (interfaces) is what distinguishes a platform from a pile of infrastructure.</p></div></details>
+
+    <details class="quiz"><summary>What is the Thinnest Viable Platform, and what does it imply about build-vs-adopt?</summary>
+      <div class="answer"><p>The smallest layer that provides consistency and accelerates delivery. It implies adopting existing capabilities wherever they exist and spending your effort on interfaces, integration and golden paths — the parts nobody can buy for your organisation.</p></div></details>
+
+    <details class="quiz"><summary>A team can request a namespace through a form, and someone approves it within a day. Is that self-service?</summary>
+      <div class="answer"><p>No. The paper's definition requires fulfillment without a human in the loop. A form plus an approver is an interface over a ticket queue — operational maturity, not scalable. The fix is automated fulfillment with policy encoded in the API, and approval only where regulation demands it.</p></div></details>
+
+    <details class="quiz"><summary>Name the DORA four and one platform-specific measure the paper adds.</summary>
+      <div class="answer"><p>Deployment frequency, lead time for changes, time to restore service, change failure rate. The paper adds measures like latency from request to fulfillment of a capability, time to first contribution, and adoption — platform-specific because they measure the platform, not the applications on it.</p></div></details>
+
+    <details class="quiz"><summary>Which platform attribute does a mandatory, non-composable platform violate, and why does it matter practically?</summary>
+      <div class="answer"><p>"Optional and composable". Practically: mandated platforms hide their own failures, because teams route around them quietly instead of filing the feedback that would improve them. Optionality is a feedback mechanism, not generosity.</p></div></details>
+  </div>
+</section>
+
+<section class="panel" id="docs">
+  <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
+  <div class="pbody">
+    <ul class="docs">
+      <li><b>tag-app-delivery.cncf.io/whitepapers/platforms/</b> — the paper itself, plus its glossary (platform engineer vs platform product manager definitions have appeared in practice questions).</li>
+      <li><b>dora.dev</b> — the four keys, one page.</li>
+      <li><b>Team Topologies</b> — where "platform team" and "cognitive load" as terms of art come from; the paper leans on both.</li>
+    </ul>
+  </div>
+</section>
+
+</article>
+<aside class="toc" id="toc"></aside>
+</div></div>
+<script src="../assets/nav.js"></script>
+<script src="../assets/widgets.js"></script>
+<script src="../assets/app.js"></script>
+</body>
+</html>

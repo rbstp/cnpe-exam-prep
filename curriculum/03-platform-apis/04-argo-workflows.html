@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3.4 Argo Workflows: orchestration for self-service · CNPE</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-id="3.4" data-root="../">
+<div class="wrap"><div class="cols">
+<article>
+
+<header class="pagehead">
+  <div class="eyebrow"></div>
+  <h1></h1>
+  <p class="sum">Argo Workflows runs DAGs of containers. It is not CI (Tekton's job here) and not reconciliation (operators' job); it is imperative orchestration with dependencies, retries and parameters — the right engine for provisioning sequences: validate the request, create the resources, register them elsewhere, notify.</p>
+</header>
+
+<div class="stats"></div>
+
+<div class="needs"><span class="lbl">needs</span><code>make core</code></div>
+
+<section class="panel" id="orientation">
+  <div class="phdr"><h2>Orientation</h2><span class="meta">competency 3.2 · workflows for self-service provisioning</span></div>
+  <div class="pbody">
+    <p class="lede">Run to completion, not converge forever. That distinction is section 3.6's whole decision table, and it is the reason a workflow is the right tool for "stamp this out once when asked" and the wrong tool for "keep this true for the next three years".</p>
+    <div class="callout lab">
+      <span class="tag">Lab note</span>
+      <p>Workflows installs with the <code>gitops</code> layer and the controller watches the <code>argo</code> and <code>default</code> namespaces. Workflows created elsewhere will sit untouched forever, looking exactly like a broken controller — worth knowing before you spend ten minutes on it.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-c" id="model">
+  <div class="phdr"><h2>The model</h2><span class="meta">entrypoint · templates · parameters</span></div>
+  <div class="pbody">
+    <p>A Workflow is a spec with an <code>entrypoint</code> and a list of <code>templates</code>. Templates come in flavours, and picking the right one is most of the authoring skill:</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th class="mono">Template type</th><th>Does</th><th>Use for</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">container</td><td>runs an image</td><td>anything with a CLI</td></tr>
+          <tr><td class="mono">script</td><td>inline code with an interpreter; its stdout becomes a result</td><td>validation, small glue, computed values</td></tr>
+          <tr><td class="mono">resource</td><td>create/apply/patch/delete a Kubernetes object, optionally waiting on a success condition</td><td><strong>the provisioning workhorse</strong></td></tr>
+          <tr><td class="mono">dag</td><td>tasks with <code>dependencies</code></td><td>the shape to default to</td></tr>
+          <tr><td class="mono">steps</td><td>sequential groups (<code>-</code> parallel within a group, <code>- -</code> serial between groups)</td><td>simple linear flows</td></tr>
+          <tr><td class="mono">suspend</td><td>pauses until resumed (manually or after a duration)</td><td>approval gates</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Parameters flow via <code>{{workflow.parameters.x}}</code> and between tasks via outputs (<code>{{tasks.a.outputs.result}}</code>); <code>when</code> gates conditional branches; <code>withItems</code>/<code>withParam</code> fan a template out over a list. Artifacts (S3/MinIO-backed files) move large data between steps — not configured in this lab, but know the word, because "results are small strings, artifacts are files" is the same distinction Tekton draws.</p>
+
+    <p><strong>Reusable pieces:</strong> <code>WorkflowTemplate</code> (namespaced library, invoked with <code>workflowTemplateRef</code> or submitted from the UI), <code>ClusterWorkflowTemplate</code> (cluster-scoped version), and <code>CronWorkflow</code> (scheduled). Promoting a Workflow to a WorkflowTemplate is what turns a script into a self-service endpoint: it becomes a thing with a name, parameters and a submit button.</p>
+
+    <pre class="diagram"><b>WorkflowTemplate</b> "provision-tenant"   ← the product: named, parameterised, submittable
+        │ submit(team=team-d)
+        ▼
+<b>Workflow</b> (run-to-completion)
+   dag:
+     <i>check</i> ──▶ <i>namespace</i> ──▶ <i>quota</i> ──▶ <i>register</i>
+     (script)    (resource)      (resource)   (container)
+        │
+        └─ each node = one <u>pod</u>, running as spec.serviceAccountName</pre>
+  </div>
+</section>
+
+<section class="panel accent-r" id="rbac">
+  <div class="phdr"><h2>RBAC is the part that actually fails</h2><span class="meta">and the Argo-specific wrinkle</span></div>
+  <div class="pbody">
+    <p>Workflow pods run as a ServiceAccount, and a <code>resource</code> template creating namespaces needs cluster-scoped rights that <code>default</code> does not have. The exam-shaped skill is wiring SA → Role/ClusterRole → binding → <code>spec.serviceAccountName</code>, and then recognising a <em>Forbidden</em> error inside a workflow node as an RBAC problem rather than a workflow problem.</p>
+
+    <div class="callout trap">
+      <span class="tag">The one nobody guesses</span>
+      <p>Argo's executor reports each step's outcome through its own CRD, <code>workflowtaskresults.argoproj.io</code>. Every workflow ServiceAccount therefore needs <code>create,patch</code> on that resource — forget it and even a perfectly correct workflow fails, usually <em>before</em> your actual permission problem surfaces. Seeing that error once is worth an hour of doc reading.</p>
+    </div>
+
+    <p>Two related permissions worth knowing exist: the SA also needs <code>get,list,watch</code> on pods to report progress in some configurations, and if you use artifacts, access to the artifact repository Secret. The general rule is the same as section 5.1's — least privilege, then prove it with <code>kubectl auth can-i --as=system:serviceaccount:&lt;ns&gt;:&lt;sa&gt;</code> before you blame the tool.</p>
+
+    <h3>Diagnosing a failed workflow</h3>
+    <div class="cb" data-lang="bash"><pre><code>kubectl get workflow &lt;name&gt; -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, phase, message}'
+kubectl get workflow &lt;name&gt; -o jsonpath='{.status.phase}{"\n"}'
+kubectl logs -l workflows.argoproj.io/workflow=&lt;name&gt; --all-containers --tail=50</code></pre></div>
+    <p>The node map is the whole diagnosis: each node's phase and message, in one JSON blob. A workflow's failure diagnostics are pod diagnostics plus that one layer.</p>
+  </div>
+</section>
+
+<section class="panel accent-y" id="selfservice">
+  <div class="phdr"><h2>Workflows as a self-service interface</h2><span class="meta">what makes it a product rather than a script</span></div>
+  <div class="pbody">
+    <ul>
+      <li><strong>Parameters at submit time</strong> — a WorkflowTemplate with typed, defaulted, documented parameters is an API. A Workflow with hard-coded values is a script you happened to run in a pod.</li>
+      <li><strong>Validation before side effects</strong> — a first DAG node that rejects bad input (a name that is not a DNS label, a quota over policy) is admission control one layer earlier, and it is much cheaper than half-provisioning and rolling back.</li>
+      <li><strong>Idempotency</strong> — a re-run should not double-create. <code>resource</code> templates with <code>action: apply</code> rather than <code>create</code>, or a <code>when</code> guard on an existence check, are the two usual answers. Workflows do not reconcile, so idempotency is <em>your</em> job.</li>
+      <li><strong>Observability</strong> — the workflow's own status is the audit trail; ship it somewhere. And verify the <em>artifacts</em>, not the runner: a green workflow that produced nothing is still a failure.</li>
+      <li><strong>Triggering</strong> — CronWorkflow for schedules, the API/CLI for portals, or Argo Events (not installed here) for event-driven runs. Backstage templates commonly call one of these underneath, which is how a form becomes infrastructure.</li>
+    </ul>
+    <div class="callout exam">
+      <span class="tag">Verify the output, not the runner</span>
+      <p>Any provisioning task should be graded twice: the workflow reached Succeeded, <em>and</em> the objects it was supposed to create exist with the right content. Exam graders check the second; get in the habit of checking both.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-g" id="exercises">
+  <div class="phdr"><h2>Exercises</h2><span class="meta">tick the dot when its check passes</span></div>
+  <div class="pbody">
+
+    <div class="exercise" data-title="Provision a tenant with a workflow">
+      <p>The self-service story from 3.1, made concrete. First the identity:</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n default create sa provisioner
+kubectl create clusterrole tenant-provisioner --verb=create,get --resource=namespaces,resourcequotas
+kubectl create clusterrolebinding tenant-provisioner --clusterrole=tenant-provisioner --serviceaccount=default:provisioner
+# Argo's executor reports each step's outcome through its own CRD, so every
+# workflow SA needs this too; forget it and even a correct workflow fails:
+kubectl -n default create role wf-taskresults --verb=create,patch --resource=workflowtaskresults.argoproj.io
+kubectl -n default create rolebinding wf-taskresults --role=wf-taskresults --serviceaccount=default:provisioner</code></pre></div>
+      <p>Then the workflow, a two-node DAG using <code>resource</code> templates:</p>
+      <div class="cb" data-lang="yaml"><pre><code>apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata: { generateName: provision-tenant-, namespace: default }
+spec:
+  entrypoint: provision
+  serviceAccountName: provisioner
+  arguments: { parameters: [{ name: team, value: team-d }] }
+  templates:
+    - name: provision
+      dag:
+        tasks:
+          - name: namespace
+            template: make-ns
+          - name: quota
+            template: make-quota
+            dependencies: [namespace]
+    - name: make-ns
+      resource:
+        action: create
+        manifest: |
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{workflow.parameters.team}}"
+            labels: { tenant: "{{workflow.parameters.team}}" }
+    - name: make-quota
+      resource:
+        action: create
+        manifest: |
+          apiVersion: v1
+          kind: ResourceQuota
+          metadata:
+            name: default-quota
+            namespace: "{{workflow.parameters.team}}"
+          spec:
+            hard: { requests.cpu: "1", requests.memory: 2Gi, pods: "10" }</code></pre></div>
+      <p><code>kubectl create -f</code> it (generateName forbids apply), then watch: <code>kubectl get workflow -w</code>.</p>
+      <div class="verify"><b>verify</b> — the workflow reaches Succeeded, <em>and</em> <code>kubectl get ns team-d --show-labels</code> plus <code>kubectl -n team-d get resourcequota</code> show the artifacts. A green workflow that produced nothing would still be a failure; check the output, not the runner.</div>
+    </div>
+
+    <div class="exercise" data-title="Break it on RBAC, on purpose">
+      <p>Rerun with <code>serviceAccountName: default</code> and a new team name. Which rule it names first is instructive: with the bare default SA the executor usually trips over <code>workflowtaskresults</code> (its own reporting channel) before your namespace rule even gets a chance — an Argo-specific wrinkle that looks baffling until you have seen it once.</p>
+      <div class="verify"><b>verify</b> — the workflow fails, and <code>kubectl get workflow &lt;name&gt; -o jsonpath='{.status.nodes}' | jq '.[] | {phase, message}'</code> contains a <code>forbidden</code> message naming a missing verb and resource. The message structure is identical for every RBAC failure you will ever debug.</div>
+    </div>
+
+    <div class="exercise" data-title="Parameterise from outside">
+      <p>Submit the same workflow for <code>team-e</code> without editing the file. The UI's submit flow lists WorkflowTemplates, not bare Workflows, so either promote yours to a <code>WorkflowTemplate</code> first (change the kind, drop generateName for a name) and submit it from the UI with the parameter overridden, or stay in the shell and <code>sed 's/team-d/team-e/' workflow.yaml | kubectl create -f -</code>.</p>
+      <div class="verify"><b>verify</b> — two tenants exist, one workflow spec. Parameters-at-submit is what makes a workflow a self-service endpoint rather than a script, and the WorkflowTemplate promotion is exactly how you would productise it.</div>
+    </div>
+
+    <div class="exercise" data-title="A guardrail branch (stretch)">
+      <p>Add a first DAG node <code>check</code> using a <code>script</code> template that exits non-zero when <code>{{workflow.parameters.team}}</code> doesn't match <code>^team-[a-z]+$</code>, and make the other nodes depend on it.</p>
+      <div class="verify"><b>verify</b> — a run with <code>team=Team_X</code> fails at check and creates nothing. Input validation before side effects; the same shape as admission, one layer earlier. Clean up the test tenants when done: <code>kubectl delete ns team-d team-e</code>.</div>
+    </div>
+
+  </div>
+</section>
+
+<section class="panel accent-p" id="selfcheck">
+  <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
+  <div class="pbody">
+    <details class="quiz"><summary>Which template type creates Kubernetes objects, and what is its idempotency story?</summary>
+      <div class="answer"><p><code>resource</code>. With <code>action: create</code> a re-run fails on AlreadyExists; with <code>action: apply</code> it converges. Workflows do not reconcile, so if the same request may be submitted twice, you design for it — apply semantics, or a guard step.</p></div></details>
+
+    <details class="quiz"><summary>A workflow node says <code>forbidden</code>. Where do you look, and what is the classic first offender?</summary>
+      <div class="answer"><p>The workflow's ServiceAccount and its bindings — not the workflow spec. The classic first offender in Argo is missing <code>create,patch</code> on <code>workflowtaskresults.argoproj.io</code>, the executor's own reporting channel, which fails before your intended resource permission is even exercised.</p></div></details>
+
+    <details class="quiz"><summary>When is a workflow the wrong tool, and what replaces it?</summary>
+      <div class="answer"><p>When the desired state must stay true indefinitely — a workflow runs once and forgets. Use a controller/operator, or a declarative composition engine (Crossplane, kro) whose CR keeps reconciling. Workflows are for sequences with an end.</p></div></details>
+
+    <details class="quiz"><summary>Two DAG tasks with no <code>dependencies</code>: what happens, and how do you gate one on a condition?</summary>
+      <div class="answer"><p>They run in parallel. Gate with <code>dependencies</code> for ordering and <code>when</code> for conditions (evaluated against parameters or a previous task's result). A validation node that everything depends on is the standard "fail before side effects" shape.</p></div></details>
+
+    <details class="quiz"><summary>What turns a Workflow into a self-service product?</summary>
+      <div class="answer"><p>Promotion to a WorkflowTemplate with typed, documented, defaulted parameters, a submit surface (UI, CLI, portal, or a Backstage action), input validation before side effects, and an auditable record of who requested what. Same content, packaged as an interface.</p></div></details>
+  </div>
+</section>
+
+<section class="panel" id="docs">
+  <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
+  <div class="pbody">
+    <ul class="docs">
+      <li><b>argo-workflows.readthedocs.io</b> — core concepts, the fields reference for <code>resource</code> templates, DAG examples, and the WorkflowTemplate page.</li>
+      <li>The Workflows UI's built-in examples (submit → examples) are a legitimate crib sheet during practice.</li>
+      <li><b>Offline:</b> <code>kubectl explain workflow.spec.templates --recursive</code> and <code>argo submit --help</code>.</li>
+    </ul>
+  </div>
+</section>
+
+</article>
+<aside class="toc" id="toc"></aside>
+</div></div>
+<script src="../assets/nav.js"></script>
+<script src="../assets/widgets.js"></script>
+<script src="../assets/app.js"></script>
+</body>
+</html>

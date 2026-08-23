@@ -1,0 +1,745 @@
+/* CNPE curriculum — page runtime.
+   Builds the chrome from nav.js, wires copy buttons, progress, TOC, palette and keys.
+   Everything persists in localStorage; nothing here needs a server (file:// works). */
+(function () {
+  "use strict";
+
+  var NAV = window.CNPE_NAV || [];
+  var DOMAINS = window.CNPE_DOMAINS || [];
+  var body = document.body;
+  var ROOT = "", PAGE_ID = null, entry = null;
+  var KEY = "cnpe:v2";
+  function readPage() {
+    ROOT = body.getAttribute("data-root") || "";
+    PAGE_ID = body.getAttribute("data-id") || null;
+    entry = NAV.filter(function (n) { return n.id === PAGE_ID; })[0] || null;
+  }
+
+  /* ── storage ─────────────────────────────────────────────── */
+  var store = (function () {
+    var s = { ex: {}, done: {}, exam: {}, last: null };
+    try { var raw = localStorage.getItem(KEY); if (raw) s = Object.assign(s, JSON.parse(raw)); } catch (e) {}
+    ["ex", "done", "exam"].forEach(function (k) {
+      if (!s[k] || typeof s[k] !== "object") s[k] = {};       // tolerate anything that is not a map
+    });
+    if (typeof s.last !== "string") s.last = null;
+    return s;
+  })();
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} }
+
+  function slug(s) {
+    return (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48);
+  }
+  function exKey(id, i, title) { return id + "#" + (slug(title) || i); }
+  function sectionCounts(id) {
+    var total = 0, done = 0;
+    Object.keys(store.ex).forEach(function (k) {
+      if (k.indexOf(id + "#") === 0) { total++; if (store.ex[k]) done++; }
+    });
+    return { total: total, done: done };
+  }
+  function overall() {
+    var secs = NAV.filter(function (n) { return n.d > 0; });
+    var done = secs.filter(function (n) { return store.done[n.id]; }).length;
+    return { done: done, total: secs.length, pct: secs.length ? Math.round(done / secs.length * 100) : 0 };
+  }
+
+  /* ── small helpers ───────────────────────────────────────── */
+  function el(tag, cls, html) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (html != null) e.innerHTML = html;
+    return e;
+  }
+  function domainOf(n) { return DOMAINS.filter(function (d) { return d.n === n; })[0]; }
+  function href(path) {
+    if (window.CNPE_BUNDLE) {
+      var hit = NAV.filter(function (n) { return n.path === path; })[0];
+      return hit ? "#" + hit.id : (path === "index.html" ? "#index" : "#" + path);
+    }
+    return ROOT + path;
+  }
+
+  /* ── top bar ─────────────────────────────────────────────── */
+  function buildTopbar() {
+    var d = entry ? domainOf(entry.d) : null;
+    var bar = el("div", "topbar");
+    var inner = el("div", "inner");
+
+    var logo = el("a", "logo",
+      '<svg class="mark" viewBox="0 0 24 24" aria-hidden="true">' +
+        '<defs><linearGradient id="cnpeMark" x1="0" y1="0" x2="1" y2="1">' +
+          '<stop offset="0%" stop-color="var(--brand-2)"/><stop offset="100%" stop-color="var(--brand)"/>' +
+        '</linearGradient></defs>' +
+        '<path d="M12 1.9 20.7 7v10L12 22.1 3.3 17V7z" fill="none" stroke="url(#cnpeMark)" stroke-width="1.5" stroke-linejoin="round"/>' +
+        '<path d="M7.8 14.6l2.9-3.3 2.2 2.4 3.3-4.1" fill="none" stroke="url(#cnpeMark)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>' +
+      '</svg>' +
+      '<span class="word">CNPE</span><span class="sub">study console</span>');
+    logo.href = href("index.html");
+    inner.appendChild(logo);
+
+    var crumbs = el("div", "crumbs");
+    if (entry) {
+      crumbs.innerHTML =
+        '<span class="sep">/</span><a href="' + href("index.html") + '">' + (d ? "Domain " + d.n : "Exam") + "</a>" +
+        '<span class="sep">/</span><span class="here">' + (entry.id === "EX" ? "Mock exam" : entry.id + " " + entry.title) + "</span>";
+    } else {
+      crumbs.innerHTML = '<span class="sep">/</span><span class="here">Overview</span>';
+    }
+    inner.appendChild(crumbs);
+    inner.appendChild(el("div", "spacer"));
+
+    var ov = overall();
+    var prog = el("div", "prog",
+      '<span>' + ov.done + "/" + ov.total + '</span><span class="track"><i style="width:' + ov.pct + '%"></i></span>');
+    inner.appendChild(prog);
+
+    var sb = el("button", "searchbtn", '<span>⌕</span><span>Jump to section…</span><span class="k">/</span>');
+    sb.type = "button";
+    sb.addEventListener("click", openPalette);
+    inner.appendChild(sb);
+
+    var hb = el("button", "iconbtn", "?");
+    hb.type = "button"; hb.title = "Keyboard shortcuts";
+    hb.addEventListener("click", function () { toggleOverlay(helpOverlay); });
+    inner.appendChild(hb);
+
+    bar.appendChild(inner);
+    body.insertBefore(bar, body.firstChild);
+
+    if (!document.querySelector(".skip")) {
+      var skip = el("a", "skip", "Skip to content");
+      skip.href = "#main";
+      body.insertBefore(skip, body.firstChild);
+    }
+    var art = document.querySelector("article");
+    if (art && !art.id) { art.id = "main"; art.setAttribute("tabindex", "-1"); }
+  }
+
+  /* ── page head + stat tiles ──────────────────────────────── */
+  function buildHead() {
+    if (!entry) return;
+    var head = document.querySelector(".pagehead");
+    if (!head) return;
+    var d = domainOf(entry.d);
+    var eyebrow = head.querySelector(".eyebrow");
+    var h1 = head.querySelector("h1");
+    if (eyebrow) {
+      eyebrow.innerHTML = d
+        ? '<span class="badge d' + d.n + '">Domain ' + d.n + " · " + d.weight + "</span><span>" + d.name + "</span>"
+        : '<span class="badge d2">Assessment</span><span>All five domains, 120 minutes</span>';
+    }
+    if (h1 && !h1.textContent.trim()) {
+      h1.innerHTML = (entry.id === "EX" ? "" : '<span class="id">' + entry.id + "</span>") + entry.title;
+    }
+    var stats = document.querySelector(".stats");
+    if (!stats || stats.hasAttribute("data-static")) return;
+    var c = sectionCounts(entry.id);
+    var pct = c.total ? Math.round(c.done / c.total * 100) : 0;
+    stats.innerHTML =
+      tile("c", "Lab layers", entry.needs, true) +
+      tile("p", "Session length", "~" + entry.mins + '<span class="u">min</span>', false) +
+      tile("y", "Exam weight", d ? d.weight : "100%", false) +
+      '<div class="stat g" id="stat-ex"><div class="lbl">Exercises verified</div><div class="val">' +
+        c.done + '<span class="u">/ ' + c.total + '</span></div><div class="spark"><i style="width:' + pct + '%"></i></div></div>';
+  }
+  function tile(cls, label, value, small) {
+    return '<div class="stat ' + cls + '"><div class="lbl">' + label + '</div><div class="val' + (small ? " sm" : "") + '">' + value + "</div></div>";
+  }
+  function refreshExTile() {
+    var t = document.getElementById("stat-ex");
+    if (!t || !entry) return;
+    var c = sectionCounts(entry.id);
+    var pct = c.total ? Math.round(c.done / c.total * 100) : 0;
+    t.querySelector(".val").innerHTML = c.done + '<span class="u">/ ' + c.total + "</span>";
+    t.querySelector(".spark i").style.width = pct + "%";
+    var cnt = document.getElementById("toc-ex-count"), barEl = document.getElementById("toc-ex-bar");
+    if (cnt) cnt.textContent = c.done + "/" + c.total;
+    if (barEl) barEl.style.width = pct + "%";
+  }
+
+  /* ── code blocks: language bar, copy, light highlighting ─── */
+  var KWS = /\b(kubectl|helm|flux|argocd|argo|tkn|kubeseal|cosign|skopeo|trivy|docker|git|curl|jq|kustomize|istioctl|linkerd|hubble|cilium|crossplane|stern|kubectx|make|yq|base64|sudo|watch|source|echo|sleep|grep|awk|sed|sort|head|tail|wc|seq|for|do|done|while|if|then|fi|export)\b/g;
+  function highlight(code, lang) {
+    var html = code.innerHTML; // already entity-escaped in source
+    // strings and comments first; later passes only touch what is left over
+    var protectedRe = /(^|\n)([ \t]*#[^\n]*)|('[^'\n]*')|("[^"\n]*")/g;
+    var out = "", last = 0, m;
+    while ((m = protectedRe.exec(html)) !== null) {
+      out += paint(html.slice(last, m.index), lang);
+      if (m[2] != null) out += m[1] + '<span class="t-cm">' + m[2] + "</span>";
+      else out += '<span class="t-str">' + m[0] + "</span>";
+      last = m.index + m[0].length;
+    }
+    out += paint(html.slice(last), lang);
+    code.innerHTML = out;
+  }
+  function paint(s, lang) {
+    if (!s) return s;
+    if (lang === "yaml" || lang === "json") {
+      s = s.replace(/(^|\n)([ \t-]*)([A-Za-z_][\w.\/-]*)(:)/g, '$1$2<span class="t-key">$3</span>$4');
+      s = s.replace(/\b(true|false|null)\b/g, '<span class="t-kw">$1</span>');
+      return s;
+    }
+    if (lang === "promql" || lang === "logql") {
+      s = s.replace(/\b(sum|rate|increase|avg|count|max|min|by|without|histogram_quantile|absent|vector|topk|irate|delta|group_left|or|unless|and)\b/g, '<span class="t-kw">$1</span>');
+      s = s.replace(/\b(\d+(\.\d+)?[smhdw]?)\b/g, '<span class="t-num">$1</span>');
+      return s;
+    }
+    s = s.replace(KWS, function (m) { return '<span class="t-cmd">' + m + "</span>"; });
+    s = s.replace(/(\s)(--?[A-Za-z][\w-]*)/g, '$1<span class="t-flag">$2</span>');
+    s = s.replace(/(\$\{?[A-Za-z_][\w]*\}?)/g, '<span class="t-var">$1</span>');
+    return s;
+  }
+
+  function buildCodeBlocks() {
+    Array.prototype.forEach.call(document.querySelectorAll(".cb"), function (cb) {
+      if (cb.getAttribute("data-built")) return;
+      cb.setAttribute("data-built", "1");
+      var lang = cb.getAttribute("data-lang") || "text";
+      var code = cb.querySelector("code");
+      var bar = el("div", "cb-bar", "<span>" + lang + '</span><span class="spacer"></span>');
+      var btn = el("button", "copy-btn", "copy");
+      btn.type = "button";
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var text = code.textContent;
+        var done = function () {
+          btn.textContent = "copied"; btn.classList.add("ok");
+          setTimeout(function () { btn.textContent = "copy"; btn.classList.remove("ok"); }, 1400);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done, function () { legacyCopy(text, done); });
+        } else legacyCopy(text, done);
+      });
+      bar.appendChild(btn);
+      cb.insertBefore(bar, cb.firstChild);
+      if (code) { try { highlight(code, lang); } catch (e) {} }
+    });
+    // one-click copy for the "needs" chips
+    Array.prototype.forEach.call(document.querySelectorAll(".needs code"), function (c) {
+      if (c.getAttribute("data-built")) return;
+      c.setAttribute("data-built", "1");
+      var cmd = c.textContent, busy = false;
+      c.title = "click to copy";
+      c.tabIndex = 0;
+      c.setAttribute("role", "button");
+      var fire = function () {
+        if (busy) return;
+        busy = true;
+        var fin = function () {
+          c.textContent = "copied ✓";
+          setTimeout(function () { c.textContent = cmd; busy = false; }, 1100);
+        };
+        if (navigator.clipboard) navigator.clipboard.writeText(cmd).then(fin, fin); else fin();
+      };
+      c.addEventListener("click", fire);
+      c.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fire(); }
+      });
+    });
+  }
+  function legacyCopy(text, cb) {
+    var ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); } catch (e) {}
+    document.body.removeChild(ta); cb();
+  }
+
+  /* ── exercises ───────────────────────────────────────────── */
+  function buildExercises() {
+    if (!entry) return;
+    var list = document.querySelectorAll(".exercise");
+    Array.prototype.forEach.call(list, function (ex, i) {
+      if (ex.getAttribute("data-built")) return;
+      ex.setAttribute("data-built", "1");
+      var title = ex.getAttribute("data-title") || "Exercise " + (i + 1);
+      var k = exKey(entry.id, i, title);
+      if (!(k in store.ex)) store.ex[k] = 0;
+      var body = ex.innerHTML;
+      ex.innerHTML = "";
+
+      var hdr = el("header");
+      var disc = el("button", "disc");
+      disc.type = "button";
+      disc.innerHTML = '<span class="dot" aria-hidden="true"></span><h4>' + title + '</h4><span class="chev" aria-hidden="true">▾</span>';
+      var mark = el("button", "mark");
+      mark.type = "button";
+      var bodyEl = el("div", "body", body);
+      bodyEl.id = "ex-" + slug(entry.id + "-" + title);
+      disc.setAttribute("aria-controls", bodyEl.id);
+
+      function paint() {
+        var on = !!store.ex[k];
+        ex.classList.toggle("done", on);
+        mark.textContent = on ? "verified" : "mark verified";
+        mark.setAttribute("aria-pressed", on ? "true" : "false");
+        mark.setAttribute("aria-label", (on ? "Verified: " : "Mark verified: ") + title);
+        var collapsed = ex.classList.contains("collapsed");
+        disc.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        disc.querySelector(".chev").textContent = collapsed ? "▸" : "▾";
+      }
+      mark.addEventListener("click", function (e) {
+        e.stopPropagation();
+        store.ex[k] = store.ex[k] ? 0 : 1; save(); paint(); refreshExTile();
+      });
+      disc.addEventListener("click", function () { ex.classList.toggle("collapsed"); paint(); });
+
+      hdr.appendChild(disc); hdr.appendChild(mark);
+      ex.appendChild(hdr); ex.appendChild(bodyEl);
+      paint();
+    });
+    save();
+    refreshExTile();   // the tile is built before the exercises are registered
+  }
+
+  /* ── table of contents + scroll spy ──────────────────────── */
+  function buildToc() {
+    var toc = document.getElementById("toc");
+    if (!toc) return;
+    toc.style.display = "";
+    var heads = document.querySelectorAll("article .panel > .phdr h2");
+    if (!heads.length) { toc.style.display = "none"; toc.innerHTML = ""; return; }
+    var html = "<h4>On this page</h4>";
+    Array.prototype.forEach.call(heads, function (h, i) {
+      var panel = h.closest(".panel");
+      if (!panel.id) panel.id = "p" + i;
+      html += '<a href="#' + panel.id + '">' + h.textContent + "</a>";
+    });
+    if (entry && document.querySelector(".exercise")) {
+      var c = sectionCounts(entry.id);
+      html += '<div class="mini"><div class="row"><span>exercises</span><span id="toc-ex-count">' + c.done + "/" + c.total +
+        '</span></div><div class="track"><i id="toc-ex-bar" style="width:' + (c.total ? c.done / c.total * 100 : 0) + '%"></i></div></div>';
+    }
+    toc.innerHTML = html;
+
+    spyState.links = Array.prototype.slice.call(toc.querySelectorAll("a"));
+    spyState.targets = spyState.links.map(function (a) { return document.querySelector(a.getAttribute("href")); });
+    if (!spyState.wired) {
+      window.addEventListener("scroll", throttle(spy, 120));
+      spyState.wired = true;
+    }
+    spy();
+  }
+  var spyState = { links: [], targets: [], wired: false };
+  function spy() {
+    var y = window.scrollY + 120, idx = 0;
+    spyState.targets.forEach(function (t, i) { if (t && t.offsetTop <= y) idx = i; });
+    spyState.links.forEach(function (a, i) { a.classList.toggle("active", i === idx); });
+  }
+  function throttle(fn, ms) {
+    var t = 0, timer = null;
+    return function () {
+      var n = Date.now();
+      if (n - t > ms) { t = n; fn(); }
+      else { clearTimeout(timer); timer = setTimeout(function () { t = Date.now(); fn(); }, ms); }
+    };
+  }
+
+  /* ── pager + finish ──────────────────────────────────────── */
+  function buildFooter() {
+    if (!entry) return;
+    var art = document.querySelector("article");
+    if (!art) return;
+    var idx = NAV.indexOf(entry);
+    var prev = NAV[idx - 1], next = NAV[idx + 1];
+
+    var fin = el("div", "finish");
+    var done = !!store.done[entry.id];
+    fin.innerHTML = '<div class="txt">Finished this section? Marking it complete updates the dashboard and your overall progress.</div>';
+    var b = el("button", "tbtn" + (done ? " on" : ""), done ? "✓ Section complete" : "Mark section complete");
+    b.type = "button";
+    b.addEventListener("click", function () {
+      store.done[entry.id] = store.done[entry.id] ? 0 : 1; save();
+      b.className = "tbtn" + (store.done[entry.id] ? " on" : "");
+      b.textContent = store.done[entry.id] ? "✓ Section complete" : "Mark section complete";
+      var ov = overall();
+      var p = document.querySelector(".topbar .prog");
+      if (p) p.innerHTML = "<span>" + ov.done + "/" + ov.total + '</span><span class="track"><i style="width:' + ov.pct + '%"></i></span>';
+    });
+    fin.appendChild(b);
+    if (next) {
+      var nb = el("button", "tbtn ghost", "Next section →"); nb.type = "button";
+      nb.addEventListener("click", function () { location.href = href(next.path); });
+      fin.appendChild(nb);
+    }
+    art.appendChild(fin);
+
+    var pager = el("div", "pager");
+    pager.innerHTML =
+      (prev ? '<a class="prev" href="' + href(prev.path) + '"><span class="dir">◀ previous</span>' + (prev.id === "EX" ? "" : prev.id + " ") + prev.title + "</a>"
+            : '<a class="prev ghost">&nbsp;</a>') +
+      (next ? '<a class="next" href="' + href(next.path) + '"><span class="dir">next ▶</span>' + (next.id === "EX" ? "" : next.id + " ") + next.title + "</a>"
+            : '<a class="next" href="' + href("index.html") + '"><span class="dir">next ▶</span>Back to the dashboard</a>');
+    art.appendChild(pager);
+
+    if (entry.d > 0) { store.last = entry.id; save(); }   // the mock exam is not "where you were reading"
+  }
+
+  /* ── command palette ─────────────────────────────────────── */
+  var paletteOverlay, paletteInput, paletteList, paletteItems = [], paletteSel = 0;
+  function buildPalette() {
+    paletteOverlay = el("div", "overlay");
+    var p = el("div", "palette");
+    p.setAttribute("role", "dialog");
+    p.setAttribute("aria-modal", "true");
+    p.setAttribute("aria-label", "Jump to a section");
+    p.innerHTML =
+      '<div class="pin"><span aria-hidden="true">⌕</span><input type="text" role="combobox" aria-expanded="true" ' +
+        'aria-controls="palette-list" aria-autocomplete="list" aria-label="Search sections, tools and concepts" ' +
+        'placeholder="Search sections, tools, concepts…" autocomplete="off" spellcheck="false"></div>' +
+      '<ul id="palette-list" role="listbox" aria-label="Sections"></ul>' +
+      '<div class="hint" aria-live="polite" id="palette-hint">↑↓ navigate · ⏎ open · esc close · type a tool name (kyverno, flux, spiffe…) to find its section</div>';
+    paletteOverlay.appendChild(p);
+    body.appendChild(paletteOverlay);
+    paletteInput = p.querySelector("input");
+    paletteList = p.querySelector("ul");
+    paletteInput.addEventListener("input", function () { renderPalette(paletteInput.value); });
+    // keep Tab inside the dialog
+    p.addEventListener("keydown", function (e) {
+      if (e.key !== "Tab") return;
+      e.preventDefault();
+      paletteInput.focus();
+    });
+    paletteInput.addEventListener("keydown", function (e) {
+      if (e.key === "ArrowDown") { e.preventDefault(); paletteSel = Math.min(paletteSel + 1, paletteItems.length - 1); markSel(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); paletteSel = Math.max(paletteSel - 1, 0); markSel(); }
+      else if (e.key === "Enter") { e.preventDefault(); go(paletteSel); }
+    });
+    paletteOverlay.addEventListener("click", function (e) { if (e.target === paletteOverlay) closeOverlays(); });
+    renderPalette("");
+  }
+  function renderPalette(q) {
+    q = (q || "").toLowerCase().trim();
+    var items = NAV.filter(function (n) {
+      if (!q) return true;
+      var hay = (n.id + " " + n.title + " " + n.tags + " " + (domainOf(n.d) ? domainOf(n.d).name : "")).toLowerCase();
+      return q.split(/\s+/).every(function (tok) { return hay.indexOf(tok) >= 0; });
+    });
+    paletteItems = items; paletteSel = 0;
+    var hint = document.getElementById("palette-hint");
+    if (hint) {
+      hint.textContent = !q ? "↑↓ navigate · ⏎ open · esc close · type a tool name (kyverno, flux, spiffe…) to find its section"
+        : items.length ? items.length + (items.length === 1 ? " match" : " matches") + " · ↑↓ navigate · ⏎ open"
+        : "no section matches “" + q + "”";
+    }
+    paletteList.innerHTML = items.map(function (n, i) {
+      var d = domainOf(n.d);
+      var hit = "";
+      if (q) {
+        var t = n.tags.split(/\s+/).filter(function (w) { return w.indexOf(q.split(/\s+/)[0]) === 0; }).slice(0, 4);
+        if (t.length) hit = " · " + t.join(" ");
+      }
+      return '<li id="pal-' + i + '" role="option" aria-selected="false" data-i="' + i + '"><span class="pid">' + n.id +
+        '</span><span class="ptitle">' + n.title +
+        '</span><span class="pmeta">' + (d ? "d" + d.n : "exam") + hit + "</span></li>";
+    }).join("");
+    Array.prototype.forEach.call(paletteList.children, function (li) {
+      li.addEventListener("click", function () { go(+li.getAttribute("data-i")); });
+      li.addEventListener("mousemove", function () { paletteSel = +li.getAttribute("data-i"); markSel(); });
+    });
+    markSel();
+  }
+  function markSel() {
+    Array.prototype.forEach.call(paletteList.children, function (li, i) {
+      var on = i === paletteSel;
+      li.classList.toggle("sel", on);
+      li.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    var s = paletteList.children[paletteSel];
+    if (s) {
+      if (s.scrollIntoView) s.scrollIntoView({ block: "nearest" });
+      if (paletteInput) paletteInput.setAttribute("aria-activedescendant", s.id);
+    } else if (paletteInput) paletteInput.removeAttribute("aria-activedescendant");
+  }
+  function go(i) {
+    var n = paletteItems[i];
+    if (n) location.href = href(n.path);
+  }
+  var lastFocus = null;
+  function openPalette() {
+    closeOverlays();
+    lastFocus = document.activeElement;
+    paletteOverlay.classList.add("open");
+    paletteInput.value = ""; renderPalette(""); paletteInput.focus();
+  }
+
+  /* ── help overlay ────────────────────────────────────────── */
+  var helpOverlay;
+  function buildHelp() {
+    helpOverlay = el("div", "overlay");
+    if (helpOverlay) helpOverlay.remove();
+    var sectionKeys = !!document.querySelector(".exercise");
+    var c = el("div", "helpcard");
+    c.setAttribute("role", "dialog");
+    c.setAttribute("aria-modal", "true");
+    c.setAttribute("aria-label", "Keyboard shortcuts");
+    c.tabIndex = -1;
+    c.innerHTML = "<h3>Keyboard</h3><dl>" +
+      "<dt>/ &nbsp;or&nbsp; ⌘K</dt><dd>jump to any section by name, tool or concept</dd>" +
+      "<dt>n &nbsp;/&nbsp; p</dt><dd>next / previous section</dd>" +
+      "<dt>d</dt><dd>back to the dashboard</dd>" +
+      (sectionKeys
+        ? "<dt>x</dt><dd>jump to the exercises panel</dd>" +
+          "<dt>c</dt><dd>collapse or expand every exercise</dd>" +
+          "<dt>m</dt><dd>mark this section complete</dd>"
+        : "") +
+      "<dt>?</dt><dd>this card</dd>" +
+      "<dt>esc</dt><dd>close</dd></dl>" +
+      '<p style="margin:16px 0 0;color:var(--fg-3);font-size:13.5px">Progress is stored in this browser only. ' +
+      'Every code block has a copy button; the lab-layer chips at the top of a section copy their make command too.</p>';
+    helpOverlay.appendChild(c);
+    helpOverlay.addEventListener("click", function (e) { if (e.target === helpOverlay) closeOverlays(); });
+    body.appendChild(helpOverlay);
+  }
+  function toggleOverlay(o) {
+    var open = o.classList.contains("open");
+    var trigger = document.activeElement;
+    closeOverlays();
+    if (!open) {
+      lastFocus = trigger;
+      o.classList.add("open");
+      var focusable = o.querySelector("button, [href], input");
+      if (focusable && focusable.focus) focusable.focus();
+    }
+  }
+  function closeOverlays() {
+    var wasOpen = !!document.querySelector(".overlay.open");
+    Array.prototype.forEach.call(document.querySelectorAll(".overlay"), function (o) { o.classList.remove("open"); });
+    if (wasOpen && lastFocus && lastFocus.focus) { try { lastFocus.focus(); } catch (e) {} }
+    lastFocus = null;
+  }
+
+  /* ── keyboard ────────────────────────────────────────────── */
+  function keys() {
+    document.addEventListener("keydown", function (e) {
+      var tag = (e.target.tagName || "").toLowerCase();
+      var typing = tag === "input" || tag === "textarea" || e.target.isContentEditable;
+      if (e.key === "Escape") { closeOverlays(); return; }
+      if ((e.key === "k" || e.key === "K") && (e.metaKey || e.ctrlKey)) { e.preventDefault(); openPalette(); return; }
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (document.querySelector(".overlay.open")) return;   // the modal owns the keyboard
+      var idx = entry ? NAV.indexOf(entry) : -1;
+      switch (e.key) {
+        case "/": e.preventDefault(); openPalette(); break;
+        case "?": toggleOverlay(helpOverlay); break;
+        case "n": if (idx >= 0 && NAV[idx + 1]) location.href = href(NAV[idx + 1].path); break;
+        case "p": if (idx > 0) location.href = href(NAV[idx - 1].path); break;
+        case "d": location.href = href("index.html"); break;
+        case "x": var ep = document.getElementById("exercises"); if (ep) ep.scrollIntoView(); break;
+        case "c":
+          var exs = document.querySelectorAll(".exercise");
+          var anyOpen = Array.prototype.some.call(exs, function (x) { return !x.classList.contains("collapsed"); });
+          Array.prototype.forEach.call(exs, function (x) {
+            x.classList.toggle("collapsed", anyOpen);
+            var ch = x.querySelector(".chev"); if (ch) ch.textContent = anyOpen ? "▸" : "▾";
+          });
+          break;
+        case "m":
+          var btn = entry ? document.querySelector(".finish button.tbtn") : null;
+          if (btn) { btn.click(); btn.scrollIntoView({ block: "center" }); }
+          break;
+      }
+    });
+  }
+
+  /* ── index dashboard ─────────────────────────────────────── */
+  function buildIndex() {
+    var host = document.getElementById("domain-grid");
+    if (!host) return;
+    var ov = overall();
+    var totalEx = Object.keys(store.ex).length, doneEx = Object.keys(store.ex).filter(function (k) { return store.ex[k]; }).length;
+    var stats = document.querySelector(".stats");
+    if (stats) {
+      stats.innerHTML =
+        '<div class="stat g"><div class="lbl">Sections complete</div><div class="val">' + ov.done +
+          '<span class="u">/ ' + ov.total + '</span></div><div class="spark"><i style="width:' + ov.pct + '%"></i></div></div>' +
+        tile("c", "Exercises verified", doneEx + (totalEx ? '<span class="u">/ ' + totalEx + " seen</span>" : ""), false) +
+        tile("p", "Exam length", '120<span class="u">min</span>', false) +
+        tile("y", "Tasks on the day", '15–20<span class="u">≈7 min each</span>', false) +
+        tile("o", "Domains", "5", false);
+    }
+    host.innerHTML = DOMAINS.map(function (d) {
+      var secs = NAV.filter(function (n) { return n.d === d.n; });
+      var done = secs.filter(function (n) { return store.done[n.id]; }).length;
+      var pct = secs.length ? Math.round(done / secs.length * 100) : 0;
+      return '<div class="dcard"><header><span class="badge d' + d.n + '">D' + d.n + '</span><h3>' + d.name +
+        '</h3><span class="w">' + d.weight + "</span></header><ol>" +
+        secs.map(function (n) {
+          return '<li><a class="' + (store.done[n.id] ? "done" : "") + '" href="' + href(n.path) + '">' +
+            '<span class="sid">' + n.id + '</span><span class="st">' + n.title + '</span><span class="tick"></span></a></li>';
+        }).join("") +
+        '</ol><div class="foot"><span>' + done + "/" + secs.length + '</span><span class="track"><i style="width:' + pct +
+        '%"></i></span><span>' + pct + "%</span></div></div>";
+    }).join("");
+
+    var resume = document.getElementById("resume");
+    if (resume) {
+      var last = store.last ? NAV.filter(function (n) { return n.id === store.last; })[0] : null;
+      var nextUp = NAV.filter(function (n) { return n.d > 0 && !store.done[n.id]; })[0];
+      var target = last || nextUp;
+      if (target) {
+        resume.innerHTML = '<a class="tbtn" style="text-decoration:none" href="' + href(target.path) + '">▶ ' +
+          (last ? "Resume " : "Start ") + target.id + " · " + target.title + "</a>";
+      }
+    }
+    var reset = document.getElementById("reset-progress");
+    if (reset) reset.addEventListener("click", function () {
+      if (confirm("Clear all section and exercise progress stored in this browser?")) {
+        store = { ex: {}, done: {}, exam: {}, last: null }; save(); location.reload();
+      }
+    });
+  }
+
+  /* ── mock exam widgets ───────────────────────────────────── */
+  var examTimer = null;
+  function buildExam() {
+    if (examTimer) { clearInterval(examTimer); examTimer = null; }
+    if (!body.hasAttribute("data-exam")) return;
+    var TOTAL = 120 * 60;
+    var st = store.exam && typeof store.exam === "object" ? store.exam : {};
+    if (!st.tasks || typeof st.tasks !== "object") st.tasks = {};
+    store.exam = st;
+    var clock = document.getElementById("clock");
+    var scoreVal = document.getElementById("score-val");
+    var startBtn = document.getElementById("t-start");
+    var resetBtn = document.getElementById("t-reset");
+
+    function remaining() {
+      if (!st.startedAt) return TOTAL;
+      var spent = (st.spent || 0) + (st.running ? (Date.now() - st.startedAt) / 1000 : 0);
+      return Math.max(0, TOTAL - spent);
+    }
+    function paintClock() {
+      if (!clock) return;
+      var r = Math.floor(remaining());
+      var mm = String(Math.floor(r / 60)).padStart(3, " "), ss = String(r % 60).padStart(2, "0");
+      clock.textContent = mm + ":" + ss;
+      clock.className = "clock" + (r === 0 ? " out" : r < 15 * 60 ? " low" : "");
+      if (startBtn) startBtn.textContent = st.running ? "❚❚ Pause" : (st.spent ? "▶ Resume" : "▶ Start 120:00");
+    }
+    if (startBtn) startBtn.addEventListener("click", function () {
+      if (st.running) { st.spent = (st.spent || 0) + (Date.now() - st.startedAt) / 1000; st.running = false; }
+      else { st.startedAt = Date.now(); st.running = true; }
+      store.exam = st; save(); paintClock();
+    });
+    if (resetBtn) resetBtn.addEventListener("click", function () {
+      st.startedAt = 0; st.spent = 0; st.running = false; st.tasks = {};
+      save();
+      Array.prototype.forEach.call(document.querySelectorAll(".task"), function (t) { t.classList.remove("done"); });
+      Array.prototype.forEach.call(document.querySelectorAll(".task .dot"), function (d) { d.setAttribute("aria-pressed", "false"); });
+      paintClock(); paintScore();
+    });
+    examTimer = setInterval(paintClock, 1000);
+    paintClock();
+
+    // the clock should measure time you spent, not wall-clock while the tab was shut
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "hidden" && st.running) {
+        st.spent = (st.spent || 0) + (Date.now() - st.startedAt) / 1000;
+        st.startedAt = Date.now();
+        save();
+      }
+    });
+    addEventListener("pagehide", function () {
+      if (st.running) { st.spent = (st.spent || 0) + (Date.now() - st.startedAt) / 1000; st.startedAt = Date.now(); save(); }
+    });
+
+    var tasks = document.querySelectorAll(".task");
+    var maxPts = 0;
+    Array.prototype.forEach.call(tasks, function (t, i) {
+      var pts = +(t.getAttribute("data-pts") || 0);
+      maxPts += pts;
+      var title = t.getAttribute("data-title") || "";
+      if (t.getAttribute("data-built")) return;
+      t.setAttribute("data-built", "1");
+      var inner = t.innerHTML;
+      t.innerHTML = "";
+
+      var h = el("header");
+      var dot = el("button", "dot");
+      dot.type = "button";
+      dot.setAttribute("aria-label", "Mark task " + (i + 1) + " scored: " + title);
+      var disc = el("button", "disc");
+      disc.type = "button";
+      disc.innerHTML = '<span class="tno">' + (i + 1) + '</span><span class="tt">' + title +
+                       '</span><span class="pts">' + pts + " pts</span>";
+      var b = el("div", "body", inner);
+      b.id = "task-" + i;
+      disc.setAttribute("aria-controls", b.id);
+      disc.setAttribute("aria-expanded", "true");
+
+      function paintTask() {
+        var on = !!st.tasks[i];
+        t.classList.toggle("done", on);
+        dot.setAttribute("aria-pressed", on ? "true" : "false");
+      }
+      dot.addEventListener("click", function (e) {
+        e.stopPropagation();
+        st.tasks[i] = st.tasks[i] ? 0 : 1; save(); paintTask(); paintScore();
+      });
+      disc.addEventListener("click", function () {
+        var hidden = b.style.display === "none";
+        b.style.display = hidden ? "" : "none";
+        disc.setAttribute("aria-expanded", hidden ? "true" : "false");
+      });
+      h.appendChild(dot); h.appendChild(disc);
+      t.appendChild(h); t.appendChild(b);
+      paintTask();
+    });
+    function paintScore() {
+      if (!scoreVal) return;
+      var got = 0, byDomain = {};
+      Array.prototype.forEach.call(tasks, function (t, i) {
+        var pts = +(t.getAttribute("data-pts") || 0);
+        var m = /domain (\d)/.exec(t.getAttribute("data-title") || "");
+        var d = m ? m[1] : "?";
+        byDomain[d] = byDomain[d] || { got: 0, max: 0 };
+        byDomain[d].max += pts;
+        if (st.tasks[i]) { got += pts; byDomain[d].got += pts; }
+      });
+      scoreVal.innerHTML = got + '<span class="u">/ ' + maxPts + "</span>";
+      var sp = document.querySelector("#stat-score .spark i");
+      if (sp) sp.style.width = (maxPts ? got / maxPts * 100 : 0) + "%";
+
+      var host = document.getElementById("score-domains");
+      if (!host) return;
+      host.innerHTML = Object.keys(byDomain).sort().map(function (d) {
+        var b = byDomain[d], pct = b.max ? Math.round(b.got / b.max * 100) : 0;
+        var state = b.got === 0 ? "bad" : pct >= 70 ? "ok" : "warn";
+        return '<div class="wcell"><span class="wk">domain ' + d + '</span>' +
+          '<span class="wv wnum">' + b.got + '<span class="u" style="font-size:12px;color:var(--fg-3)"> / ' + b.max + '</span></span>' +
+          '<span class="wbar"><i class="' + (state === "ok" ? "green" : state === "warn" ? "warn" : "bad") +
+          '" style="width:' + pct + '%"></i></span></div>';
+      }).join("") +
+      '<div class="wcell wspan"><span class="wk">read this before the total</span><span class="wv">' +
+        (Object.keys(byDomain).some(function (d) { return byDomain[d].got === 0; })
+          ? "A domain at zero fails you in ways an average hides — re-drill that one first."
+          : "Every domain is on the board. Now push the weakest one above 70%.") +
+      "</span></div>";
+    }
+    paintScore();
+  }
+
+  /* ── boot ────────────────────────────────────────────────── */
+  var wired = false;
+  function boot() {
+    readPage();
+    Array.prototype.forEach.call(document.querySelectorAll(".topbar, .overlay"), function (n) { n.remove(); });
+    buildTopbar();
+    buildHead();
+    buildCodeBlocks();
+    buildExercises();
+    if (window.CNPE_WIDGETS) window.CNPE_WIDGETS.mount();
+    buildToc();
+    buildFooter();
+    buildPalette();
+    buildHelp();
+    buildIndex();
+    buildExam();
+    if (!wired) { keys(); wired = true; }
+  }
+  window.CNPE_BOOT = boot;
+  boot();
+})();

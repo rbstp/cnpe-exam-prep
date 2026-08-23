@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3.2 CRDs: extending the API server yourself · CNPE</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-id="3.2" data-root="../">
+<div class="wrap"><div class="cols">
+<article>
+
+<header class="pagehead">
+  <div class="eyebrow"></div>
+  <h1></h1>
+  <p class="sum">A CRD teaches the API server a new noun. That is all it does: storage, validation, RBAC integration, <code>kubectl</code> support and watch semantics, all inherited for free. Behaviour needs a controller (section 3.3). Splitting those two in your head — <em>schema versus behaviour</em> — is what makes the whole domain legible.</p>
+</header>
+
+<div class="stats"></div>
+
+<div class="needs"><span class="lbl">needs</span><code>make up</code><code>make api</code></div>
+
+<section class="panel" id="orientation">
+  <div class="phdr"><h2>Orientation</h2><span class="meta">competency 3.1 · designing and creating CRDs</span></div>
+  <div class="pbody">
+    <p class="lede">Everything in this section needs nothing installed; the whole point is that a CRD needs no controller to exist. Apply one and you immediately have a typed, validated, RBAC-aware, watchable, <code>kubectl explain</code>-documented API — with zero behaviour behind it. That gap is where platform engineering lives.</p>
+    <div class="callout exam">
+      <span class="tag">What a task looks like</span>
+      <p>"Create a CRD for <em>X</em> with required field <em>Y</em>, an enum, and a printer column; create one valid instance; show that an invalid one is rejected." Every clause is graded by an object or an error message. Typing a CRD from memory under time pressure is a genuine skill — do it by hand at least three times before exam day.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-c" id="anatomy">
+  <div class="phdr"><h2>Anatomy, field by field that matters</h2><span class="meta">group · names · scope · versions</span></div>
+  <div class="pbody">
+    <p><code>group</code> + <code>names</code> (plural, singular, kind, shortNames, categories) + <code>scope</code> (Namespaced or Cluster) + <code>versions[]</code>. The metadata name is not free-form: it must be exactly <code>&lt;plural&gt;.&lt;group&gt;</code>, and getting that wrong is the most common first error.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th class="mono">Field</th><th>Why it matters</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">scope</td><td>Namespaced gets you RBAC per namespace and quota via <code>count/&lt;plural&gt;.&lt;group&gt;</code>. Cluster-scoped resources cannot be owned by namespaced ones — a real constraint in Crossplane (3.5).</td></tr>
+          <tr><td class="mono">names.shortNames</td><td>cluster-global and first-come. Two CRDs claiming <code>tb</code> collide, and <code>kubectl</code> warns you. A platform API designer owns that namespace collision.</td></tr>
+          <tr><td class="mono">names.categories</td><td>puts your kind into <code>kubectl get all</code>-style groupings. Cheap usability win.</td></tr>
+          <tr><td class="mono">versions[].served</td><td>whether the API answers for this version at all</td></tr>
+          <tr><td class="mono">versions[].storage</td><td>exactly one version is what etcd holds; the rest are converted on the fly</td></tr>
+          <tr><td class="mono">versions[].deprecated</td><td>emits a warning to clients using it — the polite way to sunset</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p><strong>Versioning, at exam depth:</strong> deprecating a version means <code>served: true</code> with storage moved on; removing it means <code>served: false</code>. That three-state dance is the entire story unless the schemas actually differ, in which case you need conversion — <code>strategy: None</code> (same shape, different name) or a <code>Webhook</code> converter (real transformation). Know that the choice exists and what each costs.</p>
+
+    <h3>Schema: where design happens</h3>
+    <p>The schema is OpenAPI v3: types, <code>required</code>, <code>enum</code>, <code>pattern</code>, <code>minimum</code>/<code>maximum</code>, <code>default</code>, <code>format</code>. Two extensions worth knowing by name:</p>
+    <ul>
+      <li><code>x-kubernetes-validations</code> — CEL rules with custom messages, evaluated by the API server. This is how you express cross-field constraints (<code>self.max &gt;= self.min</code>) and immutability (<code>self == oldSelf</code>) without a webhook. The message you write is the message your user sees, so write it like a human.</li>
+      <li><code>x-kubernetes-preserve-unknown-fields</code> — opts a subtree out of pruning. By default anything not in the schema is <em>silently pruned on write</em>, which looks like data loss and is actually the schema doing its job.</li>
+      <li>Honourable mentions: <code>x-kubernetes-list-type: map</code> with <code>listMapKeys</code> (makes server-side apply merge lists sanely instead of replacing them), and <code>x-kubernetes-int-or-string</code>.</li>
+    </ul>
+
+    <div class="callout trap">
+      <span class="tag">Pruning is not an error</span>
+      <p>Apply a field the schema does not declare and it disappears with no complaint, no event, no warning by default. Users report "my setting is ignored"; the truth is it was never stored. This is why a permissive `preserve-unknown-fields` subtree is tempting and why a platform API mostly should not have one: you would be trading a clear rejection for an invisible mystery.</p>
+    </div>
+
+    <h3>Subresources and presentation</h3>
+    <ul>
+      <li><code>subresources.status</code> splits <code>/status</code> into its own endpoint, and that split cuts both ways: writes to the <em>main</em> resource then ignore the <code>status</code> stanza, and writes to <code>/status</code> ignore everything else. So the classic "my controller's status writes vanish" is the subresource <em>working</em> — the controller is calling <code>Update()</code> where it needs <code>UpdateStatus()</code>, or <code>kubectl patch</code> without <code>--subresource=status</code>. Without the subresource, status is just another field and anyone can clobber it, which is why every operator convention in section 3.3 assumes it is on.</li>
+      <li><code>subresources.scale</code> makes <code>kubectl scale</code> and HPAs work against your kind — three JSONPaths and your CRD is autoscalable.</li>
+      <li><code>additionalPrinterColumns</code> decides what <code>kubectl get</code> shows. A platform API without a useful READY column is user-hostile, per section 3.1.</li>
+    </ul>
+
+    <p>Once applied, wait for the <code>Established</code> condition — until then, requests for the new kind may 404. After that the kind behaves like any built-in: RBAC rules can name it, quota can <code>count/</code> it, admission webhooks and policy engines see it, and <code>kubectl explain</code> documents it from the descriptions you wrote. Descriptions are not decoration; they are the docs your users get.</p>
+  </div>
+</section>
+
+<section class="panel accent-y" id="beyond">
+  <div class="phdr"><h2>Where CRDs stop</h2><span class="meta">and what you reach for instead</span></div>
+  <div class="pbody">
+    <ul>
+      <li><strong>Aggregated API servers</strong> — for when you need custom storage, huge object counts, or non-etcd backends. Named in the docs, almost never the answer.</li>
+      <li><strong>Admission webhooks</strong> — for validation CEL cannot express (cross-object lookups) or mutation with logic. Every webhook is a new availability dependency for the whole API server; <code>failurePolicy</code> is where you choose which risk you prefer (section 5.2).</li>
+      <li><strong>Operators</strong> — for behaviour. A CRD with no controller is a typed ConfigMap, which is occasionally exactly what you want (Crossplane's XRs, Argo's Applications and Tekton's Tasks are all "data with a controller elsewhere").</li>
+      <li><strong>Generators</strong> — Crossplane's XRD and kro's ResourceGraphDefinition both <em>generate</em> CRDs for you. Sections 3.5 and 3.6 are exactly that: the same thing you hand-write here, produced by a higher-level API.</li>
+    </ul>
+    <div class="callout reflex">
+      <span class="tag">Command reflex on an unfamiliar cluster</span>
+      <p><code>kubectl api-resources | grep &lt;tool&gt;</code> to find the nouns, <code>kubectl explain &lt;kind&gt; --recursive</code> to read the schema, <code>kubectl get crd &lt;name&gt; -o yaml</code> to see printer columns, versions and validation. Three commands and you can operate an operator you have never met — which is precisely the exam scenario.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-g" id="exercises">
+  <div class="phdr"><h2>Exercises</h2><span class="meta">tick the dot when its check passes</span></div>
+  <div class="pbody">
+
+    <div class="exercise" data-title="Write one from nothing">
+      <p>A platform-flavoured example, typed out rather than pasted, because the exam gives you a task description, not a starting file:</p>
+      <div class="cb" data-lang="yaml"><pre><code>apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: tenantbuckets.platform.lab.local
+spec:
+  group: platform.lab.local
+  scope: Namespaced
+  names: { plural: tenantbuckets, singular: tenantbucket, kind: TenantBucket, shortNames: [tb] }
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources: { status: {} }
+      additionalPrinterColumns:
+        - { name: Tier,     type: string,  jsonPath: .spec.tier }
+        - { name: SizeGB,   type: integer, jsonPath: .spec.sizeGB }
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [tier]
+              properties:
+                tier:   { type: string, enum: [bronze, silver, gold], description: "Service tier; sets replication and backup policy." }
+                sizeGB: { type: integer, minimum: 1, maximum: 500, default: 10 }
+              x-kubernetes-validations:
+                - rule: "self.tier != 'bronze' || self.sizeGB &lt;= 50"
+                  message: "bronze tier is capped at 50GB"
+            status:
+              type: object
+              properties:
+                phase: { type: string }</code></pre></div>
+      <p>Apply it, then make the API server prove each design decision:</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl wait --for=condition=Established crd/tenantbuckets.platform.lab.local
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: platform.lab.local/v1alpha1
+kind: TenantBucket
+metadata: { name: good, namespace: default }
+spec: { tier: silver, sizeGB: 100 }
+EOF
+kubectl get tb    # printer columns show Tier and SizeGB, default filled in elsewhere</code></pre></div>
+      <p>With <code>cicd</code> installed, that last command also prints a warning that <code>tb</code> could match Tekton's triggerbindings. Keep it; it is teaching you that short names are cluster-global and first-come, which is exactly the kind of collision a platform API designer owns.</p>
+      <div class="verify"><b>verify</b> — the rejections, which are the real test of the schema: <code>tier: platinum</code> must fail on the enum, <code>sizeGB: 900</code> on the maximum, and <code>tier: bronze, sizeGB: 100</code> on the CEL rule with <em>your</em> message in the error. Three different validators refusing three different ways; know which produced which text.</div>
+    </div>
+
+    <div class="exercise" data-title="Prove pruning and explain">
+      <p>Apply a TenantBucket with an extra field <code>spec.color: red</code>, read it back, and observe the field is gone with no error. Then <code>kubectl explain tenantbucket.spec --recursive</code> and see your descriptions serving as live documentation.</p>
+      <div class="verify"><b>verify</b> — you can state the flag a schema author would set to keep unknown fields, and why a platform API mostly should not.</div>
+    </div>
+
+    <div class="exercise" data-title="Status is a separate door">
+      <p><code>kubectl patch tenantbucket good --subresource=status --type=merge -p '{"status":{"phase":"Ready"}}'</code>, then confirm <code>kubectl get tb good -o jsonpath='{.status.phase}'</code> says Ready and that a plain spec-edit did not clear it.</p>
+      <div class="verify"><b>verify</b> — status survives spec edits and vice versa. This is the mechanism every operator in section 3.3 relies on.</div>
+    </div>
+
+    <div class="exercise" data-title="Study the production-grade instance">
+      <p><code>kubectl get crd appenvironments.platform.lab.local -o yaml</code> (Crossplane generated it from the lab's XRD). Compare its schema and printer columns against yours; note what a machine-generated platform API includes that your hand-rolled one lacks (conditions conventions, connection details).</p>
+      <div class="verify"><b>verify</b> — you can name three things to steal, and add at least one of them to your TenantBucket.</div>
+    </div>
+
+  </div>
+</section>
+
+<section class="panel accent-p" id="selfcheck">
+  <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
+  <div class="pbody">
+    <details class="quiz"><summary>A user says their field "does not work". <code>kubectl get -o yaml</code> shows it missing entirely, and no error was printed. What happened?</summary>
+      <div class="answer"><p>Pruning: the field is not in the schema, so the API server dropped it on write. Either add it to the schema or, rarely, mark that subtree with <code>x-kubernetes-preserve-unknown-fields</code>. The user experience argument is for adding it properly.</p></div></details>
+
+    <details class="quiz"><summary>Your controller's status writes vanish. One likely cause?</summary>
+      <div class="answer"><p>The status subresource is enabled and the writer is going through the main endpoint, which ignores the <code>status</code> stanza. Use <code>UpdateStatus()</code> (or <code>kubectl patch --subresource=status</code>). The mirror-image bug also exists: with no subresource at all, a spec update from anyone overwrites the status your controller just wrote.</p></div></details>
+
+    <details class="quiz"><summary>You must forbid changing <code>spec.tier</code> after creation. How, without a webhook?</summary>
+      <div class="answer"><p>A CEL validation on the field: <code>rule: "self == oldSelf"</code> with a message like "tier is immutable". <code>x-kubernetes-validations</code> is evaluated by the API server and can compare against the old object, which is exactly the immutability case.</p></div></details>
+
+    <details class="quiz"><summary>You want to serve <code>v1alpha1</code> and <code>v1beta1</code> with different shapes. What do you need?</summary>
+      <div class="answer"><p>Both versions <code>served</code>, exactly one marked <code>storage</code>, and a conversion strategy: <code>None</code> only if the shapes are compatible, otherwise a conversion webhook. Everything read from etcd is stored in the storage version and converted on the way out.</p></div></details>
+
+    <details class="quiz"><summary>What does a CRD give you for free, and what does it definitively not give you?</summary>
+      <div class="answer"><p>Free: persistence, validation, defaulting, RBAC integration, watch/informers, <code>kubectl</code> support and explain docs, quota counting, policy-engine visibility. Not free: any behaviour whatsoever. Nothing happens until a controller acts on the object.</p></div></details>
+  </div>
+</section>
+
+<section class="panel" id="docs">
+  <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
+  <div class="pbody">
+    <ul class="docs">
+      <li><b>kubernetes.io</b> — "Extend the Kubernetes API with CustomResourceDefinitions" (one long page covering versions, pruning, CEL validation and defaults), and "Versions in CustomResourceDefinitions".</li>
+      <li><b>Offline:</b> <code>kubectl explain crd.spec.versions --recursive</code> when you forget field placement, which everyone does; <code>kubectl get crd &lt;name&gt; -o yaml</code> to learn from an operator's own schema.</li>
+    </ul>
+  </div>
+</section>
+
+</article>
+<aside class="toc" id="toc"></aside>
+</div></div>
+<script src="../assets/nav.js"></script>
+<script src="../assets/widgets.js"></script>
+<script src="../assets/app.js"></script>
+</body>
+</html>

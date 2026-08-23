@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mock exam · CNPE</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body data-id="EX" data-root="" data-exam>
+<div class="wrap"><div class="cols">
+<article>
+
+<header class="pagehead">
+  <div class="eyebrow"></div>
+  <h1>Mock exam</h1>
+  <p class="sum">Fifteen tasks, 120 minutes, 100 points, weighted like the real blueprint (15/25/25/20/15). Layers required: <code>make full</code> (everything on the main cluster; no mesh, no portal). Also have the 2.2 ApplicationSet applied (<code>kubectl apply -f examples/argocd-appset.yaml</code>) and the demo-app Dockerfile from section 2.4 pushed — both part of the curriculum's normal flow.</p>
+</header>
+
+<div class="stats" data-static style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
+  <div class="stat c"><div class="lbl">Lab layers</div><div class="val sm">make full</div></div>
+  <div class="stat p"><div class="lbl">Tasks</div><div class="val">15</div></div>
+  <div class="stat y"><div class="lbl">Target</div><div class="val">70<span class="u">+ / 100</span></div></div>
+  <div class="stat g" id="stat-score"><div class="lbl">Your score</div><div class="val" id="score-val">0<span class="u">/ 100</span></div><div class="spark"><i style="width:0%"></i></div></div>
+</div>
+
+<section class="panel accent-r" id="timer">
+  <div class="phdr"><h2>The clock</h2><span class="meta">persists across reloads</span></div>
+  <div class="pbody">
+    <div class="examtimer">
+      <div>
+        <div class="lbl">time remaining</div>
+        <div class="clock" id="clock">120:00</div>
+      </div>
+      <button class="tbtn" id="t-start" type="button">▶ Start 120:00</button>
+      <button class="tbtn ghost" id="t-reset" type="button">Reset</button>
+      <div class="score">Tick a task's dot when its grading command passes. Score updates above.</div>
+    </div>
+    <div id="score-domains" class="wgrid" style="margin-top:16px"></div>
+    <p style="margin-top:14px">Rules that make this worth doing: start the timer, no peeking at curriculum sections or the answers below, docs and <code>--help</code> allowed (that matches the real exam), and grade only at the end with the commands in the grading section. Anything a grading command cannot see does not count, which is also how the real thing works. Target: 70+ and <em>no domain at zero</em>. If a task stalls, note the time, move on, come back.</p>
+  </div>
+</section>
+
+<section class="panel accent-c" id="tasks">
+  <div class="phdr"><h2>Tasks</h2><span class="meta">click a task to collapse it · click the dot to score it</span></div>
+  <div class="pbody">
+
+    <div class="task" data-pts="7" data-title="Namespace, quota, limit range (domain 1)">
+      <p>Create namespace <code>team-x</code> labelled <code>pod-security.kubernetes.io/enforce=baseline</code>, with a ResourceQuota <code>mock-quota</code> (requests.cpu 1, requests.memory 2Gi, pods 5) and a LimitRange <code>mock-limits</code> defaulting containers to 100m/128Mi requests and 200m/256Mi limits.</p>
+    </div>
+
+    <div class="task" data-pts="8" data-title="Spread a deployment across zones (domain 1)">
+      <p>In <code>team-x</code>, create deployment <code>web</code> (image <code>ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine</code>, port 8080), 4 replicas, each container requesting exactly 25m CPU and 32Mi memory, spread across zones with a topologySpreadConstraint (<code>maxSkew: 1</code>, <code>whenUnsatisfiable: DoNotSchedule</code> on <code>topology.kubernetes.io/zone</code>). All 4 must become Ready.</p>
+    </div>
+
+    <div class="task" data-pts="8" data-title="Change production through git only (domain 2)">
+      <p>Through git only (no kubectl mutations): set the staging overlay of demo-app to 2 replicas and get it live via Argo CD. The live deployment is <code>staging-demo</code> in <code>team-a</code>.</p>
+    </div>
+
+    <div class="task" data-pts="9" data-title="Flux Kustomization on the existing source (domain 2)">
+      <p>Create a Flux Kustomization <code>mock-demo</code> on the existing <code>GitRepository/platform</code> deploying path <code>./demo-app/base</code> into namespace <code>mock-flux</code> (create it), prune enabled, interval 1m. Both replicas Ready.</p>
+    </div>
+
+    <div class="task" data-pts="8" data-title="Canary and abort (domain 2)">
+      <p>Apply <code>examples/rollouts/canary.yaml</code>, wait for the rollout <code>demo</code> in <code>team-a</code> to be Healthy, trigger a canary with image tag <code>1.28-alpine</code>, then abort it while it is mid-steps (the metric analysis may abort it for you first, since the demo app exposes no <code>http_requests_total</code>; an abort is an abort, but be the one who did it). The rollout must end aborted with the stable version at <code>1.27-alpine</code>.</p>
+    </div>
+
+    <div class="task" data-pts="8" data-title="A CRD with validation (domain 3)">
+      <p>Create a namespaced CRD <code>mockapps.mock.lab</code> (kind <code>MockApp</code>, plural <code>mockapps</code>) whose spec requires field <code>tier</code> (string, enum: dev, prod) and shows it in a printer column named <code>TIER</code>. Create instance <code>one</code> (tier: dev) in <code>default</code>. A MockApp with <code>tier: staging</code> must be rejected by the API server.</p>
+    </div>
+
+    <div class="task" data-pts="9" data-title="Consume the platform API (domain 3)">
+      <p>Using the lab's existing AppEnvironment platform API, provision an environment <code>team-y-dev</code> in <code>default</code> for team <code>team-y</code> with cpuQuota "3" and memoryQuota 6Gi, and wait until it is fully reconciled.</p>
+    </div>
+
+    <div class="task" data-pts="8" data-title="A workflow with exactly the rights it needs (domain 3)">
+      <p>Create and run an Argo Workflow in <code>default</code> (any name, <code>generateName</code> fine) that creates ConfigMap <code>mock-result</code> in <code>default</code> with data <code>result=done</code>, running under a ServiceAccount that you grant exactly the rights this needs. The workflow must reach Succeeded.</p>
+    </div>
+
+    <div class="task" data-pts="7" data-title="Scrape a new target (domain 4)">
+      <p>Deploy <code>quay.io/brancz/prometheus-example-app:v0.5.0</code> in <code>default</code> as deployment+service <code>mock-metrics</code> (port 8080) and get Prometheus scraping it via a ServiceMonitor. The target must reach state up.</p>
+    </div>
+
+    <div class="task" data-pts="7" data-title="An alert that can actually fire (domain 4)">
+      <p>Create a PrometheusRule that defines alert <code>MockDown</code>, firing (after 1m) whenever <code>mock-metrics</code> has zero healthy scrape targets. Prove it can fire by scaling <code>mock-metrics</code> to 0 and letting it reach Alertmanager.</p>
+    </div>
+
+    <div class="task" data-pts="6" data-title="Diagnose an injected fault (domain 4)">
+      <p>Run <code>make break</code>. Diagnose it, write the root cause in one line to <code>/tmp/mock-diagnosis.txt</code> before revealing anything, then fix the cluster yourself (no <code>make break-fix</code>). Score it only if <code>make break-answer</code> matches your written diagnosis and the fault's symptom is demonstrably gone.</p>
+    </div>
+
+    <div class="task" data-pts="4" data-title="A read-only service account (domain 5)">
+      <p>Create ServiceAccount <code>auditor</code> in <code>team-b</code> that can get and list pods and deployments in <code>team-b</code> and nothing else (no create, no other namespaces).</p>
+    </div>
+
+    <div class="task" data-pts="4" data-title="Enforce a policy where it can actually be shown (domain 5)">
+      <p>Create namespace <code>policy-test</code>, then make the cluster reject any new pod there whose containers lack CPU or memory requests, using the policy engine already installed. (Flip it back after grading. And if your first instinct was to demonstrate this in team-b, work out why that can never show a rejection before reading the answer.)</p>
+    </div>
+
+    <div class="task" data-pts="3" data-title="Extract an audit trail (domain 5)">
+      <p>From the API audit log, extract every successful <code>delete</code> performed today by the admin user into <code>/tmp/mock-audit.json</code>, one JSON event per line, each containing verb, user.username, and objectRef.</p>
+    </div>
+
+    <div class="task" data-pts="4" data-title="Sign and verify an image (domain 5)">
+      <p>Generate a cosign key pair, sign the image <code>localhost:5001/demo:v1</code> by digest, and verify the signature. Both sign and verify must succeed against the registry.</p>
+    </div>
+
+  </div>
+</section>
+
+<section class="panel accent-y" id="grading">
+  <div class="phdr"><h2>Grading</h2><span class="meta">judge partial credit like the meanest grader you know</span></div>
+  <div class="pbody">
+    <p>Run all of it; each line prints what earns the points.</p>
+    <div class="cb" data-lang="bash"><pre><code># 1
+kubectl get ns team-x -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}{"\n"}'   # baseline
+kubectl -n team-x get resourcequota mock-quota -o jsonpath='{.spec.hard}{"\n"}'                      # cpu 1, mem 2Gi, pods 5
+kubectl -n team-x run graded --image=busybox:1.37 --restart=Never -- sleep 30 &amp;&amp; sleep 5 &amp;&amp; \
+kubectl -n team-x get pod graded -o jsonpath='{.spec.containers[0].resources}{"\n"}'                 # 100m/128Mi defaults injected
+# 2
+kubectl -n team-x get deploy web -o jsonpath='{.status.readyReplicas}{"\n"}'                         # 4
+kubectl -n team-x get pods -l app=web -o custom-columns=NODE:.spec.nodeName --no-headers | sort | uniq -c   # 2+2 across zone nodes
+# 3
+kubectl -n team-a get deploy staging-demo -o jsonpath='{.spec.replicas}{"\n"}'                       # 2
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status}{"\n"}'                     # Synced (git did it, not kubectl)
+# 4
+flux get kustomization mock-demo   # Ready True
+kubectl -n mock-flux get deploy demo -o jsonpath='{.status.readyReplicas}{"\n"}'                     # 2
+# 5
+kubectl -n team-a get rollout demo -o jsonpath='{.status.abort}{"\n"}'                               # true
+kubectl -n team-a get rollout demo -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'     # ...1.28-alpine requested
+kubectl argo rollouts status demo -n team-a --timeout 10s 2&gt;&amp;1 | head -1                             # Degraded/aborted, stable serving old
+# 6
+kubectl get crd mockapps.mock.lab -o jsonpath='{.status.conditions[?(@.type=="Established")].status}{"\n"}'  # True
+kubectl get mockapp one   # TIER column shows dev
+kubectl apply -f &lt;(kubectl get mockapp one -o json | jq '.metadata.name="bad" | .spec.tier="staging"') 2&gt;&amp;1 | grep -i unsupported  # rejection
+# 7
+kubectl get appenvironment team-y-dev -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}{"\n"}'    # True
+kubectl -n team-y get resourcequota tenant-quota -o jsonpath='{.spec.hard}{"\n"}'                    # cpu 3, memory 6Gi
+# 8
+kubectl get workflow -o jsonpath='{.items[?(@.status.phase=="Succeeded")].metadata.name}{"\n"}'      # your workflow
+kubectl get cm mock-result -o jsonpath='{.data.result}{"\n"}'                                        # done
+# 9
+kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 19090:9090 &amp; sleep 3
+curl -s 'http://localhost:19090/api/v1/query?query=up{namespace="default"}' | jq -r '.data.result[] | select(.metric.pod|test("mock-metrics")) | .value[1]'   # 1
+# 10 (after scaling to 0 and waiting out the for:)
+kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-alertmanager 9093:9093 &amp; sleep 3
+curl -s 'http://localhost:9093/api/v2/alerts?filter=alertname%3D%22MockDown%22' | jq -r '.[0].status.state'   # active
+# 11
+cat /tmp/mock-diagnosis.txt &amp;&amp; make break-answer     # must agree; then show the symptom gone
+# 12
+kubectl auth can-i list pods --as=system:serviceaccount:team-b:auditor -n team-b       # yes
+kubectl auth can-i create pods --as=system:serviceaccount:team-b:auditor -n team-b     # no
+kubectl auth can-i list pods --as=system:serviceaccount:team-b:auditor -n team-a       # no
+# 13
+kubectl -n policy-test run graded-naked --image=busybox:1.37 --restart=Never -- sleep 5 2&gt;&amp;1 | grep -ci 'request'  # &gt;=1 (rejected)
+# 14
+jq -e 'select(.verb=="delete") | .user.username, .objectRef.resource' /tmp/mock-audit.json | head    # parses, right shape
+# 15
+cosign verify --key cosign.pub --allow-http-registry localhost:5001/demo@$(skopeo inspect --tls-verify=false docker://localhost:5001/demo:v1 | jq -r .Digest) 2&gt;&amp;1 | grep -c 'signatures were verified'  # 1</code></pre></div>
+  </div>
+</section>
+
+<section class="panel accent-p" id="answers">
+  <div class="phdr"><h2>Answers</h2><span class="meta">open only after grading</span></div>
+  <div class="pbody">
+    <p>Key moves only; each maps to a curriculum section where the full treatment lives.</p>
+
+    <details class="quiz"><summary>1 · namespace, quota, limit range</summary><div class="answer"><p>Three objects, section 1.4's shapes. The graded check is the LimitRange <em>injecting</em> defaults, so <code>default:</code> and <code>defaultRequest:</code> must both be set.</p></div></details>
+
+    <details class="quiz"><summary>2 · spread deployment</summary><div class="answer"><p>Requests must be explicit or team-x's LimitRange (100m) would overshoot the quota at 4 replicas; 25m×4 fits under 1 CPU. Spread as in section 1.2. If pods pend, read the quota/scheduling event; that is the task inside the task.</p></div></details>
+
+    <details class="quiz"><summary>3 · change through git</summary><div class="answer"><p>Clone the platform repo with credentials (<code>http://lab:$GITEA_PASS@gitea.lab:3000/lab/platform.git</code>; anonymous push fails), set <code>replicas</code> in <code>demo-app/overlays/staging/kustomization.yaml</code>, push, let the ApplicationSet's automated sync land it, or <code>argocd app sync demo-staging</code> to skip the poll. Section 2.2.</p></div></details>
+
+    <details class="quiz"><summary>4 · Flux Kustomization</summary><div class="answer"><p><code>flux create kustomization mock-demo --source=GitRepository/platform --path=./demo-app/base --target-namespace=mock-flux --prune=true --interval=1m</code> after creating the namespace. Section 2.3.</p></div></details>
+
+    <details class="quiz"><summary>5 · canary and abort</summary><div class="answer"><p><code>kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.28-alpine -n team-a</code>, then <code>kubectl argo rollouts abort demo -n team-a</code> during the pause step. Aborted leaves spec at the new tag, stable ReplicaSet serving the old one, <code>status.abort: true</code>. Section 2.5.</p></div></details>
+
+    <details class="quiz"><summary>6 · CRD with validation</summary><div class="answer"><p>Section 3.2's CRD skeleton with <code>enum: [dev, prod]</code> and an <code>additionalPrinterColumns</code> entry (<code>name: TIER</code>, jsonPath <code>.spec.tier</code>). The rejection sentence comes from the enum validator.</p></div></details>
+
+    <details class="quiz"><summary>7 · AppEnvironment</summary><div class="answer"><p>Copy <code>examples/crossplane/xr.yaml</code>, change name/team/quotas, apply, <code>kubectl get appenvironment -w</code> until Ready. Section 3.5; <code>crossplane resource trace</code> if it sticks.</p></div></details>
+
+    <details class="quiz"><summary>8 · workflow with RBAC</summary><div class="answer"><p>Section 3.4's pattern with a single <code>resource</code> template (action create, the ConfigMap manifest inline). The SA needs <code>create</code> on configmaps in default <em>and</em> <code>create,patch</code> on <code>workflowtaskresults.argoproj.io</code> (the executor's reporting channel; forget it and a correct workflow still fails), bound with Roles, named in <code>spec.serviceAccountName</code>.</p></div></details>
+
+    <details class="quiz"><summary>9 · scrape a new target</summary><div class="answer"><p>Deployment + Service with a <em>named</em> port, ServiceMonitor selecting the Service's labels, endpoint port by name. This lab's Prometheus selects all monitors (selector <code>{}</code>); on a stock install you would also need the release label, and checking the selector first is the habit. Section 4.1's second exercise is this task in slow motion.</p></div></details>
+
+    <details class="quiz"><summary>10 · alert that fires</summary><div class="answer"><p><code>expr: absent(up{job="mock-metrics"} == 1)</code> (or <code>count(up{...}==1) == 0</code> with <code>or vector</code> care), <code>for: 1m</code>. Scale to 0, wait ~2–3 min for evaluate + <code>for:</code> + <code>group_wait</code>. Section 4.2. (Rule selector logic is the same story as answer 9.)</p></div></details>
+
+    <details class="quiz"><summary>11 · diagnose the fault</summary><div class="answer"><p>Section 4.6's method: blast radius, timeline, descend. Sub-7-minutes is the target this whole curriculum has been training.</p></div></details>
+
+    <details class="quiz"><summary>12 · read-only service account</summary><div class="answer"><p>Role (get/list pods+deployments) + RoleBinding to the SA, both in team-b only. The third check fails if you reached for a ClusterRoleBinding. Section 5.1.</p></div></details>
+
+    <details class="quiz"><summary>13 · enforce the policy</summary><div class="answer"><p><code>kubectl patch validatingpolicy require-resource-requests --type=merge -p '{"spec":{"validationActions":["Deny"]}}'</code>; the policy ships in Audit. The task uses <code>policy-test</code> because the tenant namespaces have LimitRanges, and LimitRanger mutates requests in before validation ever runs, so team-b literally cannot produce a rejection. Section 5.2 makes a whole lesson of it. Flip back to <code>["Audit"]</code>.</p></div></details>
+
+    <details class="quiz"><summary>14 · audit extraction</summary><div class="answer"><p><code>docker exec cnpe-control-plane cat /var/log/kubernetes/audit.log | jq -c 'select(.verb=="delete" and .responseStatus.code&lt;300 and (.user.username|test("admin")))' &gt; /tmp/mock-audit.json</code>. Section 5.4.</p></div></details>
+
+    <details class="quiz"><summary>15 · sign and verify</summary><div class="answer"><p>Section 5.6's exercise verbatim: <code>cosign generate-key-pair</code>, sign by digest with <code>--allow-http-registry -y</code>, verify with the pub key. If <code>demo:v1</code> doesn't exist, the 2.4 pipeline builds it (pushing as <code>kind-registry:5000/demo:v1</code>, which the host reads back as <code>localhost:5001/demo:v1</code>), and discovering that dependency mid-exam is authentic too.</p></div></details>
+  </div>
+</section>
+
+<section class="panel accent-g" id="after">
+  <div class="phdr"><h2>After scoring</h2><span class="meta">the second attempt is the one that predicts</span></div>
+  <div class="pbody">
+    <p>Log the score <em>per domain</em>, not just the total; a domain at zero fails you in ways an average hides. Re-drill the weakest domain's sections, wait two days, and rerun this from scratch on a rebuilt lab (<code>make down &amp;&amp; make full</code> gives you a clean grader). The second attempt under time is the one that predicts the real thing.</p>
+  </div>
+</section>
+
+</article>
+<aside class="toc" id="toc"></aside>
+</div></div>
+<script src="assets/nav.js"></script>
+<script src="assets/widgets.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

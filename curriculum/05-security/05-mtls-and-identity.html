@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>5.5 mTLS and workload identity: Istio and SPIRE · CNPE</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-id="5.5" data-root="../">
+<div class="wrap"><div class="cols">
+<article>
+
+<header class="pagehead">
+  <div class="eyebrow"></div>
+  <h1></h1>
+  <p class="sum">Service-to-service security is two ideas wearing one acronym: encryption in transit, and cryptographic <em>identity</em> — each workload proving which service it is rather than which IP it squats on. mTLS delivers both at once, and meshes exist to deliver it without touching application code.</p>
+</header>
+
+<div class="stats"></div>
+
+<div class="needs"><span class="lbl">needs</span><code>make mesh</code><code>make spire</code></div>
+
+<section class="panel" id="orientation">
+  <div class="phdr"><h2>Orientation</h2><span class="meta">competency 5.1 · secure service-to-service communication</span></div>
+  <div class="pbody">
+    <p class="lede">Run <code>make mesh</code> (second cluster, context <code>kind-mesh</code>) and <code>make spire</code> (main cluster) separately if the laptop complains; they do not interact. The concepts do, though: both answer "who is this workload, cryptographically", and both derive that identity from the ServiceAccount.</p>
+    <div class="callout model">
+      <span class="tag">Why identity beats network location</span>
+      <p>A NetworkPolicy says "traffic from these pod labels may reach these pods". mTLS-based authorization says "a caller holding a certificate for <em>this ServiceAccount</em> may call this service". The second survives IP churn, works across clusters, and cannot be spoofed by landing a pod in the right namespace — which is the entire zero-trust argument in two sentences. Note what this quietly does: it upgrades every RBAC decision you made in 5.1 into a network-level identity.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-c" id="istio">
+  <div class="phdr"><h2>Istio ambient, the shape of it</h2><span class="meta">ztunnel · HBONE · waypoints</span></div>
+  <div class="pbody">
+    <p>The mesh cluster runs Istio's <strong>ambient</strong> mode: no sidecars. A per-node proxy (<strong>ztunnel</strong>, a DaemonSet) intercepts traffic for enrolled namespaces and wraps it in mTLS over <strong>HBONE</strong> (HTTP/2 CONNECT tunnels on port 15008), using per-workload certificates issued by istiod. Enrolment is one label on the namespace: <code>istio.io/dataplane-mode=ambient</code>, and the lab pre-enrols <code>default</code> on the mesh cluster.</p>
+
+    <pre class="diagram"><b>client pod</b> ──plaintext──▶ <i>ztunnel</i> (node A) ══mTLS/HBONE══▶ <i>ztunnel</i> (node B) ──plaintext──▶ <b>backend pod</b>
+                              │                                         │
+                    identity: <u>spiffe://cluster.local/ns/default/sa/client</u>
+                                                        L4 policy enforced here
+                    ┌──────── optional <em>waypoint proxy</em> for L7 rules (paths, methods, headers) ────────┐</pre>
+
+    <p>The identities inside the certificates are <strong>SPIFFE IDs</strong>: <code>spiffe://cluster.local/ns/&lt;namespace&gt;/sa/&lt;serviceaccount&gt;</code>. Note what that string is built from — the ServiceAccount <em>is</em> the identity.</p>
+
+    <h3>The two policy objects</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Kind</th><th>Decides</th><th>Key fields</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">PeerAuthentication</td><td><em>authn</em>: is mTLS required?</td><td><code>mtls.mode: STRICT | PERMISSIVE | DISABLE</code>, scoped mesh-wide (in the root namespace), per namespace, or per workload</td></tr>
+          <tr><td class="mono">AuthorizationPolicy</td><td><em>authz</em>: who may call what</td><td><code>action: ALLOW|DENY|AUDIT|CUSTOM</code>, rules with <code>from.source.principals</code> (SPIFFE IDs), <code>to.operation</code> (methods, paths — L7, needs a waypoint)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout exam">
+      <span class="tag">Permissive by default is the exam gold</span>
+      <p>Installing a mesh does <strong>not</strong> mean everything is encrypted: the default <code>PERMISSIVE</code> mode accepts both mTLS and plaintext so you can migrate incrementally. "Install mesh ≠ encrypted everywhere" — you must apply STRICT, and you must prove it by having something plaintext get refused. That proof is exercise 2 below.</p>
+    </div>
+
+    <p>L4 rules (which identity may connect at all) work with ztunnel alone. L7 rules (methods, paths, headers) require a <strong>waypoint proxy</strong>, ambient's opt-in L7 tier deployed per namespace or per service account. Sidecar mode is the older model: an Envoy per pod, richer per-pod features, higher resource cost. Both are Istio; know which one a cluster runs before you reason about its data path.</p>
+  </div>
+</section>
+
+<section class="panel accent-p" id="spire">
+  <div class="phdr"><h2>SPIRE: identity without a mesh</h2><span class="meta">SPIFFE · SVID · Workload API</span></div>
+  <div class="pbody">
+    <p>SPIFFE is the standard, SPIRE the implementation. A <strong>SPIFFE ID</strong> is a URI naming a workload; an <strong>SVID</strong> is the document proving it (X.509 certificate or JWT); the <strong>Workload API</strong> is a Unix socket the workload reads to fetch its own SVID and the trust bundle — no network call, no secret to mount, automatic rotation.</p>
+
+    <pre class="diagram"><b>spire-server</b>  (CA + registration entries)
+     ▲ node attestation (which node is this?)
+<b>spire-agent</b> (DaemonSet)
+     ▲ workload attestation (which pod/SA/labels is this process?)
+<b>your pod</b> ──reads──▶ <u>/run/spire/sockets/agent.sock</u>  (mounted via the csi.spiffe.io CSI driver)
+                          receives: X.509-SVID + trust bundle, rotated automatically</pre>
+
+    <p>Two attestation steps, and both matter: the agent proves the <em>node</em> to the server, then proves the <em>workload</em> to itself by inspecting the calling process (its namespace, ServiceAccount, labels). Registration entries map selectors to SPIFFE IDs, and the lab installs a <code>ClusterSPIFFEID</code> CR that templates those registrations for workloads instead of making you write them one by one.</p>
+
+    <div class="callout reflex">
+      <span class="tag">When to reach for which</span>
+      <p>Mesh (Istio/Linkerd) when you want transparent mTLS and policy for HTTP/gRPC traffic between services, with no code changes. SPIRE standalone when workloads must authenticate to <em>something outside the mesh</em> — a database, a cloud API, a partner service — with short-lived credentials and no static secrets. "Workloads must authenticate to an external service with short-lived credentials, no mesh" is the exam sentence that means SPIRE.</p>
+    </div>
+
+    <h3>Linkerd, since the tool list names it</h3>
+    <p>Same destination, different route: sidecar data plane, automatic mTLS between meshed pods, identity again derived from the ServiceAccount, policy via <code>Server</code> and <code>AuthorizationPolicy</code> resources, and <code>linkerd viz edges</code> to show which links are secured. The permissive-by-default lesson transfers intact, though — Linkerd's default inbound policy (<code>all-unauthenticated</code>) still accepts plaintext from unmeshed clients, so refusing it means raising <code>proxy.defaultInboundPolicy</code> or authorizing a <code>Server</code> explicitly. <code>MESH=linkerd make mesh</code> swaps the lab over if you want a session on it; the concepts transfer wholesale, only the nouns change.</p>
+  </div>
+</section>
+
+<section class="panel accent-g" id="exercises">
+  <div class="phdr"><h2>Exercises</h2><span class="meta">tick the dot when its check passes</span></div>
+  <div class="pbody">
+    <p>All on <code>kind-mesh</code> (<code>kubectx kind-mesh</code>) except the SPIRE ones.</p>
+
+    <div class="exercise" data-title="See mTLS happen to plaintext apps">
+      <p>Deploy two plain services in <code>default</code> and talk between them:</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create deploy backend --image=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine --port=8080
+kubectl expose deploy backend --port=8080
+kubectl run client --image=curlimages/curl:8.11.1 --restart=Never -- sh -c 'sleep 3600'
+kubectl exec client -- curl -s -o /dev/null -w '%{http_code}\n' http://backend:8080</code></pre></div>
+      <p>Verify the encryption claim with evidence, not vibes: <code>istioctl ztunnel-config workload</code> lists both pods with protocol HBONE, and <code>kubectl -n istio-system logs ds/ztunnel | grep -i backend | tail</code> shows connections with source and destination SPIFFE identities.</p>
+      <div class="verify"><b>verify</b> — HBONE in the ztunnel config and SPIFFE identities in the logs. The app never changed; the platform upgraded it.</div>
+    </div>
+
+    <div class="exercise" data-title="Refuse plaintext">
+      <p>Apply STRICT and attack from outside the mesh:</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata: { name: default, namespace: default }
+spec: { mtls: { mode: STRICT } }
+EOF
+kubectl create ns outsider   # not labelled ambient, therefore not in the mesh
+kubectl -n outsider run intruder --image=curlimages/curl:8.11.1 --restart=Never -- \
+  curl -s -m 5 -o /dev/null -w '%{http_code}' http://backend.default.svc:8080</code></pre></div>
+      <div class="verify"><b>verify</b> — the in-mesh client still gets 200; the outsider's curl fails (its plaintext is refused). Delete the PeerAuthentication and the outsider succeeds again. That triple (before, strict, after) is the demonstration the competency wording asks for.</div>
+    </div>
+
+    <div class="exercise" data-title="Authorize by identity">
+      <p>With STRICT back on, add an AuthorizationPolicy allowing only the <code>client</code> pod's ServiceAccount to reach backend, then test from a second pod running as a different SA.</p>
+      <div class="verify"><b>verify</b> — allowed SA 200, other SA denied (an L4 deny shows as a connection reset/failure, not an HTTP 403 — that difference is itself worth noticing). You have now made a network decision based on <em>who</em>, not <em>where from</em>, which is the sentence to say about zero-trust if asked.</div>
+    </div>
+
+    <div class="exercise" data-title="Meet your SVIDs (main cluster)">
+      <p><code>kubectx kind-cnpe</code>, then:</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n spire exec sts/spire-server -c spire-server -- \
+  /opt/spire/bin/spire-server entry show
+kubectl get clusterspiffeids</code></pre></div>
+      <p>Then inspect the ClusterSPIFFEID CR and connect its template to the entries it generated. If you want the full loop, mount the CSI socket (<code>csi.spiffe.io</code> driver) in a pod and list the socket file; the identities are delivered as files, no network call, which is the property that makes SPIRE composable with everything.</p>
+      <div class="verify"><b>verify</b> — registration entries exist mapping SPIFFE IDs to Kubernetes selectors, and you can read one entry aloud: this ID is issued to workloads matching this namespace/SA, attested by this parent agent.</div>
+    </div>
+
+  </div>
+</section>
+
+<section class="panel accent-p" id="selfcheck">
+  <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
+  <div class="pbody">
+    <details class="quiz"><summary>"We installed a service mesh, so all traffic is encrypted." Correct?</summary>
+      <div class="answer"><p>No. The default is PERMISSIVE, which accepts plaintext as well as mTLS so migration can be incremental. You need a PeerAuthentication in STRICT mode (mesh-wide, per namespace, or per workload) — and you should prove it by watching a non-mesh client get refused.</p></div></details>
+
+    <details class="quiz"><summary>Where does a workload's mesh identity come from, and why does that matter to section 5.1?</summary>
+      <div class="answer"><p>From its ServiceAccount: <code>spiffe://cluster.local/ns/&lt;ns&gt;/sa/&lt;sa&gt;</code>. It matters because your RBAC design now doubles as your network authorization design — one identity, two enforcement points — and because sloppy SA reuse silently widens both.</p></div></details>
+
+    <details class="quiz"><summary>You need to allow only POST to <code>/orders</code> from one service. What must exist?</summary>
+      <div class="answer"><p>An AuthorizationPolicy with an L7 <code>to.operation</code> rule <em>and</em> a waypoint proxy for the target, because ztunnel alone enforces L4. Without the waypoint the method/path clauses have nothing to evaluate them.</p></div></details>
+
+    <details class="quiz"><summary>NetworkPolicy or AuthorizationPolicy — when do you use each?</summary>
+      <div class="answer"><p>Both, at different layers. NetworkPolicy is CNI-enforced, identity-by-label, works for all traffic including non-mesh workloads. AuthorizationPolicy is mesh-enforced, identity-by-certificate, survives IP churn and works across clusters. Defence in depth: the CNI keeps the blast radius small, the mesh makes the caller prove who it is.</p></div></details>
+
+    <details class="quiz"><summary>Give a scenario where SPIRE beats a mesh.</summary>
+      <div class="answer"><p>A workload must authenticate to something outside the cluster — a managed database, a partner API, a legacy service — with short-lived credentials and no static secret. SPIRE issues an SVID through the Workload API socket; the mesh only secures traffic between meshed services. Bonus: SPIFFE IDs federate across trust domains, which is how you extend identity beyond one cluster.</p></div></details>
+  </div>
+</section>
+
+<section class="panel" id="docs">
+  <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
+  <div class="pbody">
+    <ul class="docs">
+      <li><b>istio.io</b> — ambient overview, PeerAuthentication and AuthorizationPolicy references, waypoint proxies.</li>
+      <li><b>spiffe.io</b> — the SPIFFE concepts page (ID, SVID, Workload API, trust domain); <code>spire-server entry</code> syntax.</li>
+      <li><b>linkerd.io</b> — the automatic mTLS page, for the compare-and-contrast sentence.</li>
+      <li><b>Offline:</b> <code>istioctl ztunnel-config --help</code>, <code>istioctl analyze</code>, <code>kubectl explain peerauthentication.spec</code>.</li>
+    </ul>
+  </div>
+</section>
+
+</article>
+<aside class="toc" id="toc"></aside>
+</div></div>
+<script src="../assets/nav.js"></script>
+<script src="../assets/widgets.js"></script>
+<script src="../assets/app.js"></script>
+</body>
+</html>
