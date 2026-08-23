@@ -27,7 +27,7 @@
     <p class="lede">Run to completion, not converge forever. That distinction is section 3.6's whole decision table, and it is the reason a workflow is the right tool for "stamp this out once when asked" and the wrong tool for "keep this true for the next three years".</p>
     <div class="callout lab">
       <span class="tag">Lab note</span>
-      <p>Workflows installs with the <code>gitops</code> layer and the controller watches the <code>argo</code> and <code>default</code> namespaces. Workflows created elsewhere will sit untouched forever, looking exactly like a broken controller; worth knowing before you spend ten minutes on it.</p>
+      <p>Workflows installs with the <code>gitops</code> layer and the controller watches the <code>argo</code> and <code>default</code> namespaces. Workflows created elsewhere will sit untouched forever, looking exactly like a broken controller.</p>
     </div>
   </div>
 </section>
@@ -74,7 +74,7 @@
 
     <div class="callout trap">
       <span class="tag">The one nobody guesses</span>
-      <p>Argo's executor reports each step's outcome through its own CRD, <code>workflowtaskresults.argoproj.io</code>. Every workflow ServiceAccount therefore needs <code>create,patch</code> on that resource; forget it and even a perfectly correct workflow fails, usually <em>before</em> your actual permission problem surfaces. Seeing that error once is worth an hour of doc reading.</p>
+      <p>Argo's executor reports each step's outcome through its own CRD, <code>workflowtaskresults.argoproj.io</code>. Every workflow ServiceAccount therefore needs <code>create,patch</code> on that resource; forget it and even a perfectly correct workflow fails, usually <em>before</em> your actual permission problem surfaces.</p>
     </div>
 
     <p>Two related permissions worth knowing exist: the SA also needs <code>get,list,watch</code> on pods to report progress in some configurations, and if you use artifacts, access to the artifact repository Secret. The general rule is the same as section 5.1's: least privilege, then prove it with <code>kubectl auth can-i --as=system:serviceaccount:&lt;ns&gt;:&lt;sa&gt;</code> before you blame the tool.</p>
@@ -155,11 +155,11 @@ spec:
           spec:
             hard: { requests.cpu: "1", requests.memory: 2Gi, pods: "10" }</code></pre></div>
       <p><code>kubectl create -f</code> it (generateName forbids apply), then watch: <code>kubectl get workflow -w</code>.</p>
-      <div class="verify"><b>verify:</b> the workflow reaches Succeeded, <em>and</em> <code>kubectl get ns team-d --show-labels</code> plus <code>kubectl -n team-d get resourcequota</code> show the artifacts. A green workflow that produced nothing would still be a failure; check the output, not the runner.</div>
+      <div class="verify"><b>verify:</b> the workflow reaches Succeeded, <em>and</em> <code>kubectl get ns team-d --show-labels</code> plus <code>kubectl -n team-d get resourcequota</code> show the artifacts.</div>
     </div>
 
     <div class="exercise" data-title="Break it on RBAC, on purpose">
-      <p>Rerun with <code>serviceAccountName: default</code> and a new team name. Which rule it names first is instructive: with the bare default SA the executor usually trips over <code>workflowtaskresults</code> (its own reporting channel) before your namespace rule even gets a chance, an Argo-specific wrinkle that looks baffling until you have seen it once.</p>
+      <p>Rerun with <code>serviceAccountName: default</code> and a new team name. Which rule it names first is instructive: with the bare default SA the executor usually trips over <code>workflowtaskresults</code> (its own reporting channel) before your namespace rule even gets a chance. That is an Argo-specific wrinkle worth seeing once.</p>
       <div class="verify"><b>verify:</b> the workflow fails, and <code>kubectl get workflow &lt;name&gt; -o jsonpath='{.status.nodes}' | jq '.[] | {phase, message}'</code> contains a <code>forbidden</code> message naming a missing verb and resource. The message structure is identical for every RBAC failure you will ever debug.</div>
     </div>
 
@@ -170,7 +170,7 @@ spec:
 
     <div class="exercise" data-title="A guardrail branch (stretch)">
       <p>Add a first DAG node <code>check</code> using a <code>script</code> template that exits non-zero when <code>{{workflow.parameters.team}}</code> doesn't match <code>^team-[a-z]+$</code>, and make the other nodes depend on it.</p>
-      <div class="verify"><b>verify:</b> a run with <code>team=Team_X</code> fails at check and creates nothing. Input validation before side effects; the same shape as admission, one layer earlier. Clean up the test tenants when done: <code>kubectl delete ns team-d team-e</code>.</div>
+      <div class="verify"><b>verify:</b> a run with <code>team=Team_X</code> fails at check and creates nothing. Clean up the test tenants when done: <code>kubectl delete ns team-d team-e</code>.</div>
     </div>
 
   </div>

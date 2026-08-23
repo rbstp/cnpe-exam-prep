@@ -62,7 +62,7 @@
 <b>node inventory</b>     ─┘                        ▲
                                             price list (cloud rates or defaults)</pre>
 
-    <p>Two consequences worth predicting before you run anything. First, OpenCost is only as good as the metrics under it, so a broken scrape shows up as missing cost, not as an error, and diagnosing "why is this namespace zero" is a Prometheus problem wearing a cost hat. Second, allocation windows matter: a 1-hour window over a freshly created workload shows nothing useful, so use <code>--window 1d</code> when you want stable numbers.</p>
+    <p>Two consequences worth predicting before you run anything. First, OpenCost is only as good as the metrics under it, so a broken scrape shows up as missing cost, not as an error, and diagnosing "why is this namespace zero" is a Prometheus problem, not a cost problem. Second, allocation windows matter: a 1-hour window over a freshly created workload shows nothing useful, so use <code>--window 1d</code> when you want stable numbers.</p>
 
     <div class="callout reflex">
       <span class="tag">One flag to burn in</span>
@@ -76,7 +76,7 @@
       <li><strong>Adjust</strong>: <code>kubectl set resources</code> or the manifest in git; memory to roughly peak plus headroom, CPU to a sane request with a generous or absent limit.</li>
       <li><strong>Confirm</strong>: nothing throttling, nothing OOMKilled, nothing Pending, and the efficiency number moved.</li>
     </ol>
-    <p>Step 4 is where people lose the mark. Right-sizing that breaks scheduling or introduces throttling is worse than the waste it removed, and saying so unprompted is what separates a platform engineer's answer from a dashboard reader's.</p>
+    <p>Step 4 is where people lose the mark. Right-sizing that breaks scheduling or introduces throttling is worse than the waste it removed, and it is worth saying so unprompted.</p>
   </div>
 </section>
 
@@ -97,7 +97,7 @@ kubectl cost --opencost namespace --historical --window 1d</code></pre></div>
       <p>From raw metrics, CPU requested minus used, per namespace (run in the Prometheus UI from <code>make urls</code>):</p>
       <div class="cb" data-lang="promql"><pre><code>sum by (namespace) (kube_pod_container_resource_requests{resource="cpu"})
   - sum by (namespace) (rate(container_cpu_usage_seconds_total{container!=""}[10m]))</code></pre></div>
-      <p>The label filters matter: cadvisor also emits pod-level and node-level aggregate series (empty <code>container</code>) and, on many versions, the pause container as <code>container="POD"</code>. Without <code>{container!="",container!="POD"}</code> you count the same CPU two or three times and the "gap" you compute is fiction.</p>
+      <p>The label filters matter: cadvisor also emits pod-level and node-level aggregate series (empty <code>container</code>) and, on many versions, the pause container as <code>container="POD"</code>. Without <code>{container!="",container!="POD"}</code> you count the same CPU two or three times and the gap you compute is wrong.</p>
       <div class="verify"><b>verify:</b> the namespace at the top of the PromQL result matches the low efficiency scores in kubectl-cost. Name the top offender and what you would change.</div>
     </div>
 
@@ -106,7 +106,7 @@ kubectl cost --opencost namespace --historical --window 1d</code></pre></div>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -k examples/demo-app/base
 kubectl set resources deploy demo --requests=cpu=500m,memory=512Mi</code></pre></div>
       <p>Wait ten minutes for metrics to accumulate, get the VPA recommendation for it (section 1.2), then apply sane numbers with <code>kubectl set resources</code> again.</p>
-      <div class="verify"><b>verify:</b> <code>kubectl cost --opencost namespace --show-efficiency</code> for <code>default</code> improves between the two states, and the pods never restarted into a Pending state (right-sizing that breaks scheduling is worse than the waste).</div>
+      <div class="verify"><b>verify:</b> <code>kubectl cost --opencost namespace --show-efficiency</code> for <code>default</code> improves between the two states, and the pods never restarted into a Pending state.</div>
     </div>
 
     <div class="exercise" data-title="Connect quota to cost">

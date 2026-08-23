@@ -46,11 +46,11 @@
 <u>pod:8080/metrics</u>  ──scraped every 30s──▶  series {job="example", namespace=…, pod=…}</pre>
 
     <div class="callout trap">
-      <span class="tag">The hour everyone loses once</span>
-      <p>Prometheus only picks up ServiceMonitors matching its own <code>serviceMonitorSelector</code>, which on a stock kube-prometheus-stack matches the Helm release label (<code>release: prometheus</code>). A perfectly correct monitor without that label is <em>silently ignored</em>: no error, no event, no target. This lab deliberately disables that filter (<code>serviceMonitorSelectorNilUsesHelmValues=false</code>), so its selector is <code>{}</code> and every monitor everywhere is picked up. Both facts matter, and the durable habit is: <strong>read the selector first, then write the monitor.</strong></p>
+      <span class="tag">The silent selector trap</span>
+      <p>Prometheus only picks up ServiceMonitors matching its own <code>serviceMonitorSelector</code>, which on a stock kube-prometheus-stack matches the Helm release label (<code>release: prometheus</code>). A perfectly correct monitor without that label is <em>silently ignored</em>: no error, no event, no target. This lab deliberately disables that filter (<code>serviceMonitorSelectorNilUsesHelmValues=false</code>), so its selector is <code>{}</code> and every monitor everywhere is picked up. Either way, <strong>read the selector first, then write the monitor.</strong></p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.serviceMonitorSelector}'; echo
 kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.serviceMonitorNamespaceSelector}'; echo</code></pre></div>
-      <p>Prints <code>{}</code> on this cluster and the release-label selector on a stock install. That one command is the answer to "my target does not appear" everywhere, including the exam's cluster, whose selector you do not get to assume. The <em>namespace</em> selector is the second half of the same trap: a monitor in a namespace Prometheus does not watch is equally invisible.</p>
+      <p>Prints <code>{}</code> on this cluster and the release-label selector on a stock install. That one command is the answer to "my target does not appear" everywhere. The exam's cluster has its own selector, so check it rather than assuming. The <em>namespace</em> selector is the second half of the same trap: a monitor in a namespace Prometheus does not watch is equally invisible.</p>
     </div>
 
     <h3>The other three ways a target goes missing</h3>
@@ -94,8 +94,8 @@ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.serviceMonitor
     <p>Why the raw counter is useless, and what the window does to the answer:</p>
     <div class="widget" data-widget="promrate"></div>
     <div class="callout exam">
-      <span class="tag"><code>up</code> deserves special respect</span>
-      <p>1 per healthy target, 0 per failing one, which makes <code>count(up == 0)</code> the cluster's own health check. <code>make validate</code> runs exactly that query and demands zero; the lab even patched kubeadm's localhost-bound control-plane metrics to make them reachable (<code>make fix-cp-metrics</code>). Any "is monitoring healthy" question starts with this query.</p>
+      <span class="tag">The <code>up</code> metric</span>
+      <p>1 per healthy target, 0 per failing one, which makes <code>count(up == 0)</code> the cluster's own health check. <code>make validate</code> runs exactly that query and demands zero; the lab patched kubeadm's localhost-bound control-plane metrics to make them reachable (<code>make fix-cp-metrics</code>). Any "is monitoring healthy" question starts with this query.</p>
     </div>
 
     <h3>What is already collected, for free</h3>
@@ -136,7 +136,7 @@ spec:
   selector: { matchLabels: { app: example } }
   endpoints: [{ port: "8080" }]
 EOF</code></pre></div>
-      <p>Wait a minute, search Targets: nothing. The endpoint's <code>port</code> must be the Service's port <em>name</em>, and this Service has none, so the monitor matches the Service and then finds no endpoint. It fails silently, which is exactly why it is worth experiencing once. Fix it: patch the Service so the port is named (<code>kubectl patch svc example --type=json -p '[{"op":"add","path":"/spec/ports/0/name","value":"web"}]'</code>) and set <code>port: web</code> in the monitor.</p>
+      <p>Wait a minute, search Targets: nothing. The endpoint's <code>port</code> must be the Service's port <em>name</em>, and this Service has none, so the monitor matches the Service and then finds no endpoint. It fails silently. Fix it: patch the Service so the port is named (<code>kubectl patch svc example --type=json -p '[{"op":"add","path":"/spec/ports/0/name","value":"web"}]'</code>) and set <code>port: web</code> in the monitor.</p>
       <div class="verify"><b>verify:</b> <code>up{job="example"}</code> returns 1 in the UI. Then add the <code>release: prometheus</code> label to your monitor anyway and confirm nothing changes here, while being able to say why it would be the difference between working and ignored on a stock install.</div>
     </div>
 

@@ -43,7 +43,7 @@
   <div class="phdr"><h2>The concepts questions hang off</h2><span class="meta">reconciliation · drift · push vs pull</span></div>
   <div class="pbody">
     <h3>Reconciliation is a loop, not an event</h3>
-    <p>The controller compares live state with git on an interval and on webhooks. So a change made with <code>kubectl edit</code> does not <em>fail</em>; it gets reverted on the next loop if self-heal is on, or reported as drift if not. "Why did my manual fix disappear" is the canonical symptom, and "OutOfSync" is the canonical report. The loop also means recovery is free: delete the whole namespace and the next reconcile rebuilds it, which is the disaster-recovery pitch in one sentence.</p>
+    <p>The controller compares live state with git on an interval and on webhooks. So a change made with <code>kubectl edit</code> does not <em>fail</em>; it gets reverted on the next loop if self-heal is on, or reported as drift if not. "Why did my manual fix disappear" is the canonical symptom, and "OutOfSync" is the canonical report. The loop also means recovery is free: delete the whole namespace and the next reconcile rebuilds it. That is the disaster-recovery argument for GitOps.</p>
 
     <pre class="diagram">   ┌──────────── git (desired) ────────────┐
    │  demo-app/overlays/staging/…          │
@@ -61,7 +61,7 @@
     <p>Poke the loop. Commit a change, drift the cluster by hand, delete a manifest from git, then reconcile and see what each setting does:</p>
     <div class="widget" data-widget="gitops"></div>
 
-    <h3>Push vs pull, in two sentences</h3>
+    <h3>Push vs pull</h3>
     <p>CI pushing manifests needs cluster credentials in the CI system, and only knows the state at deploy time. A pull-based agent keeps credentials in-cluster, never exposes them outward, and never stops comparing. That second property, <em>continuous</em> comparison, is why "GitOps" is not just "CI that runs kubectl".</p>
 
     <div class="callout exam">
@@ -72,7 +72,7 @@
 </section>
 
 <section class="panel accent-p" id="repos">
-  <div class="phdr"><h2>Repo design, the part people under-prepare</h2><span class="meta">directories, not branches</span></div>
+  <div class="phdr"><h2>Repo design</h2><span class="meta">directories, not branches</span></div>
   <div class="pbody">
     <p>This lab seeds two Gitea repos that model the standard split: <code>platform</code> (cluster-level config: policies, tenants, the app-of-apps) and <code>demo-app</code> (one workload). The split matters because the two have different reviewers, different blast radius and different cadence.</p>
 
@@ -91,18 +91,18 @@
 
     <p>In this lab, environments are directories: <code>demo-app/overlays/staging</code> and <code>overlays/prod</code> inside the platform repo, and promotion is a change flowing from one directory to the next, usually as an image tag bump or a kustomize patch. Branches-per-environment exists in the wild and the received wisdom is to avoid it, for exactly the reason above.</p>
 
-    <h3>Templating, both flavours, because the exam can hand you either</h3>
+    <h3>Templating, both flavours</h3>
     <p><strong>Kustomize</strong> layers patches over a base with no templating language: <code>resources</code>, <code>patches</code> (strategic-merge or JSON6902), <code>images</code>, <code>namePrefix</code>, <code>commonLabels</code>, <code>configMapGenerator</code>. What you see is YAML all the way down, and <code>kustomize build</code> shows you exactly what will be applied. <strong>Helm</strong> renders Go templates from values, giving conditionals and loops at the cost of "the manifest does not exist until something renders it". Argo CD and Flux both consume both, and both let you post-render one with the other.</p>
 
-    <p>Helm is also a <em>release manager</em>, not only a renderer, and a task can hand you that side of it: <code>helm list -A</code> (releases and revisions), <code>helm upgrade --install --atomic --wait</code> (roll back automatically if it does not become ready), <code>helm history</code> / <code>helm rollback &lt;rel&gt; &lt;rev&gt;</code>, <code>helm get values --revision</code> and <code>helm diff</code> if the plugin is there. Release state lives in Secrets of type <code>helm.sh/release.v1</code> in the release namespace, which is how you discover what a previous operator did, and why a Flux HelmRelease can adopt or fight an existing release.</p>
+    <p>Helm is also a <em>release manager</em>, not only a renderer, and a task can hand you that side of it: <code>helm list -A</code> (releases and revisions), <code>helm upgrade --install --atomic --wait</code> (roll back automatically if it does not become ready), <code>helm history</code> / <code>helm rollback &lt;rel&gt; &lt;rev&gt;</code>, <code>helm get values --revision</code> and <code>helm diff</code> if the plugin is there. Release state lives in Secrets of type <code>helm.sh/release.v1</code> in the release namespace. That is how you discover what a previous operator did, and why a Flux HelmRelease can adopt or fight an existing release.</p>
 
     <div class="callout reflex">
       <span class="tag">Command reflex</span>
       <p>Never push an overlay you have not built locally. <code>kustomize build &lt;dir&gt;</code> (or <code>kubectl kustomize</code>) and <code>helm template</code> are the two commands that turn "I think this renders right" into "I know". They also work offline in the exam terminal.</p>
     </div>
 
-    <h3>Secrets, the honest caveat</h3>
-    <p>Plain Secrets cannot live in git; base64 is not encryption. The three sanctioned answers are <strong>Sealed Secrets</strong> (encrypt for git, only the in-cluster controller can decrypt), <strong>External Secrets Operator</strong> (git holds references, an external store holds truth) and <strong>SOPS</strong> (encrypted values in git, decrypted by the agent; Flux has native support). Section 5.1 does the mechanics; here, just know that "how do secrets work in GitOps" has a real answer and that "commit it base64-encoded" is not it.</p>
+    <h3>Secrets</h3>
+    <p>Plain Secrets cannot live in git; base64 is not encryption. The three sanctioned answers are <strong>Sealed Secrets</strong> (encrypt for git, only the in-cluster controller can decrypt), <strong>External Secrets Operator</strong> (git holds references, an external store holds truth) and <strong>SOPS</strong> (encrypted values in git, decrypted by the agent; Flux has native support). Section 5.1 does the mechanics. Here, know that "how do secrets work in GitOps" has a real answer, and "commit it base64-encoded" is not it.</p>
   </div>
 </section>
 
@@ -147,7 +147,7 @@ flux get sources git</code></pre></div>
     </div>
 
     <div class="exercise" data-title="Drift, the concept">
-      <p>With nothing managing demo-app yet, apply it manually (<code>kubectl apply -k examples/demo-app/overlays/staging -n default</code> after creating the namespace it wants, or just note the rendered namespace). Scale it by hand. Ask: who notices? Nobody, and that is life before GitOps.</p>
+      <p>With nothing managing demo-app yet, apply it manually (<code>kubectl apply -k examples/demo-app/overlays/staging -n default</code> after creating the namespace it wants, or just note the rendered namespace). Scale it by hand. Nobody notices, because nothing is reconciling yet.</p>
       <div class="verify"><b>verify:</b> hold that thought for the drift-revert exercise in 2.2, where the same edit gets reverted in seconds.</div>
     </div>
 

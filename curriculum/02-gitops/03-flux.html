@@ -38,7 +38,7 @@
         </tbody>
       </table>
     </div>
-    <p>That last row is worth knowing exists: Flux can close the CI→CD loop by <em>writing the new image tag into git itself</em>, which is the pull-based answer to "how does a new build get deployed without CI touching the cluster".</p>
+    <p>Know that the last row exists: Flux can close the CI→CD loop by <em>writing the new image tag into git itself</em>, which is the pull-based answer to "how does a new build get deployed without CI touching the cluster".</p>
   </div>
 </section>
 
@@ -76,7 +76,7 @@
       </table>
     </div>
 
-    <h3>HelmRelease, in one paragraph</h3>
+    <h3>HelmRelease</h3>
     <p>It references a chart (from a HelmRepository, a GitRepository, or an OCIRepository), sets <code>values</code> inline and/or <code>valuesFrom</code> ConfigMaps and Secrets, and controls failure behaviour with <code>install.remediation</code> and <code>upgrade.remediation</code> (retries, and whether to roll back). Newer versions also detect and correct drift on the release's rendered manifests. When one fails, the useful discrimination is <em>which layer</em>: source resolution (the chart could not be fetched), install/upgrade (Helm itself errored), or health (the release installed but the workload never became ready). Each surfaces in a different condition, and reading the right one is the whole diagnosis.</p>
 
     <h3>Daily verbs</h3>
@@ -117,7 +117,7 @@ flux trace deploy/demo -n flux-demo       # which Flux object owns this resource
         </tbody>
       </table>
     </div>
-    <p>If you can move fluently across that table, "which tool will the exam give me" stops being a worry.</p>
+    <p>Practice moving across this table in both directions; the exam can hand you either tool.</p>
   </div>
 </section>
 
@@ -126,7 +126,7 @@ flux trace deploy/demo -n flux-demo       # which Flux object owns this resource
   <div class="pbody">
 
     <div class="exercise" data-title="Build a Kustomization on the existing source">
-      <p>Deploy the demo base (not the overlays, which Argo owns in 2.2; two controllers fighting over one resource is a lesson, not a setup) into a Flux-owned namespace:</p>
+      <p>Deploy the demo base (not the overlays, which Argo owns in 2.2; two controllers must never manage the same resource) into a Flux-owned namespace:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl create ns flux-demo
 flux create kustomization demo-flux \
   --source=GitRepository/platform \
@@ -156,13 +156,13 @@ sleep 70 &amp;&amp; kubectl -n flux-demo get deploy demo -o jsonpath='{.spec.rep
 flux create helmrelease podinfo --source=HelmRepository/podinfo \
   --chart=podinfo --target-namespace=flux-demo --interval=5m
 kubectl -n flux-demo get deploy podinfo</code></pre></div>
-      <p>Break it once for the diagnostic reps: set <code>--chart-version='&gt;99.0.0'</code> on a new helmrelease, read the failure in <code>flux get helmreleases</code> and <code>kubectl describe helmrelease</code>, then delete it. Failed source resolution vs failed install vs failed health check appear in different conditions, and knowing which layer failed is the troubleshooting pattern.</p>
+      <p>Break it once: set <code>--chart-version='&gt;99.0.0'</code> on a new helmrelease, read the failure in <code>flux get helmreleases</code> and <code>kubectl describe helmrelease</code>, then delete it. Failed source resolution vs failed install vs failed health check appear in different conditions, and knowing which layer failed is the troubleshooting pattern.</p>
       <div class="verify"><b>verify:</b> <code>flux get helmreleases</code> Ready True, release revision 1, and <code>helm list -n flux-demo</code> shows Flux as the release owner.</div>
     </div>
 
     <div class="exercise" data-title="Translate">
       <p>Write down, from memory, the Flux equivalent of the Argo CD Application <code>demo-staging</code> from 2.2 (GitRepository exists; you need one Kustomization spec: path, targetNamespace, prune, interval). Verify against <code>flux create kustomization --export</code>.</p>
-      <div class="verify"><b>verify:</b> your hand-written spec matches the generated one field for field. If you can do this translation both directions, the "which tool will the exam give me" worry disappears.</div>
+      <div class="verify"><b>verify:</b> your hand-written spec matches the generated one field for field.</div>
     </div>
 
   </div>

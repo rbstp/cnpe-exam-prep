@@ -14,7 +14,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum">The competency people skip because it sounds like management material, and then it costs them, because it is eminently testable: "write a query showing deployment frequency" is a concrete task. The trick is knowing which existing metrics stand in for which indicator.</p>
+  <p class="sum">This competency sounds like management material, but it is testable: "write a query showing deployment frequency" is a concrete task. The trick is knowing which existing metrics stand in for which indicator.</p>
 </header>
 
 <div class="stats"></div>
@@ -27,7 +27,7 @@
     <p class="lede">"Measure platform efficiency" in practice means plumbing the delivery tool's metrics into the monitoring stack and querying them. The wiring <em>is</em> the exercise; the PromQL is five lines.</p>
     <div class="callout model">
       <span class="tag">Two families of measure, do not mix them</span>
-      <p><strong>Delivery performance</strong> (the DORA four) says how well software reaches production. <strong>Platform effectiveness</strong> (fulfillment latency, adoption, time to first contribution, satisfaction) says how well the platform serves its users. A platform can ship fast and still be miserable to use, and vice versa, which is exactly why the white paper lists both.</p>
+      <p><strong>Delivery performance</strong> (the DORA four) says how well software reaches production. <strong>Platform effectiveness</strong> (fulfillment latency, adoption, time to first contribution, satisfaction) says how well the platform serves its users. A platform can ship fast and still be miserable to use, and vice versa, which is why the white paper lists both.</p>
     </div>
   </div>
 </section>
@@ -55,14 +55,14 @@
       <li><code>argocd_app_info</code>: one series per app carrying current <code>sync_status</code> and <code>health_status</code> as labels. Anything about "how many apps are unhealthy right now" is a count over this.</li>
       <li><code>argocd_app_reconcile</code> (histogram): controller loop duration; a platform-health signal rather than a delivery one.</li>
     </ul>
-    <p>Argo CD exposes them, but this Prometheus does not scrape them until someone says so. That someone is you, below.</p>
+    <p>Argo CD exposes them, but this Prometheus does not scrape them until you add a ServiceMonitor, which is the first exercise below.</p>
 
     <h3>The other half: does the platform run what it shipped?</h3>
     <p>Workload restart rates (<code>kube_pod_container_status_restarts_total</code>), pods not at desired replicas (<code>kube_deployment_status_replicas_unavailable</code>), pending pods, and the request/usage gap from section 1.5. Deployment metrics tell you the platform ships fast; these tell you it runs what it shipped. A good answer to "how would you measure this platform" names both halves.</p>
 
     <div class="callout exam">
-      <span class="tag">A caution worth saying out loud</span>
-      <p>Deployment frequency counted from <em>syncs</em> is an approximation: a self-healing sync of an unchanged app is not a deployment, and one push that updates ten apps is not ten deployments. Say the approximation you are making and what would make it exact (counting distinct revisions, or emitting deployment events from the pipeline). Naming a metric's limitation is what separates measurement from theatre.</p>
+      <span class="tag">A caution about counting syncs</span>
+      <p>Deployment frequency counted from <em>syncs</em> is an approximation: a self-healing sync of an unchanged app is not a deployment, and one push that updates ten apps is not ten deployments. Say the approximation you are making and what would make it exact (counting distinct revisions, or emitting deployment events from the pipeline).</p>
     </div>
   </div>
 </section>
@@ -74,7 +74,7 @@
     <div class="exercise" data-title="Scrape the delivery system">
       <p>Discover what Argo CD exposes, then monitor it:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd get svc | grep metrics</code></pre></div>
-      <p>Three metrics services (application controller, server, repo server). The lab's <code>gitops</code> layer enables them; if the grep comes back empty on an older install, that is your first finding, and <code>helm -n argocd upgrade argocd argo/argo-cd --reuse-values --set controller.metrics.enabled=true --set server.metrics.enabled=true --set repoServer.metrics.enabled=true</code> is the fix, itself a fair exam-shaped task. Write one ServiceMonitor per service you care about; the controller's is the one with sync metrics:</p>
+      <p>Three metrics services (application controller, server, repo server). The lab's <code>gitops</code> layer enables them. If the grep comes back empty on an older install, the fix is <code>helm -n argocd upgrade argocd argo/argo-cd --reuse-values --set controller.metrics.enabled=true --set server.metrics.enabled=true --set repoServer.metrics.enabled=true</code>, itself a fair exam-shaped task. Write one ServiceMonitor per service you care about; the controller's is the one with sync metrics:</p>
       <div class="cb" data-lang="yaml"><pre><code>apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -85,7 +85,7 @@ spec:
   namespaceSelector: { matchNames: [argocd] }
   selector: { matchLabels: { app.kubernetes.io/name: argocd-metrics } }
   endpoints: [{ port: http-metrics }]</code></pre></div>
-      <p>That endpoint port is <code>http-metrics</code> because that is what the Service names it, not because anyone would guess it: <code>kubectl -n argocd get svc argocd-application-controller-metrics -o jsonpath='{.spec.ports[*].name}'</code> is the thirty-second check that beats an hour of "why is there no target".</p>
+      <p>That endpoint port is <code>http-metrics</code> because that is what the Service names it, not because anyone would guess it. <code>kubectl -n argocd get svc argocd-application-controller-metrics -o jsonpath='{.spec.ports[*].name}'</code> is the thirty-second check that saves an hour of "why is there no target".</p>
       <div class="verify"><b>verify:</b> <code>argocd_app_info</code> returns rows in the Prometheus UI within a couple of minutes. Everything from 4.1 about selectors and port names applies; this exercise is deliberately a rerun of those skills against an unfamiliar target.</div>
     </div>
 
@@ -98,7 +98,7 @@ sum(increase(argocd_app_sync_total{phase=~"Failed|Error"}[24h]))
 
 count(argocd_app_info{health_status!="Healthy"}) or vector(0)</code></pre></div>
       <p>Deployment frequency, change failure rate, and currently-degraded apps (a time-to-restore ingredient). Then push one bad image tag (the 2.6 drill), sync, revert, and watch the failure rate query move.</p>
-      <div class="verify"><b>verify:</b> numbers that match reality; cross-check the first against <code>argocd app history demo-staging</code>. A metric you have personally made move is a metric you understand.</div>
+      <div class="verify"><b>verify:</b> numbers that match reality; cross-check the first against <code>argocd app history demo-staging</code>.</div>
     </div>
 
     <div class="exercise" data-title="Fulfillment latency for a platform API">
@@ -110,7 +110,7 @@ count(argocd_app_info{health_status!="Healthy"}) or vector(0)</code></pre></div>
 
     <div class="exercise" data-title="Turn one indicator into an alert">
       <p>The bridge to 4.2: a PrometheusRule that fires when any app stays non-Healthy for 10 minutes (<code>count(argocd_app_info{health_status!="Healthy"}) &gt; 0</code>, <code>for: 10m</code>). Verify with the bad-image trick, then clean up.</p>
-      <div class="verify"><b>verify:</b> the alert reaches Alertmanager. Congratulations, you have built the platform team's actual pager.</div>
+      <div class="verify"><b>verify:</b> the alert reaches Alertmanager. This is what a platform team's pager rule looks like.</div>
     </div>
 
   </div>

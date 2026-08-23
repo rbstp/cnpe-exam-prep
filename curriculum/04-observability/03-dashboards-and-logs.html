@@ -54,7 +54,7 @@
   <div class="pbody">
     <p>Loki indexes <strong>labels</strong>, not content: log lines are stored against a small label set (namespace, pod, container, app) and content matching happens at query time by scanning the selected streams. That is why it is cheap to run, and why every query must start from a label selector before filtering. It is also why label cardinality discipline matters even more than in Prometheus: a label per request ID would create a stream per request.</p>
 
-    <p>Collection here is <strong>Alloy</strong>, a single-replica deployment in <code>monitoring</code> that tails every pod through the kubelet API and pushes to Loki; Loki itself stores them as a StatefulSet next door. Two hops, and <code>make validate</code> proves the pair works by demanding Loki actually returns streams, because a running Loki with no shipper looks healthy and holds nothing.</p>
+    <p>Collection here is <strong>Alloy</strong>, a single-replica deployment in <code>monitoring</code> that tails every pod through the kubelet API and pushes to Loki; Loki itself stores them as a StatefulSet next door. That is two hops, and <code>make validate</code> proves the pair works by demanding Loki actually returns streams. A running Loki with no shipper looks healthy and holds nothing.</p>
 
     <div class="tbl-wrap">
       <table>
@@ -104,7 +104,7 @@ data:
         access: proxy
 EOF</code></pre></div>
       <p>The sidecar picks it up within a minute or so. If nothing arrives, bisect the two hops: shipper first (<code>kubectl -n monitoring get deploy alloy</code>, then its logs for push errors), Loki second.</p>
-      <div class="verify"><b>verify:</b> Explore → Loki → <code>{namespace="monitoring"}</code> returns log lines. Being able to say <em>which</em> hop is broken is the exercise inside the exercise.</div>
+      <div class="verify"><b>verify:</b> Explore → Loki → <code>{namespace="monitoring"}</code> returns log lines. If nothing returns, name <em>which</em> hop is broken.</div>
     </div>
 
     <div class="exercise" data-title="Query logs like an incident">
@@ -140,7 +140,7 @@ EOF</code></pre></div>
       <div class="answer"><p>RED = Rate, Errors, Duration, for request-driven services. USE = Utilization, Saturation, Errors, for resources. A queue worker is best served by both plus queue depth: USE for the worker pool, RED-ish for message processing, and saturation is really "is the backlog growing".</p></div></details>
 
     <details class="quiz"><summary>Loki returns nothing for <code>{namespace="team-a"}</code>. Two hops to check, in order.</summary>
-      <div class="answer"><p>The shipper first (Alloy running, not erroring on push, actually tailing that namespace), then Loki (ingester healthy, retention not eating the window, right tenant/org headers if multi-tenancy is on). A healthy Loki with no shipper looks perfectly fine and holds nothing, which is exactly why <code>make validate</code> demands streams, not readiness.</p></div></details>
+      <div class="answer"><p>The shipper first (Alloy running, not erroring on push, actually tailing that namespace), then Loki (ingester healthy, retention not eating the window, right tenant/org headers if multi-tenancy is on). A healthy Loki with no shipper looks fine and holds nothing, which is why <code>make validate</code> demands streams, not readiness.</p></div></details>
 
     <details class="quiz"><summary>Why is a per-request-ID label a bad idea in Loki?</summary>
       <div class="answer"><p>Labels define streams, and Loki's index is per stream. A unique label value per request creates a stream per request: index explosion, slow queries, high memory. Put high-cardinality identifiers in the log <em>line</em> and filter or parse them at query time; that is what Loki's design is optimised for.</p></div></details>

@@ -41,15 +41,15 @@
   <div class="phdr"><h2>The chain, station by station</h2><span class="meta">scan · sign · verify</span></div>
   <div class="pbody">
     <h3>Scanning belongs at two points, and the difference is the insight</h3>
-    <p><strong>In the pipeline</strong> (a Trivy task, <code>--exit-code 1 --severity HIGH,CRITICAL</code>) it is a <em>gate</em>: it stops a bad image before it exists in the registry. <strong>In the cluster</strong> (Trivy Operator, section 5.4) it is <em>surveillance</em>: it catches CVEs published after you shipped. Teams that only scan in CI are blind to every CVE younger than their last deploy. Say that sentence in an exam answer and mean it.</p>
-    <p>Practical gate design, because a gate that always fails gets disabled: scan for <code>HIGH,CRITICAL</code>, consider <code>--ignore-unfixed</code> (you cannot patch what has no fix), keep an auditable ignore file with expiry dates rather than a permanently loosened threshold, and fail the build rather than warning: a warning in CI is a warning nobody reads.</p>
+    <p><strong>In the pipeline</strong> (a Trivy task, <code>--exit-code 1 --severity HIGH,CRITICAL</code>) it is a <em>gate</em>: it stops a bad image before it exists in the registry. <strong>In the cluster</strong> (Trivy Operator, section 5.4) it is <em>surveillance</em>: it catches CVEs published after you shipped. Teams that only scan in CI are blind to every CVE younger than their last deploy. That distinction is a strong exam answer.</p>
+    <p>Gate design matters, because a gate that always fails gets disabled. Scan for <code>HIGH,CRITICAL</code> and consider <code>--ignore-unfixed</code> (you cannot patch what has no fix). Keep an auditable ignore file with expiry dates rather than a permanently loosened threshold. Fail the build rather than warning: a warning in CI is a warning nobody reads.</p>
 
     <h3>Signing</h3>
     <p>cosign signs an image <strong>digest</strong> with a key and pushes the signature to the registry alongside the image (classically as a <code>sha256-&lt;digest&gt;.sig</code> tag; newer versions use an OCI bundle format). The thing being signed is the digest, which is why <em>tags are mutable but signed supply chains are not</em>: verifying <code>:latest</code> means resolving it to a digest first, and whoever can move the tag cannot forge the signature.</p>
-    <p><strong>Keyless</strong> mode is where the ecosystem is going: an OIDC identity (a CI workload's token) gets a short-lived certificate from <strong>Fulcio</strong>, the signature and certificate are recorded in <strong>Rekor</strong>, a public transparency log, and verification checks the identity and the log entry instead of a key you must store and rotate. Know those three nouns. Key-pair mode is what you can practise offline and what teaches the mechanics.</p>
+    <p><strong>Keyless</strong> mode is where the ecosystem is going: an OIDC identity (a CI workload's token) gets a short-lived certificate from <strong>Fulcio</strong>, and the signature and certificate are recorded in <strong>Rekor</strong>, a public transparency log. Verification checks the identity and the log entry instead of a key you must store and rotate. Know those three nouns. Key-pair mode is what you can practise offline and what teaches the mechanics.</p>
 
     <h3>Verification at admission is what makes signatures matter</h3>
-    <p>Without it, signing is decoration. A Kyverno image-verification policy holds the public key (or the expected keyless identity), intercepts pod creation, resolves each image, checks its signature, and rejects on failure. It can also <em>mutate the image reference to its digest</em>, which is the underrated half: after verification, the pod runs the exact bytes you verified, not whatever the tag points at later. Gatekeeper does this through external data providers; Kyverno's is built in and is the one to practise.</p>
+    <p>Without it, signing is decoration. A Kyverno image-verification policy holds the public key (or the expected keyless identity), intercepts pod creation, resolves each image, checks its signature, and rejects on failure. It can also <em>mutate the image reference to its digest</em>: after verification, the pod runs the exact bytes you verified, not whatever the tag points at later. Gatekeeper does this through external data providers; Kyverno's is built in and is the one to practise.</p>
 
     <div class="callout exam">
       <span class="tag">SLSA, since the word appears everywhere</span>
@@ -78,7 +78,7 @@ cosign verify --key cosign.pub --allow-http-registry localhost:5001/demo@$DIGEST
     </div>
 
     <div class="exercise" data-title="Close the door at admission">
-      <p>Kyverno's current kind for this is ImageValidatingPolicy (<code>kubectl explain imagevalidatingpolicies.spec</code>; the API has moved before and the checking <em>is</em> the exercise). Three facts shape the setup, each bought with an hour of somebody's debugging:</p>
+      <p>Kyverno's current kind for this is ImageValidatingPolicy (<code>kubectl explain imagevalidatingpolicies.spec</code>; the API has moved before and the checking <em>is</em> the exercise). Three facts shape the setup:</p>
       <ol>
         <li>Kyverno fetches signatures itself, from inside the cluster, so the pod images and the policy globs must use the in-cluster registry name (<code>kind-registry:5000</code>, which the lab wires into CoreDNS and containerd), never <code>localhost:5001</code>, which inside the Kyverno pod is the Kyverno pod.</li>
         <li>The registry is plain http, and the knob for that is on the <em>engine</em>, not the policy: the lab installs Kyverno with <code>features.registryClient.allowInsecure=true</code>. Without it, every verification dies on <code>server gave HTTP response to HTTPS client</code> before any signature is read.</li>
@@ -88,7 +88,7 @@ cosign verify --key cosign.pub --allow-http-registry localhost:5001/demo@$DIGEST
       <div class="cb" data-lang="bash"><pre><code>kubectl -n team-b run signed --image=kind-registry:5000/demo:v1 --restart=Never -- sleep 60
 docker tag busybox:1.37 localhost:5001/demo:unsigned &amp;&amp; docker push localhost:5001/demo:unsigned
 kubectl -n team-b run unsigned --image=kind-registry:5000/demo:unsigned --restart=Never -- sleep 60</code></pre></div>
-      <div class="verify"><b>verify:</b> signed admits, unsigned is rejected with your policy's message. Same repo, same cluster, different provenance, different fate. If the signed pod is rejected too, <code>kubectl -n kyverno logs deploy/kyverno-admission-controller | grep -i verif</code> names the real reason (registry scheme, missing <code>.sig</code>, tlog), which is precisely the diagnosis ladder above. Clean up the policy so later sections' pods admit freely.</div>
+      <div class="verify"><b>verify:</b> signed admits, unsigned is rejected with your policy's message. If the signed pod is rejected too, <code>kubectl -n kyverno logs deploy/kyverno-admission-controller | grep -i verif</code> names the real reason (registry scheme, missing <code>.sig</code>, tlog), which is precisely the diagnosis ladder above. Clean up the policy so later sections' pods admit freely.</div>
     </div>
 
     <div class="exercise" data-title="Wire the gate order into one sentence each">
