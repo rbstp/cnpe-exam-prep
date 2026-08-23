@@ -10,11 +10,11 @@ Every layer installs and uninstalls on its own. That matters on a laptop, becaus
 
 The lab is the machinery; [curriculum/](curriculum/index.html) is the study plan that drives it. It covers all five domains and every competency in the official curriculum PDF, split into 29 evening-sized sections, each one concepts plus exercises against this lab, each exercise ending with a command that proves the thing worked.
 
-It is a small self-contained site rather than a pile of markdown: open `curriculum/index.html` in a browser (no server, no build step — `file://` is fine), or run `make study`. Every code block has a copy button, `/` jumps to any section by name, tool or concept, exercises tick off as you verify them, thirteen sections carry an interactive figure you can drive, and the dashboard tracks how far through the plan you are. Progress lives in that browser's local storage — **Export** and **Import** on the dashboard move it between browsers, machines, or a local copy and a hosted one.
+It is published at **[cnpe.rbstp.dev](https://cnpe.rbstp.dev)**, and it is a small self-contained site rather than a pile of markdown — so it also runs straight off disk: open `curriculum/index.html` in a browser (no server, no build step — `file://` is fine), or run `make study`. Every code block has a copy button, `/` jumps to any section by name, tool or concept, exercises tick off as you verify them, thirteen sections carry an interactive figure you can drive, and the dashboard tracks how far through the plan you are. Progress lives in that browser's local storage — **Export** and **Import** on the dashboard move it between browsers, machines, or a local copy and a hosted one.
 
 The [dashboard](curriculum/index.html) maps every official competency to a section and to the `make validate` check or exercise that demonstrates it, and there is a [15-task mock exam](curriculum/mock-exam.html) with grading commands and a built-in 120-minute clock.
 
-`make site` stages the same directory exactly as it is published to GitHub Pages, including a single-file `console.html` with the fonts inlined — one URL to hand over, or to save and read offline. See [docs/deploy-pages.md](docs/deploy-pages.md) for the deploy, the DNS and the settings it needs.
+`make site` stages the same directory exactly as it is published to GitHub Pages, including a single-file console at **[cnpe.rbstp.dev/console.html](https://cnpe.rbstp.dev/console.html)** with the fonts inlined — one URL to hand over, or to save and read offline. See [docs/deploy-pages.md](docs/deploy-pages.md) for the deploy, the DNS and the settings it needs.
 
 | | |
 |---|---|

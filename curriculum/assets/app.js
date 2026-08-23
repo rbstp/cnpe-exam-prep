@@ -132,7 +132,7 @@
     var logo = el("a", "logo",
       '<svg class="mark" viewBox="0 0 24 24" aria-hidden="true">' +
         '<defs><linearGradient id="cnpeMark" x1="0" y1="0" x2="1" y2="1">' +
-          '<stop offset="0%" stop-color="var(--brand-2)"/><stop offset="100%" stop-color="var(--brand)"/>' +
+          '<stop class="s1" offset="0%" stop-color="#CFA351"/><stop class="s2" offset="100%" stop-color="#D08453"/>' +
         '</linearGradient></defs>' +
         '<path d="M12 1.9 20.7 7v10L12 22.1 3.3 17V7z" fill="none" stroke="url(#cnpeMark)" stroke-width="1.5" stroke-linejoin="round"/>' +
         '<path d="M7.8 14.6l2.9-3.3 2.2 2.4 3.3-4.1" fill="none" stroke="url(#cnpeMark)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>' +
@@ -157,7 +157,15 @@
       '<span>' + ov.done + "/" + ov.total + '</span><span class="track"><i style="width:' + ov.pct + '%"></i></span>');
     inner.appendChild(prog);
 
-    var sb = el("button", "searchbtn", '<span>⌕</span><span>Jump to section…</span><span class="k">/</span>');
+    // U+2315 is not in the bundled Plex Mono subset, so as a character it came
+    // from whatever the OS fell back to and drew at a different size on every
+    // platform. Inline SVG renders identically everywhere.
+    var sb = el("button", "searchbtn",
+      '<svg class="ic" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" ' +
+        'stroke="currentColor" stroke-linecap="round">' +
+        '<circle cx="6.75" cy="6.75" r="4.75" stroke-width="1.6"/>' +
+        '<path d="M10.4 10.4 14 14" stroke-width="1.8"/>' +
+      '</svg><span>Jump to section…</span><span class="k">/</span>');
     sb.type = "button";
     sb.addEventListener("click", openPalette);
     inner.appendChild(sb);
@@ -166,6 +174,23 @@
     hb.type = "button"; hb.title = "Keyboard shortcuts";
     hb.addEventListener("click", function () { toggleOverlay(helpOverlay); });
     inner.appendChild(hb);
+
+    // Almost every section tells you to run a make target, so the lab has to be
+    // reachable from any page — someone can land on a deep section from a link.
+    var repo = el("a", "iconbtn",
+      '<svg class="gh" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">' +
+        '<path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 '
+          + '0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53'
+          + '.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 '
+          + '0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.4 7.4 0 0 1 2-.27c.68 0 1.36.09 '
+          + '2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 '
+          + '3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>' +
+      '</svg>');
+    repo.href = "https://github.com/rbstp/cnpe-exam-prep";
+    repo.title = "The lab this curriculum runs on \u2014 github.com/rbstp/cnpe-exam-prep";
+    repo.rel = "noopener";
+    repo.setAttribute("aria-label", "The lab repository on GitHub");
+    inner.appendChild(repo);
 
     bar.appendChild(inner);
     body.insertBefore(bar, body.firstChild);
@@ -550,7 +575,7 @@
         : "") +
       "<dt>?</dt><dd>this card</dd>" +
       "<dt>esc</dt><dd>close</dd></dl>" +
-      '<p style="margin:16px 0 0;color:var(--fg-3);font-size:13.5px">Progress is stored in this browser only. ' +
+      '<p style="margin:16px 0 0;color:var(--paper-3);font-size:13.5px">Progress is stored in this browser only. ' +
       'Every code block has a copy button; the lab-layer chips at the top of a section copy their make command too.</p>';
     helpOverlay.appendChild(c);
     helpOverlay.addEventListener("click", function (e) { if (e.target === helpOverlay) closeOverlays(); });
@@ -816,7 +841,7 @@
         var b = byDomain[d], pct = b.max ? Math.round(b.got / b.max * 100) : 0;
         var state = b.got === 0 ? "bad" : pct >= 70 ? "ok" : "warn";
         return '<div class="wcell"><span class="wk">domain ' + d + '</span>' +
-          '<span class="wv wnum">' + b.got + '<span class="u" style="font-size:12px;color:var(--fg-3)"> / ' + b.max + '</span></span>' +
+          '<span class="wv wnum">' + b.got + '<span class="u" style="font-size:12px;color:var(--paper-3)"> / ' + b.max + '</span></span>' +
           '<span class="wbar"><i class="' + (state === "ok" ? "green" : state === "warn" ? "warn" : "bad") +
           '" style="width:' + pct + '%"></i></span></div>';
       }).join("") +
