@@ -27,6 +27,69 @@
   })();
   function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} }
 
+  /* ── progress transfer ───────────────────────────────────────
+     localStorage is per-origin, so a file:// copy and a hosted copy keep
+     separate stores and no two browsers share one. Export writes the whole
+     store to a file, import merges it back: carrying progress between them
+     stays explicit and needs no network, account or server. */
+  function exportPayload() {
+    return JSON.stringify({ cnpe: 2, exported: new Date().toISOString(), progress: store }, null, 2);
+  }
+  function saveFile(name, text) {
+    try {
+      var a = document.createElement("a");
+      if (!("download" in a)) return false;
+      var url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+      a.href = url; a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      return true;
+    } catch (e) { return false; }
+  }
+  /* Union, never overwrite: an imported file can move an item from not-done to
+     done and can add items this browser has never seen, but it cannot un-tick
+     anything. Reset progress first if you want a plain restore. The mock exam's
+     clock is deliberately left alone — only its scored tasks merge. */
+  function mergeProgress(src) {
+    var n = { done: 0, ex: 0, exam: 0 };
+    function union(into, from, bucket) {
+      if (!from || typeof from !== "object" || Array.isArray(from)) return;
+      Object.keys(from).forEach(function (k) {
+        var v = from[k] ? 1 : 0;
+        if (!(k in into)) { into[k] = v; if (v) n[bucket]++; }
+        else if (v && !into[k]) { into[k] = 1; n[bucket]++; }
+      });
+    }
+    union(store.done, src.done, "done");
+    union(store.ex, src.ex, "ex");
+    if (src.exam && typeof src.exam === "object") {
+      if (!store.exam || typeof store.exam !== "object") store.exam = {};
+      if (!store.exam.tasks || typeof store.exam.tasks !== "object") store.exam.tasks = {};
+      union(store.exam.tasks, src.exam.tasks, "exam");
+    }
+    if (typeof src.last === "string" && NAV.filter(function (x) { return x.id === src.last; }).length) {
+      store.last = src.last;
+    }
+    return n;
+  }
+  function importPayload(text) {
+    var obj;
+    try { obj = JSON.parse(text); } catch (e) { return "That file is not valid JSON."; }
+    // accept both the exported wrapper and a bare copy of the stored object
+    var src = (obj && typeof obj === "object" && obj.progress && typeof obj.progress === "object")
+      ? obj.progress : obj;
+    if (!src || typeof src !== "object" || Array.isArray(src)) {
+      return "That file does not look like exported CNPE progress.";
+    }
+    if (!src.done && !src.ex && !src.exam) {
+      return "That file has no CNPE progress in it.";
+    }
+    var n = mergeProgress(src);
+    save();                                  // mergeProgress may have moved store.last on its own
+    if (!n.done && !n.ex && !n.exam) return "Nothing new in that file — this browser is already up to date.";
+    return { added: n };
+  }
+
   function slug(s) {
     return (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48);
   }
@@ -589,6 +652,50 @@
       if (confirm("Clear all section and exercise progress stored in this browser?")) {
         store = { ex: {}, done: {}, exam: {}, last: null }; save(); location.reload();
       }
+    });
+
+    var note = document.getElementById("io-note");
+    function say(msg) { if (note) { note.textContent = msg; note.hidden = false; } }
+    var exp = document.getElementById("export-progress");
+    if (exp) exp.addEventListener("click", function () {
+      var text = exportPayload();
+      var name = "cnpe-progress-" + new Date().toISOString().slice(0, 10) + ".json";
+      if (saveFile(name, text)) { say("Wrote " + name + " to your downloads."); return; }
+      // some browsers refuse a scripted download from file://; hand over the text instead
+      say("This browser blocked the download — copy the JSON below into " + name + ".");
+      var box = document.getElementById("io-box") || el("div", "iobox");
+      box.id = "io-box";
+      box.innerHTML = "";
+      var ta = document.createElement("textarea");
+      ta.readOnly = true; ta.rows = 8; ta.value = text;
+      box.appendChild(ta);
+      exp.parentNode.appendChild(box);
+      ta.focus(); ta.select();
+    });
+    var imp = document.getElementById("import-progress");
+    if (imp) imp.addEventListener("click", function () {
+      var input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".json,application/json";
+      input.style.display = "none";
+      input.addEventListener("change", function () {
+        var file = input.files && input.files[0];
+        if (!file) { input.remove(); return; }
+        var fr = new FileReader();
+        fr.onload = function () {
+          var res = importPayload(String(fr.result));
+          input.remove();
+          if (typeof res === "string") { say(res); return; }
+          var a = res.added;
+          alert("Imported: " + a.done + " section(s), " + a.ex + " exercise(s), " + a.exam +
+                " exam task(s).\nNothing already ticked here was changed.");
+          location.reload();
+        };
+        fr.onerror = function () { input.remove(); say("Could not read that file."); };
+        fr.readAsText(file);
+      });
+      document.body.appendChild(input);
+      input.click();
     });
   }
 

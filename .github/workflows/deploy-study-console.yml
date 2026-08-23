@@ -1,0 +1,71 @@
+name: Deploy Study Console
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'curriculum/**'
+      - '.github/workflows/deploy-study-console.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: github-pages
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Stage the site
+        working-directory: curriculum
+        env:
+          SITE_DOMAIN: cnpe.rbstp.dev
+        run: tools/stage-site.sh "${{ runner.temp }}/_site"
+
+      - name: Check the staged site
+        env:
+          SITE: ${{ runner.temp }}/_site
+        run: |
+          set -euo pipefail
+          for f in index.html mock-exam.html console.html 404.html CNAME \
+                   assets/style.css assets/app.js assets/nav.js assets/widgets.js; do
+            test -s "$SITE/$f" || { echo "missing or empty: $f"; exit 1; }
+          done
+          test -f "$SITE/.nojekyll" || { echo "missing: .nojekyll"; exit 1; }
+          # 29 sections + index + mock-exam + console + 404
+          n=$(find "$SITE" -name '*.html' | wc -l)
+          test "$n" -eq 33 || { echo "expected 33 html files, found $n"; exit 1; }
+          # the bundle must be self-contained: no sidecar asset references
+          if grep -qE '<(link|script)[^>]+(href|src)="assets/' "$SITE/console.html"; then
+            echo "console.html references sidecar assets"; exit 1
+          fi
+          grep -q 'cnpe.rbstp.dev' "$SITE/CNAME"
+          echo "staged site looks right ($n pages)"
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ${{ runner.temp }}/_site
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
