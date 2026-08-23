@@ -132,7 +132,7 @@
     var logo = el("a", "logo",
       '<svg class="mark" viewBox="0 0 24 24" aria-hidden="true">' +
         '<defs><linearGradient id="cnpeMark" x1="0" y1="0" x2="1" y2="1">' +
-          '<stop class="s1" offset="0%" stop-color="#E9A277"/><stop class="s2" offset="100%" stop-color="#D08453"/>' +
+          '<stop class="s1" offset="0%" stop-color="#CFA351"/><stop class="s2" offset="100%" stop-color="#D08453"/>' +
         '</linearGradient></defs>' +
         '<path d="M12 1.9 20.7 7v10L12 22.1 3.3 17V7z" fill="none" stroke="url(#cnpeMark)" stroke-width="1.5" stroke-linejoin="round"/>' +
         '<path d="M7.8 14.6l2.9-3.3 2.2 2.4 3.3-4.1" fill="none" stroke="url(#cnpeMark)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>' +
