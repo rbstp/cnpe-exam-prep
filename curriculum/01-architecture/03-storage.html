@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>1.3 Storage: volumes, claims, classes · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/theme.js"></script>
 </head>
 <body data-id="1.3" data-root="../">
 <div class="wrap"><div class="cols">
@@ -41,15 +42,15 @@
                   └── storageClassName ──▶ <i>StorageClass</i> ──▶ <u>provisioner creates the PV</u>
                                             (binding mode, reclaim policy, expansion, params)</pre>
 
-    <p>Underneath, <strong>CSI</strong> is the plugin interface every modern driver implements: a controller component (provision, attach, snapshot) and a node component (mount). You will not be asked to write one, but knowing the split explains error locations — "failed to provision" is a controller-side message, "failed to mount" is node-side, and they point at different logs.</p>
+    <p>Underneath, <strong>CSI</strong> is the plugin interface every modern driver implements: a controller component (provision, attach, snapshot) and a node component (mount). You will not be asked to write one, but knowing the split explains error locations: "failed to provision" is a controller-side message, "failed to mount" is node-side, and they point at different logs.</p>
 
     <h3>The fields that decide exam tasks</h3>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Field</th><th>Values</th><th>What it changes</th></tr></thead>
         <tbody>
-          <tr><td class="mono">accessModes</td><td class="mono">RWO · ROX · RWX · RWOP</td><td>A claim binds only to a PV offering what it asks. local-path only does RWO, so an RWX claim here pends forever — recognising <em>why</em> is the skill.</td></tr>
-          <tr><td class="mono">volumeBindingMode</td><td class="mono">Immediate · WaitForFirstConsumer</td><td>WFFC keeps the PVC Pending until a pod uses it, so topology can be considered. The <code>standard</code> class here uses it, so you meet this "problem" immediately — and it is not a problem.</td></tr>
+          <tr><td class="mono">accessModes</td><td class="mono">RWO · ROX · RWX · RWOP</td><td>A claim binds only to a PV offering what it asks. local-path only does RWO, so an RWX claim here pends forever; recognising <em>why</em> is the skill.</td></tr>
+          <tr><td class="mono">volumeBindingMode</td><td class="mono">Immediate · WaitForFirstConsumer</td><td>WFFC keeps the PVC Pending until a pod uses it, so topology can be considered. The <code>standard</code> class here uses it, so you meet this "problem" immediately, and it is not a problem.</td></tr>
           <tr><td class="mono">persistentVolumeReclaimPolicy</td><td class="mono">Delete · Retain</td><td>Delete throws data away with the claim; Retain keeps the PV in <em>Released</em>, and it will not rebind until someone clears <code>spec.claimRef</code>. Released-but-unusable PVs are a classic troubleshooting scenario.</td></tr>
           <tr><td class="mono">allowVolumeExpansion</td><td class="mono">true · false</td><td>Only classes that set it let you grow a PVC by editing <code>spec.resources.requests.storage</code>. Shrinking is never allowed, anywhere.</td></tr>
           <tr><td class="mono">volumeMode</td><td class="mono">Filesystem · Block</td><td>Block hands the raw device to the container. Databases sometimes want it; nothing else does.</td></tr>
@@ -71,7 +72,7 @@
       <table>
         <thead><tr><th>Symptom</th><th>Usual cause</th><th>Check</th></tr></thead>
         <tbody>
-          <tr><td class="warn">PVC Pending, no events</td><td>WaitForFirstConsumer, no pod yet</td><td>normal — schedule a consumer</td></tr>
+          <tr><td class="warn">PVC Pending, no events</td><td>WaitForFirstConsumer, no pod yet</td><td>normal: schedule a consumer</td></tr>
           <tr><td class="bad">PVC Pending, provisioner events</td><td>unsupported access mode, no capacity, bad class name</td><td class="mono">kubectl describe pvc</td></tr>
           <tr><td class="bad">Pod ContainerCreating forever</td><td>mount/attach failure, node-side</td><td class="mono">kubectl describe pod → events</td></tr>
           <tr><td class="warn">PV Released, not rebinding</td><td>Retain policy leaves <code>claimRef</code> populated</td><td class="mono">kubectl patch pv … claimRef=null</td></tr>
@@ -85,9 +86,9 @@
 
     <h3>StatefulSets, where storage semantics become visible</h3>
     <p><code>volumeClaimTemplates</code> gives every replica its own PVC, named <code>&lt;template&gt;-&lt;sts&gt;-&lt;ordinal&gt;</code>. Deleting the StatefulSet does <em>not</em> delete those PVCs (unless you set <code>persistentVolumeClaimRetentionPolicy</code>, which newer versions offer), so scaling back up reattaches the old data. That retention is deliberate and it is the entire reason StatefulSets exist rather than "a Deployment with a volume": stable identity, stable storage, ordered rollout.</p>
-    <p>And the part GitOps cannot do for you: <strong>data</strong>. "Delete the namespace and the controller rebuilds it" restores manifests, never the contents of a PV. That gap is filled by CSI snapshots for point-in-time copies within a cluster, by a backup tool (Velero is the common one — it snapshots volumes and exports object state) for anything that must survive the cluster itself, and by the database operator's own backup story where one exists. Being able to say which of those three you are relying on is the whole DR answer.</p>
+    <p>And the part GitOps cannot do for you: <strong>data</strong>. "Delete the namespace and the controller rebuilds it" restores manifests, never the contents of a PV. That gap is filled by CSI snapshots for point-in-time copies within a cluster, by a backup tool (Velero is the common one; it snapshots volumes and exports object state) for anything that must survive the cluster itself, and by the database operator's own backup story where one exists. Being able to say which of those three you are relying on is the whole DR answer.</p>
 
-    <p>Snapshots round out the vocabulary: <code>VolumeSnapshotClass</code>, <code>VolumeSnapshot</code>, <code>VolumeSnapshotContent</code> — the same three-object shape as class/claim/volume, and the way a CSI driver exposes point-in-time copies. local-path has no snapshotter, so this lab teaches the nouns and CloudNativePG teaches the backup story instead.</p>
+    <p>Snapshots round out the vocabulary: <code>VolumeSnapshotClass</code>, <code>VolumeSnapshot</code>, <code>VolumeSnapshotContent</code>: the same three-object shape as class/claim/volume, and the way a CSI driver exposes point-in-time copies. local-path has no snapshotter, so this lab teaches the nouns and CloudNativePG teaches the backup story instead.</p>
   </div>
 </section>
 
@@ -97,10 +98,10 @@
     <p>Section 3.1's "APIs as products" idea lands here concretely: StorageClasses <em>are</em> a platform API. You are choosing the menu your tenants order from, and each entry encodes a durability, performance and cost decision they should not have to make.</p>
     <ul>
       <li>Name classes for intent (<code>fast-ssd</code>, <code>cheap-hdd</code>, <code>shared-rwx</code>), never for the implementation that happens to back them today.</li>
-      <li>Set exactly one default class (<code>storageclass.kubernetes.io/is-default-class</code>) and know what it costs, because every PVC without an explicit class silently buys it. If two are marked default, the DefaultStorageClass <em>admission plugin</em> — not the scheduler — picks the most recently created one, which is worse than an error: it is silent, and it changes under you the next time someone adds a class.</li>
+      <li>Set exactly one default class (<code>storageclass.kubernetes.io/is-default-class</code>) and know what it costs, because every PVC without an explicit class silently buys it. If two are marked default, the DefaultStorageClass <em>admission plugin</em>, not the scheduler, picks the most recently created one, which is worse than an error: it is silent, and it changes under you the next time someone adds a class.</li>
       <li>Prefer <code>WaitForFirstConsumer</code> in any topology-aware environment, or you will provision volumes in zones your pods cannot reach.</li>
       <li><code>Delete</code> for ephemeral tenant workloads, <code>Retain</code> for anything whose loss ends up in a postmortem.</li>
-      <li>Cap storage per tenant with quota: <code>requests.storage</code> and <code>&lt;class&gt;.storageclass.storage.k8s.io/requests.storage</code> — per-class quota is how you stop everyone ordering the expensive one (section 1.4).</li>
+      <li>Cap storage per tenant with quota: <code>requests.storage</code> and <code>&lt;class&gt;.storageclass.storage.k8s.io/requests.storage</code>: per-class quota is how you stop everyone ordering the expensive one (section 1.4).</li>
     </ul>
     <div class="callout reflex">
       <span class="tag">Command reflex</span>
@@ -129,24 +130,24 @@ kubectl get pvc scratch    # Pending, and that is CORRECT</code></pre></div>
       <div class="cb" data-lang="bash"><pre><code>kubectl run writer --image=busybox:1.37 --restart=Never \
   --overrides='{"spec":{"containers":[{"name":"writer","image":"busybox:1.37","command":["sh","-c","echo survived &gt; /data/proof &amp;&amp; sleep 3600"],"volumeMounts":[{"name":"d","mountPath":"/data"}]}],"volumes":[{"name":"d","persistentVolumeClaim":{"claimName":"scratch"}}]}}'
 kubectl get pvc scratch    # Bound, seconds after the pod scheduled</code></pre></div>
-      <div class="verify"><b>verify</b> — persistence the honest way: delete the pod, recreate it with a command of <code>cat /data/proof</code>, and <code>kubectl logs writer</code> must print <code>survived</code>.</div>
+      <div class="verify"><b>verify:</b> persistence the honest way: delete the pod, recreate it with a command of <code>cat /data/proof</code>, and <code>kubectl logs writer</code> must print <code>survived</code>.</div>
     </div>
 
     <div class="exercise" data-title="Diagnose a claim that can never bind">
       <p>Create a PVC identical to the above but <code>accessModes: [ReadWriteMany]</code>, plus a pod that mounts it (without a consumer, WaitForFirstConsumer keeps the events silent and you learn nothing). Now it pends with a reason: <code>kubectl describe pvc</code> events show the provisioner refusing, because local-path only does RWO.</p>
-      <div class="verify"><b>verify</b> — you can state the fix (RWO, or a class whose provisioner supports RWX) and then delete pod and claim. The general lesson: a Pending PVC under WaitForFirstConsumer is normal <em>until</em> a pod consumes it; only then does silence become a finding.</div>
+      <div class="verify"><b>verify:</b> you can state the fix (RWO, or a class whose provisioner supports RWX) and then delete pod and claim. The general lesson: a Pending PVC under WaitForFirstConsumer is normal <em>until</em> a pod consumes it; only then does silence become a finding.</div>
     </div>
 
     <div class="exercise" data-title="Read a real operator's storage">
       <p><code>make api</code> installs the CloudNativePG operator; a Postgres exists once you create one (section 3.3 does, and it is worth jumping ahead for its first exercise). With one running:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl get pvc -A | grep -v Bound        # unbound + consumed = a finding (your own scratch claims excepted)
 kubectl get pvc -A -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name,SC:.spec.storageClassName,MODE:.spec.accessModes[0],SIZE:.spec.resources.requests.storage'</code></pre></div>
-      <div class="verify"><b>verify</b> — you can point at each PVC and name what created it (a volumeClaimTemplate, an operator, a human). Note that a CNPG instance's PVC survives <code>kubectl delete pod</code> of the instance, and the new pod mounts the same data. That is the operator relying on exactly the PVC semantics above.</div>
+      <div class="verify"><b>verify:</b> you can point at each PVC and name what created it (a volumeClaimTemplate, an operator, a human). Note that a CNPG instance's PVC survives <code>kubectl delete pod</code> of the instance, and the new pod mounts the same data. That is the operator relying on exactly the PVC semantics above.</div>
     </div>
 
     <div class="exercise" data-title="One static PV, for completeness">
       <p>Create a PV of type <code>hostPath</code> (1Gi, RWO, <code>storageClassName: manual</code>), a PVC requesting it by the same class name, and show they bind with no provisioner involved.</p>
-      <div class="verify"><b>verify</b> — <code>kubectl get pv</code> shows STATUS Bound and CLAIM pointing at your PVC. Then delete the PVC and explain what the PV's new status means given its reclaim policy.</div>
+      <div class="verify"><b>verify:</b> <code>kubectl get pv</code> shows STATUS Bound and CLAIM pointing at your PVC. Then delete the PVC and explain what the PV's new status means given its reclaim policy.</div>
     </div>
 
   </div>
@@ -156,7 +157,7 @@ kubectl get pvc -A -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>A PVC has been Pending for ten minutes and <code>describe</code> shows no events at all. Bug or not?</summary>
-      <div class="answer"><p>Not a bug if the class uses <code>WaitForFirstConsumer</code> and nothing mounts the claim yet — no scheduling decision exists, so there is nothing to provision and nothing to report. It becomes a finding the moment a pod references it and the claim <em>stays</em> Pending; then the events appear and name the real reason.</p></div></details>
+      <div class="answer"><p>Not a bug if the class uses <code>WaitForFirstConsumer</code> and nothing mounts the claim yet: no scheduling decision exists, so there is nothing to provision and nothing to report. It becomes a finding the moment a pod references it and the claim <em>stays</em> Pending; then the events appear and name the real reason.</p></div></details>
 
     <details class="quiz"><summary>A PV sits in Released and your new, identical PVC will not bind to it. Why, and what is the fix?</summary>
       <div class="answer"><p>Retain leaves <code>spec.claimRef</code> pointing at the deleted claim, and a PV with a claimRef is spoken for. Clear it (<code>kubectl patch pv &lt;name&gt; -p '{"spec":{"claimRef":null}}'</code>) and it returns to Available. Deciding whether the old data should be wiped first is the actual judgement call.</p></div></details>
@@ -165,10 +166,10 @@ kubectl get pvc -A -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name
       <div class="answer"><p>Design. The claims outlive the set so scaling back up reattaches the same data, and so an accidental delete does not destroy the database. Newer clusters can opt in to cleanup via <code>persistentVolumeClaimRetentionPolicy</code> (<code>whenDeleted</code> / <code>whenScaled</code>).</p></div></details>
 
     <details class="quiz"><summary>Two pods on different nodes must share a directory. What do you need, and what will this lab do?</summary>
-      <div class="answer"><p>A class whose provisioner supports RWX (NFS, CephFS, a cloud file service). local-path cannot, so the claim pends and the events say so. The honest lab answer is "not possible here" plus the fix you would apply in a real cluster — which is also the right exam answer when the storage cannot do what the task implies.</p></div></details>
+      <div class="answer"><p>A class whose provisioner supports RWX (NFS, CephFS, a cloud file service). local-path cannot, so the claim pends and the events say so. The honest lab answer is "not possible here" plus the fix you would apply in a real cluster, which is also the right exam answer when the storage cannot do what the task implies.</p></div></details>
 
     <details class="quiz"><summary>Which quota lines cap tenant storage, and why is per-class quota interesting?</summary>
-      <div class="answer"><p><code>requests.storage</code> and <code>persistentvolumeclaims</code> cap the total and the count; <code>&lt;class&gt;.storageclass.storage.k8s.io/requests.storage</code> caps a specific class. The per-class form is how a platform team offers a fast expensive tier without every tenant defaulting to it — a pricing decision expressed as a Kubernetes object.</p></div></details>
+      <div class="answer"><p><code>requests.storage</code> and <code>persistentvolumeclaims</code> cap the total and the count; <code>&lt;class&gt;.storageclass.storage.k8s.io/requests.storage</code> caps a specific class. The per-class form is how a platform team offers a fast expensive tier without every tenant defaulting to it: a pricing decision expressed as a Kubernetes object.</p></div></details>
   </div>
 </section>
 
@@ -176,7 +177,7 @@ kubectl get pvc -A -o custom-columns='NS:.metadata.namespace,NAME:.metadata.name
   <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
   <div class="pbody">
     <ul class="docs">
-      <li><b>kubernetes.io</b> — Persistent Volumes (the access-modes and reclaim tables), Storage Classes, Volume Snapshots, StatefulSet <code>volumeClaimTemplates</code>.</li>
+      <li><b>kubernetes.io</b>: Persistent Volumes (the access-modes and reclaim tables), Storage Classes, Volume Snapshots, StatefulSet <code>volumeClaimTemplates</code>.</li>
       <li><b>Offline:</b> <code>kubectl explain pvc.spec</code>, <code>kubectl explain sc</code>, <code>kubectl get sc -o wide</code>, and PVC <code>status.conditions</code> when a resize misbehaves.</li>
     </ul>
   </div>

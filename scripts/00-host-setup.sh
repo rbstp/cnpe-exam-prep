@@ -8,8 +8,8 @@ TOTAL_GB=$(( $(awk '/MemTotal/{print $2}' /proc/meminfo) / 1024 / 1024 ))
 CORES=$(nproc)
 FREE_GB=$(df -BG --output=avail "$HOME" | tail -1 | tr -dc '0-9')
 echo "    RAM: ${TOTAL_GB}G   cores: ${CORES}   free disk in \$HOME: ${FREE_GB}G"
-[ "$TOTAL_GB" -ge 24 ] || warn "under 24G RAM — run one stack at a time"
-[ "$FREE_GB" -ge 60 ] || warn "less than 60G free — container images alone need ~35G"
+[ "$TOTAL_GB" -ge 24 ] || warn "under 24G RAM; run one stack at a time"
+[ "$FREE_GB" -ge 60 ] || warn "less than 60G free; container images alone need ~35G"
 
 log "Installing base packages (pacman)"
 # Deliberately NOT -Syu. You are on a T2-patched kernel; a full system upgrade
@@ -24,7 +24,7 @@ if [ ${#MISSING[@]} -eq 0 ]; then
 else
   log "missing: ${MISSING[*]}"
   sudo pacman -S --needed --noconfirm "${MISSING[@]}" || {
-    warn "pacman failed — your package db is probably stale."
+    warn "pacman failed; your package db is probably stale."
     warn "Run 'omarchy-update' (or 'sudo pacman -Syu') yourself, then re-run: make host"
     exit 1
   }
@@ -34,7 +34,7 @@ log "Enabling docker"
 sudo systemctl enable --now docker.service
 if ! id -nG "$USER" | grep -qw docker; then
   sudo usermod -aG docker "$USER"
-  warn "added $USER to the 'docker' group — LOG OUT AND BACK IN, then re-run this script"
+  warn "added $USER to the 'docker' group: LOG OUT AND BACK IN, then re-run this script"
 fi
 
 log "Raising kernel limits (kind + dozens of controllers exhaust the defaults)"
@@ -72,26 +72,26 @@ if [ "$(sudo cat "$OVERRIDE" 2>/dev/null || true)" = "$WANT" ]; then
 else
   sudo mkdir -p "$(dirname "$OVERRIDE")"
   printf '%s\n' "$WANT" | sudo tee "$OVERRIDE" >/dev/null
-  warn "restarting dockerd to apply new limits — this restarts ALL your containers"
+  warn "restarting dockerd to apply new limits; this restarts ALL your containers"
   sudo systemctl daemon-reload && sudo systemctl restart docker
   ok "docker limits applied"
 fi
 
-log "Checking docker daemon config (log rotation — kind nodes fill the SSD otherwise)"
+log "Checking docker daemon config (log rotation; kind nodes fill the SSD otherwise)"
 # On Omarchy, /etc/docker/daemon.json is OWNED BY THE omarchy-settings PACKAGE and
 # deliberately sets dns=172.17.0.1 (systemd-resolved listens on the docker bridge)
 # plus bip. Overwriting it breaks container DNS and gets reverted by omarchy-update.
 # So: only create the file if it is absent, and only report if it already exists.
 if [ -f /etc/docker/daemon.json ]; then
   if pacman -Qo /etc/docker/daemon.json >/dev/null 2>&1; then
-    ok "daemon.json is package-owned — leaving it untouched"
+    ok "daemon.json is package-owned, leaving it untouched"
   else
-    ok "daemon.json exists — leaving it untouched"
+    ok "daemon.json exists, leaving it untouched"
   fi
   if grep -q 'max-size' /etc/docker/daemon.json; then
     ok "log rotation already configured"
   else
-    warn "no log rotation in /etc/docker/daemon.json — kind node logs can fill the SSD."
+    warn "no log rotation in /etc/docker/daemon.json; kind node logs can fill the SSD."
     warn 'Add manually:  "log-opts": { "max-size": "10m", "max-file": "3" }'
   fi
 else
@@ -108,7 +108,7 @@ fi
 
 # MacBook-specific: the 2019 Intel chassis throttles hard under sustained load.
 if grep -qi apple /sys/class/dmi/id/board_vendor 2>/dev/null; then
-  log "Apple hardware detected — thermal advice"
+  log "Apple hardware detected: thermal advice"
   echo "    • Install 'mbpfan' (AUR) so fans ramp before the CPU throttles:"
   echo "        yay -S mbpfan-git && sudo systemctl enable --now mbpfan"
   echo "    • Check throttling during labs: watch -n2 'grep MHz /proc/cpuinfo | head'"

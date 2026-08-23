@@ -76,7 +76,7 @@ if grep -qE "^${GITEA_IP}[[:space:]]+${GITEA_HOST}\$" /etc/hosts; then
 elif ! sudo -n true 2>/dev/null && ! [ -t 0 ]; then
   # Unattended run and sudo would prompt: warn and carry on. Everything
   # in-cluster still works; only host-side ${GITEA_HOST} URLs are stale.
-  warn "/etc/hosts needs updating but sudo cannot prompt here — run this yourself:"
+  warn "/etc/hosts needs updating but sudo cannot prompt here; run this yourself:"
   warn "  sudo sed -i -E 's|^[0-9.]+[[:space:]]+${GITEA_HOST}\$|${GITEA_IP} ${GITEA_HOST}|' /etc/hosts   # or append if missing"
 elif grep -qE "[[:space:]]${GITEA_HOST}\$" /etc/hosts; then
   sudo sed -i -E "s|^[0-9.]+[[:space:]]+${GITEA_HOST}\$|${GITEA_IP} ${GITEA_HOST}|" /etc/hosts
@@ -84,7 +84,7 @@ else
   echo "${GITEA_IP} ${GITEA_HOST}" | sudo tee -a /etc/hosts >/dev/null
 fi
 curl -fsS "http://${GITEA_HOST}:3000/api/healthz" >/dev/null && ok "http://${GITEA_HOST}:3000 reachable from this host" \
-  || warn "gitea.lab not reachable from the host — check /etc/hosts and the docker bridge"
+  || warn "gitea.lab not reachable from the host; check /etc/hosts and the docker bridge"
 
 log "Teaching CoreDNS about ${GITEA_HOST}"
 python3 - "$GITEA_IP" "$GITEA_HOST" <<'PY'

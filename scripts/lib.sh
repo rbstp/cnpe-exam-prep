@@ -23,7 +23,7 @@ ok()   { printf '%s ok %s %s\n' "$C_OK" "$C_OFF" "$*"; }
 warn() { printf '%s  ! %s %s\n' "$C_WARN" "$C_OFF" "$*"; }
 die()  { printf '%s ✗  %s %s\n' "$C_ERR" "$C_OFF" "$*" >&2; exit 1; }
 
-need() { command -v "$1" >/dev/null 2>&1 || die "missing '$1' — run: make tools"; }
+need() { command -v "$1" >/dev/null 2>&1 || die "missing '$1'; run: make tools"; }
 
 kctx() { kubectl --context "kind-${1:-$CLUSTER}" "${@:2}"; }
 

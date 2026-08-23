@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>4.6 Incident response: diagnosis under a clock · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/theme.js"></script>
 </head>
 <body data-id="4.6" data-root="../">
 <div class="wrap"><div class="cols">
@@ -23,7 +24,7 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 4.3 · diagnosing and remediating incidents</span></div>
   <div class="pbody">
-    <p class="lede">Under a clock, the difference between five minutes and twenty is not knowledge — it is having a method you follow instead of improvising. Learn the method, then burn it in with drills until it runs without conscious effort.</p>
+    <p class="lede">Under a clock, the difference between five minutes and twenty is not knowledge; it is having a method you follow instead of improvising. Learn the method, then burn it in with drills until it runs without conscious effort.</p>
   </div>
 </section>
 
@@ -34,7 +35,7 @@
       <li><strong>Blast radius first.</strong> What is broken and what still works. <code>kubectl get pods -A | grep -v Running</code>, <code>make status</code>, the top-level dashboards. One namespace or all? Data plane or control plane? This bounds everything that follows and stops you debugging a symptom two layers from the cause.</li>
       <li><strong>Timeline second.</strong> What changed. <code>kubectl get events -A --sort-by=.lastTimestamp | tail -30</code>, recent syncs in Argo CD, <code>helm list -A</code> for fresh revisions, <code>kubectl rollout history</code>. <em>Most incidents are deployments wearing a costume.</em></li>
       <li><strong>Descend one resource at a time.</strong> describe → events → logs → previous logs (<code>--previous</code>, for crash loops) → exec/debug. Resist skipping levels; the fast-looking jump is where wrong theories come from.</li>
-      <li><strong>Fix the cause, then prove recovery with the same signal that showed the failure.</strong> If you found it via a failing curl, the incident ends with that curl succeeding — not with a pod showing Running.</li>
+      <li><strong>Fix the cause, then prove recovery with the same signal that showed the failure.</strong> If you found it via a failing curl, the incident ends with that curl succeeding, not with a pod showing Running.</li>
     </ol>
 
     <div class="callout model">
@@ -59,7 +60,7 @@
     </div>
 
     <h3>Node-level moves</h3>
-    <p>When the fault is the node rather than the workload: <code>kubectl cordon &lt;node&gt;</code> stops new pods landing there, <code>kubectl drain &lt;node&gt; --ignore-daemonsets --delete-emptydir-data</code> evicts the rest (respecting PodDisruptionBudgets, which is why it hangs — section 1.2), and <code>kubectl uncordon</code> puts it back. Draining is also the safe way to <em>test</em> whether a workload survives losing a node, which is a better use of a quiet afternoon than reading about it.</p>
+    <p>When the fault is the node rather than the workload: <code>kubectl cordon &lt;node&gt;</code> stops new pods landing there, <code>kubectl drain &lt;node&gt; --ignore-daemonsets --delete-emptydir-data</code> evicts the rest (respecting PodDisruptionBudgets, which is why it hangs; see section 1.2), and <code>kubectl uncordon</code> puts it back. Draining is also the safe way to <em>test</em> whether a workload survives losing a node, which is a better use of a quiet afternoon than reading about it.</p>
 
     <h3>Two tools people forget exist</h3>
     <div class="cb" data-lang="bash"><pre><code>kubectl debug -it &lt;pod&gt; --image=busybox:1.37 --target=&lt;container&gt;   # ephemeral container into a distroless pod
@@ -68,7 +69,7 @@ kubectl debug node/&lt;node&gt; -it --image=busybox:1.37                  # a no
 
     <div class="callout reflex">
       <span class="tag">Time-boxing is part of the skill</span>
-      <p>Seven minutes per task is the lab's clock because it is roughly the exam's. If you are four minutes in with no theory that fits the evidence, stop and re-run step 1 — widen, do not deepen. And write your diagnosis down <em>before</em> you fix anything; a written theory is falsifiable, a mental one drifts to match whatever you just tried.</p>
+      <p>Seven minutes per task is the lab's clock because it is roughly the exam's. If you are four minutes in with no theory that fits the evidence, stop and re-run step 1: widen, do not deepen. And write your diagnosis down <em>before</em> you fix anything; a written theory is falsifiable, a mental one drifts to match whatever you just tried.</p>
     </div>
   </div>
 </section>
@@ -78,13 +79,13 @@ kubectl debug node/&lt;node&gt; -it --image=busybox:1.37                  # a no
   <div class="pbody">
     <p>Remediation is half the competency; the process around it is the other half, and it compresses to five lines you can write in five minutes:</p>
     <ol>
-      <li><strong>Symptom</strong> — what a user or a check observed, with a timestamp.</li>
-      <li><strong>Blast radius</strong> — who and what was affected, and who was not.</li>
-      <li><strong>Root cause</strong> — the change or condition that produced it, stated as a mechanism, not a culprit.</li>
-      <li><strong>Fix</strong> — what you did, including anything you did that turned out to be irrelevant.</li>
-      <li><strong>Proof of recovery</strong> — the command or signal that confirms it, and the follow-up that prevents recurrence (an alert that would have caught it sooner, a policy, a default).</li>
+      <li><strong>Symptom</strong>: what a user or a check observed, with a timestamp.</li>
+      <li><strong>Blast radius</strong>: who and what was affected, and who was not.</li>
+      <li><strong>Root cause</strong>: the change or condition that produced it, stated as a mechanism, not a culprit.</li>
+      <li><strong>Fix</strong>: what you did, including anything you did that turned out to be irrelevant.</li>
+      <li><strong>Proof of recovery</strong>: the command or signal that confirms it, and the follow-up that prevents recurrence (an alert that would have caught it sooner, a policy, a default).</li>
     </ol>
-    <p>Blameless, mechanism-focused, and short enough that you will actually write it. Vocabulary that may appear in a scenario: <em>MTTD</em> (detect), <em>MTTA</em> (acknowledge), <em>MTTR</em> (restore), <em>error budget</em> (how much unreliability the SLO permits), <em>toil</em> (manual repetitive work that scales with load — the thing a platform is supposed to remove).</p>
+    <p>Blameless, mechanism-focused, and short enough that you will actually write it. Vocabulary that may appear in a scenario: <em>MTTD</em> (detect), <em>MTTA</em> (acknowledge), <em>MTTR</em> (restore), <em>error budget</em> (how much unreliability the SLO permits), <em>toil</em> (manual repetitive work that scales with load, the thing a platform is supposed to remove).</p>
 
     <div class="callout exam">
       <span class="tag">Remediation ≠ resolution</span>
@@ -102,22 +103,22 @@ kubectl debug node/&lt;node&gt; -it --image=busybox:1.37                  # a no
       <div class="cb" data-lang="bash"><pre><code>make break            # random; 7-minute target
 make break-answer     # only after you have committed to a diagnosis</code></pre></div>
       <p>Then drill the ones that hurt, by name: <code>FAULT=image</code>, <code>probe</code>, <code>resources</code>, <code>rbac</code>, <code>quota</code>, <code>netpol</code>, <code>config</code>. The rbac fault is invisible in pod listings and only surfaces under <code>kubectl auth can-i --as=...</code>; the netpol fault leaves everything Running while DNS is dead (the additive-allow-list lesson from 1.4).</p>
-      <div class="verify"><b>verify</b> — your diagnosis written down <em>before</em> <code>make break-answer</code>, and the fix confirmed by the failing behaviour now succeeding. <code>make break-fix</code> afterwards shows the evidence trail a systematic diagnosis would have followed; compare it with the path you actually took and note where you diverged.</div>
+      <div class="verify"><b>verify:</b> your diagnosis written down <em>before</em> <code>make break-answer</code>, and the fix confirmed by the failing behaviour now succeeding. <code>make break-fix</code> afterwards shows the evidence trail a systematic diagnosis would have followed; compare it with the path you actually took and note where you diverged.</div>
     </div>
 
     <div class="exercise" data-title="Diagnose with telemetry, not just kubectl">
       <p>Run <code>FAULT=probe make break</code>, but restrict yourself for the first three minutes to Grafana, Prometheus and Loki only: find the symptom in the namespace dashboard (restarts, readiness), the failing pod in <code>kube_pod_container_status_ready</code>, and the evidence in its logs via Explore. Then finish with kubectl.</p>
-      <div class="verify"><b>verify</b> — the telemetry told you which pod and roughly why before you ever described it. The exam's observability tasks assume tools-first diagnosis, and this inverts your kubectl habit deliberately.</div>
+      <div class="verify"><b>verify:</b> the telemetry told you which pod and roughly why before you ever described it. The exam's observability tasks assume tools-first diagnosis, and this inverts your kubectl habit deliberately.</div>
     </div>
 
     <div class="exercise" data-title="One structured postmortem">
       <p>After any drill, write five lines: symptom, blast radius, root cause, fix, the check that proves recovery.</p>
-      <div class="verify"><b>verify</b> — a stranger could re-run your incident from those lines. Five minutes, once per drill; this is what a "structured incident response process" reduces to in practice.</div>
+      <div class="verify"><b>verify:</b> a stranger could re-run your incident from those lines. Five minutes, once per drill; this is what a "structured incident response process" reduces to in practice.</div>
     </div>
 
     <div class="exercise" data-title="The stack repair">
       <p>Course platforms end this module with a scripted "repair a broken stack" lab; the version here is meaner and unscripted: pick a layer, delete something load-bearing but subtle (a ServiceMonitor, the Loki datasource ConfigMap, kyverno's webhook… choose while <em>not</em> thinking about diagnosis), do something else for an hour, then come back and find it via <code>make validate</code>, whose failing checks are your incident ticket.</p>
-      <div class="verify"><b>verify</b> — <code>make validate</code> returns to PASS with FAIL 0. Self-inflicted incidents with a validation suite are the closest thing to a free exam simulator this repo has.</div>
+      <div class="verify"><b>verify:</b> <code>make validate</code> returns to PASS with FAIL 0. Self-inflicted incidents with a validation suite are the closest thing to a free exam simulator this repo has.</div>
     </div>
 
   </div>
@@ -130,13 +131,13 @@ make break-answer     # only after you have committed to a diagnosis</code></pre
       <div class="answer"><p>Make something try (a curl or nslookup from inside the namespace) so there is evidence to read; check endpoints/readiness for the Service; check policy verdicts (Hubble DROPPED) and DNS. "Running" says the kubelet is happy, nothing more.</p></div></details>
 
     <details class="quiz"><summary>A pod is CrashLoopBackOff and <code>kubectl logs</code> shows nothing useful.</summary>
-      <div class="answer"><p><code>kubectl logs --previous</code> — you are reading the current, not-yet-started container. Then <code>describe</code> for the exit code and reason (137 with OOMKilled points at memory, 1 with app output points at config), then the previous container's <code>lastState.terminated</code>.</p></div></details>
+      <div class="answer"><p><code>kubectl logs --previous</code>: you are reading the current, not-yet-started container. Then <code>describe</code> for the exit code and reason (137 with OOMKilled points at memory, 1 with app output points at config), then the previous container's <code>lastState.terminated</code>.</p></div></details>
 
     <details class="quiz"><summary>Nothing can be created cluster-wide; every apply times out with a webhook error. What happened and what is the lever?</summary>
       <div class="answer"><p>An admission webhook's backend is down and its <code>failurePolicy</code> is <code>Fail</code>, so the API server refuses writes it cannot validate. Restore the backend, or (as a deliberate emergency step) remove/scope the webhook configuration. That is why <code>failurePolicy</code> is a governance decision, not a default to accept blindly (5.2).</p></div></details>
 
     <details class="quiz"><summary>You have four minutes left and no theory that fits the evidence. What do you do?</summary>
-      <div class="answer"><p>Go back to step 1 and widen: re-check blast radius and timeline rather than digging deeper into the current object. Most stuck diagnoses are the result of over-committing to the first plausible layer. On the exam, flag it and move on — a stuck task costs you two easy ones.</p></div></details>
+      <div class="answer"><p>Go back to step 1 and widen: re-check blast radius and timeline rather than digging deeper into the current object. Most stuck diagnoses are the result of over-committing to the first plausible layer. On the exam, flag it and move on; a stuck task costs you two easy ones.</p></div></details>
 
     <details class="quiz"><summary>What proves an incident is over?</summary>
       <div class="answer"><p>The same signal that showed the failure, now succeeding: the failing curl returns 200, the alert resolves, the validation check passes. A pod showing Running proves only that a container started.</p></div></details>
@@ -147,9 +148,9 @@ make break-answer     # only after you have committed to a diagnosis</code></pre
   <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
   <div class="pbody">
     <ul class="docs">
-      <li><b>kubernetes.io</b> — Debug Pods / Debug Running Pods (the ephemeral containers page), Troubleshooting Applications, and the Debug Cluster pages.</li>
-      <li><b>sre.google</b> — the postmortem culture chapter, for the vocabulary a scenario question may borrow.</li>
-      <li><b>Your own postmortem notes</b> — by the third drill they are the best incident doc you own.</li>
+      <li><b>kubernetes.io</b>: Debug Pods / Debug Running Pods (the ephemeral containers page), Troubleshooting Applications, and the Debug Cluster pages.</li>
+      <li><b>sre.google</b>: the postmortem culture chapter, for the vocabulary a scenario question may borrow.</li>
+      <li><b>Your own postmortem notes</b>: by the third drill they are the best incident doc you own.</li>
     </ul>
   </div>
 </section>

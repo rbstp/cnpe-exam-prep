@@ -59,7 +59,7 @@ urls:    ## Every UI, its URL/port-forward, and credentials
 	@$(S)/91-urls.sh
 status:  ## Clusters, endpoints, unhealthy pods, host load
 	@$(S)/90-status.sh
-break:   ## Inject a random fault — then diagnose it under time pressure
+break:   ## Inject a random fault, then diagnose it under time pressure
 	@$(S)/95-break.sh
 break-fix: ## Auto-diagnose and repair whatever 'make break' injected
 	@$(S)/96-break-fix.sh

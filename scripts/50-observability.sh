@@ -17,7 +17,7 @@ helmi prometheus prometheus-community/kube-prometheus-stack monitoring \
   --set prometheus.prometheusSpec.enableRemoteWriteReceiver=true \
   --set prometheus.prometheusSpec.enableFeatures={otlp-write-receiver}
 
-log "Jaeger all-in-one (memory storage — light enough for a laptop)"
+log "Jaeger all-in-one (memory storage, light enough for a laptop)"
 kubectl create ns tracing --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl -n tracing apply -f - <<'YAML'
 apiVersion: apps/v1
@@ -92,7 +92,7 @@ spec:
         logs:    { receivers: [otlp], processors: [batch], exporters: [debug] }
 YAML
 
-log "Auto-instrumentation resource (zero-code tracing — annotate a pod to use it)"
+log "Auto-instrumentation resource (zero-code tracing: annotate a pod to use it)"
 kubectl apply -f - <<'YAML'
 apiVersion: opentelemetry.io/v1alpha1
 kind: Instrumentation
@@ -120,7 +120,7 @@ helmi loki grafana/loki monitoring \
   --set read.replicas=0 --set write.replicas=0 --set backend.replicas=0 \
   --set chunksCache.enabled=false --set resultsCache.enabled=false \
   --set lokiCanary.enabled=false --set test.enabled=false \
-  || warn "Loki install failed — optional, skip it if tight on CPU"
+  || warn "Loki install failed; optional, skip it if tight on CPU"
 
 # Loki without a shipper is a database with no writers. Alloy tails every pod
 # through the kubelet API (one replica is enough for a lab) and pushes to Loki.
@@ -165,7 +165,7 @@ alloy:
       }
 VALUES
 helmi alloy grafana/alloy monitoring -f /tmp/cnpe-lab/alloy-values.yaml \
-  || warn "Alloy install failed — Loki will hold no logs until a shipper exists"
+  || warn "Alloy install failed; Loki will hold no logs until a shipper exists"
 
 log "OpenCost (cost allocation from Prometheus metrics)"
 repo_add opencost-charts https://opencost.github.io/opencost-helm-chart
@@ -186,7 +186,7 @@ cat <<'INFO'
   OpenCost                        kubectl -n opencost get svc opencost     (UI on 9090)
                                   kubectl cost --opencost namespace --show-all-resources
 
-  Drill: annotate a deployment to get traces with zero code changes —
+  Drill: annotate a deployment to get traces with zero code changes.
     kubectl patch deploy/<name> -p \
       '{"spec":{"template":{"metadata":{"annotations":{"instrumentation.opentelemetry.io/inject-java":"default/auto"}}}}}'
 

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>2.2 Argo CD: applications, sync, drift · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/theme.js"></script>
 </head>
 <body data-id="2.2" data-root="../">
 <div class="wrap"><div class="cols">
@@ -66,7 +67,7 @@ spec:
       limit: 3
       backoff: { duration: 5s, factor: 2, maxDuration: 3m }</code></pre></div>
 
-    <p><code>targetRevision</code> deserves a thought: <code>HEAD</code> or a branch means "whatever moves there", a tag or SHA means immutable. Production apps pinned to a SHA and promoted by bumping it is a legitimate — and auditable — pattern.</p>
+    <p><code>targetRevision</code> deserves a thought: <code>HEAD</code> or a branch means "whatever moves there", a tag or SHA means immutable. Production apps pinned to a SHA and promoted by bumping it is a legitimate, auditable pattern.</p>
 
     <h3>The two status axes, and the mistake of conflating them</h3>
     <div class="tbl-wrap">
@@ -85,14 +86,14 @@ spec:
 
     <p>Every combination means something different, and each has exactly one right first move:</p>
     <div class="widget" data-widget="syncmatrix"></div>
-    <p>Health is computed per resource kind by built-in checks (a Deployment is Healthy when its available replicas match, a Service with a LoadBalancer waits for an IP…), and custom kinds get custom Lua health checks — which is how Argo CD reports on CRDs like Rollouts. If a custom resource sits forever in Progressing, either it has no health check or its status conditions never settle.</p>
+    <p>Health is computed per resource kind by built-in checks (a Deployment is Healthy when its available replicas match, a Service with a LoadBalancer waits for an IP…), and custom kinds get custom Lua health checks, which is how Argo CD reports on CRDs like Rollouts. If a custom resource sits forever in Progressing, either it has no health check or its status conditions never settle.</p>
 
     <h3>syncPolicy, decided before you need it</h3>
     <ul>
-      <li><strong>Manual</strong> — reports OutOfSync and waits. Correct for production changes that need a human.</li>
-      <li><code>automated</code> — syncs when git changes.</li>
-      <li><code>automated.selfHeal: true</code> — also reverts live drift, continuously.</li>
-      <li><code>automated.prune: true</code> — deletes live resources whose manifests vanished from git. The one that bites: without it, renaming a resource leaves the old one running forever; with it, removing a file deletes production.</li>
+      <li><strong>Manual</strong>: reports OutOfSync and waits. Correct for production changes that need a human.</li>
+      <li><code>automated</code>: syncs when git changes.</li>
+      <li><code>automated.selfHeal: true</code>: also reverts live drift, continuously.</li>
+      <li><code>automated.prune: true</code>: deletes live resources whose manifests vanished from git. The one that bites: without it, renaming a resource leaves the old one running forever; with it, removing a file deletes production.</li>
     </ul>
 
     <h3>Sync options worth memorising</h3>
@@ -178,12 +179,12 @@ argocd app set demo-staging --sync-policy automated --self-heal</code></pre></di
 kubectl -n argocd get applications
 kubectl -n team-a get deploy staging-demo &amp;&amp; kubectl -n team-b get deploy prod-demo</code></pre></div>
       <p>Now the nuance that makes this a good exercise: the ApplicationSet template sets <code>destination.namespace</code> to the directory basename, but the overlays pin <code>namespace: team-a</code> and <code>team-b</code> in their kustomizations, and an explicit namespace in a manifest always wins over the Application's destination default. So the workloads land in the tenant namespaces, prefixed <code>staging-</code> and <code>prod-</code>. If an app is stuck, read its conditions: <code>kubectl -n argocd get app demo-staging -o jsonpath='{.status.conditions}' | jq</code>.</p>
-      <div class="verify"><b>verify</b> — <code>demo-staging</code> and <code>demo-prod</code> Applications exist (one per overlay directory in the platform repo), each Synced/Healthy.</div>
+      <div class="verify"><b>verify:</b> <code>demo-staging</code> and <code>demo-prod</code> Applications exist (one per overlay directory in the platform repo), each Synced/Healthy.</div>
     </div>
 
     <div class="exercise" data-title="Close the loop from 2.1">
       <p>Your replica change from the fundamentals section is already in the platform repo, so <code>demo-staging</code> picks it up on the next poll (up to ~3 min) or immediately with <code>argocd app sync demo-staging</code>.</p>
-      <div class="verify"><b>verify</b> — <code>kubectl -n team-a get deploy staging-demo -o jsonpath='{.spec.replicas}'</code> matches your commit, and <code>argocd app history demo-staging</code> shows the revision.</div>
+      <div class="verify"><b>verify:</b> <code>kubectl -n team-a get deploy staging-demo -o jsonpath='{.spec.replicas}'</code> matches your commit, and <code>argocd app history demo-staging</code> shows the revision.</div>
     </div>
 
     <div class="exercise" data-title="Fight the controller and lose">
@@ -191,17 +192,17 @@ kubectl -n team-a get deploy staging-demo &amp;&amp; kubectl -n team-b get deplo
       <div class="cb" data-lang="bash"><pre><code>kubectl -n team-a scale deploy staging-demo --replicas=5
 kubectl -n team-a get deploy staging-demo -w</code></pre></div>
       <p>Then prove you understand prune the safe way: the service manifest lives in <code>demo-app/base/</code>, so drop <code>service.yaml</code> from the base kustomization's resources list, push, and watch the live Service disappear from <em>both</em> tenants (a base edit hits every overlay, which is its own lesson in blast radius). Revert the commit and watch them return.</p>
-      <div class="verify"><b>verify</b> — replicas snap back to the git value within seconds, <code>argocd app get demo-staging</code> never settles OutOfSync, and the Service round-trips with the commit. Git history is your undo; that is the pitch, demonstrated.</div>
+      <div class="verify"><b>verify:</b> replicas snap back to the git value within seconds, <code>argocd app get demo-staging</code> never settles OutOfSync, and the Service round-trips with the commit. Git history is your undo; that is the pitch, demonstrated.</div>
     </div>
 
     <div class="exercise" data-title="Break sync with ordering, fix with a wave">
       <p>Add to the staging overlay a manifest for a CR whose CRD does not exist (any made-up kind), push, and read the sync error. Then fix it properly for the case where you control both: put the CRD in the same overlay with <code>argocd.argoproj.io/sync-wave: "-1"</code> and the CR at wave 0. The other tool for this job is the <code>argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true</code> annotation, for when the CRD arrives from somewhere you don't control.</p>
-      <div class="verify"><b>verify</b> — sync succeeds and <code>kubectl get &lt;your-kind&gt;</code> returns the CR. Clean up the overlay afterwards; you'll reuse it.</div>
+      <div class="verify"><b>verify:</b> sync succeeds and <code>kubectl get &lt;your-kind&gt;</code> returns the CR. Clean up the overlay afterwards; you'll reuse it.</div>
     </div>
 
     <div class="exercise" data-title="Synced but Degraded">
       <p>Push an image tag that doesn't exist (<code>newTag: does-not-exist</code> in the staging kustomization), sync, and read the two statuses side by side: <code>argocd app get demo-staging | head -20</code>. One timing note so you don't misread it: health shows Progressing for up to ten minutes (the Deployment's <code>progressDeadlineSeconds</code>) before flipping to Degraded, while the pod's ImagePullBackOff is visible in events immediately; Progressing-with-a-broken-pod already tells you everything.</p>
-      <div class="verify"><b>verify</b> — Sync status Synced, health on its way to Degraded, and you can articulate why clicking sync again is useless here. Revert the commit. This exact confusion is section 2.6's opening scenario.</div>
+      <div class="verify"><b>verify:</b> Sync status Synced, health on its way to Degraded, and you can articulate why clicking sync again is useless here. Revert the commit. This exact confusion is section 2.6's opening scenario.</div>
     </div>
 
   </div>
@@ -214,16 +215,16 @@ kubectl -n team-a get deploy staging-demo -w</code></pre></div>
       <div class="answer"><p>Live matches git, so Argo CD has done its job; the desired state itself is broken (bad image, impossible resources, missing config key). The fix is a commit. Re-syncing changes nothing because the diff is already empty.</p></div></details>
 
     <details class="quiz"><summary>A sync fails with "field is immutable". Two ways forward?</summary>
-      <div class="answer"><p>Set <code>Replace=true</code> (per app or per resource) so the sync uses <code>kubectl replace</code> instead of apply, or delete the resource and let Argo recreate it — <code>Force=true</code> combines the two. Choose deliberately: replace is not a free pass, since a Service manifest that omits <code>clusterIP</code> is still rejected as immutable, and a shrinking PVC is not going to be saved by either option.</p></div></details>
+      <div class="answer"><p>Set <code>Replace=true</code> (per app or per resource) so the sync uses <code>kubectl replace</code> instead of apply, or delete the resource and let Argo recreate it; <code>Force=true</code> combines the two. Choose deliberately: replace is not a free pass, since a Service manifest that omits <code>clusterIP</code> is still rejected as immutable, and a shrinking PVC is not going to be saved by either option.</p></div></details>
 
     <details class="quiz"><summary>What is an AppProject for, in one sentence, and name two things it constrains?</summary>
       <div class="answer"><p>It is the guardrail around a set of Applications: permitted source repos and permitted destinations (cluster + namespace), plus allowed/denied resource kinds, per-project RBAC roles and sync windows. It is the answer to "let this team self-serve deployments without letting them deploy anything anywhere".</p></div></details>
 
     <details class="quiz"><summary>You are handed an ApplicationSet with a git directory generator over <code>apps/*/overlays/*</code>. How many Applications will exist?</summary>
-      <div class="answer"><p>One per matching directory in the repo at the current revision — so count the directories, then check the template for a name expression that could collide (two identical names silently overwrite). Predicting the exact set from the generator block is the testable skill; <code>kubectl -n argocd get applications</code> then confirms it.</p></div></details>
+      <div class="answer"><p>One per matching directory in the repo at the current revision, so count the directories, then check the template for a name expression that could collide (two identical names silently overwrite). Predicting the exact set from the generator block is the testable skill; <code>kubectl -n argocd get applications</code> then confirms it.</p></div></details>
 
     <details class="quiz"><summary>An app shows OutOfSync forever on a field no human edits. What is happening and what fixes it?</summary>
-      <div class="answer"><p>Something in-cluster mutates the resource after apply — a mutating webhook, an HPA writing replicas, a defaulting controller. Fix with <code>ignoreDifferences</code> for that path (or stop managing the field). This is a configuration decision, not a bug to chase.</p></div></details>
+      <div class="answer"><p>Something in-cluster mutates the resource after apply: a mutating webhook, an HPA writing replicas, a defaulting controller. Fix with <code>ignoreDifferences</code> for that path (or stop managing the field). This is a configuration decision, not a bug to chase.</p></div></details>
 
     <details class="quiz"><summary>You changed the repo but Argo insists nothing changed. Sequence of moves?</summary>
       <div class="answer"><p><code>argocd app get --refresh</code> first (recompare), then <code>--hard-refresh</code> (drop the manifest cache), then check the app is on the branch you pushed to (<code>targetRevision</code>), then check repo-server logs for auth or render errors. Cheapest first, always.</p></div></details>
@@ -234,7 +235,7 @@ kubectl -n team-a get deploy staging-demo -w</code></pre></div>
   <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
   <div class="pbody">
     <ul class="docs">
-      <li><b>argo-cd.readthedocs.io</b> — Application spec reference, sync options, sync waves and hooks, AppProject, ApplicationSet generators.</li>
+      <li><b>argo-cd.readthedocs.io</b>: Application spec reference, sync options, sync waves and hooks, AppProject, ApplicationSet generators.</li>
       <li><b>Offline:</b> <code>argocd app --help</code> covers most of what the docs would, and <code>kubectl explain application.spec --recursive</code> works because the Application is just a CRD.</li>
     </ul>
   </div>

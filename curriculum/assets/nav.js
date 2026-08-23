@@ -101,7 +101,7 @@ window.CNPE_NAV = [
     needs: "make core cicd sec", mins: 80,
     tags: "supply chain trivy scan gate cosign sign verify keyless fulcio rekor digest attestation provenance slsa sbom imagevalidatingpolicy admission verification registry" },
 
-  { id: "EX", d: 0, path: "mock-exam.html", title: "Mock exam — 15 tasks, 120 minutes",
+  { id: "EX", d: 0, path: "mock-exam.html", title: "Mock exam: 15 tasks, 120 minutes",
     needs: "make full", mins: 120,
     tags: "mock exam timed tasks grading scoring simulation killer.sh practice" }
 ];

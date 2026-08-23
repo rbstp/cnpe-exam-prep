@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stage the study console for static hosting (GitHub Pages).
 #
-# The source tree in curriculum/ stays exactly as it is — every page keeps its
+# The source tree in curriculum/ stays exactly as it is: every page keeps its
 # relative links so file:// and 'make study' keep working. Everything that only
 # makes sense for the hosted copy (CNAME, .nojekyll, an absolute-path 404,
 # the single-file bundle) is produced here, in the publish step.
@@ -48,6 +48,7 @@ cat > "$OUT/404.html" <<'HTML'
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Not found · CNPE study console</title>
 <link rel="stylesheet" href="/assets/style.css">
+<script src="/assets/theme.js"></script>
 </head>
 <body>
 <div class="wrap"><div class="cols">
@@ -56,7 +57,7 @@ cat > "$OUT/404.html" <<'HTML'
     <div class="eyebrow"><span class="badge d4">404</span><span>no page at this address</span></div>
     <h1>Nothing here</h1>
     <p class="sum">That path is not part of the study console. Section pages look like
-      <code>/01-architecture/01-networking.html</code> — five numbered domain directories,
+      <code>/01-architecture/01-networking.html</code>: five numbered domain directories,
       each holding its numbered sections.</p>
   </header>
   <div class="finish" style="margin-top:0">

@@ -1,5 +1,5 @@
 Kyverno's API has moved. If `kubectl apply` here fails with "no matches for kind",
-your version uses different group/version — check what's actually served:
+your version uses different group/version; check what's actually served:
 
     kubectl api-resources | grep -i kyverno
     kubectl explain validatingpolicy --recursive | head -40

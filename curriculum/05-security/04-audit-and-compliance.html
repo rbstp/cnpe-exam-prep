@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>5.4 Audit trails, SBOMs, and compliance reports · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
+<script src="../assets/theme.js"></script>
 </head>
 <body data-id="5.4" data-root="../">
 <div class="wrap"><div class="cols">
@@ -39,12 +40,12 @@
           <tr><td class="mono">None</td><td>nothing</td><td>noise: leases, events, health endpoints</td></tr>
           <tr><td class="mono">Metadata</td><td>who, what, when, verb, response code</td><td>the sensible catch-all</td></tr>
           <tr><td class="mono">Request</td><td>+ the request body</td><td>RBAC and policy changes</td></tr>
-          <tr><td class="mono">RequestResponse</td><td>+ the response body</td><td>the highest-value resources only — it is enormous</td></tr>
+          <tr><td class="mono">RequestResponse</td><td>+ the response body</td><td>the highest-value resources only; it is enormous</td></tr>
         </tbody>
       </table>
     </div>
 
-    <p><strong>Stages</strong>: <code>RequestReceived</code>, <code>ResponseStarted</code> (long-running watches), <code>ResponseComplete</code>, <code>Panic</code>. Most analysis uses ResponseComplete. Policy rules match <em>in order, first hit wins</em> — the same mental model as Alertmanager routes — so the file reads as: drop the noise, elevate the sensitive, catch everything else at Metadata. Read <code>kind/audit-policy.yaml</code> in this repo and you will see exactly that shape.</p>
+    <p><strong>Stages</strong>: <code>RequestReceived</code>, <code>ResponseStarted</code> (long-running watches), <code>ResponseComplete</code>, <code>Panic</code>. Most analysis uses ResponseComplete. Policy rules match <em>in order, first hit wins</em> (the same mental model as Alertmanager routes), so the file reads as: drop the noise, elevate the sensitive, catch everything else at Metadata. Read <code>kind/audit-policy.yaml</code> in this repo and you will see exactly that shape.</p>
 
     <h3>Fields that answer real questions</h3>
     <div class="tbl-wrap">
@@ -64,12 +65,12 @@
 
     <div class="callout trap">
       <span class="tag">One operational scar the repo already documents</span>
-      <p>The apiserver is started with <code>--audit-policy-file</code> pointing into a mounted directory. If that file is missing, <strong>the API server does not start at all</strong>. An audit misconfiguration can therefore present as a completely dead cluster — file that away, because it is the least intuitive control-plane failure in this whole curriculum.</p>
+      <p>The apiserver is started with <code>--audit-policy-file</code> pointing into a mounted directory. If that file is missing, <strong>the API server does not start at all</strong>. An audit misconfiguration can therefore present as a completely dead cluster; file that away, because it is the least intuitive control-plane failure in this whole curriculum.</p>
     </div>
 
     <div class="callout exam">
       <span class="tag">What audit is and is not</span>
-      <p>It records <em>API requests</em>. It does not record what happened inside a container, what a pod did on the network, or anything that bypassed the API server. Pair it with Falco-style runtime detection, network flow logs (Hubble), and image scanning for the other layers — and say so if a scenario asks for "a complete audit trail".</p>
+      <p>It records <em>API requests</em>. It does not record what happened inside a container, what a pod did on the network, or anything that bypassed the API server. Pair it with Falco-style runtime detection, network flow logs (Hubble), and image scanning for the other layers, and say so if a scenario asks for "a complete audit trail".</p>
     </div>
   </div>
 </section>
@@ -99,9 +100,9 @@
     <h3>SBOM vocabulary, because the words get tested</h3>
     <ul>
       <li><strong>CycloneDX</strong> and <strong>SPDX</strong> are the two standard formats; Trivy emits both, and "which format" is a compatibility question, not a quality one.</li>
-      <li>An SBOM lists <em>components and versions</em>. It is not a vulnerability report — you join it against a CVE database, which is why an SBOM generated at build time stays useful after new CVEs are published.</li>
+      <li>An SBOM lists <em>components and versions</em>. It is not a vulnerability report; you join it against a CVE database, which is why an SBOM generated at build time stays useful after new CVEs are published.</li>
       <li>The one-sentence purpose: <em>when the next log4shell drops, you query your SBOMs for the package instead of rescanning the world.</em></li>
-      <li>Neighbours: <strong>provenance/attestation</strong> (how it was built — section 5.6), <strong>signatures</strong> (who vouches for it). Three different documents, one trust story.</li>
+      <li>Neighbours: <strong>provenance/attestation</strong> (how it was built; see section 5.6), <strong>signatures</strong> (who vouches for it). Three different documents, one trust story.</li>
     </ul>
   </div>
 </section>
@@ -114,12 +115,12 @@
       <p>It lives on the control-plane node, reachable through docker:</p>
       <div class="cb" data-lang="bash"><pre><code>docker exec cnpe-control-plane tail -1 /var/log/kubernetes/audit.log | jq .</code></pre></div>
       <p>Now answer three questions an auditor would ask, each with one jq line: who read any secret today (<code>select(.objectRef.resource=="secrets" and .verb=="get")</code>, print user and name); every delete that succeeded (<code>select(.verb=="delete" and .responseStatus.code&lt;300)</code>); all denied requests (<code>select(.annotations["authorization.k8s.io/decision"]=="forbid")</code>). Then close the loop end to end: do something distinctive (<code>kubectl -n team-a delete pod bare --ignore-not-found</code>, or a <code>kubectl auth can-i</code> as dev-a from 5.1) and find your own action in the log within seconds.</p>
-      <div class="verify"><b>verify</b> — an audit trail you have personally queried for your own fingerprints is one you can be examined on.</div>
+      <div class="verify"><b>verify:</b> an audit trail you have personally queried for your own fingerprints is one you can be examined on.</div>
     </div>
 
     <div class="exercise" data-title="Find the PSS echo">
       <p>With 5.3 done, grep the audit log for <code>pod-security.kubernetes.io</code> in annotations.</p>
-      <div class="verify"><b>verify</b> — the lazy pod's restricted violations were recorded by the namespace's <code>audit: restricted</code> label, timestamped and attributed. Three sections (5.2, 5.3, 5.4) just met in one log line, which is roughly how a real compliance program works.</div>
+      <div class="verify"><b>verify:</b> the lazy pod's restricted violations were recorded by the namespace's <code>audit: restricted</code> label, timestamped and attributed. Three sections (5.2, 5.3, 5.4) just met in one log line, which is roughly how a real compliance program works.</div>
     </div>
 
     <div class="exercise" data-title="Mine the vulnerability data">
@@ -128,17 +129,17 @@
   .items[] | [.metadata.namespace, .metadata.name,
   (.report.summary.criticalCount|tostring), (.report.summary.highCount|tostring)] | @tsv' | sort -t$'\t' -k3 -rn | head</code></pre></div>
       <p>Pick the top image and drill in: which CVE, which package, is there a fix version (<code>.report.vulnerabilities[] | select(.severity=="CRITICAL")</code>).</p>
-      <div class="verify"><b>verify</b> — a ranked worst-offenders list, and one actionable package bump identified. That triage, from fleet view to one action, is the whole vulnerability-management job in miniature.</div>
+      <div class="verify"><b>verify:</b> a ranked worst-offenders list, and one actionable package bump identified. That triage, from fleet view to one action, is the whole vulnerability-management job in miniature.</div>
     </div>
 
     <div class="exercise" data-title="Produce and read an SBOM">
       <p>Fleet-side: <code>kubectl get sbomreports -A | head</code>, then extract one and count its components (<code>kubectl get sbomreport &lt;name&gt; -n &lt;ns&gt; -o jsonpath='{.report.components.components}' | jq length</code>). Artifact-side, the pipeline angle from 2.4: <code>trivy image --format cyclonedx --output sbom.json ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine</code> and confirm both SBOMs speak the same CycloneDX.</p>
-      <div class="verify"><b>verify</b> — you can say what an SBOM is <em>for</em> in one sentence (when the next log4shell drops, you query your SBOMs for the package instead of rescanning the world).</div>
+      <div class="verify"><b>verify:</b> you can say what an SBOM is <em>for</em> in one sentence (when the next log4shell drops, you query your SBOMs for the package instead of rescanning the world).</div>
     </div>
 
     <div class="exercise" data-title="Read a compliance rollup">
       <p><code>kubectl get clustercompliancereports</code> (CIS, NSA, PSS variants), then one in detail: <code>kubectl get clustercompliancereport cis -o jsonpath='{.status.summary}'</code>, and find one failing control's ID and description in the full output.</p>
-      <div class="verify"><b>verify</b> — you can trace a failed control to the check behind it and say which earlier curriculum section would fix it. Most CIS findings in this lab trace back to sections 5.1–5.3, which is a satisfying way to discover the curriculum is a compliance program wearing a study plan's clothes.</div>
+      <div class="verify"><b>verify:</b> you can trace a failed control to the check behind it and say which earlier curriculum section would fix it. Most CIS findings in this lab trace back to sections 5.1–5.3, which is a satisfying way to discover the curriculum is a compliance program wearing a study plan's clothes.</div>
     </div>
 
   </div>
@@ -148,19 +149,19 @@
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>Which audit level would you set for Secrets, and which for Events? Why?</summary>
-      <div class="answer"><p>Secrets: <code>Metadata</code> at minimum — never RequestResponse, or you write every secret value into a log file. Events: <code>None</code>; they are high-volume and low-value, and dropping them keeps the log readable. First-match-wins ordering makes those two rules the top of the file.</p></div></details>
+      <div class="answer"><p>Secrets: <code>Metadata</code> at minimum, never RequestResponse, or you write every secret value into a log file. Events: <code>None</code>; they are high-volume and low-value, and dropping them keeps the log readable. First-match-wins ordering makes those two rules the top of the file.</p></div></details>
 
     <details class="quiz"><summary>Find every request a specific ServiceAccount was denied. Shape of the query?</summary>
       <div class="answer"><p>Filter on <code>.user.username == "system:serviceaccount:&lt;ns&gt;:&lt;name&gt;"</code> and either <code>.responseStatus.code == 403</code> or <code>.annotations["authorization.k8s.io/decision"] == "forbid"</code>, then print verb and objectRef. That is the audit-log form of the RBAC debugging you did in 5.1.</p></div></details>
 
-    <details class="quiz"><summary>An SBOM and a vulnerability report — what is the difference and why keep both?</summary>
-      <div class="answer"><p>The SBOM is an inventory of components; the vulnerability report is that inventory joined against a CVE database at a point in time. Keep both because the inventory stays true while the CVE list changes daily — that is exactly why continuous rescanning (the operator) matters more than a scan at build time alone.</p></div></details>
+    <details class="quiz"><summary>An SBOM and a vulnerability report: what is the difference and why keep both?</summary>
+      <div class="answer"><p>The SBOM is an inventory of components; the vulnerability report is that inventory joined against a CVE database at a point in time. Keep both because the inventory stays true while the CVE list changes daily; that is exactly why continuous rescanning (the operator) matters more than a scan at build time alone.</p></div></details>
 
     <details class="quiz"><summary>Why is "compliance as CRDs" a platform-engineering idea rather than a Trivy feature?</summary>
-      <div class="answer"><p>Because it makes compliance data a first-class API object: queryable with kubectl, protected by RBAC, watchable by controllers, graphable in Grafana, and reviewable in git. The alternative — reports as files in a bucket — cannot be joined to anything the platform already does.</p></div></details>
+      <div class="answer"><p>Because it makes compliance data a first-class API object: queryable with kubectl, protected by RBAC, watchable by controllers, graphable in Grafana, and reviewable in git. The alternative, reports as files in a bucket, cannot be joined to anything the platform already does.</p></div></details>
 
     <details class="quiz"><summary>Your cluster's API server will not start after an audit change. First hypothesis?</summary>
-      <div class="answer"><p>The audit policy file is missing or unparseable at the path given by <code>--audit-policy-file</code> (or the volume mount is wrong). The API server refuses to start rather than run unaudited — a safety choice that presents as a dead control plane.</p></div></details>
+      <div class="answer"><p>The audit policy file is missing or unparseable at the path given by <code>--audit-policy-file</code> (or the volume mount is wrong). The API server refuses to start rather than run unaudited: a safety choice that presents as a dead control plane.</p></div></details>
   </div>
 </section>
 
@@ -168,9 +169,9 @@
   <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
   <div class="pbody">
     <ul class="docs">
-      <li><b>kubernetes.io</b> — Auditing (policy levels, stages, and the event schema).</li>
-      <li><b>aquasecurity.github.io/trivy-operator</b> — the CRD reference pages, one per report kind.</li>
-      <li><b>cyclonedx.org</b> / <b>spdx.dev</b> — enough to know which is which.</li>
+      <li><b>kubernetes.io</b>: Auditing (policy levels, stages, and the event schema).</li>
+      <li><b>aquasecurity.github.io/trivy-operator</b>: the CRD reference pages, one per report kind.</li>
+      <li><b>cyclonedx.org</b> / <b>spdx.dev</b>: enough to know which is which.</li>
       <li><b>Offline:</b> <code>jq</code> against the log file, and <code>kubectl explain clustercompliancereport.status</code>.</li>
     </ul>
   </div>

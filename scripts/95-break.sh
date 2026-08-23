@@ -76,7 +76,7 @@ cat <<TXT
   ⏱  Fault injected into namespace '$NS'. Deployment: broken
      Find it and fix it. Target: under 7 minutes (exam pace).
 
-     Start here, in this order — it works for every one of these:
+     Start here, in this order; it works for every one of these:
        kubectl -n $NS get pods
        kubectl -n $NS describe pod <pod>
        kubectl -n $NS get events --sort-by=.lastTimestamp | tail -20

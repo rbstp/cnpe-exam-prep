@@ -12,27 +12,27 @@ K="kubectl --context kind-$CLUSTER -n $NS"
 GOOD_IMAGE="ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine"
 FIXED=0
 
-$K get deploy broken >/dev/null 2>&1 || { warn "no 'broken' deployment in $NS — nothing to fix (run: make break)"; exit 0; }
+$K get deploy broken >/dev/null 2>&1 || { warn "no 'broken' deployment in $NS; nothing to fix (run: make break)"; exit 0; }
 
 fix() { FIXED=$((FIXED+1)); printf '  \033[32mfixed\033[0m  %s\n         \033[36mwhy:\033[0m %s\n' "$1" "$2"; }
 
 log "Inspecting $NS/deploy/broken"
 
-# 1. image — a tag that does not exist
+# 1. image: a tag that does not exist
 IMG=$($K get deploy broken -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null)
 if [ "$IMG" != "$GOOD_IMAGE" ]; then
   $K set image deploy/broken "nginx-unprivileged=$GOOD_IMAGE" >/dev/null
   fix "image -> $GOOD_IMAGE" "was '$IMG'; pods sat in ErrImagePull/ImagePullBackOff"
 fi
 
-# 2. probe — readiness pointed at a port nothing listens on
+# 2. probe: readiness pointed at a port nothing listens on
 PROBE_PORT=$($K get deploy broken -o jsonpath='{.spec.template.spec.containers[0].readinessProbe.httpGet.port}' 2>/dev/null)
 if [ -n "$PROBE_PORT" ] && [ "$PROBE_PORT" != "8080" ]; then
   $K patch deploy broken --type=json -p='[{"op":"remove","path":"/spec/template/spec/containers/0/readinessProbe"}]' >/dev/null
-  fix "removed readinessProbe" "probed port $PROBE_PORT, container listens on 8080 — pods Running but never Ready"
+  fix "removed readinessProbe" "probed port $PROBE_PORT, container listens on 8080; pods Running but never Ready"
 fi
 
-# 3. resources — requests no node can satisfy
+# 3. resources: requests no node can satisfy
 CPU_REQ=$($K get deploy broken -o jsonpath='{.spec.template.spec.containers[0].resources.requests.cpu}' 2>/dev/null)
 MEM_REQ=$($K get deploy broken -o jsonpath='{.spec.template.spec.containers[0].resources.requests.memory}' 2>/dev/null)
 case "$CPU_REQ$MEM_REQ" in
@@ -43,11 +43,11 @@ case "$CPU_REQ$MEM_REQ" in
     fi ;;
 esac
 
-# 4. quota — ResourceQuota clamped to 1 pod while replicas were raised
+# 4. quota: ResourceQuota clamped to 1 pod while replicas were raised
 HARD_PODS=$($K get resourcequota team-a-quota -o jsonpath='{.spec.hard.pods}' 2>/dev/null)
 if [ -n "$HARD_PODS" ] && [ "$HARD_PODS" -le 2 ] 2>/dev/null; then
   $K patch resourcequota team-a-quota --type=merge -p '{"spec":{"hard":{"pods":"20"}}}' >/dev/null
-  fix "ResourceQuota pods -> 20" "was $HARD_PODS; the ReplicaSet could not create pods — look for 'exceeded quota' on the ReplicaSet, not the pods"
+  fix "ResourceQuota pods -> 20" "was $HARD_PODS; the ReplicaSet could not create pods, so look for 'exceeded quota' on the ReplicaSet, not the pods"
 fi
 REPLICAS=$($K get deploy broken -o jsonpath='{.spec.replicas}' 2>/dev/null)
 if [ "${REPLICAS:-1}" -gt 2 ] 2>/dev/null; then
@@ -55,7 +55,7 @@ if [ "${REPLICAS:-1}" -gt 2 ] 2>/dev/null; then
   fix "replicas -> 1" "was $REPLICAS, scaled up purely to collide with the quota"
 fi
 
-# 5. netpol — the DNS egress rule was stripped from the tenant policy
+# 5. netpol: the DNS egress rule was stripped from the tenant policy
 if $K get networkpolicy allow-dns-and-same-namespace >/dev/null 2>&1; then
   if ! $K get networkpolicy allow-dns-and-same-namespace -o json 2>/dev/null | grep -q '"port": *53'; then
     kubectl --context "kind-$CLUSTER" apply -f "$REPO_ROOT/examples/multitenancy/team-a.yaml" >/dev/null
@@ -69,14 +69,14 @@ if $K get networkpolicy oops-deny-dns >/dev/null 2>&1; then
   fix "deleted leftover NetworkPolicy/oops-deny-dns" "additive policy that never blocked anything"
 fi
 
-# 6. config — a volume referencing a ConfigMap that does not exist
+# 6. config: a volume referencing a ConfigMap that does not exist
 VOL_CM=$($K get deploy broken -o jsonpath='{.spec.template.spec.volumes[0].configMap.name}' 2>/dev/null)
 if [ -n "$VOL_CM" ] && ! $K get configmap "$VOL_CM" >/dev/null 2>&1; then
   $K patch deploy broken --type=json -p='[{"op":"remove","path":"/spec/template/spec/volumes"},{"op":"remove","path":"/spec/template/spec/containers/0/volumeMounts"}]' >/dev/null
   fix "removed volume referencing missing ConfigMap '$VOL_CM'" "pods stuck ContainerCreating; the reason is only in 'describe pod' events, never in logs"
 fi
 
-# 7. rbac — a ServiceAccount with no permissions
+# 7. rbac: a ServiceAccount with no permissions
 SA=$($K get deploy broken -o jsonpath='{.spec.template.spec.serviceAccountName}' 2>/dev/null)
 if [ -n "$SA" ] && [ "$SA" != "default" ]; then
   if ! kubectl --context "kind-$CLUSTER" auth can-i list pods -n "$NS" \
@@ -85,13 +85,13 @@ if [ -n "$SA" ] && [ "$SA" != "default" ]; then
       --dry-run=client -o yaml | kubectl --context "kind-$CLUSTER" apply -f - >/dev/null
     $K create rolebinding "$SA-reader" --role="$SA-reader" \
       --serviceaccount="$NS:$SA" --dry-run=client -o yaml | kubectl --context "kind-$CLUSTER" apply -f - >/dev/null
-    fix "granted Role/$SA-reader to sa/$SA" "sa/$SA could not read the API; the pod runs but its app gets 403 — nothing in kubectl status shows this, only 'kubectl auth can-i --as=...'"
+    fix "granted Role/$SA-reader to sa/$SA" "sa/$SA could not read the API; the pod runs but its app gets 403, and nothing in kubectl status shows this, only 'kubectl auth can-i --as=...'"
   fi
 fi
 
 echo
 if [ "$FIXED" -eq 0 ]; then
-  ok "nothing to fix — deployment already matches the healthy baseline"
+  ok "nothing to fix; deployment already matches the healthy baseline"
 else
   log "Waiting for the rollout"
   $K rollout status deploy/broken --timeout=3m 2>&1 | tail -1

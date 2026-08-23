@@ -10,7 +10,7 @@ helmi crossplane crossplane-stable/crossplane crossplane-system
 log "Waiting for Crossplane CRDs"
 kubectl wait --for=condition=Established crd/providers.pkg.crossplane.io --timeout=5m >/dev/null
 
-log "Installing provider-kubernetes (composes native K8s objects — no cloud account needed)"
+log "Installing provider-kubernetes (composes native K8s objects, no cloud account needed)"
 kubectl apply -f - <<'YAML'
 apiVersion: pkg.crossplane.io/v1
 kind: Provider
@@ -92,7 +92,7 @@ log "CloudNativePG operator (a real operator to inspect: CRDs, reconcile, status
 repo_add cnpg https://cloudnative-pg.github.io/charts
 helmi cnpg cnpg/cloudnative-pg cnpg-system
 
-log "kro (Kubernetes Resource Orchestrator) — the other self-service path"
+log "kro (Kubernetes Resource Orchestrator): the other self-service path"
 helm --kube-context "kind-$CLUSTER" upgrade --install kro \
   oci://ghcr.io/kro-run/kro/kro --namespace kro --create-namespace --wait --timeout 8m \
   2>/dev/null || warn "kro install skipped (optional)"

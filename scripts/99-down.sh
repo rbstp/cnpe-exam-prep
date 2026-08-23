@@ -26,7 +26,7 @@ case "$MODE" in
     docker rm -f gitea "$REGISTRY_NAME" 2>/dev/null || true
     docker volume rm gitea-data 2>/dev/null || true
     rm -f "$REPO_ROOT/.gitea-token" "$REPO_ROOT/.gitea-info"
-    ok "everything removed (images cached — 'docker system prune -a' to reclaim disk)"
+    ok "everything removed (images cached; 'docker system prune -a' to reclaim disk)"
     ;;
   *) die "usage: 99-down.sh [clusters|all]" ;;
 esac

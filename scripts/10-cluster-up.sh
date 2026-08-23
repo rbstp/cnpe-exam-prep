@@ -22,7 +22,7 @@ if [ "$(docker inspect -f '{{.State.Running}}' "$REGISTRY_NAME" 2>/dev/null || t
 fi
 
 # ── render kind config ───────────────────────────────────────────────────
-if [ "$CNI" = "cilium" ]; then DISABLE_CNI=true; CNI_NOTE="Cilium installed below — kindnet does not enforce NetworkPolicy reliably";
+if [ "$CNI" = "cilium" ]; then DISABLE_CNI=true; CNI_NOTE="Cilium installed below; kindnet does not enforce NetworkPolicy reliably";
 else DISABLE_CNI=false; CNI_NOTE="using kind's built-in kindnet"; fi
 
 sed -e "s|__CLUSTER__|$CLUSTER|g" \
@@ -122,7 +122,7 @@ if ! pgrep -f cloud-provider-kind >/dev/null 2>&1; then
     log "Starting cloud-provider-kind (gives Services type=LoadBalancer real IPs)"
     # Needs root to bind :80/:443 for LoadBalancer Services. If sudo wants a
     # password and none is cached, do NOT abort the whole cluster build over an
-    # optional component — everything else here works without it.
+    # optional component; everything else here works without it.
     # MUST be an absolute path: sudo replaces PATH with secure_path, which does
     # not include ~/.local/bin, so a bare name fails with "No such file".
     # --gateway-channel=disabled is REQUIRED: cloud-provider-kind embeds an older
@@ -139,14 +139,14 @@ if ! pgrep -f cloud-provider-kind >/dev/null 2>&1; then
       pgrep -f "$CPK --gateway-channel=disabled" | head -1 > /tmp/cnpe-lab/cpk.pid 2>/dev/null || true
       sleep 5
       if pgrep -f "$CPK" >/dev/null; then ok "cloud-provider-kind running"
-      else warn "cloud-provider-kind died — see /tmp/cnpe-lab/cpk.log"; fi
+      else warn "cloud-provider-kind died; see /tmp/cnpe-lab/cpk.log"; fi
     else
-      warn "sudo needs a password — skipping cloud-provider-kind for now."
+      warn "sudo needs a password; skipping cloud-provider-kind for now."
       warn "LoadBalancer Services stay <pending> until you run, in another shell:"
       warn "  sudo -b nohup $CPK --gateway-channel=disabled > /tmp/cnpe-lab/cpk.log 2>&1"
     fi
   else
-    warn "cloud-provider-kind missing — LoadBalancer Services will stay <pending>"
+    warn "cloud-provider-kind missing; LoadBalancer Services will stay <pending>"
   fi
 fi
 
@@ -165,7 +165,7 @@ log "Installing Vertical Pod Autoscaler"
 repo_add fairwinds-stable https://charts.fairwinds.com/stable
 helmi vpa fairwinds-stable/vpa vpa \
   --set recommender.enabled=true --set updater.enabled=true --set admissionController.enabled=true \
-  || warn "VPA install failed — non-fatal, retry later"
+  || warn "VPA install failed; non-fatal, retry later"
 
 log "Cluster summary"
 kubectl get nodes -o wide
