@@ -45,7 +45,7 @@
     <p>Operator-created resources carry <code>ownerReferences</code> pointing at their parent. This answers "what keeps recreating this thing", drives cascade deletion (foreground, background, or orphan), and lets you reconstruct an operator's whole object tree without documentation. Note the rules: an owner must be in the same namespace (or be cluster-scoped), and a namespaced object cannot own a cluster-scoped one, the constraint that shapes Crossplane's design in 3.5.</p>
 
     <h3>4 · Finalizers</h3>
-    <p>A deletion sticks in <em>Terminating</em> while a finalizer is present, because the controller is doing teardown work, or is dead and cannot. A stuck namespace or CR almost always means "find whose finalizer, and why its controller is not running". Removing the finalizer by hand is the last resort, and it leaks whatever the teardown was supposed to clean up (external volumes, cloud resources, DNS records). Say that trade out loud before you do it.</p>
+    <p>A deletion sticks in <em>Terminating</em> while a finalizer is present, because the controller is doing teardown work, or is dead and cannot. A stuck namespace or CR almost always means "find whose finalizer, and why its controller is not running". Removing the finalizer by hand is the last resort, and it leaks whatever the teardown was supposed to clean up (external volumes, cloud resources, DNS records). Accept that trade knowingly before you do it.</p>
 
     <pre class="diagram"><b>Cluster/pg</b> (your CR)
  ├─ ownerRef ─▶ <i>StatefulSet-ish pods</i>  pg-1, pg-2         each with a <u>PVC</u>
@@ -71,7 +71,7 @@ kubectl -n &lt;operator-ns&gt; logs deploy/&lt;controller&gt; --tail=100</code><
     <ul>
       <li><strong>Operator capability levels</strong> (the OperatorHub model): 1 basic install → 2 seamless upgrades → 3 full lifecycle (backup, failover) → 4 deep insights (metrics, alerts) → 5 auto-pilot (auto-scaling, auto-tuning). A useful yardstick when a scenario asks whether to adopt an operator or run something yourself.</li>
       <li><strong>OLM</strong> (Operator Lifecycle Manager): installs and upgrades operators from catalogs. Not installed here; know the name.</li>
-      <li><strong>Kubebuilder / Operator SDK / controller-runtime</strong>: the scaffolding. <code>kubebuilder</code> is on your PATH from <code>make tools</code>, and scaffolding a controller once (<code>kubebuilder init</code>, <code>kubebuilder create api</code>) is genuinely instructive for understanding what operators are made of. It is also beyond what the CNPE tests. Rainy-day material.</li>
+      <li><strong>Kubebuilder / Operator SDK / controller-runtime</strong>: the scaffolding. <code>kubebuilder</code> is on your PATH from <code>make tools</code>, and scaffolding a controller once (<code>kubebuilder init</code>, <code>kubebuilder create api</code>) is genuinely instructive for understanding what operators are made of. It is also beyond what the CNPE tests.</li>
       <li><strong>Reconcile loop hazards</strong> worth naming: hot loops (a controller that writes status on every pass and re-triggers itself), requeue backoff, leader election (why an operator's Deployment is usually 1 replica or uses a lease), and cache staleness right after a write.</li>
       <li><strong>Operator vs controller vs webhook</strong>: a controller reconciles; an operator is a controller plus domain knowledge shipped with its CRDs; a webhook intercepts writes synchronously. Different failure modes: a dead controller means nothing converges, a dead webhook (with <code>failurePolicy: Fail</code>) means nothing can be written at all.</li>
     </ul>
@@ -97,18 +97,18 @@ spec:
   storage: { size: 1Gi }
 EOF
 kubectl get cluster pg -w</code></pre></div>
-      <p>While it converges, watch like a diagnostician: <code>kubectl get events --field-selector involvedObject.name=pg --sort-by=.lastTimestamp</code>, <code>kubectl get cluster pg -o jsonpath='{.status.conditions}' | jq</code>, and <code>kubectl get pods,pvc,svc -l cnpg.io/cluster=pg</code>.</p>
+      <p>While it converges, run the diagnosis commands: <code>kubectl get events --field-selector involvedObject.name=pg --sort-by=.lastTimestamp</code>, <code>kubectl get cluster pg -o jsonpath='{.status.conditions}' | jq</code>, and <code>kubectl get pods,pvc,svc -l cnpg.io/cluster=pg</code>.</p>
       <div class="verify"><b>verify:</b> Cluster reports Ready, two instance pods, each with its own PVC (section 1.3's semantics, live), and three Services (rw, ro, r). Name what created each object without guessing: ownerReferences.</div>
     </div>
 
     <div class="exercise" data-title="Prove level-based reconciliation">
-      <p><code>kubectl delete pod pg-1</code> and time what happens. Then scale the honest way, <code>kubectl patch cluster pg --type=merge -p '{"spec":{"instances":3}}'</code>, and check <code>observedGeneration</code> catches up to <code>generation</code> before you trust the new status.</p>
-      <div class="verify"><b>verify:</b> a replacement pod appears within seconds and the Cluster's conditions ripple through a degraded state and back to Ready; after the patch, <code>status.observedGeneration == metadata.generation</code>. Two probes, two core behaviours.</div>
+      <p><code>kubectl delete pod pg-1</code> and time what happens. Then scale through the spec, <code>kubectl patch cluster pg --type=merge -p '{"spec":{"instances":3}}'</code>, and check <code>observedGeneration</code> catches up to <code>generation</code> before you trust the new status.</p>
+      <div class="verify"><b>verify:</b> a replacement pod appears within seconds and the Cluster's conditions ripple through a degraded state and back to Ready; after the patch, <code>status.observedGeneration == metadata.generation</code>.</div>
     </div>
 
     <div class="exercise" data-title="Read a stuck operator without the answer key">
-      <p>The lab ships a booby-trapped manifest: <code>examples/crossplane/pg-cluster.yaml</code> targets <code>team-a</code>, where the default-deny NetworkPolicy silently strangles the instance's access to the API server. Apply it, and diagnose from evidence only: conditions say Initialized True but Ready False, phase "Setting up primary" forever, and <code>kubectl -n team-a logs job/pg-1-initdb</code> ends in <code>dial tcp 10.96.0.1:443: i/o timeout</code>. The file's comments explain why the obvious ipBlock fix fails (ClusterIP is DNAT'd before policy evaluation) and give the Cilium <code>toEntities: [kube-apiserver]</code> answer; do not read them until you have formed your own theory.</p>
-      <div class="verify"><b>verify:</b> after applying the CiliumNetworkPolicy from the comments, the cluster converges Ready in team-a. This exercise is the single best half-hour in domain 3.</div>
+      <p>The lab ships a deliberately broken manifest: <code>examples/crossplane/pg-cluster.yaml</code> targets <code>team-a</code>, where the default-deny NetworkPolicy silently blocks the instance's access to the API server. Apply it, and diagnose from evidence only: conditions say Initialized True but Ready False, phase "Setting up primary" forever, and <code>kubectl -n team-a logs job/pg-1-initdb</code> ends in <code>dial tcp 10.96.0.1:443: i/o timeout</code>. The file's comments explain why the obvious ipBlock fix fails (ClusterIP is DNAT'd before policy evaluation) and give the Cilium <code>toEntities: [kube-apiserver]</code> answer; do not read them until you have formed your own theory.</p>
+      <div class="verify"><b>verify:</b> after applying the CiliumNetworkPolicy from the comments, the cluster converges Ready in team-a.</div>
     </div>
 
     <div class="exercise" data-title="Operators as platform integration">

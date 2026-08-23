@@ -51,19 +51,19 @@
       </table>
     </div>
 
-    <p><strong>Versioning, at exam depth:</strong> deprecating a version means <code>served: true</code> with storage moved on; removing it means <code>served: false</code>. That three-state dance is the entire story unless the schemas actually differ, in which case you need conversion: <code>strategy: None</code> (same shape, different name) or a <code>Webhook</code> converter (real transformation). Know that the choice exists and what each costs.</p>
+    <p><strong>Versioning, at exam depth:</strong> deprecating a version means <code>served: true</code> with storage moved on; removing it means <code>served: false</code>. That is the whole mechanism unless the schemas actually differ, in which case you need conversion: <code>strategy: None</code> (same shape, different name) or a <code>Webhook</code> converter (real transformation). Know that the choice exists and what each costs.</p>
 
     <h3>Schema: where design happens</h3>
     <p>The schema is OpenAPI v3: types, <code>required</code>, <code>enum</code>, <code>pattern</code>, <code>minimum</code>/<code>maximum</code>, <code>default</code>, <code>format</code>. Two extensions worth knowing by name:</p>
     <ul>
       <li><code>x-kubernetes-validations</code>: CEL rules with custom messages, evaluated by the API server. This is how you express cross-field constraints (<code>self.max &gt;= self.min</code>) and immutability (<code>self == oldSelf</code>) without a webhook. The message you write is the message your user sees, so write it like a human.</li>
       <li><code>x-kubernetes-preserve-unknown-fields</code>: opts a subtree out of pruning. By default anything not in the schema is <em>silently pruned on write</em>, which looks like data loss and is actually the schema doing its job.</li>
-      <li>Honourable mentions: <code>x-kubernetes-list-type: map</code> with <code>listMapKeys</code> (makes server-side apply merge lists sanely instead of replacing them), and <code>x-kubernetes-int-or-string</code>.</li>
+      <li>Also worth knowing: <code>x-kubernetes-list-type: map</code> with <code>listMapKeys</code> (makes server-side apply merge lists sanely instead of replacing them), and <code>x-kubernetes-int-or-string</code>.</li>
     </ul>
 
     <div class="callout trap">
       <span class="tag">Pruning is not an error</span>
-      <p>Apply a field the schema does not declare and it disappears with no complaint, no event, no warning by default. Users report "my setting is ignored"; the truth is it was never stored. This is why a permissive `preserve-unknown-fields` subtree is tempting and why a platform API mostly should not have one: you would be trading a clear rejection for an invisible mystery.</p>
+      <p>Apply a field the schema does not declare and it disappears with no complaint, no event, no warning by default. Users report "my setting is ignored"; the truth is it was never stored. This is why a permissive `preserve-unknown-fields` subtree is tempting and why a platform API mostly should not have one: you would be trading a clear rejection for a silent failure.</p>
     </div>
 
     <h3>Subresources and presentation</h3>
@@ -141,7 +141,7 @@ metadata: { name: good, namespace: default }
 spec: { tier: silver, sizeGB: 100 }
 EOF
 kubectl get tb    # printer columns show Tier and SizeGB, default filled in elsewhere</code></pre></div>
-      <p>With <code>cicd</code> installed, that last command also prints a warning that <code>tb</code> could match Tekton's triggerbindings. Keep it; it is teaching you that short names are cluster-global and first-come, which is exactly the kind of collision a platform API designer owns.</p>
+      <p>With <code>cicd</code> installed, that last command also prints a warning that <code>tb</code> could match Tekton's triggerbindings. Keep it; it demonstrates that short names are cluster-global and first-come.</p>
       <div class="verify"><b>verify:</b> the rejections, which are the real test of the schema: <code>tier: platinum</code> must fail on the enum, <code>sizeGB: 900</code> on the maximum, and <code>tier: bronze, sizeGB: 100</code> on the CEL rule with <em>your</em> message in the error. Three different validators refusing three different ways; know which produced which text.</div>
     </div>
 

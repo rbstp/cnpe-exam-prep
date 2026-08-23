@@ -54,7 +54,7 @@
     <h3>Walk the chain in the files</h3>
     <ul>
       <li><code>xrd.yaml</code> defines schema and names for <code>AppEnvironment</code>; this is what generated the CRD you inspected in 3.2. The schema here is the same OpenAPI you hand-wrote there, which is the payoff of doing 3.2 first.</li>
-      <li><code>composition.yaml</code> declares <code>compositeTypeRef</code> back to that kind, then a pipeline: <code>function-patch-and-transform</code> renders two provider-kubernetes <code>Object</code>s (one wrapping a Namespace, one a ResourceQuota) with <code>FromCompositeFieldPath</code> patches pulling <code>spec.team</code> and the quota fields from the XR, plus one <code>ToCompositeFieldPath</code> patch flowing the namespace name back into XR status. Then <code>function-auto-ready</code> marks the XR Ready when its composed resources are.</li>
+      <li><code>composition.yaml</code> declares <code>compositeTypeRef</code> back to that kind, then a pipeline. <code>function-patch-and-transform</code> renders two provider-kubernetes <code>Object</code>s, one wrapping a Namespace and one a ResourceQuota. <code>FromCompositeFieldPath</code> patches pull <code>spec.team</code> and the quota fields from the XR, and one <code>ToCompositeFieldPath</code> patch flows the namespace name back into XR status. Then <code>function-auto-ready</code> marks the XR Ready when its composed resources are.</li>
       <li><code>xr.yaml</code> is the ten-line developer experience the other two files buy.</li>
     </ul>
 
@@ -70,7 +70,7 @@
 
     <h3>Providers, functions, and package health</h3>
     <p>Crossplane's own extension points are packages: <strong>Providers</strong> (controllers for external APIs: AWS, GCP, Kubernetes, Helm) and <strong>Functions</strong> (the pipeline steps that render composed resources). A <code>ProviderConfig</code> (or <code>ClusterProviderConfig</code>) tells a provider how to authenticate.</p>
-    <p><strong>Step zero of any Crossplane diagnosis:</strong> <code>kubectl get providers.pkg.crossplane.io,functions.pkg.crossplane.io</code>; every package must be Installed and Healthy before anything downstream can possibly work. A composition referencing a function that never came up produces an XR stuck with a fairly opaque message, and thirty seconds of package checking beats twenty minutes of manifest staring.</p>
+    <p><strong>Step zero of any Crossplane diagnosis:</strong> <code>kubectl get providers.pkg.crossplane.io,functions.pkg.crossplane.io</code>; every package must be Installed and Healthy before anything downstream can possibly work. A composition referencing a function that never came up produces an XR stuck with a fairly opaque message. Thirty seconds of package checking saves twenty minutes of reading manifests.</p>
 
     <div class="callout trap">
       <span class="tag">Two gotchas the lab already paid for</span>
@@ -78,7 +78,7 @@
         <li>A namespaced XR may not compose cluster-scoped resources (ownerReferences forbid it), so the composition uses the <em>namespaced</em> Object variant (<code>kubernetes.m.crossplane.io</code>, not <code>kubernetes.crossplane.io</code>) even though the manifest <em>inside</em> it is a cluster-scoped Namespace. Wrong-variant errors read as <code>cannot apply cluster scoped composed resource</code>.</li>
         <li>That namespaced variant authenticates via <code>ClusterProviderConfig</code>, not <code>ProviderConfig</code>. Same words, different kind, and the failure is an auth error rather than a schema error.</li>
       </ol>
-      <p>Now you have seen both sentences before the exam has.</p>
+      <p>Recognising those two error messages on sight saves time on the exam.</p>
     </div>
   </div>
 </section>
@@ -121,7 +121,7 @@ kubectl get ns team-c &amp;&amp; kubectl -n team-c get resourcequota tenant-quot
 
     <div class="exercise" data-title="Change the API's behaviour, not the API">
       <p>Edit the composition to also set <code>requests.memory</code> default differently or to add a label to the namespace, apply, and watch existing XRs reconcile to the new recipe without anyone touching them.</p>
-      <div class="verify"><b>verify:</b> <code>kubectl get ns team-c --show-labels</code> gains your label within a minute. Compositions are the platform team's side of the contract; this exercise is why that separation matters.</div>
+      <div class="verify"><b>verify:</b> <code>kubectl get ns team-c --show-labels</code> gains your label within a minute. Compositions are the platform team's side of the contract, changeable without touching the API or its instances.</div>
     </div>
 
     <div class="exercise" data-title="Extend the contract end to end">

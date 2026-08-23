@@ -17,4 +17,4 @@ Progress (exercises verified, sections completed) is stored in your browser's lo
 Thirteen sections carry an interactive figure (QoS and eviction, node capacity, quota
 binding, right-sizing cost, the request path, the reconciliation loop, sync × health,
 canary weights, counters and `rate()`, alert timing, the admission pipeline, PSS profiles
-and RBAC scope), each one wired to the concept it explains rather than to a screenshot.
+and RBAC scope), each wired to the concept it explains.

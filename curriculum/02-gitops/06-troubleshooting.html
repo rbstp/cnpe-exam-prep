@@ -14,7 +14,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum">Broken delivery is the most likely shape of a domain 2 exam task. Failures sort into four buckets, and the first diagnostic move is deciding which bucket you are in; everything here is reps for that decision.</p>
+  <p class="sum">Broken delivery is the most likely shape of a domain 2 exam task. Failures sort into four buckets, and the first diagnostic move is deciding which bucket you are in. Everything here is practice for that decision.</p>
 </header>
 
 <div class="stats"></div>
@@ -44,7 +44,7 @@ kubectl -n &lt;ns&gt; get events --sort-by=.lastTimestamp | tail -20</code></pre
     <p>Synced + Degraded. Bad image tag, impossible resource request, missing ConfigMap key, a probe that can never pass. The controller did its job; fix the commit. <strong>Evidence:</strong> app health Degraded (or Progressing on its way there) while sync status is green, and pod events carry the real error: ImagePullBackOff, CreateContainerConfigError, CrashLoopBackOff.</p>
 
     <h3>2 · The cluster refuses what git says</h3>
-    <p>Sync fails outright. An admission policy denies the manifest, the API version does not exist on this cluster, a field is immutable (Service <code>clusterIP</code>, label selectors, PVC shrink), the CRD is not installed yet. <strong>Evidence:</strong> the sync operation's error message, which quotes the API server's rejection verbatim. Immutable-field errors mean delete-and-recreate or <code>Replace=true</code>, and knowing that saves ten minutes.</p>
+    <p>Sync fails outright. An admission policy denies the manifest, the API version does not exist on this cluster, a field is immutable (Service <code>clusterIP</code>, label selectors, PVC shrink), the CRD is not installed yet. <strong>Evidence:</strong> the sync operation's error message, which quotes the API server's rejection verbatim. Immutable-field errors mean delete-and-recreate or <code>Replace=true</code>.</p>
 
     <h3>3 · The controller lacks permission or access</h3>
     <p>Repo unreachable, credentials rotated, an Application targeting a namespace the controller's RBAC cannot touch, an ApplicationSet token missing a scope. <strong>Evidence:</strong> errors mention the <em>controller's own identity</em>, appear in controller logs (<code>kubectl -n argocd logs deploy/argocd-repo-server</code>, <code>flux logs</code>), and say nothing about your workload. No pod is ever involved; that absence is the tell.</p>
@@ -91,14 +91,14 @@ kubectl -n &lt;ns&gt; get events --sort-by=.lastTimestamp | tail -20</code></pre
         ▼
 <u>prove recovery with the signal that showed the failure</u></pre>
 
-    <p>Two habits that pay for themselves. First, <strong>compare rendered manifests with live objects</strong> rather than reading source YAML: <code>argocd app manifests &lt;app&gt;</code> shows exactly what would be applied, which catches overlay mistakes that source review misses. Second, <strong>check the middle layer</strong>: a Deployment that is created but produces no pods has its error on the ReplicaSet, and that indirection catches out almost everyone at least once.</p>
+    <p>Two habits that pay for themselves. First, <strong>compare rendered manifests with live objects</strong> rather than reading source YAML: <code>argocd app manifests &lt;app&gt;</code> shows exactly what would be applied, which catches overlay mistakes that source review misses. Second, <strong>check the middle layer</strong>: a Deployment that is created but produces no pods has its error on the ReplicaSet, and that indirection is easy to miss.</p>
   </div>
 </section>
 
 <section class="panel accent-g" id="exercises">
   <div class="phdr"><h2>Exercises</h2><span class="meta">each one stages a failure; diagnose before fixing</span></div>
   <div class="pbody">
-    <p>Do the diagnosis before the fix, and say the bucket out loud before touching anything.</p>
+    <p>Do the diagnosis before the fix.</p>
 
     <div class="exercise" data-title="Bad config (bucket 1)">
       <p>Push <code>newTag: 9.9.9-nope</code> to the staging overlay in the platform repo. Watch demo-staging stay Synced while health goes Progressing (Degraded arrives only after the Deployment's ten-minute progress deadline; do not wait for it, the pod evidence is immediate). Diagnose down the stack: <code>argocd app get demo-staging</code> → <code>kubectl -n team-a get pods</code> → <code>describe pod</code> shows ImagePullBackOff. Fix in git only.</p>
@@ -106,7 +106,7 @@ kubectl -n &lt;ns&gt; get events --sort-by=.lastTimestamp | tail -20</code></pre
     </div>
 
     <div class="exercise" data-title="Immutable field (bucket 2)">
-      <p>Add a patch to the staging overlay's kustomization setting <code>spec.clusterIP: 10.96.99.99</code> on the demo Service (the Service manifest itself lives in base; overlays change it through patches, which is the kustomize idiom worth a rep on its own). Sync and read the error.</p>
+      <p>Add a patch to the staging overlay's kustomization setting <code>spec.clusterIP: 10.96.99.99</code> on the demo Service (the Service manifest itself lives in base; overlays change it through patches, the standard kustomize idiom). Sync and read the error.</p>
       <div class="verify"><b>verify:</b> you can quote where the error text came from (the API server, relayed by the sync operation) and fix it by removing the patch. Bucket 2, and the error message named it.</div>
     </div>
 

@@ -14,7 +14,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum">Service-to-service security is two ideas wearing one acronym: encryption in transit, and cryptographic <em>identity</em>: each workload proving which service it is rather than which IP it squats on. mTLS delivers both at once, and meshes exist to deliver it without touching application code.</p>
+  <p class="sum">Service-to-service security is two ideas: encryption in transit, and cryptographic <em>identity</em>, each workload proving which service it is rather than which IP it currently has. mTLS delivers both at once, and meshes exist to deliver it without touching application code.</p>
 </header>
 
 <div class="stats"></div>
@@ -27,7 +27,7 @@
     <p class="lede">Run <code>make mesh</code> (second cluster, context <code>kind-mesh</code>) and <code>make spire</code> (main cluster) separately if the laptop complains; they do not interact. The concepts do, though: both answer "who is this workload, cryptographically", and both derive that identity from the ServiceAccount.</p>
     <div class="callout model">
       <span class="tag">Why identity beats network location</span>
-      <p>A NetworkPolicy says "traffic from these pod labels may reach these pods". mTLS-based authorization says "a caller holding a certificate for <em>this ServiceAccount</em> may call this service". The second survives IP churn, works across clusters, and cannot be spoofed by landing a pod in the right namespace, which is the entire zero-trust argument in two sentences. Note what this quietly does: it upgrades every RBAC decision you made in 5.1 into a network-level identity.</p>
+      <p>A NetworkPolicy says "traffic from these pod labels may reach these pods". mTLS-based authorization says "a caller holding a certificate for <em>this ServiceAccount</em> may call this service". The second survives IP churn, works across clusters, and cannot be spoofed by landing a pod in the right namespace. That is the zero-trust argument. It also upgrades every RBAC decision you made in 5.1 into a network-level identity.</p>
     </div>
   </div>
 </section>
@@ -57,8 +57,8 @@
     </div>
 
     <div class="callout exam">
-      <span class="tag">Permissive by default is the exam gold</span>
-      <p>Installing a mesh does <strong>not</strong> mean everything is encrypted: the default <code>PERMISSIVE</code> mode accepts both mTLS and plaintext so you can migrate incrementally. "Install mesh ≠ encrypted everywhere": you must apply STRICT, and you must prove it by having something plaintext get refused. That proof is exercise 2 below.</p>
+      <span class="tag">Permissive by default</span>
+      <p>Installing a mesh does <strong>not</strong> mean everything is encrypted: the default <code>PERMISSIVE</code> mode accepts both mTLS and plaintext so you can migrate incrementally. You must apply STRICT, and you must prove it by having a plaintext connection refused. That proof is exercise 2 below.</p>
     </div>
 
     <p>L4 rules (which identity may connect at all) work with ztunnel alone. L7 rules (methods, paths, headers) require a <strong>waypoint proxy</strong>, ambient's opt-in L7 tier deployed per namespace or per service account. Sidecar mode is the older model: an Envoy per pod, richer per-pod features, higher resource cost. Both are Istio; know which one a cluster runs before you reason about its data path.</p>
@@ -100,7 +100,7 @@
 kubectl expose deploy backend --port=8080
 kubectl run client --image=curlimages/curl:8.11.1 --restart=Never -- sh -c 'sleep 3600'
 kubectl exec client -- curl -s -o /dev/null -w '%{http_code}\n' http://backend:8080</code></pre></div>
-      <p>Verify the encryption claim with evidence, not vibes: <code>istioctl ztunnel-config workload</code> lists both pods with protocol HBONE, and <code>kubectl -n istio-system logs ds/ztunnel | grep -i backend | tail</code> shows connections with source and destination SPIFFE identities.</p>
+      <p>Verify the encryption claim with evidence: <code>istioctl ztunnel-config workload</code> lists both pods with protocol HBONE, and <code>kubectl -n istio-system logs ds/ztunnel | grep -i backend | tail</code> shows connections with source and destination SPIFFE identities.</p>
       <div class="verify"><b>verify:</b> HBONE in the ztunnel config and SPIFFE identities in the logs. The app never changed; the platform upgraded it.</div>
     </div>
 
