@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3.5 Crossplane: compositions as platform APIs · CNPE</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-id="3.5" data-root="../">
+<div class="wrap"><div class="cols">
+<article>
+
+<header class="pagehead">
+  <div class="eyebrow"></div>
+  <h1></h1>
+  <p class="sum">Crossplane is the control-plane way to build the abstraction from section 3.1: you define a new API (XRD), write the recipe that expands it into real resources (Composition), and developers create instances (XR) that reconcile forever like any operator-managed object.</p>
+</header>
+
+<div class="stats"></div>
+
+<div class="needs"><span class="lbl">needs</span><code>make up api</code></div>
+
+<section class="panel" id="orientation">
+  <div class="phdr"><h2>Orientation</h2><span class="meta">competency 3.4 · automation frameworks for self-service</span></div>
+  <div class="pbody">
+    <p class="lede">The lab's three files in <code>examples/crossplane/</code> are one complete platform API: <code>AppEnvironment</code> in, namespace plus quota out. Read them in the order XRD → Composition → XR and the whole model falls out.</p>
+    <div class="callout model">
+      <span class="tag">The one-line model</span>
+      <p><strong>XRD</strong> = the API you promise (schema + names). <strong>Composition</strong> = the recipe that fulfils it (a pipeline of functions producing composed resources). <strong>XR</strong> = an instance a developer creates. Crossplane generates the CRD from the XRD, then reconciles each XR by running the composition and applying the result — forever, so drift on the composed resources is corrected like any other controller's.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-c" id="v2">
+  <div class="phdr"><h2>The v2 model, because versions matter here</h2><span class="meta">what changed, and why online examples mislead</span></div>
+  <div class="pbody">
+    <p>This lab runs Crossplane v2, and the differences from v1 content you may find online are exactly the things that will bite:</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Topic</th><th>v1 (most tutorials)</th><th>v2 (this lab)</th></tr></thead>
+        <tbody>
+          <tr><td>Scope</td><td>XRs are cluster-scoped</td><td>XRs can be <strong>namespaced</strong> (<code>spec.scope: Namespaced</code> in the XRD)</td></tr>
+          <tr><td>Developer-facing object</td><td>a <em>Claim</em> (namespaced) referencing a cluster XR</td><td>claims are gone — developers create the XR directly</td></tr>
+          <tr><td>Composition style</td><td>inline <code>resources[]</code> with patch lists</td><td><code>mode: Pipeline</code> — a list of <em>functions</em></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout reflex">
+      <span class="tag">When docs and the cluster disagree, the cluster wins</span>
+      <p><code>kubectl explain composition.spec</code> settles it in three seconds. Practising that recovery is worth more than memorising either dialect, because every fast-moving tool in this curriculum will eventually hand you a version-skew problem.</p>
+    </div>
+
+    <h3>Walk the chain in the files</h3>
+    <ul>
+      <li><code>xrd.yaml</code> defines schema and names for <code>AppEnvironment</code> — this is what generated the CRD you inspected in 3.2. The schema here is the same OpenAPI you hand-wrote there, which is the payoff of doing 3.2 first.</li>
+      <li><code>composition.yaml</code> declares <code>compositeTypeRef</code> back to that kind, then a pipeline: <code>function-patch-and-transform</code> renders two provider-kubernetes <code>Object</code>s (one wrapping a Namespace, one a ResourceQuota) with <code>FromCompositeFieldPath</code> patches pulling <code>spec.team</code> and the quota fields from the XR, plus one <code>ToCompositeFieldPath</code> patch flowing the namespace name back into XR status. Then <code>function-auto-ready</code> marks the XR Ready when its composed resources are.</li>
+      <li><code>xr.yaml</code> is the ten-line developer experience the other two files buy.</li>
+    </ul>
+
+    <pre class="diagram"><b>XRD</b> AppEnvironment ──generates──▶ CRD appenvironments.platform.lab.local
+                                        ▲
+<b>XR</b> team-c-dev  spec: {team, cpuQuota, memoryQuota} ─┘
+   │  reconciled by Crossplane through…
+   ▼
+<i>Composition</i> (mode: Pipeline)
+   ├─ function-patch-and-transform ─▶ <u>Object</u>/ns    → Namespace team-c
+   │                                   <u>Object</u>/quota → ResourceQuota tenant-quota
+   └─ function-auto-ready ──────────▶ XR Ready when composed resources are Ready</pre>
+
+    <h3>Providers, functions, and package health</h3>
+    <p>Crossplane's own extension points are packages: <strong>Providers</strong> (controllers for external APIs — AWS, GCP, Kubernetes, Helm) and <strong>Functions</strong> (the pipeline steps that render composed resources). A <code>ProviderConfig</code> (or <code>ClusterProviderConfig</code>) tells a provider how to authenticate.</p>
+    <p><strong>Step zero of any Crossplane diagnosis:</strong> <code>kubectl get providers.pkg.crossplane.io,functions.pkg.crossplane.io</code> — every package must be Installed and Healthy before anything downstream can possibly work. A composition referencing a function that never came up produces an XR stuck with a fairly opaque message, and thirty seconds of package checking beats twenty minutes of manifest staring.</p>
+
+    <div class="callout trap">
+      <span class="tag">Two gotchas the lab already paid for</span>
+      <ol>
+        <li>A namespaced XR may not compose cluster-scoped resources (ownerReferences forbid it), so the composition uses the <em>namespaced</em> Object variant (<code>kubernetes.m.crossplane.io</code>, not <code>kubernetes.crossplane.io</code>) even though the manifest <em>inside</em> it is a cluster-scoped Namespace. Wrong-variant errors read as <code>cannot apply cluster scoped composed resource</code>.</li>
+        <li>That namespaced variant authenticates via <code>ClusterProviderConfig</code>, not <code>ProviderConfig</code>. Same words, different kind, and the failure is an auth error rather than a schema error.</li>
+      </ol>
+      <p>Now you have seen both sentences before the exam has.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-y" id="operating">
+  <div class="phdr"><h2>Operating a Crossplane platform API</h2><span class="meta">read paths and failure bubbles</span></div>
+  <div class="pbody">
+    <p>Failure bubbles <em>bottom-up</em>: a composed resource fails, its condition says why, the XR's Ready goes False with a summarised message, and the developer sees only the XR. So the read path for every Crossplane incident is: XR conditions → composed resource conditions → the underlying object's own error.</p>
+
+    <div class="cb" data-lang="bash"><pre><code>crossplane resource trace appenvironment team-c-dev    # the whole tree with statuses, one shot
+kubectl get appenvironment team-c-dev -o jsonpath='{.status.conditions}' | jq
+kubectl -n default get objects.kubernetes.m.crossplane.io -o yaml | grep -A3 message
+kubectl get providers.pkg.crossplane.io,functions.pkg.crossplane.io</code></pre></div>
+
+    <p>Two more operational facts worth carrying:</p>
+    <ul>
+      <li><strong>Composition selection.</strong> An XR picks its composition by <code>compositionRef</code>, by <code>compositionSelector</code> labels, or by the XRD's default. When the wrong recipe runs, that is where to look — not in the composition itself.</li>
+      <li><strong>Changing the recipe changes existing instances.</strong> Edit a composition and every XR using it reconciles to the new shape without anyone touching them. That is the platform team's side of the contract, and it is also the blast radius: a bad composition edit hits every tenant at once. Version compositions (and use <code>compositionRevision</code> policies) when that matters.</li>
+    </ul>
+
+    <div class="callout exam">
+      <span class="tag">Crossplane vs an operator, in one sentence</span>
+      <p>An operator encodes <em>domain behaviour</em> in Go (failover, backups, upgrades); Crossplane encodes <em>composition</em> in YAML (this API expands into those resources). If the task is "keep Postgres alive", you want an operator. If the task is "offer teams a one-field way to ask for a Postgres, a namespace and a quota together", you want Crossplane wrapping that operator.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-g" id="exercises">
+  <div class="phdr"><h2>Exercises</h2><span class="meta">validated against the lab</span></div>
+  <div class="pbody">
+
+    <div class="exercise" data-title="Consume the platform API as a developer">
+      <p><code>kubectl apply -f examples/crossplane/xr.yaml</code> (or confirm <code>team-c-dev</code> exists from install), then trace the expansion:</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get appenvironment team-c-dev -o jsonpath='{.status.conditions}' | jq
+kubectl get appenvironment team-c-dev -o jsonpath='{.status.namespace}{"\n"}'
+kubectl -n default get objects.kubernetes.m.crossplane.io
+kubectl get ns team-c &amp;&amp; kubectl -n team-c get resourcequota tenant-quota -o jsonpath='{.spec.hard}'</code></pre></div>
+      <div class="verify"><b>verify</b> — Ready True, status.namespace says team-c, two composed Objects, and the quota's hard values match the XR's spec (<code>cpuQuota: "4"</code>), not the composition's placeholders. That last check proves the patches ran, which is the difference between "installed" and "works".</div>
+    </div>
+
+    <div class="exercise" data-title="Change the API's behaviour, not the API">
+      <p>Edit the composition to also set <code>requests.memory</code> default differently or to add a label to the namespace, apply, and watch existing XRs reconcile to the new recipe without anyone touching them.</p>
+      <div class="verify"><b>verify</b> — <code>kubectl get ns team-c --show-labels</code> gains your label within a minute. Compositions are the platform team's side of the contract; this exercise is why that separation matters.</div>
+    </div>
+
+    <div class="exercise" data-title="Extend the contract end to end">
+      <p>Add <code>podQuota</code> (integer, default 10) to the XRD schema, patch it into the quota's <code>spec.hard[pods]</code> in the composition, and set it in a new XR <code>team-f-dev</code>. Order matters: XRD first, wait <code>Established</code>, then composition, then XR.</p>
+      <div class="verify"><b>verify</b> — <code>kubectl -n team-f get resourcequota tenant-quota -o jsonpath='{.spec.hard.pods}'</code> prints your number. You have now done a schema change, a recipe change, and a consumer change as three separate actors, which is the whole platform-API workflow.</div>
+    </div>
+
+    <div class="exercise" data-title="Diagnose a broken XR">
+      <p>Create an XR with <code>team: Team-G</code> (capital letter, invalid DNS label for a namespace). The XR will not go Ready. Find the failure without guessing: XR conditions first, then the composed Object's conditions (<code>kubectl -n default get objects.kubernetes.m.crossplane.io -o yaml | grep -A3 message</code>), where the API server's rejection of the namespace name surfaces. <code>crossplane resource trace appenvironment &lt;name&gt;</code> (the CLI is installed) draws the whole tree with statuses in one shot.</p>
+      <div class="verify"><b>verify</b> — you can point at the exact condition message and fix the XR. Failure bubbles bottom-up through composed-resource conditions; that is the read path for every Crossplane incident.</div>
+    </div>
+
+  </div>
+</section>
+
+<section class="panel accent-p" id="selfcheck">
+  <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
+  <div class="pbody">
+    <details class="quiz"><summary>Name the three objects and who owns each.</summary>
+      <div class="answer"><p>XRD (platform team — the promised API and its schema), Composition (platform team — the recipe, changeable without touching the API), XR (developer — an instance). The generated CRD is Crossplane's doing, not yours, which is the whole labour saving.</p></div></details>
+
+    <details class="quiz"><summary>An XR is stuck not-Ready and the message is unhelpful. Diagnostic order?</summary>
+      <div class="answer"><p>Packages first (<code>providers</code>, <code>functions</code> Installed + Healthy), then <code>crossplane resource trace</code>, then the composed resources' own conditions, then the underlying API error inside them. Bottom-up, because that is the direction failure propagates.</p></div></details>
+
+    <details class="quiz"><summary>Why can a namespaced XR not compose a cluster-scoped resource directly?</summary>
+      <div class="answer"><p>Ownership rules: a namespaced object cannot own a cluster-scoped one, and Crossplane relies on ownerReferences for lifecycle. The workaround the lab uses is a namespaced <code>Object</code> (provider-kubernetes) that <em>contains</em> the cluster-scoped manifest, authenticated with a <code>ClusterProviderConfig</code>.</p></div></details>
+
+    <details class="quiz"><summary>You edit a Composition. What happens to the twelve XRs already using it?</summary>
+      <div class="answer"><p>They all reconcile to the new recipe, without anyone touching them — powerful and blast-radius-shaped. If that matters, pin instances to a composition revision or version the composition and migrate deliberately.</p></div></details>
+
+    <details class="quiz"><summary>When would you choose kro or a plain operator over Crossplane?</summary>
+      <div class="answer"><p>kro when you want the same declarative expansion with far less machinery and can accept a young API (3.6). A plain operator when the value is domain behaviour over time — failover, backup, upgrade orchestration — rather than composing existing resources. Crossplane's sweet spot is composing many things, including external cloud APIs, behind one abstraction.</p></div></details>
+  </div>
+</section>
+
+<section class="panel" id="docs">
+  <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
+  <div class="pbody">
+    <ul class="docs">
+      <li><b>docs.crossplane.io</b> — Composite Resource Definitions, Compositions (the function pipeline page), and provider-kubernetes's <code>Object</code> documentation on the Upbound marketplace.</li>
+      <li><b>Offline:</b> <code>crossplane resource trace --help</code> — the single most useful diagnostic in the ecosystem — plus <code>kubectl explain composition.spec</code> and <code>kubectl explain xrd.spec</code>.</li>
+    </ul>
+  </div>
+</section>
+
+</article>
+<aside class="toc" id="toc"></aside>
+</div></div>
+<script src="../assets/nav.js"></script>
+<script src="../assets/app.js"></script>
+</body>
+</html>

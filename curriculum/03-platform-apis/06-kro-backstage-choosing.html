@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3.6 kro, the golden path, and choosing the right engine · CNPE</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-id="3.6" data-root="../">
+<div class="wrap"><div class="cols">
+<article>
+
+<header class="pagehead">
+  <div class="eyebrow"></div>
+  <h1></h1>
+  <p class="sum">Domain 3 hands you four ways to turn a request into resources: CRD+operator, Crossplane, workflows, and portal templates. This section adds the newest option, walks the lab's end-to-end golden path, and then forces the comparison — because "evaluate when to use operators, workflows, or pipelines" is a named outcome and a cheap scenario question.</p>
+</header>
+
+<div class="stats"></div>
+
+<div class="needs"><span class="lbl">needs</span><code>make core api</code><code>make portal</code></div>
+
+<section class="panel" id="orientation">
+  <div class="phdr"><h2>Orientation</h2><span class="meta">competency 3.4 + the judgement call</span></div>
+  <div class="pbody">
+    <p class="lede">Everything in domain 3 has been one engine at a time. This section is about the seam between them, which is where platform engineering actually happens: a Backstage form that commits to git, that an ApplicationSet notices, that deploys an XR, that a controller reconciles. Being able to <em>narrate</em> that chain is worth more than any single command in it.</p>
+  </div>
+</section>
+
+<section class="panel accent-c" id="kro">
+  <div class="phdr"><h2>kro in one sitting</h2><span class="meta">Crossplane's niche with less machinery</span></div>
+  <div class="pbody">
+    <p>kro (Kube Resource Orchestrator) occupies Crossplane's niche with far less apparatus: one <code>ResourceGraphDefinition</code> declares a schema <em>and</em> the resources it expands to; kro generates the CRD and runs the reconciliation. No providers, no functions, no packages. CEL expressions wire fields together, and references between resources (<code>${ns.metadata.name}</code>) build the dependency graph automatically — kro works out the ordering from the references you wrote.</p>
+
+    <div class="cb" data-lang="yaml"><pre><code>apiVersion: kro.run/v1alpha1
+kind: ResourceGraphDefinition
+metadata: { name: tenantspace }
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: TenantSpace
+    spec:
+      team: string
+      cpu: string | default="1"
+  resources:
+    - id: ns
+      template:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: ${schema.spec.team}
+          labels:
+            tenant: ${schema.spec.team}
+    - id: quota
+      template:
+        apiVersion: v1
+        kind: ResourceQuota
+        metadata:
+          name: tenant-quota
+          namespace: ${ns.metadata.name}
+        spec:
+          hard:
+            requests.cpu: ${schema.spec.cpu}</code></pre></div>
+
+    <div class="callout trap">
+      <span class="tag">One YAML lesson bought with real pain</span>
+      <p>Keep kro's <code>${...}</code> substitutions in <strong>block style</strong>. Inside flow-style braces (<code>labels: { tenant: ${schema.spec.team} }</code>) the expression's own <code>}</code> closes the map early and the whole manifest fails to parse with a message that points nowhere useful.</p>
+    </div>
+
+    <p>kro is young and its API moves. If this manifest disagrees with your installed version, <code>kubectl explain resourcegraphdefinition.spec</code> is the arbiter — and practising that recovery is worth more than the manifest.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th></th><th>Crossplane</th><th>kro</th></tr></thead>
+        <tbody>
+          <tr><td>Files to write</td><td>XRD + Composition (+ providers, functions)</td><td>one ResourceGraphDefinition</td></tr>
+          <tr><td>Wiring</td><td>patches / function pipeline</td><td>CEL references, ordering inferred</td></tr>
+          <tr><td>External clouds</td><td>rich provider ecosystem</td><td>whatever CRDs already exist in-cluster</td></tr>
+          <tr><td>Connection secrets</td><td>first-class</td><td>not really</td></tr>
+          <tr><td>Maturity</td><td>production, widely deployed</td><td>young, API in motion</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Both sentences are true — "same result, one file, no providers" and "no provider ecosystem, no connection secrets, alpha-grade stability" — and an exam answer may need either.</p>
+  </div>
+</section>
+
+<section class="panel accent-p" id="goldenpath">
+  <div class="phdr"><h2>The golden path, hop by hop</h2><span class="meta">Backstage → Gitea → ApplicationSet → workload</span></div>
+  <div class="pbody">
+    <p>Backstage is the portal half of the white paper's "web portals" capability: a <strong>software catalog</strong> (components, systems, APIs, owners, described by <code>catalog-info.yaml</code> in each repo), <strong>software templates</strong> (the scaffolder: parameters form + actions like fetch-skeleton, publish-to-git, register-in-catalog), <strong>TechDocs</strong>, and plugins that surface Kubernetes, CI and other systems in one place.</p>
+
+    <pre class="diagram"><b>Backstage template</b>  (parameters form)
+      │ scaffolder actions: fetch skeleton → publish → register
+      ▼
+<b>new repo in Gitea</b> org <i>services</i>   (contains k8s/ manifests + catalog-info.yaml)
+      │ noticed by the SCM-provider generator
+      ▼
+<b>ApplicationSet</b> golden-path  ──generates──▶ <b>Argo CD Application</b>
+      │
+      ▼
+<u>running workload</u>  ── and the component appears in the catalog with its owner</pre>
+
+    <p>Each hop is a thing that can break and a thing you may be asked about: template action failures (credentials to the git host), the generator's filter (which repos match), the generated Application's destination, and the workload itself. Narrating this chain <em>is</em> the "golden path" competency; the commands below just prove each hop.</p>
+
+    <div class="callout exam">
+      <span class="tag">Why a portal is not a platform</span>
+      <p>A common scenario trap: the portal is an <em>interface</em> over capabilities, not a capability itself. If the underlying provisioning is a ticket queue, adding Backstage produces a nicer ticket queue. Say that when a question describes a portal rollout with no automation behind it.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-y" id="choosing">
+  <div class="phdr"><h2>Choosing the engine</h2><span class="meta">the differentiators to reason from</span></div>
+  <div class="pbody">
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Engine</th><th>Trigger</th><th>Lifetime</th><th>Best at</th></tr></thead>
+        <tbody>
+          <tr><td>CRD + operator</td><td>an API object</td><td>forever</td><td>domain behaviour: failover, backup, upgrade</td></tr>
+          <tr><td>Crossplane</td><td>an API object</td><td>forever</td><td>composing many resources, incl. cloud APIs, behind one abstraction</td></tr>
+          <tr><td>kro</td><td>an API object</td><td>forever</td><td>the same, in-cluster only, with one file</td></tr>
+          <tr><td>Argo Workflows</td><td>submit, schedule, or event</td><td>run to completion</td><td>imperative sequences, batch, scheduled maintenance</td></tr>
+          <tr><td>Tekton</td><td>git event</td><td>run to completion</td><td>build, test, publish artifacts</td></tr>
+          <tr><td>Backstage template</td><td>a human filling a form</td><td>one-shot scaffolding</td><td>the front door: create repo + register + hand off to GitOps</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>Three questions decide almost every case:</p>
+    <ol>
+      <li><strong>Does the state need reconciling forever, or producing once?</strong> Forever → controller-shaped (operator, Crossplane, kro). Once → workflow or pipeline.</li>
+      <li><strong>What is the trigger?</strong> An API object, a schedule, a git event, or a human.</li>
+      <li><strong>Who is the audience?</strong> A developer writing YAML, a developer clicking a form, or another system.</li>
+    </ol>
+    <p>And when two engines both work, say so and pick the thinnest one. That answer style scores, because it is the TVP instinct from section 3.1 applied to your own tooling.</p>
+  </div>
+</section>
+
+<section class="panel accent-g" id="exercises">
+  <div class="phdr"><h2>Exercises</h2><span class="meta">validated against the lab</span></div>
+  <div class="pbody">
+
+    <div class="exercise" data-title="Stand up the kro API">
+      <p>Apply the RGD above, then:</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get rgd tenantspace -o jsonpath='{.status.state}{"\n"}'   # wants: Active
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: kro.run/v1alpha1
+kind: TenantSpace
+metadata: { name: team-h, namespace: default }
+spec: { team: team-h, cpu: "2" }
+EOF
+kubectl get ns team-h &amp;&amp; kubectl -n team-h get resourcequota tenant-quota</code></pre></div>
+      <div class="verify"><b>verify</b> — the RGD is Active (meaning kro generated and established the TenantSpace CRD), and the namespace and quota exist with your values. Then compare effort honestly against 3.5: same result, one file, no providers; also no provider ecosystem, no connection secrets, alpha-grade stability.</div>
+    </div>
+
+    <div class="exercise" data-title="Walk the golden path">
+      <p>With <code>make portal</code> done and Backstage running (<code>cd portal &amp;&amp; yarn start</code>), create a component from the "Golden path service" template. Then trace every hop with commands, because each hop is a thing that can break: new repo in the Gitea <code>services</code> org (<code>http://gitea.lab:3000/services</code>), the SCM-generator ApplicationSet notices it (<code>kubectl -n argocd get applicationset golden-path -o yaml</code>, read the generator block), a generated Application appears (<code>kubectl -n argocd get applications</code>), workload deploys.</p>
+      <div class="verify"><b>verify</b> — <code>make validate</code> flips the portal checks to green, including "Applications auto-generated from git". Being able to narrate the pipeline from template to running pod is a better exam asset than any single command in it.</div>
+    </div>
+
+    <div class="exercise" data-title="The choosing drill">
+      <p>For each request, pick the engine and one sentence of why: <strong>(a)</strong> every team needs a Postgres with backups that self-heals for years; <strong>(b)</strong> on request, stamp a namespace with quotas and labels from three parameters; <strong>(c)</strong> nightly, rebuild and rescan all base images, notify on failure; <strong>(d)</strong> on every push, build, test, and deploy a service; <strong>(e)</strong> offer non-technical users a form that creates a new service from a skeleton.</p>
+      <div class="verify"><b>verify</b> — defensible answers: (a) operator, long-lived lifecycle with domain logic; (b) Crossplane or kro, declarative expansion, no imperative steps; (c) CronWorkflow, scheduled run-to-completion; (d) Tekton, event-driven CI; (e) Backstage template feeding GitOps. If two engines both work, say so and pick the thinnest one.</div>
+    </div>
+
+  </div>
+</section>
+
+<section class="panel accent-p" id="selfcheck">
+  <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
+  <div class="pbody">
+    <details class="quiz"><summary>How does kro know to create the namespace before the quota?</summary>
+      <div class="answer"><p>From the reference: the quota template uses <code>${ns.metadata.name}</code>, so kro builds a dependency graph from the CEL references and orders accordingly. You never write <code>dependsOn</code> — which is elegant, and also means a refactor that removes a reference can silently reorder your graph.</p></div></details>
+
+    <details class="quiz"><summary>A team asks for "a portal so developers can self-serve". What do you ask before agreeing?</summary>
+      <div class="answer"><p>What happens after the form is submitted. If fulfillment is still manual, the portal is a prettier ticket queue; the automation (templates → git → GitOps → controllers) is the actual work, and the portal is the last 10%. That is the white paper's interface-versus-capability distinction.</p></div></details>
+
+    <details class="quiz"><summary>Nightly image rebuild-and-rescan: which engine, and why not the others?</summary>
+      <div class="answer"><p>A CronWorkflow: scheduled, run-to-completion, DAG with retries and notifications. Not an operator (nothing to reconcile forever), not Tekton (no git event trigger, though it could run the pipeline), not Crossplane (no resource graph to maintain).</p></div></details>
+
+    <details class="quiz"><summary>Give the three questions that decide the engine.</summary>
+      <div class="answer"><p>Does state need reconciling forever or producing once? What is the trigger — API object, schedule, git event, human? Who is the audience — YAML author, form filler, or another system? Answer those three and the table picks itself.</p></div></details>
+
+    <details class="quiz"><summary>What does the SCM-provider generator actually watch, and how would you debug a repo that never appears?</summary>
+      <div class="answer"><p>It queries the git host's API for repos in an org matching filters (name pattern, topic, path existence), then templates one Application per match. Debug by reading the generator block (org, filters, credentials Secret), then checking the ApplicationSet's status/conditions and controller logs for API errors — usually a token scope or a filter that does not match.</p></div></details>
+  </div>
+</section>
+
+<section class="panel" id="docs">
+  <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
+  <div class="pbody">
+    <ul class="docs">
+      <li><b>kro.run</b> — the ResourceGraphDefinition documentation and examples.</li>
+      <li><b>backstage.io</b> — Software Templates (actions and parameters) and the catalog model, plus the lab's own template at <code>backstage/template/template.yaml</code>, which is small enough to read whole.</li>
+      <li><b>Offline:</b> <code>kubectl explain resourcegraphdefinition.spec</code>, <code>kubectl -n argocd get applicationset &lt;name&gt; -o yaml</code>.</li>
+    </ul>
+  </div>
+</section>
+
+</article>
+<aside class="toc" id="toc"></aside>
+</div></div>
+<script src="../assets/nav.js"></script>
+<script src="../assets/app.js"></script>
+</body>
+</html>

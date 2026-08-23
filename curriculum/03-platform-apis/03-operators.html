@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3.3 Operators: reconciliation and how to read it · CNPE</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-id="3.3" data-root="../">
+<div class="wrap"><div class="cols">
+<article>
+
+<header class="pagehead">
+  <div class="eyebrow"></div>
+  <h1></h1>
+  <p class="sum">The exam will not ask you to write a controller in Go. It will ask you to operate, integrate and above all <em>diagnose</em> operators — which means reading their outputs fluently: status conditions, events, owned resources, and logs, in that order.</p>
+</header>
+
+<div class="stats"></div>
+
+<div class="needs"><span class="lbl">needs</span><code>make up api</code></div>
+
+<section class="panel" id="orientation">
+  <div class="phdr"><h2>Orientation</h2><span class="meta">competency 3.3 · operators for automation and integration</span></div>
+  <div class="pbody">
+    <p class="lede">Every layer of this lab is operators consuming CRDs: Crossplane, Kyverno, Prometheus Operator, Trivy Operator, CloudNativePG, Argo's controllers, Flux's controllers. An unfamiliar operator on the exam is the same four questions every time: what kind does it watch, what does it create, what does its status say, and where do its logs live?</p>
+    <div class="callout model">
+      <span class="tag">Level-based, not edge-based</span>
+      <p>A controller watches a kind and, for each object, runs the same function: observe actual state, compare with desired spec, take one step toward convergence, write status, requeue. It acts on the <em>state it finds</em>, not on the event that woke it — so missed events cost nothing, duplicate events are harmless, and the loop is safe to run at any time. That is why deleting an operator-owned pod is a non-event: the next reconcile recreates it without knowing or caring that you deleted it.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-c" id="reading">
+  <div class="phdr"><h2>The conventions that make operators readable</h2><span class="meta">status · generation · owners · finalizers</span></div>
+  <div class="pbody">
+    <h3>1 · Status conditions</h3>
+    <p>Typed, with <code>type</code>, <code>status</code> (True/False/Unknown), <code>reason</code> (machine-speak, CamelCase), <code>message</code> (for you), <code>lastTransitionTime</code> and <code>observedGeneration</code>. <em>Ready</em> is the summary; the others tell you which phase is stuck. A well-behaved operator also emits Events, which carry the same story with timestamps and counts.</p>
+
+    <h3>2 · <code>observedGeneration</code> versus <code>metadata.generation</code></h3>
+    <p>If they differ, the controller has not yet processed your latest edit, and whatever status says describes a <em>previous</em> spec. Checking this first avoids diagnosing stale information, and almost nobody does it. <code>metadata.generation</code> increments on spec changes only — status writes do not bump it, which is precisely what makes the comparison meaningful.</p>
+
+    <h3>3 · Owner references</h3>
+    <p>Operator-created resources carry <code>ownerReferences</code> pointing at their parent. This answers "what keeps recreating this thing", drives cascade deletion (foreground, background, or orphan), and lets you reconstruct an operator's whole object tree without documentation. Note the rules: an owner must be in the same namespace (or be cluster-scoped), and a namespaced object cannot own a cluster-scoped one — the constraint that shapes Crossplane's design in 3.5.</p>
+
+    <h3>4 · Finalizers</h3>
+    <p>A deletion sticks in <em>Terminating</em> while a finalizer is present, because the controller is doing teardown work — or is dead and cannot. A stuck namespace or CR almost always means "find whose finalizer, and why its controller is not running". Removing the finalizer by hand is the last resort, and it leaks whatever the teardown was supposed to clean up (external volumes, cloud resources, DNS records). Say that trade out loud before you do it.</p>
+
+    <pre class="diagram"><b>Cluster/pg</b> (your CR)
+ ├─ ownerRef ─▶ <i>StatefulSet-ish pods</i>  pg-1, pg-2         each with a <u>PVC</u>
+ ├─ ownerRef ─▶ <i>Services</i>  pg-rw, pg-ro, pg-r
+ ├─ ownerRef ─▶ <i>Secrets</i>  pg-app, pg-superuser        ← connection details
+ └─ status.conditions[]  Ready / Initialized / ContinuousArchiving …
+                         observedGeneration must equal metadata.generation</pre>
+
+    <div class="callout reflex">
+      <span class="tag">The four-command diagnosis</span>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get &lt;kind&gt; &lt;name&gt; -o jsonpath='{.status.conditions}' | jq
+kubectl get events --field-selector involvedObject.name=&lt;name&gt; --sort-by=.lastTimestamp
+kubectl get all,pvc,secret -l &lt;the operator's label&gt; -n &lt;ns&gt;
+kubectl -n &lt;operator-ns&gt; logs deploy/&lt;controller&gt; --tail=100</code></pre></div>
+      <p>In that order. Conditions tell you the phase, events tell you the attempts, owned objects tell you what exists, logs tell you why the controller gave up. Jumping to logs first is the most common time sink in this domain.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-p" id="ecosystem">
+  <div class="phdr"><h2>Vocabulary around operators</h2><span class="meta">worth knowing as words</span></div>
+  <div class="pbody">
+    <ul>
+      <li><strong>Operator capability levels</strong> (the OperatorHub model): 1 basic install → 2 seamless upgrades → 3 full lifecycle (backup, failover) → 4 deep insights (metrics, alerts) → 5 auto-pilot (auto-scaling, auto-tuning). A useful yardstick when a scenario asks whether to adopt an operator or run something yourself.</li>
+      <li><strong>OLM</strong> (Operator Lifecycle Manager) — installs and upgrades operators from catalogs. Not installed here; know the name.</li>
+      <li><strong>Kubebuilder / Operator SDK / controller-runtime</strong> — the scaffolding. <code>kubebuilder</code> is on your PATH from <code>make tools</code>, and scaffolding a controller once (<code>kubebuilder init</code>, <code>kubebuilder create api</code>) is genuinely instructive for understanding what operators are made of. It is also beyond what the CNPE tests. Rainy-day material.</li>
+      <li><strong>Reconcile loop hazards</strong> worth naming: hot loops (a controller that writes status on every pass and re-triggers itself), requeue backoff, leader election (why an operator's Deployment is usually 1 replica or uses a lease), and cache staleness right after a write.</li>
+      <li><strong>Operator vs controller vs webhook</strong>: a controller reconciles; an operator is a controller plus domain knowledge shipped with its CRDs; a webhook intercepts writes synchronously. Different failure modes — a dead controller means nothing converges, a dead webhook (with <code>failurePolicy: Fail</code>) means nothing can be written at all.</li>
+    </ul>
+    <div class="callout exam">
+      <span class="tag">Integration is a competency word</span>
+      <p>"Operators for platform automation and <em>integration</em>" means wiring an operator into the rest of the platform: its CRs live in git (GitOps), its metrics are scraped (ServiceMonitor), its secrets flow to consumers (connection Secrets), its resources are policed (policy engines see CRs like anything else), and its API is exposed to developers through a thinner abstraction (Crossplane, kro, or a Backstage template). Being able to list those five integrations is a complete answer.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-g" id="exercises">
+  <div class="phdr"><h2>Exercises</h2><span class="meta">validated against the lab</span></div>
+  <div class="pbody">
+
+    <div class="exercise" data-title="Run a real database through its operator">
+      <p>In <code>default</code> (deliberately; the tenant-namespace variant comes last):</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata: { name: pg, namespace: default }
+spec:
+  instances: 2
+  storage: { size: 1Gi }
+EOF
+kubectl get cluster pg -w</code></pre></div>
+      <p>While it converges, watch like a diagnostician: <code>kubectl get events --field-selector involvedObject.name=pg --sort-by=.lastTimestamp</code>, <code>kubectl get cluster pg -o jsonpath='{.status.conditions}' | jq</code>, and <code>kubectl get pods,pvc,svc -l cnpg.io/cluster=pg</code>.</p>
+      <div class="verify"><b>verify</b> — Cluster reports Ready, two instance pods, each with its own PVC (section 1.3's semantics, live), and three Services (rw, ro, r). Name what created each object without guessing: ownerReferences.</div>
+    </div>
+
+    <div class="exercise" data-title="Prove level-based reconciliation">
+      <p><code>kubectl delete pod pg-1</code> and time what happens. Then scale the honest way, <code>kubectl patch cluster pg --type=merge -p '{"spec":{"instances":3}}'</code>, and check <code>observedGeneration</code> catches up to <code>generation</code> before you trust the new status.</p>
+      <div class="verify"><b>verify</b> — a replacement pod appears within seconds and the Cluster's conditions ripple through a degraded state and back to Ready; after the patch, <code>status.observedGeneration == metadata.generation</code>. Two probes, two core behaviours.</div>
+    </div>
+
+    <div class="exercise" data-title="Read a stuck operator without the answer key">
+      <p>The lab ships a booby-trapped manifest: <code>examples/crossplane/pg-cluster.yaml</code> targets <code>team-a</code>, where the default-deny NetworkPolicy silently strangles the instance's access to the API server. Apply it, and diagnose from evidence only: conditions say Initialized True but Ready False, phase "Setting up primary" forever, and <code>kubectl -n team-a logs job/pg-1-initdb</code> ends in <code>dial tcp 10.96.0.1:443: i/o timeout</code>. The file's comments explain why the obvious ipBlock fix fails (ClusterIP is DNAT'd before policy evaluation) and give the Cilium <code>toEntities: [kube-apiserver]</code> answer; do not read them until you have formed your own theory.</p>
+      <div class="verify"><b>verify</b> — after applying the CiliumNetworkPolicy from the comments, the cluster converges Ready in team-a. This exercise is the single best half-hour in domain 3.</div>
+    </div>
+
+    <div class="exercise" data-title="Operators as platform integration">
+      <p>Pick two operators you have installed and, for each, name the watched kind, find one owned resource via ownerReferences, and locate the controller deployment.</p>
+      <div class="verify"><b>verify</b> — <code>kubectl api-resources --api-group=&lt;group&gt;</code> and a one-line answer each. The point is transferable fluency: an unfamiliar operator on the exam is the same four questions.</div>
+    </div>
+
+  </div>
+</section>
+
+<section class="panel accent-p" id="selfcheck">
+  <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
+  <div class="pbody">
+    <details class="quiz"><summary>You patch a CR and its status still reports the old problem. What do you check before believing it?</summary>
+      <div class="answer"><p><code>status.observedGeneration</code> against <code>metadata.generation</code>. If they differ, the controller has not processed your edit yet and the status describes the previous spec. If they match and the status is still wrong, now it is a real finding.</p></div></details>
+
+    <details class="quiz"><summary>A namespace has been Terminating for twenty minutes. Method?</summary>
+      <div class="answer"><p>Find what is left (<code>kubectl api-resources --verbs=list --namespaced -o name | xargs -n1 kubectl get -n &lt;ns&gt;</code>), find the finalizer on it, and find whether the owning controller is running. The fix is usually reviving the controller; stripping the finalizer is a last resort that leaks whatever it was cleaning up.</p></div></details>
+
+    <details class="quiz"><summary>Why is deleting an operator-managed pod not a way to "reset" anything?</summary>
+      <div class="answer"><p>Because reconciliation is level-based: the controller observes that a pod is missing and creates one, with no memory of the event. If you need a different outcome, change the spec (or the underlying cause) — the loop will faithfully restore whatever the spec says forever.</p></div></details>
+
+    <details class="quiz"><summary>An operator's CRs apply fine and nothing happens at all. Two checks?</summary>
+      <div class="answer"><p>Is the controller running (and did it win leader election)? And does its RBAC cover your namespace and your kind — a Forbidden in the controller's logs is the classic silent failure. Only after both: is the CR shaped in a way the controller ignores (a selector, a class field, a paused annotation)?</p></div></details>
+
+    <details class="quiz"><summary>Name the five ways an operator integrates with the rest of a platform.</summary>
+      <div class="answer"><p>Its CRs are delivered by GitOps; its metrics are scraped and alerted on; its connection Secrets are consumed by apps (or synced by ESO); its CRs are subject to policy at admission; and its API is fronted by a thinner developer-facing abstraction (Crossplane/kro/portal template). That list is the "integration" half of the competency.</p></div></details>
+  </div>
+</section>
+
+<section class="panel" id="docs">
+  <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
+  <div class="pbody">
+    <ul class="docs">
+      <li><b>kubernetes.io</b> — Operator pattern; Controllers; Owners and Dependents (cascade deletion); Finalizers.</li>
+      <li><b>github.com/kubernetes/community</b> — the API conventions doc's conditions section, for what Reason/Message actually promise.</li>
+      <li><b>cloudnative-pg.io</b> — the Cluster API reference, mostly to practise navigating a big operator's docs quickly.</li>
+      <li><b>Offline:</b> <code>kubectl explain cluster.status.conditions</code>, <code>kubectl get &lt;res&gt; -o jsonpath='{.metadata.ownerReferences}'</code>, <code>kubectl api-resources --api-group=&lt;g&gt;</code>.</li>
+    </ul>
+  </div>
+</section>
+
+</article>
+<aside class="toc" id="toc"></aside>
+</div></div>
+<script src="../assets/nav.js"></script>
+<script src="../assets/app.js"></script>
+</body>
+</html>
