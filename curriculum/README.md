@@ -8,7 +8,11 @@ GitHub will not render it in place; clone the repo (or use raw + a local browser
 - `mock-exam.html` — 15 timed tasks with grading commands and a 120-minute clock
 - `0*-…/*.html` — the 29 sections, each theory + exercises + self-check
 - `assets/` — one stylesheet, the section manifest (`nav.js`), the page runtime (`app.js`) and the interactive figures (`widgets.js`)
-- `tools/bundle.py` — bundles the whole console into one hash-routed HTML file (`python3 tools/bundle.py`), handy for sharing or reading it somewhere that takes a single document
+- `tools/bundle.py` — bundles the whole console into one hash-routed HTML file (`python3 tools/bundle.py`, or `--fragment` for a host that supplies its own `<head>`), handy for sharing or reading it somewhere that takes a single document
 
 Press `/` in any page to jump to a section by name, tool or concept, and `?` for the shortcuts.
 Progress (exercises verified, sections completed) is stored in your browser's local storage.
+Thirteen sections carry an interactive figure — QoS and eviction, node capacity, quota
+binding, right-sizing cost, the request path, the reconciliation loop, sync × health,
+canary weights, counters and `rate()`, alert timing, the admission pipeline, PSS profiles
+and RBAC scope — each one wired to the concept it explains rather than to a screenshot.
