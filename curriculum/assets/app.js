@@ -254,6 +254,7 @@
       });
     });
     save();
+    refreshExTile();   // the tile is built before the exercises are registered
   }
 
   /* ── table of contents + scroll spy ──────────────────────── */
