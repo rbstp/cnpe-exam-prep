@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>5.6 Pipeline security: scan, sign, verify · CNPE</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-id="5.6" data-root="../">
+<div class="wrap"><div class="cols">
+<article>
+
+<header class="pagehead">
+  <div class="eyebrow"></div>
+  <h1></h1>
+  <p class="sum">Supply-chain security in one breath: scan what you build, sign what you ship, and refuse at admission anything unsigned or unscanned. The lab has all three stations, and the pipeline from 2.4 already contains the scan gate.</p>
+</header>
+
+<div class="stats"></div>
+
+<div class="needs"><span class="lbl">needs</span><code>make core cicd sec</code></div>
+
+<section class="panel" id="orientation">
+  <div class="phdr"><h2>Orientation</h2><span class="meta">competency 5.5 · security scanning in deployment pipelines</span></div>
+  <div class="pbody">
+    <p class="lede">Five controls sit between a git push and a running pod in this lab, and each catches a failure class the others cannot. Being able to name all five, and what only each one catches, is the whole competency.</p>
+    <pre class="diagram"><b>git push</b>
+   │
+   ├─ 2.4 <i>pipeline scan gate</i>      catches known-bad <u>before publish</u>
+   ├─ 5.6 <i>signature</i>               catches tampering and untrusted builders
+   ├─ 5.6 <i>admission verification</i>  catches images that <em>bypassed the pipeline entirely</em>
+   ├─ 5.3 <i>Pod Security Standards</i>  catches dangerous runtime shape, regardless of provenance
+   └─ 5.4 <i>continuous rescanning</i>   catches CVEs published <u>after</u> you shipped
+   ▼
+<b>running pod</b></pre>
+  </div>
+</section>
+
+<section class="panel accent-c" id="chain">
+  <div class="phdr"><h2>The chain, station by station</h2><span class="meta">scan · sign · verify</span></div>
+  <div class="pbody">
+    <h3>Scanning belongs at two points, and the difference is the insight</h3>
+    <p><strong>In the pipeline</strong> (a Trivy task, <code>--exit-code 1 --severity HIGH,CRITICAL</code>) it is a <em>gate</em>: it stops a bad image before it exists in the registry. <strong>In the cluster</strong> (Trivy Operator, section 5.4) it is <em>surveillance</em>: it catches CVEs published after you shipped. Teams that only scan in CI are blind to every CVE younger than their last deploy. Say that sentence in an exam answer and mean it.</p>
+    <p>Practical gate design, because a gate that always fails gets disabled: scan for <code>HIGH,CRITICAL</code>, consider <code>--ignore-unfixed</code> (you cannot patch what has no fix), keep an auditable ignore file with expiry dates rather than a permanently loosened threshold, and fail the build rather than warning — a warning in CI is a warning nobody reads.</p>
+
+    <h3>Signing</h3>
+    <p>cosign signs an image <strong>digest</strong> with a key and pushes the signature to the registry alongside the image (classically as a <code>sha256-&lt;digest&gt;.sig</code> tag; newer versions use an OCI bundle format). The thing being signed is the digest, which is why <em>tags are mutable but signed supply chains are not</em> — verifying <code>:latest</code> means resolving it to a digest first, and whoever can move the tag cannot forge the signature.</p>
+    <p><strong>Keyless</strong> mode is where the ecosystem is going: an OIDC identity (a CI workload's token) gets a short-lived certificate from <strong>Fulcio</strong>, the signature and certificate are recorded in <strong>Rekor</strong>, a public transparency log, and verification checks the identity and the log entry instead of a key you must store and rotate. Know those three nouns. Key-pair mode is what you can practise offline and what teaches the mechanics.</p>
+
+    <h3>Verification at admission is what makes signatures matter</h3>
+    <p>Without it, signing is decoration. A Kyverno image-verification policy holds the public key (or the expected keyless identity), intercepts pod creation, resolves each image, checks its signature, and rejects on failure. It can also <em>mutate the image reference to its digest</em>, which is the underrated half: after verification, the pod runs the exact bytes you verified, not whatever the tag points at later. Gatekeeper does this through external data providers; Kyverno's is built in and is the one to practise.</p>
+
+    <div class="callout exam">
+      <span class="tag">SLSA, since the word appears everywhere</span>
+      <p>Levels of provenance rigour, from "you have a build process" to hermetic, attested builds. At exam depth, keep the three documents straight: <strong>provenance</strong> is an attestation of <em>how</em> an artifact was built; <strong>SBOMs</strong> say <em>what is inside</em>; <strong>signatures</strong> say <em>who vouches</em>. Three documents, one trust story — and an attestation is itself a signed statement, which is why cosign handles all of them.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-g" id="exercises">
+  <div class="phdr"><h2>Exercises</h2><span class="meta">validated against the lab</span></div>
+  <div class="pbody">
+
+    <div class="exercise" data-title="Rerun the gate consciously">
+      <p>From 2.4 you have <code>build-and-scan</code> and a real image in the registry. Rerun it (<code>tkn pipeline start build-and-scan --last</code>) and this time read the scan step's output in full: <code>tkn pipelinerun logs --last -t scan</code>.</p>
+      <div class="verify"><b>verify</b> — you can state what would have to appear in that output for the run to fail, and where the SBOM the task generates ends up (the workspace, plus a digest in the task's results; <code>kubectl get taskrun &lt;name&gt; -o jsonpath='{.status.results}'</code>).</div>
+    </div>
+
+    <div class="exercise" data-title="Sign what you built">
+      <p>The pipeline pushed <code>demo:v1</code> under its in-cluster name (<code>kind-registry:5000</code>); from the host the same store answers as <code>localhost:5001</code>, and the digest is identical from both sides because a digest names content, not a location:</p>
+      <div class="cb" data-lang="bash"><pre><code>cd $(mktemp -d) &amp;&amp; cosign generate-key-pair   # passphrase: pick one, remember it
+DIGEST=$(skopeo inspect --tls-verify=false docker://localhost:5001/demo:v1 | jq -r .Digest)
+cosign sign --key cosign.key --allow-http-registry -y localhost:5001/demo@$DIGEST
+cosign verify --key cosign.pub --allow-http-registry localhost:5001/demo@$DIGEST</code></pre></div>
+      <p>Then verify a <em>tag</em> instead of the digest and note cosign resolves it to the digest anyway; then try verifying an image you never signed (<code>localhost:5001/validate:v1</code> exists if you ran <code>make validate</code>) and read the failure.</p>
+      <div class="verify"><b>verify</b> — "The signatures were verified against the specified public key". One success, one refusal, both understood.</div>
+    </div>
+
+    <div class="exercise" data-title="Close the door at admission">
+      <p>Kyverno's current kind for this is ImageValidatingPolicy (<code>kubectl explain imagevalidatingpolicies.spec</code>; the API has moved before and the checking <em>is</em> the exercise). Three facts shape the setup, each bought with an hour of somebody's debugging:</p>
+      <ol>
+        <li>Kyverno fetches signatures itself, from inside the cluster, so the pod images and the policy globs must use the in-cluster registry name (<code>kind-registry:5000</code>, which the lab wires into CoreDNS and containerd), never <code>localhost:5001</code>, which inside the Kyverno pod is the Kyverno pod.</li>
+        <li>The registry is plain http, and the knob for that is on the <em>engine</em>, not the policy: the lab installs Kyverno with <code>features.registryClient.allowInsecure=true</code>. Without it, every verification dies on <code>server gave HTTP response to HTTPS client</code> before any signature is read.</li>
+        <li>cosign v3 pushes its new bundle format by default, and Kyverno's verifier currently reads the legacy <code>.sig</code> tag, so sign a second time in legacy form for the engine's benefit: <code>cosign sign --key cosign.key --allow-http-registry -y --use-signing-config=false --new-bundle-format=false --tlog-upload=false localhost:5001/demo@$DIGEST</code>. Version skew between signer and verifier is not a lab quirk; it is the current state of the ecosystem, and recognising "no signatures found" as a <em>format</em> problem is the transferable skill.</li>
+      </ol>
+      <p>The policy: match pods, <code>matchImageReferences</code> glob <code>kind-registry:5000/demo*</code>, one attestor with <code>cosign.key.data</code> holding your <code>cosign.pub</code> (plus <code>cosign.ctlog.insecureIgnoreTlog: true</code>, since the legacy signature skipped the transparency log), and one validation expression from the Kyverno docs' IVP examples: <code>images.containers.map(image, verifyImageSignatures(image, [attestors.keyed])).all(e, e &gt; 0)</code>. Then:</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n team-b run signed --image=kind-registry:5000/demo:v1 --restart=Never -- sleep 60
+docker tag busybox:1.37 localhost:5001/demo:unsigned &amp;&amp; docker push localhost:5001/demo:unsigned
+kubectl -n team-b run unsigned --image=kind-registry:5000/demo:unsigned --restart=Never -- sleep 60</code></pre></div>
+      <div class="verify"><b>verify</b> — signed admits, unsigned is rejected with your policy's message. Same repo, same cluster, different provenance, different fate. If the signed pod is rejected too, <code>kubectl -n kyverno logs deploy/kyverno-admission-controller | grep -i verif</code> names the real reason (registry scheme, missing <code>.sig</code>, tlog), which is precisely the diagnosis ladder above. Clean up the policy so later sections' pods admit freely.</div>
+    </div>
+
+    <div class="exercise" data-title="Wire the gate order into one sentence each">
+      <p>Five controls now exist between a git push and a running pod in this lab: pipeline scan gate (2.4), registry signature (here), admission verification (here), PSS (5.3), continuous rescanning (5.4). Write one line per control naming the failure class only it catches.</p>
+      <div class="verify"><b>verify</b> — against this: gate catches known-bad before publish; signature catches tampering and untrusted builders; admission catches bypassing the pipeline entirely; PSS catches dangerous runtime shape regardless of provenance; the operator catches CVEs discovered after ship. If your five lines cover those five distinct failure classes, this competency is done.</div>
+    </div>
+
+  </div>
+</section>
+
+<section class="panel accent-p" id="selfcheck">
+  <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
+  <div class="pbody">
+    <details class="quiz"><summary>Why scan in the pipeline <em>and</em> in the cluster?</summary>
+      <div class="answer"><p>The pipeline gate blocks known-bad before publication; it can say nothing about CVEs disclosed after the build. Continuous in-cluster scanning catches those, on images already running. Only-CI leaves you blind to every CVE younger than your last deploy; only-cluster lets bad images ship in the first place.</p></div></details>
+
+    <details class="quiz"><summary>Why is signing by digest, not by tag, the point?</summary>
+      <div class="answer"><p>A digest names content; a tag is a mutable pointer. Signing the digest means the signature covers exactly those bytes, and anyone who moves the tag cannot forge it. Verification resolves the tag to a digest before checking — and a good admission policy also rewrites the pod's image to that digest so the runtime cannot drift from what you verified.</p></div></details>
+
+    <details class="quiz"><summary>Signatures exist and someone still deployed an unsigned image. What was missing?</summary>
+      <div class="answer"><p>Admission verification. Signing without an enforcement point is decoration: nothing checks it at the door. Add an image-verification policy that matches the registry glob and denies on failure — and make sure it matches the reference form the pods actually use.</p></div></details>
+
+    <details class="quiz"><summary>Kyverno reports "no signatures found" for an image you definitely signed. Three candidates?</summary>
+      <div class="answer"><p>Registry name/reachability (Kyverno resolves from inside the cluster, so <code>localhost</code> is wrong), scheme (plain http needs the engine's insecure flag), and signature <em>format</em> skew (a new-bundle signature where the verifier expects the legacy <code>.sig</code> tag). Also check the transparency-log expectation if you signed without uploading to Rekor.</p></div></details>
+
+    <details class="quiz"><summary>Distinguish SBOM, provenance and signature in one sentence each.</summary>
+      <div class="answer"><p>SBOM: what is inside the artifact. Provenance: how and by whom it was built (a SLSA-style attestation). Signature: who vouches for these exact bytes. Three documents, one trust story — and provenance and SBOMs are themselves usually signed attestations.</p></div></details>
+  </div>
+</section>
+
+<section class="panel" id="docs">
+  <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
+  <div class="pbody">
+    <ul class="docs">
+      <li><b>docs.sigstore.dev</b> — cosign sign/verify with keys; skim keyless (Fulcio, Rekor) so the words are familiar.</li>
+      <li><b>kyverno.io</b> — image verification policies (current kind and fields).</li>
+      <li><b>slsa.dev</b> — the levels table, five minutes.</li>
+      <li><b>Offline:</b> <code>cosign --help</code>, <code>trivy image --help</code>, <code>kubectl explain imagevalidatingpolicies.spec</code> — the last one is the version arbiter when docs and cluster disagree.</li>
+    </ul>
+  </div>
+</section>
+
+</article>
+<aside class="toc" id="toc"></aside>
+</div></div>
+<script src="../assets/nav.js"></script>
+<script src="../assets/app.js"></script>
+</body>
+</html>

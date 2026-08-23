@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>5.3 Pod Security Standards · CNPE</title>
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body data-id="5.3" data-root="../">
+<div class="wrap"><div class="cols">
+<article>
+
+<header class="pagehead">
+  <div class="eyebrow"></div>
+  <h1></h1>
+  <p class="sum">The admission control you get without installing anything: three named profiles enforced by the built-in Pod Security admission controller, driven entirely by namespace labels. Less expressive than Kyverno or Gatekeeper, and that is its virtue.</p>
+</header>
+
+<div class="stats"></div>
+
+<div class="needs"><span class="lbl">needs</span><code>make up sec</code></div>
+
+<section class="panel" id="orientation">
+  <div class="phdr"><h2>Orientation</h2><span class="meta">competency 5.4 · Pod Security Standards</span></div>
+  <div class="pbody">
+    <p class="lede">Know exactly what each profile means and the label grammar, and these become the fastest points on the paper. PSS replaced PodSecurityPolicy, which was removed — if a scenario mentions PSP, the expected answer is "removed; use PSS, or a policy engine for anything PSS cannot express".</p>
+  </div>
+</section>
+
+<section class="panel accent-c" id="profiles">
+  <div class="phdr"><h2>Profiles and modes</h2><span class="meta">three profiles × three modes</span></div>
+  <div class="pbody">
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Profile</th><th>Blocks / requires</th><th>Use for</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">privileged</td><td>nothing — unrestricted</td><td>system namespaces, CNI, storage drivers</td></tr>
+          <tr><td class="mono">baseline</td><td>blocks the known-bad: privileged containers, hostNetwork/hostPID/hostIPC, hostPath volumes, added capabilities beyond a safe list, unconfined seccomp/AppArmor, host ports</td><td>the sane tenant default</td></tr>
+          <tr><td class="mono">restricted</td><td>demands actively-good: <code>runAsNonRoot</code>, <code>allowPrivilegeEscalation: false</code>, all capabilities dropped (<code>ALL</code>, <code>NET_BIND_SERVICE</code> permitted back), <code>seccompProfile: RuntimeDefault</code>, no hostPath, restricted volume types</td><td>anything you can make comply</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The one-liner: <strong>baseline stops you being dangerous, restricted forces you to be safe.</strong></p>
+
+    <p>The modes are set independently per namespace: <code>enforce</code> rejects at admission, <code>audit</code> annotates the audit log, <code>warn</code> prints warnings to the client. Label grammar:</p>
+    <div class="cb" data-lang="yaml"><pre><code>pod-security.kubernetes.io/enforce: baseline
+pod-security.kubernetes.io/enforce-version: v1.31     # pin, or "latest"
+pod-security.kubernetes.io/warn: restricted
+pod-security.kubernetes.io/audit: restricted</code></pre></div>
+    <p>Version pinning matters more than it looks: profiles gain checks across releases, so <code>latest</code> means an upgrade can start rejecting pods that were fine yesterday. Pinning trades that surprise for a deliberate migration.</p>
+
+    <div class="callout lab">
+      <span class="tag">The lab's stance is the recommended one</span>
+      <p><code>team-a</code> runs <em>enforce baseline, warn and audit restricted</em>: nothing overtly dangerous gets in, and every restricted violation is visible to both the user (a warning in their terminal) and the platform (the audit log) before anyone tightens the screw. That staged posture mirrors the Audit→Enforce choreography from 5.2; the pattern generalises to every control in this domain.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-y" id="operational">
+  <div class="phdr"><h2>Two operational facts that decide troubleshooting tasks</h2><span class="meta">and one preview command</span></div>
+  <div class="pbody">
+    <ol>
+      <li><strong>PSS evaluates pods.</strong> A Deployment whose template violates the profile is created successfully and then fails to make pods, with the evidence on the <em>ReplicaSet</em> — two levels below where you were looking. Same indirection as quota (1.4). Recognising the pattern is worth more than any single profile detail.</li>
+      <li><strong>Enforcement is admission-time.</strong> Tightening a namespace label does not evict existing violators; they run until their next write. Which is why the preview command exists:</li>
+    </ol>
+    <div class="cb" data-lang="bash"><pre><code>kubectl label --dry-run=server --overwrite ns &lt;ns&gt; pod-security.kubernetes.io/enforce=restricted</code></pre></div>
+    <p>The API server evaluates every existing pod against the proposed profile and warns about each one that <em>would</em> break, without changing anything. It is the single most useful PSS command to know exists, and it turns a risky tightening into a planned migration.</p>
+
+    <h3>What a compliant pod looks like</h3>
+    <div class="cb" data-lang="yaml"><pre><code>securityContext:                 # pod level
+  runAsNonRoot: true
+  runAsUser: 1000
+  seccompProfile: { type: RuntimeDefault }
+containers:
+  - name: app
+    securityContext:             # container level
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true          # not required by restricted, but good practice
+      capabilities: { drop: ["ALL"] }</code></pre></div>
+    <p>The demo app's manifest (<code>examples/demo-app/base/deployment.yaml</code>) is a worked answer to "make this pass restricted" — read its securityContext blocks line by line, because writing exactly that block from memory is a plausible task. Note the level split: <code>runAsNonRoot</code> and <code>seccompProfile</code> sit naturally at pod level, <code>capabilities</code> and <code>allowPrivilegeEscalation</code> are per container.</p>
+
+    <div class="callout exam">
+      <span class="tag">PSS versus a policy engine</span>
+      <p>PSS is fixed, built in, free, and covers exactly the pod-hardening dimension. A policy engine is arbitrary, installable, and covers everything else (image registries, labels, ownership, cross-object rules) at the cost of running a webhook. The professional answer to "which should we use" is <strong>both</strong>: PSS as the always-on floor, an engine for organisation-specific rules — and the engine can also enforce PSS-like rules in namespaces where you need exceptions PSS cannot express.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-g" id="exercises">
+  <div class="phdr"><h2>Exercises</h2><span class="meta">validated against the lab</span></div>
+  <div class="pbody">
+
+    <div class="exercise" data-title="Get rejected by each profile">
+      <p>In team-a (enforce: baseline):</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n team-a run priv --image=busybox:1.37 --restart=Never \
+  --overrides='{"spec":{"containers":[{"name":"priv","image":"busybox:1.37","command":["sleep","300"],"securityContext":{"privileged":true}}]}}'</code></pre></div>
+      <p>Then run a merely-lazy pod (<code>kubectl -n team-a run lazy --image=busybox:1.37 --restart=Never -- sleep 300</code>) and read the <em>warnings</em> it prints: admitted under baseline, flagged against restricted by the warn label.</p>
+      <div class="verify"><b>verify</b> — the first is rejected at admission with an error naming the violated control; the second is admitted with warnings. Two different outcomes, one namespace, and you can name which label produced each line of output.</div>
+    </div>
+
+    <div class="exercise" data-title="Fix a workload up to restricted">
+      <p>Create namespace <code>hardened</code> with enforce restricted. Take the lazy pod spec and make it pass: <code>runAsNonRoot: true</code> (busybox needs <code>runAsUser</code> too, e.g. 1000), <code>allowPrivilegeEscalation: false</code>, capabilities drop ALL, seccompProfile RuntimeDefault. Iterate against the live error messages; they name the missing control each time, which makes PSS self-documenting under exam conditions.</p>
+      <div class="verify"><b>verify</b> — the pod runs in <code>hardened</code>, and your final securityContext agrees with the demo app's.</div>
+    </div>
+
+    <div class="exercise" data-title="Diagnose the two-level failure">
+      <p>In <code>hardened</code>, <code>kubectl create deploy sneaky --image=busybox:1.37 -- sleep 300</code>. The deploy is created; no pod appears. Find the rejection where it actually lives:</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n hardened get deploy sneaky   # READY 0/1, no error here
+kubectl -n hardened describe rs -l app=sneaky | tail -5</code></pre></div>
+      <div class="verify"><b>verify</b> — the ReplicaSet events carry the PSS denial. This indirection is a stock exam scenario for every admission mechanism (5.2's engines included); PSS is just where it is cheapest to practise.</div>
+    </div>
+
+    <div class="exercise" data-title="Preview a tightening like a platform team would">
+      <p><code>kubectl label --dry-run=server --overwrite ns team-b pod-security.kubernetes.io/enforce=restricted</code> and read which existing pods would violate.</p>
+      <div class="verify"><b>verify</b> — a warning per non-compliant pod, zero mutations made. Pair with the audit log (section 5.4) to see what the <code>audit</code> label has been quietly recording all along.</div>
+    </div>
+
+  </div>
+</section>
+
+<section class="panel accent-p" id="selfcheck">
+  <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
+  <div class="pbody">
+    <details class="quiz"><summary>Name the three profiles in one clause each.</summary>
+      <div class="answer"><p>Privileged: no restrictions. Baseline: blocks known privilege escalations — privileged containers, host namespaces, hostPath, extra capabilities. Restricted: additionally requires non-root, no privilege escalation, all capabilities dropped, and RuntimeDefault seccomp.</p></div></details>
+
+    <details class="quiz"><summary>A Deployment is created and no pods appear. Where is the PSS error?</summary>
+      <div class="answer"><p>On the ReplicaSet — PSS is a pod-level admission decision, so the Deployment controller records the rejection one level down. <code>kubectl describe rs -l …</code> or namespace events.</p></div></details>
+
+    <details class="quiz"><summary>You want to know who breaks if you tighten a namespace. Command?</summary>
+      <div class="answer"><p><code>kubectl label --dry-run=server --overwrite ns &lt;ns&gt; pod-security.kubernetes.io/enforce=restricted</code> — the server evaluates existing pods and warns for each violator, changing nothing.</p></div></details>
+
+    <details class="quiz"><summary>Why pin <code>enforce-version</code>?</summary>
+      <div class="answer"><p>Because profiles gain checks in new Kubernetes releases: with <code>latest</code>, a cluster upgrade can start rejecting pods that were compliant before. Pinning turns that into a deliberate migration you schedule rather than a surprise you discover.</p></div></details>
+
+    <details class="quiz"><summary>PSS or Kyverno for "images must come from our registry"?</summary>
+      <div class="answer"><p>Kyverno (or Gatekeeper): PSS covers only the fixed pod-hardening dimension and has no notion of registries. PSS is the floor; the engine is for organisation-specific rules — and it is fine, indeed normal, to run both.</p></div></details>
+  </div>
+</section>
+
+<section class="panel" id="docs">
+  <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
+  <div class="pbody">
+    <ul class="docs">
+      <li><b>kubernetes.io</b> — Pod Security Standards (the profile tables; do not memorise the capability lists, know where they are) and Enforce Pod Security Standards with Namespace Labels.</li>
+      <li><b>Offline:</b> the rejection messages themselves — PSS names every violated control, which makes it the most self-documenting admission mechanism in the cluster; plus <code>kubectl explain pod.spec.securityContext</code>.</li>
+    </ul>
+  </div>
+</section>
+
+</article>
+<aside class="toc" id="toc"></aside>
+</div></div>
+<script src="../assets/nav.js"></script>
+<script src="../assets/app.js"></script>
+</body>
+</html>

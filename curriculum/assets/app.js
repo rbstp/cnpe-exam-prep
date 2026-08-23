@@ -101,7 +101,7 @@
       h1.innerHTML = (entry.id === "EX" ? "" : '<span class="id">' + entry.id + "</span>") + entry.title;
     }
     var stats = document.querySelector(".stats");
-    if (!stats) return;
+    if (!stats || stats.hasAttribute("data-static")) return;
     var c = sectionCounts(entry.id);
     var pct = c.total ? Math.round(c.done / c.total * 100) : 0;
     stats.innerHTML =
@@ -251,7 +251,7 @@
       if (!panel.id) panel.id = "p" + i;
       html += '<a href="#' + panel.id + '">' + h.textContent + "</a>";
     });
-    if (entry) {
+    if (entry && document.querySelector(".exercise")) {
       var c = sectionCounts(entry.id);
       html += '<div class="mini"><div class="row"><span>exercises</span><span>' + c.done + "/" + c.total +
         '</span></div><div class="track"><i style="width:' + (c.total ? c.done / c.total * 100 : 0) + '%"></i></div></div>';
@@ -444,7 +444,7 @@
       stats.innerHTML =
         '<div class="stat g"><div class="lbl">Sections complete</div><div class="val">' + ov.done +
           '<span class="u">/ ' + ov.total + '</span></div><div class="spark"><i style="width:' + ov.pct + '%"></i></div></div>' +
-        tile("c", "Exercises verified", doneEx + '<span class="u">/ ' + (totalEx || "—") + "</span>", false) +
+        tile("c", "Exercises verified", doneEx + (totalEx ? '<span class="u">/ ' + totalEx + " seen</span>" : ""), false) +
         tile("p", "Exam length", '120<span class="u">min</span>', false) +
         tile("y", "Tasks on the day", '15–20<span class="u">≈7 min each</span>', false) +
         tile("o", "Domains", "5", false);
