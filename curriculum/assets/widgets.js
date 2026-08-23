@@ -620,10 +620,203 @@
     mount.appendChild(f.root);
   }
 
+
+  /* ── 1.1 · where the request dies ─────────────────────────── */
+  function netpath(mount) {
+    var f = frame("Follow one request until it fails", "flip a condition and watch which hop drops it");
+    var st = { dns: true, selector: true, ready: true, policy: true, port: true };
+    var ctls = h("div", { "class": "wctls" });
+    var out = h("div", { "class": "wout" });
+    [["dns", "DNS egress to kube-dns is allowed"],
+     ["selector", "Service selector matches the pod labels"],
+     ["ready", "pods pass their readiness probe"],
+     ["policy", "NetworkPolicy allows the caller (both ends)"],
+     ["port", "targetPort matches the container's port"]].forEach(function (o) {
+      var t = toggle(o[1], true);
+      t.input.addEventListener("change", function () { st[o[0]] = t.input.checked; draw(); });
+      ctls.appendChild(t);
+    });
+    function draw() {
+      var hops = [
+        { n: "client pod", ok: true, note: "curl http://backend.team-a.svc:8080" },
+        { n: "DNS (CoreDNS)", ok: st.dns,
+          fail: "name does not resolve — every pod stays Running and nothing works",
+          cmd: "kubectl exec … -- nslookup backend.team-a  ·  hubble observe --verdict DROPPED" },
+        { n: "Service (ClusterIP)", ok: true, note: "a VIP, translated by the datapath — nothing listens on it" },
+        { n: "EndpointSlice", ok: st.selector && st.ready,
+          fail: st.selector ? "no ready endpoints — readiness gates slice membership" : "empty slice — the selector matches nothing",
+          cmd: "kubectl get endpointslices -l kubernetes.io/service-name=backend" },
+        { n: "NetworkPolicy", ok: st.policy,
+          fail: "dropped — an egress allow on the caller and an ingress allow on the callee are both required",
+          cmd: "hubble observe --namespace team-a --verdict DROPPED" },
+        { n: "pod:targetPort", ok: st.port,
+          fail: "connection refused — the Service points at a port nothing listens on",
+          cmd: "kubectl get svc backend -o jsonpath='{.spec.ports[*].targetPort}'" }
+      ];
+      var firstBad = hops.filter(function (x) { return !x.ok; })[0];
+      out.innerHTML =
+        '<div class="wpath">' + hops.map(function (x, i) {
+          var state = x.ok ? (firstBad && hops.indexOf(firstBad) < i ? "skip" : "pass") : "fail";
+          return '<div class="whop ' + state + '"><span class="whop-n">' + x.n + "</span>" +
+                 '<span class="whop-s">' + (state === "pass" ? "✓" : state === "fail" ? "✕" : "·") + "</span></div>";
+        }).join('<span class="whop-arr">↓</span>') + "</div>" +
+        (firstBad
+          ? '<div class="wnote bad"><b>' + firstBad.n + "</b> — " + firstBad.fail +
+            '<div class="wproof" style="margin-top:6px"><code>' + firstBad.cmd + "</code></div></div>"
+          : '<div class="wnote ok">200. Every hop is doing its job — and this is the state you have to reproduce before you can claim an incident is over.</div>') +
+        '<div class="wnote">Symptom as the user reports it: <b>' +
+          (!st.dns ? "“it hangs” — DNS timeouts look like a slow app"
+           : !st.selector || !st.ready ? "“connection refused” — the name resolves, nothing is behind it"
+           : !st.policy ? "“it hangs, then times out” — drops are silent by design"
+           : !st.port ? "“connection refused” — instantly, from the pod itself"
+           : "nothing to report") + "</b></div>";
+    }
+    f.body.appendChild(ctls); f.body.appendChild(out); draw();
+    mount.appendChild(f.root);
+  }
+
+  /* ── 2.1 · the reconciliation loop ────────────────────────── */
+  function gitops(mount) {
+    var f = frame("The reconciliation loop, poked", "change git, change the cluster, then let the controller tick");
+    var st = { git: 3, live: 3, gitHasSvc: true, liveHasSvc: true, selfHeal: true, prune: false, suspended: false, log: [] };
+    var ctls = h("div", { "class": "wctls wctls-row" });
+    var togs = h("div", { "class": "wctls" });
+    var out = h("div", { "class": "wout" });
+
+    function btn(label, fn, cls) {
+      var b = h("button", { "class": "wbtn " + (cls || ""), type: "button", html: label });
+      b.addEventListener("click", function () { fn(); draw(); });
+      ctls.appendChild(b);
+      return b;
+    }
+    btn("commit: replicas 5", function () { st.git = 5; note("git now says 5 replicas — nothing has happened in the cluster yet"); });
+    btn("kubectl scale --replicas=9", function () { st.live = 9; note("live drift: someone scaled by hand"); });
+    btn("delete service.yaml from git", function () { st.gitHasSvc = false; note("the Service manifest is gone from git"); }, "danger");
+    btn("⟳ reconcile now", tick);
+    btn("reset", function () { st.git = 3; st.live = 3; st.gitHasSvc = true; st.liveHasSvc = true; st.log = []; }, "ghost");
+
+    [["selfHeal", "selfHeal (Argo) / re-apply at interval (Flux)"],
+     ["prune", "prune"],
+     ["suspended", "reconciliation suspended"]].forEach(function (o) {
+      var t = toggle(o[1], st[o[0]]);
+      t.input.addEventListener("change", function () { st[o[0]] = t.input.checked; draw(); });
+      togs.appendChild(t);
+    });
+
+    function note(s) { st.log.unshift(s); st.log = st.log.slice(0, 4); }
+    function tick() {
+      if (st.suspended) { note("suspended — the controller did nothing, and reported no error either"); return; }
+      var acted = false;
+      if (st.live !== st.git) {
+        if (st.live > st.git && !st.selfHeal) { note("OutOfSync reported: live " + st.live + " ≠ git " + st.git + ". Nothing corrected — selfHeal is off"); }
+        else { note("applied git: replicas " + st.live + " → " + st.git); st.live = st.git; acted = true; }
+      }
+      if (!st.gitHasSvc && st.liveHasSvc) {
+        if (st.prune) { st.liveHasSvc = false; note("pruned: the live Service was deleted because its manifest left git"); acted = true; }
+        else { note("the Service is gone from git but stays in the cluster — without prune it lingers forever"); }
+      }
+      if (!acted && st.live === st.git && st.gitHasSvc) note("nothing to do — live already matches git");
+    }
+    function draw() {
+      var drift = st.live !== st.git || st.gitHasSvc !== st.liveHasSvc;
+      out.innerHTML =
+        '<div class="wgrid">' +
+          '<div class="wcell"><span class="wk">git (desired)</span><span class="wv wnum">' + st.git + ' replicas</span>' +
+            '<span class="wv">service.yaml ' + (st.gitHasSvc ? "present" : "removed") + "</span></div>" +
+          '<div class="wcell"><span class="wk">cluster (live)</span><span class="wv wnum">' + st.live + ' replicas</span>' +
+            '<span class="wv">Service ' + (st.liveHasSvc ? "running" : "deleted") + "</span></div>" +
+          '<div class="wcell"><span class="wk">sync status</span>' +
+            (st.suspended ? verdict("warn", "Suspended") : drift ? verdict("bad", "OutOfSync") : verdict("ok", "Synced")) + "</div>" +
+          '<div class="wcell"><span class="wk">what a green dashboard hides</span><span class="wv">' +
+            (st.suspended ? "a suspended app reports no error at all — check suspension first"
+                          : drift ? "the diff is real until the next tick" : "nothing right now") + "</span></div>" +
+        "</div>" +
+        '<div class="wlog">' + (st.log.length ? st.log.map(function (l) { return "<div>› " + l + "</div>"; }).join("")
+                                              : "<div>› press a button, then reconcile</div>") + "</div>";
+    }
+    f.body.appendChild(ctls); f.body.appendChild(togs); f.body.appendChild(out); draw();
+    mount.appendChild(f.root);
+  }
+
+  /* ── 5.2 · the admission pipeline ─────────────────────────── */
+  function admission(mount) {
+    var f = frame("One pod through the admission pipeline", "the order is what makes policies fire — or silently not");
+    var st = { limitRange: true, declares: false, privileged: false, kyverno: "Audit", pss: "baseline" };
+    var ctls = h("div", { "class": "wctls" });
+    var picks = h("div", { "class": "wctls wctls-row" });
+    var out = h("div", { "class": "wout" });
+
+    [["limitRange", "namespace has a LimitRange (defaults 50m/64Mi)"],
+     ["declares", "the pod declares its own requests"],
+     ["privileged", "the pod asks for privileged: true"]].forEach(function (o) {
+      var t = toggle(o[1], st[o[0]]);
+      t.input.addEventListener("change", function () { st[o[0]] = t.input.checked; draw(); });
+      ctls.appendChild(t);
+    });
+    function picker(label, key, values) {
+      var wrap = h("div", { "class": "wpick" });
+      wrap.appendChild(h("span", { "class": "wlbl", html: label }));
+      values.forEach(function (v) {
+        var b = h("button", { "class": "wchip small" + (st[key] === v ? " sel" : ""), type: "button", html: v });
+        b.addEventListener("click", function () {
+          st[key] = v;
+          Array.prototype.forEach.call(wrap.querySelectorAll("button"), function (x) { x.classList.remove("sel"); });
+          b.classList.add("sel"); draw();
+        });
+        wrap.appendChild(b);
+      });
+      picks.appendChild(wrap);
+    }
+    picker("kyverno require-requests", "kyverno", ["Audit", "Deny"]);
+    picker("PSS enforce", "pss", ["privileged", "baseline", "restricted"]);
+
+    function draw() {
+      var hasRequests = st.declares || st.limitRange;
+      var stages = [];
+      stages.push({ n: "authn + authz (RBAC)", ok: true, note: "the caller may create pods here" });
+      stages.push({ n: "mutating admission", ok: true,
+        note: st.limitRange ? (st.declares ? "LimitRanger leaves the declared values alone"
+                                           : "LimitRanger injects requests 50m / 64Mi")
+                            : "nothing to mutate" });
+      var pssFail = (st.pss === "baseline" || st.pss === "restricted") && st.privileged;
+      stages.push({ n: "PodSecurity (" + st.pss + ")", ok: !pssFail,
+        note: pssFail ? "violates the profile: privileged containers are not allowed"
+                      : st.pss === "restricted" && !st.privileged ? "would also demand runAsNonRoot, drop ALL, seccomp — assume they are set"
+                      : "nothing dangerous declared" });
+      var kyvFail = st.kyverno === "Deny" && !hasRequests;
+      stages.push({ n: "kyverno ValidatingPolicy", ok: !kyvFail,
+        note: !hasRequests
+          ? (st.kyverno === "Deny" ? "rejected: every container must set cpu and memory requests"
+                                   : "violation recorded in a PolicyReport, pod admitted")
+          : (st.limitRange && !st.declares
+              ? "sees requests that the LimitRange injected — the policy passes on values the user never wrote"
+              : "requests are present") });
+      var firstBad = stages.filter(function (s) { return !s.ok; })[0];
+      stages.push({ n: "persisted to etcd", ok: !firstBad, note: firstBad ? "never reached" : "the pod exists" });
+
+      out.innerHTML =
+        '<div class="wpath">' + stages.map(function (s, i) {
+          var idx = stages.indexOf(firstBad);
+          var state = !s.ok ? "fail" : (firstBad && idx > -1 && i > idx) ? "skip" : "pass";
+          return '<div class="whop ' + state + '"><span class="whop-n">' + s.n + "</span>" +
+                 '<span class="whop-s">' + (state === "pass" ? "✓" : state === "fail" ? "✕" : "·") + "</span>" +
+                 '<span class="whop-note">' + s.note + "</span></div>";
+        }).join('<span class="whop-arr">↓</span>') + "</div>" +
+        (firstBad ? '<div class="wnote bad">Rejected at <b>' + firstBad.n + "</b>. The message arrives in the apply error, verbatim — and if this were a Deployment, it would land on the ReplicaSet instead of on your terminal.</div>"
+                  : '<div class="wnote ok">Admitted.</div>') +
+        (st.limitRange && !st.declares && st.kyverno === "Deny" && hasRequests
+          ? '<div class="wnote warn">Note what just happened: the policy is in <b>Deny</b> and the pod declared nothing, yet it passed — because a <em>mutation</em> ran first and satisfied the validation. This is why the lab drills that policy in a namespace with no LimitRange.</div>'
+          : "");
+    }
+    f.body.appendChild(ctls); f.body.appendChild(picks); f.body.appendChild(out); draw();
+    mount.appendChild(f.root);
+  }
+
   var REGISTRY = {
     qos: qos, capacity: capacity, quota: quota, efficiency: efficiency,
     syncmatrix: syncmatrix, canary: canary, promrate: promrate,
-    alertstate: alertstate, pss: pss, rbacscope: rbacscope
+    alertstate: alertstate, pss: pss, rbacscope: rbacscope,
+    netpath: netpath, gitops: gitops, admission: admission
   };
 
   window.CNPE_WIDGETS = {
