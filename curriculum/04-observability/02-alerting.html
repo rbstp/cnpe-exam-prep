@@ -38,10 +38,10 @@
   <div class="pbody">
     <p>A <code>PrometheusRule</code> CRD holds groups of rules. An <strong>alerting rule</strong> is a PromQL expression plus:</p>
     <ul>
-      <li><code>for</code> — how long the expression must hold before Pending becomes Firing. This is your flap filter, and picking it is a real decision: too short and you page on transients, too long and you notice late.</li>
-      <li><code>labels</code> — <em>routing material</em>. <code>severity</code>, <code>team</code>, <code>service</code>. Whatever your routes match on must be produced here.</li>
-      <li><code>annotations</code> — human material: <code>summary</code>, <code>description</code>, <code>runbook_url</code>. Templated with <code>{{ $labels.x }}</code> and <code>{{ $value }}</code>.</li>
-      <li><code>keep_firing_for</code> — the opposite of <code>for</code>: keeps an alert firing briefly after it resolves, to damp flapping resolutions.</li>
+      <li><code>for</code>: how long the expression must hold before Pending becomes Firing. This is your flap filter, and picking it is a real decision: too short and you page on transients, too long and you notice late.</li>
+      <li><code>labels</code>: <em>routing material</em>. <code>severity</code>, <code>team</code>, <code>service</code>. Whatever your routes match on must be produced here.</li>
+      <li><code>annotations</code>: human material: <code>summary</code>, <code>description</code>, <code>runbook_url</code>. Templated with <code>{{ $labels.x }}</code> and <code>{{ $value }}</code>.</li>
+      <li><code>keep_firing_for</code> is the opposite of <code>for</code>: keeps an alert firing briefly after it resolves, to damp flapping resolutions.</li>
     </ul>
 
     <p><strong>Recording rules</strong> are the other half of the CRD and are underrated: they precompute an expensive expression into a new series on a schedule (<code>job:http_errors:rate5m</code>, by convention <code>level:metric:operation</code>). Dashboards and alerts then read a cheap series. If a scenario says "this dashboard takes 30 seconds to load", a recording rule is the expected answer.</p>
@@ -126,22 +126,22 @@ spec:
             description: "Drill alert; fires whenever default has any pods."
 EOF</code></pre></div>
       <p>Watch it walk the states: Prometheus UI → Alerts shows Pending, then Firing after the minute.</p>
-      <div class="verify"><b>verify</b> — it appears in the Alertmanager UI with your labels, grouped, and the annotation rendered the live value rather than the template text.</div>
+      <div class="verify"><b>verify:</b> it appears in the Alertmanager UI with your labels, grouped, and the annotation rendered the live value rather than the template text.</div>
     </div>
 
     <div class="exercise" data-title="Silence it like an operator would">
       <p>In the Alertmanager UI, create a silence matching <code>alertname=TooManyExamplePods</code> for 2 hours with a comment.</p>
-      <div class="verify"><b>verify</b> — the alert leaves the active view and lands under Silences, while Prometheus still shows it Firing. That split is the lesson: silencing changes notification, never truth.</div>
+      <div class="verify"><b>verify:</b> the alert leaves the active view and lands under Silences, while Prometheus still shows it Firing. That split is the lesson: silencing changes notification, never truth.</div>
     </div>
 
     <div class="exercise" data-title="Read the routing tree">
       <p>Open Status in the Alertmanager UI and answer from the rendered config: what is the root receiver, what does <code>group_by</code> collapse on, which special route exists for the Watchdog alert (the stack ships one that fires always, as a dead-man's switch; know why that is a feature).</p>
-      <div class="verify"><b>verify</b> — you can trace where your drill alert's <code>severity: warning</code> lands in the tree and say which single config line you would change to route <code>team: platform</code> alerts to a new webhook receiver.</div>
+      <div class="verify"><b>verify:</b> you can trace where your drill alert's <code>severity: warning</code> lands in the tree and say which single config line you would change to route <code>team: platform</code> alerts to a new webhook receiver.</div>
     </div>
 
     <div class="exercise" data-title="Route to a receiver you can see (stretch)">
       <p>Deploy a trivial webhook sink (<code>kubectl create deploy sink --image=mendhak/http-https-echo:31</code> plus a Service), add an AlertmanagerConfig in <code>default</code> routing <code>team: platform</code> to it, and then verify pickup honestly: does the rendered config in the UI now contain the route? If yes, <code>kubectl logs deploy/sink</code> shows the JSON payload when the drill alert fires — read it once; its structure (groupLabels, commonAnnotations, alerts[]) is what every receiver integration parses.</p>
-      <div class="verify"><b>verify</b> — either the payload arrives, or you can name the selector on the Alertmanager object that would have to change. Diagnosing that honestly is worth as much as the happy path. Clean up: delete the PrometheusRule; the silence expires on its own.</div>
+      <div class="verify"><b>verify:</b> either the payload arrives, or you can name the selector on the Alertmanager object that would have to change. Diagnosing that honestly is worth as much as the happy path. Clean up: delete the PrometheusRule; the silence expires on its own.</div>
     </div>
 
   </div>
@@ -171,9 +171,9 @@ EOF</code></pre></div>
   <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
   <div class="pbody">
     <ul class="docs">
-      <li><b>prometheus.io</b> — alerting rules, and the Alertmanager configuration page (route and inhibit_rule syntax).</li>
-      <li><b>prometheus-operator.dev</b> — PrometheusRule and AlertmanagerConfig CRD references.</li>
-      <li><b>sre.google</b> — the SRE workbook chapter on alerting on SLOs, for burn-rate vocabulary.</li>
+      <li><b>prometheus.io</b>: alerting rules, and the Alertmanager configuration page (route and inhibit_rule syntax).</li>
+      <li><b>prometheus-operator.dev</b>: PrometheusRule and AlertmanagerConfig CRD references.</li>
+      <li><b>sre.google</b>: the SRE workbook chapter on alerting on SLOs, for burn-rate vocabulary.</li>
       <li><b>Offline:</b> <code>amtool config routes show</code> / <code>amtool config routes test</code> if the binary is present, and the Alertmanager UI's Status page.</li>
     </ul>
   </div>

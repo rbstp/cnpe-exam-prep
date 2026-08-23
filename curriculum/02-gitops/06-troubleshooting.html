@@ -14,7 +14,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum">Broken delivery is the most likely shape of a domain 2 exam task. Failures sort into four buckets, and the first diagnostic move is deciding which bucket you are in — everything here is reps for that decision.</p>
+  <p class="sum">Broken delivery is the most likely shape of a domain 2 exam task. Failures sort into four buckets, and the first diagnostic move is deciding which bucket you are in; everything here is reps for that decision.</p>
 </header>
 
 <div class="stats"></div>
@@ -24,7 +24,7 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">the diagnostic half of every domain 2 competency</span></div>
   <div class="pbody">
-    <p class="lede">Under time pressure, the expensive mistake is not a wrong fix — it is fixing in the wrong <em>layer</em>. Bucket first, then descend. Say the bucket out loud before you touch anything; it costs three seconds and it stops you editing live state when the problem is a commit.</p>
+    <p class="lede">Under time pressure, the expensive mistake is not a wrong fix; it is fixing in the wrong <em>layer</em>. Bucket first, then descend. Say the bucket out loud before you touch anything; it costs three seconds and it stops you editing live state when the problem is a commit.</p>
     <div class="callout reflex">
       <span class="tag">The 30-second triage</span>
       <div class="cb" data-lang="bash"><pre><code>argocd app get &lt;app&gt;            # sync status + health + last sync time + conditions
@@ -41,13 +41,13 @@ kubectl -n &lt;ns&gt; get events --sort-by=.lastTimestamp | tail -20</code></pre
   <div class="pbody">
 
     <h3>1 · Git is wrong, the cluster is faithful</h3>
-    <p>Synced + Degraded. Bad image tag, impossible resource request, missing ConfigMap key, a probe that can never pass. The controller did its job; fix the commit. <strong>Evidence:</strong> app health Degraded (or Progressing on its way there) while sync status is green, and pod events carry the real error — ImagePullBackOff, CreateContainerConfigError, CrashLoopBackOff.</p>
+    <p>Synced + Degraded. Bad image tag, impossible resource request, missing ConfigMap key, a probe that can never pass. The controller did its job; fix the commit. <strong>Evidence:</strong> app health Degraded (or Progressing on its way there) while sync status is green, and pod events carry the real error: ImagePullBackOff, CreateContainerConfigError, CrashLoopBackOff.</p>
 
     <h3>2 · The cluster refuses what git says</h3>
     <p>Sync fails outright. An admission policy denies the manifest, the API version does not exist on this cluster, a field is immutable (Service <code>clusterIP</code>, label selectors, PVC shrink), the CRD is not installed yet. <strong>Evidence:</strong> the sync operation's error message, which quotes the API server's rejection verbatim. Immutable-field errors mean delete-and-recreate or <code>Replace=true</code>, and knowing that saves ten minutes.</p>
 
     <h3>3 · The controller lacks permission or access</h3>
-    <p>Repo unreachable, credentials rotated, an Application targeting a namespace the controller's RBAC cannot touch, an ApplicationSet token missing a scope. <strong>Evidence:</strong> errors mention the <em>controller's own identity</em>, appear in controller logs (<code>kubectl -n argocd logs deploy/argocd-repo-server</code>, <code>flux logs</code>), and say nothing about your workload. No pod is ever involved — that absence is the tell.</p>
+    <p>Repo unreachable, credentials rotated, an Application targeting a namespace the controller's RBAC cannot touch, an ApplicationSet token missing a scope. <strong>Evidence:</strong> errors mention the <em>controller's own identity</em>, appear in controller logs (<code>kubectl -n argocd logs deploy/argocd-repo-server</code>, <code>flux logs</code>), and say nothing about your workload. No pod is ever involved; that absence is the tell.</p>
 
     <h3>4 · Nobody is wrong, the state is stale</h3>
     <p>Webhook lost, refresh interval not elapsed, reconciliation suspended and forgotten, a branch that moved while the app points at a tag. <strong>Evidence:</strong> everything green but old. <code>flux get kustomizations</code> shows a Suspended row; <code>argocd app get</code> shows a last-sync timestamp from an hour ago. Fix with <code>argocd app get --refresh</code> / <code>flux reconcile … --with-source</code>, and check for suspension <em>first</em>.</p>
@@ -57,8 +57,8 @@ kubectl -n &lt;ns&gt; get events --sort-by=.lastTimestamp | tail -20</code></pre
         <thead><tr><th>Bucket</th><th>Sync</th><th>Health</th><th>Where the text comes from</th><th>Fix lives in</th></tr></thead>
         <tbody>
           <tr><td>1 git wrong</td><td class="ok">Synced</td><td class="bad">Degraded</td><td>pod events</td><td>a commit</td></tr>
-          <tr><td>2 cluster refuses</td><td class="bad">Failed / OutOfSync</td><td>—</td><td>API server, quoted by the sync op</td><td>a commit + a sync option</td></tr>
-          <tr><td>3 access</td><td class="bad">Unknown / error</td><td>—</td><td>controller logs</td><td>a Secret, RBAC, or a token</td></tr>
+          <tr><td>2 cluster refuses</td><td class="bad">Failed / OutOfSync</td><td class="dimtext">n/a</td><td>API server, quoted by the sync op</td><td>a commit + a sync option</td></tr>
+          <tr><td>3 access</td><td class="bad">Unknown / error</td><td class="dimtext">n/a</td><td>controller logs</td><td>a Secret, RBAC, or a token</td></tr>
           <tr><td>4 stale</td><td class="ok">Synced</td><td class="ok">Healthy</td><td>timestamps, Suspended flag</td><td>a reconcile or a resume</td></tr>
         </tbody>
       </table>
@@ -66,7 +66,7 @@ kubectl -n &lt;ns&gt; get events --sort-by=.lastTimestamp | tail -20</code></pre
 
     <div class="callout exam">
       <span class="tag">Drift deserves one more sentence</span>
-      <p>With self-heal on, drift self-corrects and the interesting question becomes "what keeps re-creating this thing I keep deleting" — answer: the controller, and <code>kubectl get &lt;res&gt; -o jsonpath='{.metadata.ownerReferences}'</code> or the <code>app.kubernetes.io/instance</code> label proves it. With self-heal off, <code>argocd app diff</code> is the tool that shows exactly what diverged.</p>
+      <p>With self-heal on, drift self-corrects and the interesting question becomes "what keeps re-creating this thing I keep deleting". The answer is the controller, and <code>kubectl get &lt;res&gt; -o jsonpath='{.metadata.ownerReferences}'</code> or the <code>app.kubernetes.io/instance</code> label proves it. With self-heal off, <code>argocd app diff</code> is the tool that shows exactly what diverged.</p>
     </div>
   </div>
 </section>
@@ -91,23 +91,23 @@ kubectl -n &lt;ns&gt; get events --sort-by=.lastTimestamp | tail -20</code></pre
         ▼
 <u>prove recovery with the signal that showed the failure</u></pre>
 
-    <p>Two habits that pay for themselves. First, <strong>compare rendered manifests with live objects</strong> rather than reading source YAML — <code>argocd app manifests &lt;app&gt;</code> shows exactly what would be applied, which catches overlay mistakes that source review misses. Second, <strong>check the middle layer</strong>: a Deployment that is created but produces no pods has its error on the ReplicaSet, and that indirection catches out almost everyone at least once.</p>
+    <p>Two habits that pay for themselves. First, <strong>compare rendered manifests with live objects</strong> rather than reading source YAML: <code>argocd app manifests &lt;app&gt;</code> shows exactly what would be applied, which catches overlay mistakes that source review misses. Second, <strong>check the middle layer</strong>: a Deployment that is created but produces no pods has its error on the ReplicaSet, and that indirection catches out almost everyone at least once.</p>
   </div>
 </section>
 
 <section class="panel accent-g" id="exercises">
-  <div class="phdr"><h2>Exercises</h2><span class="meta">each one stages a failure — diagnose before fixing</span></div>
+  <div class="phdr"><h2>Exercises</h2><span class="meta">each one stages a failure; diagnose before fixing</span></div>
   <div class="pbody">
     <p>Do the diagnosis before the fix, and say the bucket out loud before touching anything.</p>
 
     <div class="exercise" data-title="Bad config (bucket 1)">
       <p>Push <code>newTag: 9.9.9-nope</code> to the staging overlay in the platform repo. Watch demo-staging stay Synced while health goes Progressing (Degraded arrives only after the Deployment's ten-minute progress deadline; do not wait for it, the pod evidence is immediate). Diagnose down the stack: <code>argocd app get demo-staging</code> → <code>kubectl -n team-a get pods</code> → <code>describe pod</code> shows ImagePullBackOff. Fix in git only.</p>
-      <div class="verify"><b>verify</b> — revert commit pushed, app back to Healthy without any kubectl mutation.</div>
+      <div class="verify"><b>verify:</b> revert commit pushed, app back to Healthy without any kubectl mutation.</div>
     </div>
 
     <div class="exercise" data-title="Immutable field (bucket 2)">
       <p>Add a patch to the staging overlay's kustomization setting <code>spec.clusterIP: 10.96.99.99</code> on the demo Service (the Service manifest itself lives in base; overlays change it through patches, which is the kustomize idiom worth a rep on its own). Sync and read the error.</p>
-      <div class="verify"><b>verify</b> — you can quote where the error text came from (the API server, relayed by the sync operation) and fix it by removing the patch. Bucket 2, and the error message named it.</div>
+      <div class="verify"><b>verify:</b> you can quote where the error text came from (the API server, relayed by the sync operation) and fix it by removing the patch. Bucket 2, and the error message named it.</div>
     </div>
 
     <div class="exercise" data-title="Break the controller's credentials (bucket 3)">
@@ -115,17 +115,17 @@ kubectl -n &lt;ns&gt; get events --sort-by=.lastTimestamp | tail -20</code></pre
       <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd patch secret gitea-repo -p '{"stringData":{"password":"wrong"}}'
 argocd app get demo-staging --refresh</code></pre></div>
       <p>The error mentions authentication, not manifests. Restore by re-running <code>make gitops</code> (idempotent) or patching the real token back from <code>.gitea-token</code>.</p>
-      <div class="verify"><b>verify</b> — the refresh succeeds again. Notice how different this error's <em>shape</em> was: no pod was ever involved.</div>
+      <div class="verify"><b>verify:</b> the refresh succeeds again. Notice how different this error's <em>shape</em> was: no pod was ever involved.</div>
     </div>
 
     <div class="exercise" data-title="Silent staleness (bucket 4)">
       <p><code>flux suspend kustomization demo-flux</code> (from 2.3), push any change to <code>demo-app/base</code> in the platform repo, and observe that nothing happens and nothing errors. The absence of failure is the symptom.</p>
-      <div class="verify"><b>verify</b> — <code>flux get kustomizations</code> shows Suspended, resume, and the change lands. Train yourself to check suspension <em>first</em>; it costs three seconds.</div>
+      <div class="verify"><b>verify:</b> <code>flux get kustomizations</code> shows Suspended, resume, and the change lands. Train yourself to check suspension <em>first</em>; it costs three seconds.</div>
     </div>
 
     <div class="exercise" data-title="The lab's own drill">
       <p><code>FAULT=config make break</code> corrupts something in team-a's delivery path under a 7-minute clock. Bucket it, fix it, then <code>make break-answer</code> to compare.</p>
-      <div class="verify"><b>verify</b> — run it until the bucketing step takes under a minute.</div>
+      <div class="verify"><b>verify:</b> run it until the bucketing step takes under a minute.</div>
     </div>
 
   </div>
@@ -138,16 +138,16 @@ argocd app get demo-staging --refresh</code></pre></div>
       <div class="answer"><p>Bucket 4, stale. Check for suspension, then the last sync timestamp and the resolved revision against your commit SHA, then whether the app tracks the branch you pushed to. Refresh/reconcile before anything else.</p></div></details>
 
     <details class="quiz"><summary>"Sync fails: <code>Service "demo" is invalid: spec.clusterIP: Invalid value: field is immutable</code>."</summary>
-      <div class="answer"><p>Bucket 2 — the cluster refused the manifest. The text came from the API server, relayed by the sync operation. Fix the manifest, or force replace semantics if the field genuinely must change (accepting the churn that implies).</p></div></details>
+      <div class="answer"><p>Bucket 2: the cluster refused the manifest. The text came from the API server, relayed by the sync operation. Fix the manifest, or force replace semantics if the field genuinely must change (accepting the churn that implies).</p></div></details>
 
     <details class="quiz"><summary>"argocd-repo-server logs show <code>authentication required</code>; the workload is untouched and running fine."</summary>
-      <div class="answer"><p>Bucket 3 — access. No pod of yours is implicated; the controller's identity is. Repo credentials, token scope, or a rotated secret. The workload keeps running because reconciliation is what broke, not the deployment.</p></div></details>
+      <div class="answer"><p>Bucket 3: access. No pod of yours is implicated; the controller's identity is. Repo credentials, token scope, or a rotated secret. The workload keeps running because reconciliation is what broke, not the deployment.</p></div></details>
 
     <details class="quiz"><summary>"Deployment exists, no pods, no error on the Deployment."</summary>
-      <div class="answer"><p>Look one level down at the ReplicaSet: quota, PSS, or an admission webhook rejected the pod template. Same indirection as sections 1.4 and 5.3. Not strictly a delivery bug — the delivery worked, admission refused.</p></div></details>
+      <div class="answer"><p>Look one level down at the ReplicaSet: quota, PSS, or an admission webhook rejected the pod template. Same indirection as sections 1.4 and 5.3. Not strictly a delivery bug: the delivery worked, admission refused.</p></div></details>
 
     <details class="quiz"><summary>"I keep deleting this ConfigMap and it keeps coming back."</summary>
-      <div class="answer"><p>Something reconciles it: self-heal, a Flux Kustomization at interval, or an operator that owns it. Prove which with <code>ownerReferences</code>, the <code>app.kubernetes.io/instance</code> label, or <code>flux trace</code>. Then change the source of truth instead of the live object — or suspend first if you need a temporary window.</p></div></details>
+      <div class="answer"><p>Something reconciles it: self-heal, a Flux Kustomization at interval, or an operator that owns it. Prove which with <code>ownerReferences</code>, the <code>app.kubernetes.io/instance</code> label, or <code>flux trace</code>. Then change the source of truth instead of the live object, or suspend first if you need a temporary window.</p></div></details>
   </div>
 </section>
 
@@ -155,8 +155,8 @@ argocd app get demo-staging --refresh</code></pre></div>
   <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
   <div class="pbody">
     <ul class="docs">
-      <li><b>argo-cd.readthedocs.io</b> — sync options (Replace, ServerSideApply), resource health checks, the troubleshooting section.</li>
-      <li><b>fluxcd.io</b> — the troubleshooting cheatsheet (flux logs, flux events, tracing a resource to its Kustomization).</li>
+      <li><b>argo-cd.readthedocs.io</b>: sync options (Replace, ServerSideApply), resource health checks, the troubleshooting section.</li>
+      <li><b>fluxcd.io</b>: the troubleshooting cheatsheet (flux logs, flux events, tracing a resource to its Kustomization).</li>
       <li><b>Offline:</b> <code>argocd app manifests</code>, <code>argocd app diff</code>, <code>flux build kustomization &lt;name&gt; --path ./…</code>, and <code>kubectl get events -A --sort-by=.lastTimestamp</code>.</li>
     </ul>
   </div>

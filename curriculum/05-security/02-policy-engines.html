@@ -109,27 +109,27 @@ kubectl get policyreports -n policy-test    # the violation is recorded instead
 kubectl patch validatingpolicy require-resource-requests --type=merge \
   -p '{"spec":{"validationActions":["Deny"]}}'
 kubectl -n policy-test run naked2 --image=busybox:1.37 --restart=Never -- sleep 60</code></pre></div>
-      <div class="verify"><b>verify</b> — the second run is rejected and the error quotes the policy's own message ("every container must set cpu and memory requests"), while the same pod in team-b still sails through with LimitRange-injected requests. Flip back to <code>["Audit"]</code> when done.</div>
+      <div class="verify"><b>verify:</b> the second run is rejected and the error quotes the policy's own message ("every container must set cpu and memory requests"), while the same pod in team-b still sails through with LimitRange-injected requests. Flip back to <code>["Audit"]</code> when done.</div>
     </div>
 
     <div class="exercise" data-title="Watch the mutation happen">
       <p>Create a Deployment in team-b, then read it back: <code>kubectl -n team-b get deploy &lt;name&gt; -o jsonpath='{.metadata.labels.cost-centre}'</code> prints the namespace name, put there at admission by <code>add-cost-centre-label</code>. Verify against a deployment created <em>before</em> the policy existed (none of the lab's have the label).</p>
-      <div class="verify"><b>verify</b> — mutation is admission-time only, and retro-fitting existing objects is a separate Kyverno capability (mutating existing resources) you should know exists without memorising its current field name.</div>
+      <div class="verify"><b>verify:</b> mutation is admission-time only, and retro-fitting existing objects is a separate Kyverno capability (mutating existing resources) you should know exists without memorising its current field name.</div>
     </div>
 
     <div class="exercise" data-title="Write the Gatekeeper twin">
       <p>Same rule, Rego dialect, same LimitRange-free namespace. ConstraintTemplate <code>k8srequireresources</code> whose Rego denies containers missing resource requests, then a constraint targeting Pods in <code>policy-test</code> with <code>enforcementAction: warn</code> first. Gatekeeper's library (open-policy-agent/gatekeeper-library) has a <code>containerlimits</code> template to adapt; adapting library Rego rather than writing from scratch is the honest workflow.</p>
-      <div class="verify"><b>verify</b> — a naked pod triggers a warning on create (visible in the kubectl output), then set deny and confirm rejection; <code>kubectl get k8srequireresources -o yaml</code> shows audit violations counted. You can now articulate the trade: CEL policies read like schemas, Rego like code; Kyverno mutates and generates, Gatekeeper's audit and library are mature.</div>
+      <div class="verify"><b>verify:</b> a naked pod triggers a warning on create (visible in the kubectl output), then set deny and confirm rejection; <code>kubectl get k8srequireresources -o yaml</code> shows audit violations counted. You can now articulate the trade: CEL policies read like schemas, Rego like code; Kyverno mutates and generates, Gatekeeper's audit and library are mature.</div>
     </div>
 
     <div class="exercise" data-title="One native rep">
       <p>Express the same rule as a ValidatingAdmissionPolicy + binding (CEL: <code>object.spec.containers.all(c, has(c.resources.requests))</code>, match Pods, bound to <code>policy-test</code>).</p>
-      <div class="verify"><b>verify</b> — rejection with your message, no engine involved. Delete it after, along with the <code>policy-test</code> namespace, so the engines' results stay interpretable.</div>
+      <div class="verify"><b>verify:</b> rejection with your message, no engine involved. Delete it after, along with the <code>policy-test</code> namespace, so the engines' results stay interpretable.</div>
     </div>
 
     <div class="exercise" data-title="Read the interception surface">
       <p><code>kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations</code> and, for one Kyverno entry, read <code>rules</code> (which resources), <code>namespaceSelector</code> (what is exempt) and <code>failurePolicy</code>.</p>
-      <div class="verify"><b>verify</b> — you can answer "if Kyverno's pods all died right now, could anyone still deploy?" from the failurePolicy alone, and say what that choice trades. (Check <code>kube-system</code> in the selector while you are there; policy engines exempting the control plane is itself a governance decision.)</div>
+      <div class="verify"><b>verify:</b> you can answer "if Kyverno's pods all died right now, could anyone still deploy?" from the failurePolicy alone, and say what that choice trades. (Check <code>kube-system</code> in the selector while you are there; policy engines exempting the control plane is itself a governance decision.)</div>
     </div>
 
   </div>
@@ -159,9 +159,9 @@ kubectl -n policy-test run naked2 --image=busybox:1.37 --restart=Never -- sleep 
   <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
   <div class="pbody">
     <ul class="docs">
-      <li><b>kyverno.io</b> — ValidatingPolicy/MutatingPolicy references and the policy library.</li>
-      <li><b>open-policy-agent.github.io/gatekeeper</b> — ConstraintTemplate walkthrough; the gatekeeper-library repo for adaptable Rego.</li>
-      <li><b>kubernetes.io</b> — Validating Admission Policy, and Dynamic Admission Control for the webhook plumbing (<code>failurePolicy</code>, selectors, reinvocation).</li>
+      <li><b>kyverno.io</b>: ValidatingPolicy/MutatingPolicy references and the policy library.</li>
+      <li><b>open-policy-agent.github.io/gatekeeper</b>: ConstraintTemplate walkthrough; the gatekeeper-library repo for adaptable Rego.</li>
+      <li><b>kubernetes.io</b>: Validating Admission Policy, and Dynamic Admission Control for the webhook plumbing (<code>failurePolicy</code>, selectors, reinvocation).</li>
       <li><b>Offline:</b> <code>kubectl explain validatingpolicy.spec</code>, <code>kubectl explain validatingadmissionpolicy.spec.validations</code>, <code>kubectl get validatingwebhookconfigurations -o yaml</code>.</li>
     </ul>
   </div>

@@ -99,24 +99,24 @@ containers:
       <div class="cb" data-lang="bash"><pre><code>kubectl -n team-a run priv --image=busybox:1.37 --restart=Never \
   --overrides='{"spec":{"containers":[{"name":"priv","image":"busybox:1.37","command":["sleep","300"],"securityContext":{"privileged":true}}]}}'</code></pre></div>
       <p>Then run a merely-lazy pod (<code>kubectl -n team-a run lazy --image=busybox:1.37 --restart=Never -- sleep 300</code>) and read the <em>warnings</em> it prints: admitted under baseline, flagged against restricted by the warn label.</p>
-      <div class="verify"><b>verify</b> — the first is rejected at admission with an error naming the violated control; the second is admitted with warnings. Two different outcomes, one namespace, and you can name which label produced each line of output.</div>
+      <div class="verify"><b>verify:</b> the first is rejected at admission with an error naming the violated control; the second is admitted with warnings. Two different outcomes, one namespace, and you can name which label produced each line of output.</div>
     </div>
 
     <div class="exercise" data-title="Fix a workload up to restricted">
       <p>Create namespace <code>hardened</code> with enforce restricted. Take the lazy pod spec and make it pass: <code>runAsNonRoot: true</code> (busybox needs <code>runAsUser</code> too, e.g. 1000), <code>allowPrivilegeEscalation: false</code>, capabilities drop ALL, seccompProfile RuntimeDefault. Iterate against the live error messages; they name the missing control each time, which makes PSS self-documenting under exam conditions.</p>
-      <div class="verify"><b>verify</b> — the pod runs in <code>hardened</code>, and your final securityContext agrees with the demo app's.</div>
+      <div class="verify"><b>verify:</b> the pod runs in <code>hardened</code>, and your final securityContext agrees with the demo app's.</div>
     </div>
 
     <div class="exercise" data-title="Diagnose the two-level failure">
       <p>In <code>hardened</code>, <code>kubectl create deploy sneaky --image=busybox:1.37 -- sleep 300</code>. The deploy is created; no pod appears. Find the rejection where it actually lives:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n hardened get deploy sneaky   # READY 0/1, no error here
 kubectl -n hardened describe rs -l app=sneaky | tail -5</code></pre></div>
-      <div class="verify"><b>verify</b> — the ReplicaSet events carry the PSS denial. This indirection is a stock exam scenario for every admission mechanism (5.2's engines included); PSS is just where it is cheapest to practise.</div>
+      <div class="verify"><b>verify:</b> the ReplicaSet events carry the PSS denial. This indirection is a stock exam scenario for every admission mechanism (5.2's engines included); PSS is just where it is cheapest to practise.</div>
     </div>
 
     <div class="exercise" data-title="Preview a tightening like a platform team would">
       <p><code>kubectl label --dry-run=server --overwrite ns team-b pod-security.kubernetes.io/enforce=restricted</code> and read which existing pods would violate.</p>
-      <div class="verify"><b>verify</b> — a warning per non-compliant pod, zero mutations made. Pair with the audit log (section 5.4) to see what the <code>audit</code> label has been quietly recording all along.</div>
+      <div class="verify"><b>verify:</b> a warning per non-compliant pod, zero mutations made. Pair with the audit log (section 5.4) to see what the <code>audit</code> label has been quietly recording all along.</div>
     </div>
 
   </div>
@@ -146,7 +146,7 @@ kubectl -n hardened describe rs -l app=sneaky | tail -5</code></pre></div>
   <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
   <div class="pbody">
     <ul class="docs">
-      <li><b>kubernetes.io</b> — Pod Security Standards (the profile tables; do not memorise the capability lists, know where they are) and Enforce Pod Security Standards with Namespace Labels.</li>
+      <li><b>kubernetes.io</b>: Pod Security Standards (the profile tables; do not memorise the capability lists, know where they are) and Enforce Pod Security Standards with Namespace Labels.</li>
       <li><b>Offline:</b> the rejection messages themselves — PSS names every violated control, which makes it the most self-documenting admission mechanism in the cluster; plus <code>kubectl explain pod.spec.securityContext</code>.</li>
     </ul>
   </div>

@@ -98,22 +98,22 @@ spec:
 EOF
 kubectl get cluster pg -w</code></pre></div>
       <p>While it converges, watch like a diagnostician: <code>kubectl get events --field-selector involvedObject.name=pg --sort-by=.lastTimestamp</code>, <code>kubectl get cluster pg -o jsonpath='{.status.conditions}' | jq</code>, and <code>kubectl get pods,pvc,svc -l cnpg.io/cluster=pg</code>.</p>
-      <div class="verify"><b>verify</b> — Cluster reports Ready, two instance pods, each with its own PVC (section 1.3's semantics, live), and three Services (rw, ro, r). Name what created each object without guessing: ownerReferences.</div>
+      <div class="verify"><b>verify:</b> Cluster reports Ready, two instance pods, each with its own PVC (section 1.3's semantics, live), and three Services (rw, ro, r). Name what created each object without guessing: ownerReferences.</div>
     </div>
 
     <div class="exercise" data-title="Prove level-based reconciliation">
       <p><code>kubectl delete pod pg-1</code> and time what happens. Then scale the honest way, <code>kubectl patch cluster pg --type=merge -p '{"spec":{"instances":3}}'</code>, and check <code>observedGeneration</code> catches up to <code>generation</code> before you trust the new status.</p>
-      <div class="verify"><b>verify</b> — a replacement pod appears within seconds and the Cluster's conditions ripple through a degraded state and back to Ready; after the patch, <code>status.observedGeneration == metadata.generation</code>. Two probes, two core behaviours.</div>
+      <div class="verify"><b>verify:</b> a replacement pod appears within seconds and the Cluster's conditions ripple through a degraded state and back to Ready; after the patch, <code>status.observedGeneration == metadata.generation</code>. Two probes, two core behaviours.</div>
     </div>
 
     <div class="exercise" data-title="Read a stuck operator without the answer key">
       <p>The lab ships a booby-trapped manifest: <code>examples/crossplane/pg-cluster.yaml</code> targets <code>team-a</code>, where the default-deny NetworkPolicy silently strangles the instance's access to the API server. Apply it, and diagnose from evidence only: conditions say Initialized True but Ready False, phase "Setting up primary" forever, and <code>kubectl -n team-a logs job/pg-1-initdb</code> ends in <code>dial tcp 10.96.0.1:443: i/o timeout</code>. The file's comments explain why the obvious ipBlock fix fails (ClusterIP is DNAT'd before policy evaluation) and give the Cilium <code>toEntities: [kube-apiserver]</code> answer; do not read them until you have formed your own theory.</p>
-      <div class="verify"><b>verify</b> — after applying the CiliumNetworkPolicy from the comments, the cluster converges Ready in team-a. This exercise is the single best half-hour in domain 3.</div>
+      <div class="verify"><b>verify:</b> after applying the CiliumNetworkPolicy from the comments, the cluster converges Ready in team-a. This exercise is the single best half-hour in domain 3.</div>
     </div>
 
     <div class="exercise" data-title="Operators as platform integration">
       <p>Pick two operators you have installed and, for each, name the watched kind, find one owned resource via ownerReferences, and locate the controller deployment.</p>
-      <div class="verify"><b>verify</b> — <code>kubectl api-resources --api-group=&lt;group&gt;</code> and a one-line answer each. The point is transferable fluency: an unfamiliar operator on the exam is the same four questions.</div>
+      <div class="verify"><b>verify:</b> <code>kubectl api-resources --api-group=&lt;group&gt;</code> and a one-line answer each. The point is transferable fluency: an unfamiliar operator on the exam is the same four questions.</div>
     </div>
 
   </div>
@@ -143,9 +143,9 @@ kubectl get cluster pg -w</code></pre></div>
   <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
   <div class="pbody">
     <ul class="docs">
-      <li><b>kubernetes.io</b> — Operator pattern; Controllers; Owners and Dependents (cascade deletion); Finalizers.</li>
-      <li><b>github.com/kubernetes/community</b> — the API conventions doc's conditions section, for what Reason/Message actually promise.</li>
-      <li><b>cloudnative-pg.io</b> — the Cluster API reference, mostly to practise navigating a big operator's docs quickly.</li>
+      <li><b>kubernetes.io</b>: Operator pattern; Controllers; Owners and Dependents (cascade deletion); Finalizers.</li>
+      <li><b>github.com/kubernetes/community</b>: the API conventions doc's conditions section, for what Reason/Message actually promise.</li>
+      <li><b>cloudnative-pg.io</b>: the Cluster API reference, mostly to practise navigating a big operator's docs quickly.</li>
       <li><b>Offline:</b> <code>kubectl explain cluster.status.conditions</code>, <code>kubectl get &lt;res&gt; -o jsonpath='{.metadata.ownerReferences}'</code>, <code>kubectl api-resources --api-group=&lt;g&gt;</code>.</li>
     </ul>
   </div>

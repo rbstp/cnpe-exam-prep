@@ -31,16 +31,16 @@
         <thead><tr><th>Strategy</th><th>Shape</th><th>Rollback</th><th>Costs</th></tr></thead>
         <tbody>
           <tr><td><strong>Canary</strong></td><td>shift traffic in steps, measure between steps</td><td>shift back; only the canary slice was exposed</td><td>slow; needs metrics worth trusting</td></tr>
-          <tr><td><strong>Blue-green</strong></td><td>run both versions full size, cut over at once</td><td>instant — flip the selector back</td><td>double capacity for the window</td></tr>
+          <tr><td><strong>Blue-green</strong></td><td>run both versions full size, cut over at once</td><td>instant: flip the selector back</td><td>double capacity for the window</td></tr>
           <tr><td><strong>Rolling</strong> (baseline)</td><td>replace pods gradually, no analysis</td><td>roll forward or undo, no traffic control</td><td>what you already had</td></tr>
-          <tr><td><strong>A/B or shadow</strong></td><td>route by header/cookie, or mirror traffic</td><td>n/a — no user impact for shadow</td><td>needs L7 routing (mesh or gateway)</td></tr>
+          <tr><td><strong>A/B or shadow</strong></td><td>route by header/cookie, or mirror traffic</td><td>n/a: no user impact for shadow</td><td>needs L7 routing (mesh or gateway)</td></tr>
         </tbody>
       </table>
     </div>
 
     <div class="callout model">
       <span class="tag">Replica weight vs route weight</span>
-      <p>Argo Rollouts <em>without</em> a traffic provider approximates a 20% canary by running 20% of the replicas — the split is statistical, granularity is limited by replica count, and every client is load-balanced by the Service. With a traffic provider (Istio, Gateway API, NGINX, ALB) or with Flagger driving a mesh, the split is a <strong>route weight</strong>: exact, independent of replica count, and able to key on headers. That sentence is the compare-and-contrast this section exists for.</p>
+      <p>Argo Rollouts <em>without</em> a traffic provider approximates a 20% canary by running 20% of the replicas: the split is statistical, granularity is limited by replica count, and every client is load-balanced by the Service. With a traffic provider (Istio, Gateway API, NGINX, ALB) or with Flagger driving a mesh, the split is a <strong>route weight</strong>: exact, independent of replica count, and able to key on headers. That sentence is the compare-and-contrast this section exists for.</p>
     </div>
   </div>
 </section>
@@ -48,7 +48,7 @@
 <section class="panel accent-c" id="rollouts">
   <div class="phdr"><h2>Argo Rollouts</h2><span class="meta">a Deployment with spec.strategy swapped</span></div>
   <div class="pbody">
-    <p>A <code>Rollout</code> is a drop-in replacement for a Deployment (same pod template, same selector semantics) whose <code>spec.strategy</code> is richer. It owns ReplicaSets exactly like a Deployment does — the stable one and the canary one — which is why <code>kubectl get rs</code> during a rollout is so legible.</p>
+    <p>A <code>Rollout</code> is a drop-in replacement for a Deployment (same pod template, same selector semantics) whose <code>spec.strategy</code> is richer. It owns ReplicaSets exactly like a Deployment does (the stable one and the canary one), which is why <code>kubectl get rs</code> during a rollout is so legible.</p>
 
     <div class="cb" data-lang="yaml"><pre><code>strategy:
   canary:
@@ -70,11 +70,11 @@
     autoPromotionEnabled: false       # wait for `promote`
     scaleDownDelaySeconds: 30         # keep the old RS warm for instant rollback</code></pre></div>
 
-    <p><strong>AnalysisTemplate</strong> is the measurement half: a list of metrics, each with a provider (Prometheus, Datadog, a Job, a web request), an <code>interval</code>, a <code>successCondition</code> or <code>failureCondition</code>, plus <code>failureLimit</code>, <code>count</code> and <code>inconclusiveLimit</code>. An AnalysisRun is one execution of it, and its status carries every measurement — which is where you look when a rollout aborts and you want to know what number killed it. Analyses can run as a rollout step, as a background analysis for the whole rollout, or as a pre-promotion/post-promotion gate in blue-green.</p>
+    <p><strong>AnalysisTemplate</strong> is the measurement half: a list of metrics, each with a provider (Prometheus, Datadog, a Job, a web request), an <code>interval</code>, a <code>successCondition</code> or <code>failureCondition</code>, plus <code>failureLimit</code>, <code>count</code> and <code>inconclusiveLimit</code>. An AnalysisRun is one execution of it, and its status carries every measurement, which is where you look when a rollout aborts and you want to know what number killed it. Analyses can run as a rollout step, as a background analysis for the whole rollout, or as a pre-promotion/post-promotion gate in blue-green.</p>
 
     <div class="callout trap">
       <span class="tag">An erroring analysis is not a passing analysis</span>
-      <p>If the metric provider returns an error (bad query, missing series, unreachable Prometheus), the measurement is <em>Error</em>, and errors count against <code>failureLimit</code> just like failures do. So a canary can abort because your PromQL was wrong, not because the new version was. Read the AnalysisRun's measurements before blaming the release — and note that this is faithful to production life, where a broken metrics pipeline blocking a rollout is a feature, not a bug.</p>
+      <p>If the metric provider returns an error (bad query, missing series, unreachable Prometheus), the measurement is <em>Error</em>, and errors count against <code>failureLimit</code> just like failures do. So a canary can abort because your PromQL was wrong, not because the new version was. Read the AnalysisRun's measurements before blaming the release, and note that this is faithful to production life, where a broken metrics pipeline blocking a rollout is a feature, not a bug.</p>
     </div>
 
 
@@ -90,7 +90,7 @@ kubectl argo rollouts status demo -n team-a --timeout 60s  # scriptable, exits n
 
     <div class="callout exam">
       <span class="tag">abort ≠ undo</span>
-      <p><code>abort</code> stops the rollout and sends all traffic back to the stable ReplicaSet — but <code>spec</code> still asks for the new image, so status shows Degraded and it will try again if you touch it. <code>undo</code> changes the spec back. "Safely roll back" on an exam means both: abort to stop the bleeding, undo to make the desired state honest. And in a GitOps world, <code>undo</code>'s real form is a revert commit, or Argo CD will just re-apply the bad image.</p>
+      <p><code>abort</code> stops the rollout and sends all traffic back to the stable ReplicaSet, but <code>spec</code> still asks for the new image, so status shows Degraded and it will try again if you touch it. <code>undo</code> changes the spec back. "Safely roll back" on an exam means both: abort to stop the bleeding, undo to make the desired state honest. And in a GitOps world, <code>undo</code>'s real form is a revert commit, or Argo CD will just re-apply the bad image.</p>
     </div>
   </div>
 </section>
@@ -98,7 +98,7 @@ kubectl argo rollouts status demo -n team-a --timeout 60s  # scriptable, exits n
 <section class="panel accent-p" id="flagger">
   <div class="phdr"><h2>Flagger, for contrast</h2><span class="meta">the mesh-native inversion</span></div>
   <div class="pbody">
-    <p>Flagger inverts the authoring model. You keep authoring a plain <code>Deployment</code>; Flagger's <code>Canary</code> custom resource <em>generates</em> everything else — a <code>&lt;name&gt;-primary</code> Deployment that actually serves, the <code>&lt;name&gt;</code>, <code>&lt;name&gt;-primary</code> and <code>&lt;name&gt;-canary</code> Services, and the mesh routing objects — then shifts real traffic while running its analysis. You never write a Rollout.</p>
+    <p>Flagger inverts the authoring model. You keep authoring a plain <code>Deployment</code>; Flagger's <code>Canary</code> custom resource <em>generates</em> everything else: a <code>&lt;name&gt;-primary</code> Deployment that actually serves, the <code>&lt;name&gt;</code>, <code>&lt;name&gt;-primary</code> and <code>&lt;name&gt;-canary</code> Services, and the mesh routing objects, then shifts real traffic while running its analysis. You never write a Rollout.</p>
 
     <div class="callout trap">
       <span class="tag">Read <code>kubectl get deploy</code> carefully during a Flagger task</span>
@@ -118,11 +118,11 @@ kubectl argo rollouts status demo -n team-a --timeout 60s  # scriptable, exits n
       </table>
     </div>
 
-    <p>Flagger's webhooks deserve a name each because they are how it does things metrics cannot: <code>confirm-rollout</code> (a gate before starting), <code>pre-rollout</code> (acceptance test against the canary), <code>rollout</code> (during each step, typically a load generator), <code>confirm-promotion</code> and <code>post-rollout</code>. A canary with no traffic produces no metrics, so the load-test webhook is not decoration — it is what makes the analysis meaningful in a lab.</p>
+    <p>Flagger's webhooks deserve a name each because they are how it does things metrics cannot: <code>confirm-rollout</code> (a gate before starting), <code>pre-rollout</code> (acceptance test against the canary), <code>rollout</code> (during each step, typically a load generator), <code>confirm-promotion</code> and <code>post-rollout</code>. A canary with no traffic produces no metrics, so the load-test webhook is not decoration; it is what makes the analysis meaningful in a lab.</p>
 
     <div class="callout lab">
       <span class="tag">Honest lab caveat</span>
-      <p>The mesh cluster runs no Prometheus, and <code>make mesh</code> wires Flagger at a metrics address that does not exist, so the built-in <code>request-success-rate</code> check can never pass there. Build the analysis from <strong>webhooks only</strong> (a load-test webhook against <code>flagger-loadtester.test</code>, plus a pre-rollout acceptance check if you want a gate). The mechanics you are practising — Canary spec, generated objects, weight progression, events — are entirely real.</p>
+      <p>The mesh cluster runs no Prometheus, and <code>make mesh</code> wires Flagger at a metrics address that does not exist, so the built-in <code>request-success-rate</code> check can never pass there. Build the analysis from <strong>webhooks only</strong> (a load-test webhook against <code>flagger-loadtester.test</code>, plus a pre-rollout acceptance check if you want a gate). The mechanics you are practising (Canary spec, generated objects, weight progression, events) are entirely real.</p>
     </div>
   </div>
 </section>
@@ -133,9 +133,9 @@ kubectl argo rollouts status demo -n team-a --timeout 60s  # scriptable, exits n
     <ul>
       <li><strong>Pick the strategy from the constraint.</strong> Cannot afford double capacity → canary. Need instant rollback and a clean cutover → blue-green. Need to compare behaviour per user segment → A/B with header routing, which requires L7.</li>
       <li><strong>Stateful and schema changes break both.</strong> Two versions run at once, so the database must tolerate both. Expand-and-contract migrations are the standard answer, and saying it unprompted signals seniority.</li>
-      <li><strong>Choose metrics the user feels.</strong> Success rate and latency percentiles over the canary's own series; not CPU, not pod restarts. And make sure the query <em>selects only the canary</em> — an analysis that accidentally measures the stable version will happily promote a broken release.</li>
+      <li><strong>Choose metrics the user feels.</strong> Success rate and latency percentiles over the canary's own series; not CPU, not pod restarts. And make sure the query <em>selects only the canary</em>: an analysis that accidentally measures the stable version will happily promote a broken release.</li>
       <li><strong>Enough traffic to be significant.</strong> With three requests a minute, a 20% canary measures noise. Either drive load (Flagger's loadtester, or your own) or lengthen the interval.</li>
-      <li><strong>Where GitOps meets this.</strong> The rollout object lives in git like everything else; the promotion decision does not. Argo CD syncing a Rollout is fine — but if you <code>abort</code> without reverting git, the next sync re-applies the bad image. Consistency of desired state beats cleverness.</li>
+      <li><strong>Where GitOps meets this.</strong> The rollout object lives in git like everything else; the promotion decision does not. Argo CD syncing a Rollout is fine, but if you <code>abort</code> without reverting git, the next sync re-applies the bad image. Consistency of desired state beats cleverness.</li>
     </ul>
   </div>
 </section>
@@ -150,22 +150,22 @@ kubectl argo rollouts get rollout demo -n team-a --watch</code></pre></div>
       <p>First rollout of a new Rollout goes straight to healthy (nothing to compare against). Now change the image to trigger a real canary, in a second terminal:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.28-alpine -n team-a</code></pre></div>
       <p>Check the analysis itself: <code>kubectl -n team-a get analysisrun</code> and read one with <code>-o yaml</code>; the measured value and the success condition are both in status. If the analysis errors because the demo app exposes no <code>http_requests_total</code>, that is faithful to production life; read the AnalysisRun error, then either drive traffic that produces the metric or loosen the query, and understand that an <em>erroring</em> analysis is treated per <code>failureLimit</code> too.</p>
-      <div class="verify"><b>verify</b> — the watch shows the canary ReplicaSet appear, weight steps advance, and the AnalysisRun tick.</div>
+      <div class="verify"><b>verify:</b> the watch shows the canary ReplicaSet appear, weight steps advance, and the AnalysisRun tick.</div>
     </div>
 
     <div class="exercise" data-title="Abort and roll back">
       <p>Trigger another image change, and while it pauses: <code>kubectl argo rollouts abort demo -n team-a</code>. Then <code>kubectl argo rollouts undo demo -n team-a</code> and confirm Healthy.</p>
-      <div class="verify"><b>verify</b> — after abort, status Degraded with the stable image still serving; after undo, Healthy. The pair (abort, undo) is your incident lever during a bad release, and it is exactly what an exam task means by "safely roll back".</div>
+      <div class="verify"><b>verify:</b> after abort, status Degraded with the stable image still serving; after undo, Healthy. The pair (abort, undo) is your incident lever during a bad release, and it is exactly what an exam task means by "safely roll back".</div>
     </div>
 
     <div class="exercise" data-title="Convert canary to blue-green">
       <p>Rewrite the Rollout: strategy <code>blueGreen</code>, two Services (<code>demo-active</code>, <code>demo-preview</code>, both selecting <code>app: demo</code>), <code>autoPromotionEnabled: false</code>. Push a new image and inspect both Services' <code>spec.selector</code> before and after <code>kubectl argo rollouts promote demo -n team-a</code>.</p>
-      <div class="verify"><b>verify</b> — before promotion the preview Service selector carries the new ReplicaSet's pod-template-hash while active still points at the old one; after promotion both point at the new. That selector flip <em>is</em> blue-green; if you can narrate it, you understand the strategy.</div>
+      <div class="verify"><b>verify:</b> before promotion the preview Service selector carries the new ReplicaSet's pod-template-hash while active still points at the old one; after promotion both point at the new. That selector flip <em>is</em> blue-green; if you can narrate it, you understand the strategy.</div>
     </div>
 
     <div class="exercise" data-title="Flagger on the mesh">
       <p>Flagger is on the exam's tool list, so this one is not optional. On <code>kind-mesh</code> (<code>kubectx kind-mesh</code>): deploy podinfo and Flagger's loadtester (both from Flagger's podinfo tutorial manifests), then write a Canary CR targeting the podinfo Deployment with <code>provider: istio</code>. Build the analysis from webhooks only: a <code>load-test</code> webhook against the loadtester (<code>http://flagger-loadtester.test/</code>), and if you want a gate, a <code>pre-rollout</code> acceptance webhook. Then bump the podinfo image and watch <code>kubectl describe canary podinfo</code> events walk the weights up.</p>
-      <div class="verify"><b>verify</b> — the Canary reaches Succeeded (<code>kubectl get canary -A</code>), and while it runs, <code>kubectl get virtualservice podinfo -o yaml</code> shows Flagger moving real route weights between primary and canary. If the Canary sticks in Progressing, its events name the failing check, which is precisely the diagnostic loop a Flagger exam task would hand you.</div>
+      <div class="verify"><b>verify:</b> the Canary reaches Succeeded (<code>kubectl get canary -A</code>), and while it runs, <code>kubectl get virtualservice podinfo -o yaml</code> shows Flagger moving real route weights between primary and canary. If the Canary sticks in Progressing, its events name the failing check, which is precisely the diagnostic loop a Flagger exam task would hand you.</div>
     </div>
 
   </div>
@@ -178,13 +178,13 @@ kubectl argo rollouts get rollout demo -n team-a --watch</code></pre></div>
       <div class="answer"><p>Rollouts rounds to whole pods: it runs one canary pod alongside the stable set, so the real split is nearer 25–33%, not 10%. Exact weights require a traffic provider (Istio, Gateway API, NGINX) or more replicas. Saying that out loud is the difference between reciting the field and understanding it.</p></div></details>
 
     <details class="quiz"><summary>A canary aborted and the AnalysisRun shows measurements in phase Error. What do you check?</summary>
-      <div class="answer"><p>The metric query and its provider: wrong series name, no data yet, unreachable Prometheus, or a selector that matches nothing. Errors count toward <code>failureLimit</code>, so a broken query aborts releases exactly like a bad release does — check the measurement message before touching the application.</p></div></details>
+      <div class="answer"><p>The metric query and its provider: wrong series name, no data yet, unreachable Prometheus, or a selector that matches nothing. Errors count toward <code>failureLimit</code>, so a broken query aborts releases exactly like a bad release does; check the measurement message before touching the application.</p></div></details>
 
     <details class="quiz"><summary>Blue-green with <code>autoPromotionEnabled: false</code>: which Service points where, before and after promote?</summary>
       <div class="answer"><p>Before: active selects the old ReplicaSet's <code>pod-template-hash</code>, preview selects the new one. After: both select the new hash, and the old ReplicaSet lingers for <code>scaleDownDelaySeconds</code> so rollback is a selector flip away. Narrating those selectors is the proof you understand it.</p></div></details>
 
     <details class="quiz"><summary>Argo CD manages your Rollout. You abort a bad canary. What happens next, and what should you do?</summary>
-      <div class="answer"><p>The Rollout spec in git still names the bad image, so the next sync re-applies it and the rollout starts again. Revert the commit (or pin the tag back) — abort is an operational stop, git is the desired state. Same lesson as any manual fix under GitOps.</p></div></details>
+      <div class="answer"><p>The Rollout spec in git still names the bad image, so the next sync re-applies it and the rollout starts again. Revert the commit (or pin the tag back): abort is an operational stop, git is the desired state. Same lesson as any manual fix under GitOps.</p></div></details>
 
     <details class="quiz"><summary>Name two things that make progressive delivery unsafe regardless of tooling.</summary>
       <div class="answer"><p>Database or API changes that both versions cannot tolerate simultaneously (fix with expand-and-contract migrations and backwards-compatible contracts), and metrics too sparse or too coarse to detect harm within the canary window. A third honourable mention: analysis that measures the stable version by accident.</p></div></details>
@@ -195,8 +195,8 @@ kubectl argo rollouts get rollout demo -n team-a --watch</code></pre></div>
   <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
   <div class="pbody">
     <ul class="docs">
-      <li><b>argo-rollouts.readthedocs.io</b> — canary and blueGreen strategy references, AnalysisTemplate spec, the kubectl plugin page, traffic-router support matrix.</li>
-      <li><b>flagger.app</b> — the Istio canary tutorial and the webhook reference.</li>
+      <li><b>argo-rollouts.readthedocs.io</b>: canary and blueGreen strategy references, AnalysisTemplate spec, the kubectl plugin page, traffic-router support matrix.</li>
+      <li><b>flagger.app</b>: the Istio canary tutorial and the webhook reference.</li>
       <li><b>Offline:</b> <code>kubectl argo rollouts --help</code>, <code>kubectl explain rollout.spec.strategy.canary --recursive</code>, <code>kubectl explain canary.spec.analysis</code>.</li>
     </ul>
   </div>

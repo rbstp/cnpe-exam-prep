@@ -1,4 +1,4 @@
-/* CNPE curriculum — interactive figures.
+/* CNPE curriculum: interactive figures.
    No dependencies, no network: every widget draws its own SVG and reacts to input.
    Mount points look like <div class="widget" data-widget="qos"></div>; app.js calls
    CNPE_WIDGETS.mount() on every (re)boot. */
@@ -68,7 +68,7 @@
   /* ── 1.2 · QoS, throttling and eviction ───────────────────── */
   function qos(mount) {
     var f = frame("Requests, limits and what the kernel does with them",
-                  "move the sliders — the class and the failure mode fall out");
+                  "move the sliders; the class and the failure mode fall out");
     var st = { cpuReq: 100, cpuLim: 500, memReq: 128, memLim: 256, cpuUse: 300, memUse: 208 };
     var out = announce(h("div", { "class": "wout" }));
     var ctls = h("div", { "class": "wctls" });
@@ -99,7 +99,7 @@
       var klass = !anySet ? "BestEffort" : guaranteed ? "Guaranteed" : "Burstable";
       var kcls = klass === "Guaranteed" ? "ok" : klass === "Burstable" ? "warn" : "bad";
       var evict = klass === "Guaranteed" ? "evicted last"
-                : klass === "Burstable" ? (st.memUse > st.memReq ? "evicted early — using more memory than it requested" : "evicted after BestEffort")
+                : klass === "Burstable" ? (st.memUse > st.memReq ? "evicted early, using more memory than it requested" : "evicted after BestEffort")
                 : "evicted first";
       var throttled = st.cpuLim && st.cpuUse > st.cpuLim;
       var oom = st.memLim && st.memUse > st.memLim;
@@ -119,8 +119,8 @@
           '<div class="wcell wspan"><span class="wk">the scheduler reserves</span><span class="wv">' +
             (claims ? (st.cpuReq ? st.cpuReq + "m cpu" : "no cpu") + " / " + (st.memReq ? st.memReq + "Mi" : "no memory") +
                       " on a node, whether or not it is used" +
-                      (st.cpuReq && st.cpuUse < st.cpuReq ? " — " + (st.cpuReq - st.cpuUse) + "m of that is waste you still pay for" : "")
-                    : "nothing — a BestEffort pod claims no capacity, so the scheduler will pack it anywhere") +
+                      (st.cpuReq && st.cpuUse < st.cpuReq ? "; " + (st.cpuReq - st.cpuUse) + "m of that is waste you still pay for" : "")
+                    : "nothing: a BestEffort pod claims no capacity, so the scheduler will pack it anywhere") +
           "</span></div>" +
         "</div>" +
         '<div class="wmeter"><span class="wk">cpu</span>' + bar(st.cpuUse / 10, throttled ? "warn" : "") +
@@ -153,14 +153,14 @@
       var cap = 4000, free = st.alloc - st.req, eff = st.req ? Math.round(st.use / st.req * 100) : 0;
       out.innerHTML =
         '<div class="wstack">' +
-          row("capacity", cap, cap, "", "4000m — the machine you pay for") +
-          row("allocatable", st.alloc, cap, "dim", "3800m — minus kubelet, system and eviction reserves") +
-          row("requested", st.req, cap, "blue", st.req + "m — what the scheduler counts") +
-          row("used", st.use, cap, "green", st.use + "m — what the processes actually burn") +
+          row("capacity", cap, cap, "", "4000m: the machine you pay for") +
+          row("allocatable", st.alloc, cap, "dim", "3800m: minus kubelet, system and eviction reserves") +
+          row("requested", st.req, cap, "blue", st.req + "m: what the scheduler counts") +
+          row("used", st.use, cap, "green", st.use + "m: what the processes actually burn") +
         "</div>" +
         '<div class="wgrid">' +
           '<div class="wcell"><span class="wk">room for another pod</span>' +
-            (free > 0 ? verdict("ok", free + "m unrequested") : verdict("bad", "none — Pending")) + "</div>" +
+            (free > 0 ? verdict("ok", free + "m unrequested") : verdict("bad", "none: Pending")) + "</div>" +
           '<div class="wcell"><span class="wk">request efficiency</span>' +
             verdict(eff > 70 ? "ok" : eff > 40 ? "warn" : "bad", eff + "%") + "</div>" +
           '<div class="wcell"><span class="wk">paid for, never used</span><span class="wv">' +
@@ -226,7 +226,7 @@
                 ", used: " + binding.k + "=" + q(binding.max * per) + ", limited: " + binding.k + "=" + q(binding.hard) +
                 "</code><br>The ReplicaSet stalls at " + binding.max + " pods, and this is the line the event names.</div>";
             })()
-          : '<div class="wnote ok">all ' + st.replicas + " pods admit. Raise the replicas until something binds — note which line goes first.</div>");
+          : '<div class="wnote ok">all ' + st.replicas + " pods admit. Raise the replicas until something binds; note which line goes first.</div>");
     }
     f.body.appendChild(ctls); f.body.appendChild(out); sync(); draw();
     mount.appendChild(f.root);
@@ -276,14 +276,14 @@
 
   /* ── 2.2 · the sync × health matrix ───────────────────────── */
   function syncmatrix(mount) {
-    var f = frame("Sync status × health status", "click a cell — each combination has exactly one right move");
+    var f = frame("Sync status × health status", "click a cell; each combination has exactly one right move");
     var cells = [
-      { s: "Synced", hh: "Healthy", cls: "ok", t: "Nothing to do. Live matches git and the workloads are up. The only question worth asking is <em>when</em> it last synced — a stale-but-green app looks exactly like this." },
+      { s: "Synced", hh: "Healthy", cls: "ok", t: "Nothing to do. Live matches git and the workloads are up. The only question worth asking is <em>when</em> it last synced; a stale-but-green app looks exactly like this." },
       { s: "Synced", hh: "Degraded", cls: "bad", t: "<b>Git is wrong, the cluster is faithful.</b> Bad image tag, impossible request, missing key. Re-syncing does nothing: the diff is already empty. Fix the commit." },
-      { s: "OutOfSync", hh: "Healthy", cls: "warn", t: "Drift, or an un-synced change waiting. If self-heal is on it corrects itself in seconds; if not, <code>argocd app diff</code> shows exactly what diverged. Also the shape of a permanent diff from a mutating webhook — that wants <code>ignoreDifferences</code>." },
+      { s: "OutOfSync", hh: "Healthy", cls: "warn", t: "Drift, or an un-synced change waiting. If self-heal is on it corrects itself in seconds; if not, <code>argocd app diff</code> shows exactly what diverged. Also the shape of a permanent diff from a mutating webhook, which wants <code>ignoreDifferences</code>." },
       { s: "OutOfSync", hh: "Degraded", cls: "bad", t: "Two problems stacked, and the sync failure usually caused the health one. Read the sync operation message first: admission denial, immutable field, missing CRD." },
-      { s: "Unknown", hh: "—", cls: "bad", t: "<b>Access, not workload.</b> The controller cannot reach the repo or compare state: bad credentials, unreachable git, RBAC. The error names the controller's own identity and no pod is involved." },
-      { s: "Synced", hh: "Progressing", cls: "warn", t: "A rollout in flight — or a Deployment that will flip to Degraded once <code>progressDeadlineSeconds</code> expires. Do not wait it out: the pod events already tell you which one it is." }
+      { s: "Unknown", hh: "n/a", cls: "bad", t: "<b>Access, not workload.</b> The controller cannot reach the repo or compare state: bad credentials, unreachable git, RBAC. The error names the controller's own identity and no pod is involved." },
+      { s: "Synced", hh: "Progressing", cls: "warn", t: "A rollout in flight, or a Deployment that will flip to Degraded once <code>progressDeadlineSeconds</code> expires. Do not wait it out: the pod events already tell you which one it is." }
     ];
     var grid = h("div", { "class": "wchips" });
     var detail = h("div", { "class": "wnote" , html: "Pick a combination." });
@@ -305,7 +305,7 @@
 
   /* ── 2.5 · canary steps, replica weight vs route weight ───── */
   function canary(mount) {
-    var f = frame("Canary progression", "step through it — and switch how the traffic is actually split");
+    var f = frame("Canary progression", "step through it, and switch how the traffic is actually split");
     var steps = [
       { label: "setWeight: 20", w: 20 },
       { label: "pause: 60s", w: 20, pause: true },
@@ -357,14 +357,14 @@
             verdict(actual === want ? "ok" : "warn", actual + "%" + (actual === want ? "" : " (rounded to whole pods)")) + "</div>" +
           '<div class="wcell"><span class="wk">replicas</span><span class="wv">' + (st.replicas - canaryPods) + " stable / " + canaryPods + " canary</span></div>" +
           '<div class="wcell"><span class="wk">rollout status</span>' +
-            (st.aborted ? verdict("bad", "Degraded — aborted, stable serving")
-              : st.i === steps.length - 1 ? verdict("ok", "Healthy — fully promoted")
+            (st.aborted ? verdict("bad", "Degraded: aborted, stable serving")
+              : st.i === steps.length - 1 ? verdict("ok", "Healthy: fully promoted")
               : s.analysis ? verdict(bad.input.checked ? "bad" : "warn", "running AnalysisRun")
               : verdict("warn", s.pause ? "paused, waiting" : "progressing")) + "</div>" +
         "</div>" +
         '<div class="wnote ' + (st.aborted ? "bad" : "") + '">' +
           (st.aborted
-            ? "Aborted. All traffic is back on stable, but <code>spec</code> still asks for the new image, so status stays Degraded until you <code>undo</code> — and under GitOps, until you revert the commit."
+            ? "Aborted. All traffic is back on stable, but <code>spec</code> still asks for the new image, so status stays Degraded until you <code>undo</code> (and under GitOps, until you revert the commit)."
             : mode.input.checked
               ? "With a traffic provider the split is a <b>route weight</b>: exact, and independent of replica count."
               : "Without a traffic provider the split is a <b>replica ratio</b>: " + st.replicas + " replicas means the finest step you can express is " + Math.round(100 / st.replicas) + "%.") +
@@ -376,7 +376,7 @@
 
   /* ── 4.1 · counters, rate() and the window ────────────────── */
   function promrate(mount) {
-    var f = frame("A counter, and what rate() makes of it", "drag the window — and restart the process to see a reset");
+    var f = frame("A counter, and what rate() makes of it", "drag the window, and restart the process to see a reset");
     var st = { win: 5, spike: false, reset: false };
     var ctls = h("div", { "class": "wctls" });
     var out = announce(h("div", { "class": "wout" }));
@@ -445,12 +445,12 @@
         '<div class="wcell"><span class="wk">raw counter now</span><span class="wv wnum">' + b + "</span></div>" +
         '<div class="wcell"><span class="wk">naive (last − first) / window</span>' +
           verdict(naive < 0 ? "bad" : "ok", naive.toFixed(2) + " /s") + "</div>" +
-        '<div class="wcell"><span class="wk">rate() — reset-aware</span>' + verdict("ok", Math.max(0, corrected).toFixed(2) + " /s") + "</div>" +
+        '<div class="wcell"><span class="wk">rate(), reset-aware</span>' + verdict("ok", Math.max(0, corrected).toFixed(2) + " /s") + "</div>" +
         '<div class="wcell wspan"><span class="wk">why it matters</span><span class="wv">' +
           (st.reset && t0 <= 20
             ? "The counter fell to zero mid-window. A plain subtraction goes negative and lies; <code>rate()</code> detects the reset and adds the pre-reset value back."
             : st.spike && st.win > 8
-              ? "A long window averages the spike away — the burst is real, and a " + st.win + "m window barely shows it. Shorter windows are twitchier but see events."
+              ? "A long window averages the spike away: the burst is real, and a " + st.win + "m window barely shows it. Shorter windows are twitchier but see events."
               : "Counters only climb, so the value itself is meaningless. Every useful question about a counter is a question about its rate.") +
         "</span></div>";
       out.appendChild(info);
@@ -501,15 +501,15 @@
           '<div class="wcell"><span class="wk">seen by Prometheus at</span><span class="wv wnum">' + detect + "s</span></div>" +
           '<div class="wcell"><span class="wk">Firing at</span>' + (everFires ? verdict("warn", fires + "s") : verdict("bad", "never")) + "</div>" +
           '<div class="wcell"><span class="wk">receiver hears at</span>' + (everFires ? verdict("bad", notified + "s") : verdict("ok", "silence")) + "</div>" +
-          '<div class="wcell"><span class="wk">total lag</span><span class="wv wnum">' + (everFires ? notified + "s" : "—") + "</span></div>" +
+          '<div class="wcell"><span class="wk">total lag</span><span class="wv wnum">' + (everFires ? notified + "s" : "none") + "</span></div>" +
         "</div>" +
         '<div class="wnote ' + (everFires ? "" : "ok") + '">' +
           (!everFires
-            ? "The condition cleared after " + st.blip + "s, before the alert could survive detection (" + detect + "s) plus <code>for: " + st.forS + "s</code> — so it never fired and nobody was told. That is exactly what <code>for:</code> is for: swallowing blips."
+            ? "The condition cleared after " + st.blip + "s, before the alert could survive detection (" + detect + "s) plus <code>for: " + st.forS + "s</code>, so it never fired and nobody was told. That is exactly what <code>for:</code> is for: swallowing blips."
             : st.forS === 0
-              ? "With <code>for: 0</code> the alert goes straight to Firing on the first evaluation that sees it — no Pending window at all. Fast, and it will page you for a single scrape's worth of noise."
+              ? "With <code>for: 0</code> the alert goes straight to Firing on the first evaluation that sees it: no Pending window at all. Fast, and it will page you for a single scrape's worth of noise."
               : "The alert is visible as Pending in Prometheus " + detect + "s in, and <em>nowhere else</em> until " + fires +
-                "s — note the transition lands on an evaluation tick, not exactly at detection + for:. If someone says \"the alert is showing but nothing paged\", that is this window.") +
+                "s; note the transition lands on an evaluation tick, not exactly at detection + for:. If someone says \"the alert is showing but nothing paged\", that is this window.") +
         "</div>";
     }
     f.body.appendChild(ctls); f.body.appendChild(out); draw();
@@ -561,7 +561,7 @@
             (okRestricted ? verdict("ok", "admitted") : verdict("bad", "rejected")) +
             '<span class="wv">' + (okRestricted ? "actively safe" : (okBaseline ? "missing: " + restrictedMissing.join(", ") : "fails baseline first")) + "</span></div>" +
         "</div>" +
-        '<div class="wnote">In a namespace with <code>enforce: baseline</code> and <code>warn: restricted</code> — the lab\'s team-a — this pod would ' +
+        '<div class="wnote">In a namespace with <code>enforce: baseline</code> and <code>warn: restricted</code> (the lab\'s team-a), this pod would ' +
           (okBaseline ? "<b class='ok'>be admitted</b>" : "<b class='bad'>be rejected</b>") +
           (okBaseline && !okRestricted ? ", and print a warning naming " + restrictedMissing.length + " restricted violation" + (restrictedMissing.length === 1 ? "" : "s") + " that the audit log also records." : ".") +
         "</div>";
@@ -612,11 +612,11 @@
                 allow = st.binding === "ClusterRoleBinding" && clusterScoped;
                 why = clusterScoped
                   ? (allow ? "cluster-scoped resources need a ClusterRoleBinding" : "a RoleBinding can never grant cluster-scoped access")
-                  : "not applicable — " + st.res + " are namespaced";
+                  : "not applicable: " + st.res + " are namespaced";
                 if (!clusterScoped) allow = null;
               } else if (st.binding === "ClusterRoleBinding") {
                 allow = !clusterScoped || false;
-                why = clusterScoped ? "nodes are not in a namespace" : "a ClusterRoleBinding grants everywhere — usually more than you meant";
+                why = clusterScoped ? "nodes are not in a namespace" : "a ClusterRoleBinding grants everywhere, usually more than you meant";
                 if (clusterScoped) allow = false;
               } else {
                 allow = r.ns === "team-a" && !clusterScoped;
@@ -635,11 +635,11 @@
             (st.role === "ClusterRole" && st.binding === "RoleBinding"
               ? "<b>The pattern worth memorising:</b> define the role once as a ClusterRole, bind it per tenant with a RoleBinding. One definition, per-namespace grants."
               : st.binding === "ClusterRoleBinding" && !clusterScoped
-                ? "This grants the rules in <em>every</em> namespace, including ones that do not exist yet. Almost always the wrong default — and the check an exam task adds to catch it is \"and not in team-b\"."
+                ? "This grants the rules in <em>every</em> namespace, including ones that do not exist yet. Almost always the wrong default, and the check an exam task adds to catch it is \"and not in team-b\"."
                 : "Namespaced and self-contained. Fine for one tenant; you will copy the Role into every new namespace.") +
           "</div>";
       var proof = h("div", { "class": "wproof", html:
-        '<code>kubectl auth can-i ' + st.verb + " " + st.res + " --as=dev-a -n team-b</code> — end every RBAC task with this." });
+        '<code>kubectl auth can-i ' + st.verb + " " + st.res + " --as=dev-a -n team-b</code>: end every RBAC task with this." });
       out.appendChild(proof);
     }
     f.body.appendChild(ctls); f.body.appendChild(out); draw();
@@ -666,17 +666,17 @@
       var hops = [
         { n: "client pod", ok: true, note: "curl http://backend.team-a.svc:8080" },
         { n: "DNS (CoreDNS)", ok: st.dns,
-          fail: "name does not resolve — every pod stays Running and nothing works",
+          fail: "name does not resolve; every pod stays Running and nothing works",
           cmd: "kubectl exec … -- nslookup backend.team-a  ·  hubble observe --verdict DROPPED" },
-        { n: "Service (ClusterIP)", ok: true, note: "a VIP, translated by the datapath — nothing listens on it" },
+        { n: "Service (ClusterIP)", ok: true, note: "a VIP, translated by the datapath; nothing listens on it" },
         { n: "EndpointSlice", ok: st.selector && st.ready,
-          fail: st.selector ? "no ready endpoints — readiness gates slice membership" : "empty slice — the selector matches nothing",
+          fail: st.selector ? "no ready endpoints; readiness gates slice membership" : "empty slice; the selector matches nothing",
           cmd: "kubectl get endpointslices -l kubernetes.io/service-name=backend" },
         { n: "NetworkPolicy", ok: st.policy,
-          fail: "dropped — an egress allow on the caller and an ingress allow on the callee are both required",
+          fail: "dropped; an egress allow on the caller and an ingress allow on the callee are both required",
           cmd: "hubble observe --namespace team-a --verdict DROPPED" },
         { n: "pod:targetPort", ok: st.port,
-          fail: "connection refused — the Service points at a port nothing listens on",
+          fail: "connection refused; the Service points at a port nothing listens on",
           cmd: "kubectl get svc backend -o jsonpath='{.spec.ports[*].targetPort}'" }
       ];
       var firstBad = hops.filter(function (x) { return !x.ok; })[0];
@@ -687,14 +687,14 @@
                  '<span class="whop-s">' + (state === "pass" ? "✓" : state === "fail" ? "✕" : "·") + "</span></div>";
         }).join('<span class="whop-arr">↓</span>') + "</div>" +
         (firstBad
-          ? '<div class="wnote bad"><b>' + firstBad.n + "</b> — " + firstBad.fail +
+          ? '<div class="wnote bad"><b>' + firstBad.n + "</b>: " + firstBad.fail +
             '<div class="wproof" style="margin-top:6px"><code>' + firstBad.cmd + "</code></div></div>"
-          : '<div class="wnote ok">200. Every hop is doing its job — and this is the state you have to reproduce before you can claim an incident is over.</div>') +
+          : '<div class="wnote ok">200. Every hop is doing its job, and this is the state you have to reproduce before you can claim an incident is over.</div>') +
         '<div class="wnote">Symptom as the user reports it: <b>' +
-          (!st.dns ? "“it hangs” — DNS timeouts look like a slow app"
-           : !st.selector || !st.ready ? "“connection refused” — the name resolves, nothing is behind it"
-           : !st.policy ? "“it hangs, then times out” — drops are silent by design"
-           : !st.port ? "“connection refused” — instantly, from the pod itself"
+          (!st.dns ? "“it hangs”: DNS timeouts look like a slow app"
+           : !st.selector || !st.ready ? "“connection refused”: the name resolves, nothing is behind it"
+           : !st.policy ? "“it hangs, then times out”: drops are silent by design"
+           : !st.port ? "“connection refused”: instantly, from the pod itself"
            : "nothing to report") + "</b></div>";
     }
     f.body.appendChild(ctls); f.body.appendChild(out); draw();
@@ -715,7 +715,7 @@
       ctls.appendChild(b);
       return b;
     }
-    btn("commit: replicas 5", function () { st.git = 5; note("git now says 5 replicas — nothing has happened in the cluster yet"); });
+    btn("commit: replicas 5", function () { st.git = 5; note("git now says 5 replicas; nothing has happened in the cluster yet"); });
     btn("kubectl scale --replicas=9", function () { st.live = 9; note("live drift: someone scaled by hand"); });
     btn("delete service.yaml from git", function () { st.gitHasSvc = false; note("the Service manifest is gone from git"); }, "danger");
     btn("⟳ reconcile now", tick);
@@ -731,17 +731,17 @@
 
     function note(s) { st.log.unshift(s); st.log = st.log.slice(0, 4); }
     function tick() {
-      if (st.suspended) { note("suspended — the controller did nothing, and reported no error either"); return; }
+      if (st.suspended) { note("suspended: the controller did nothing, and reported no error either"); return; }
       var acted = false;
       if (st.live !== st.git) {
-        if (st.live > st.git && !st.selfHeal) { note("OutOfSync reported: live " + st.live + " ≠ git " + st.git + ". Nothing corrected — selfHeal is off"); }
+        if (st.live > st.git && !st.selfHeal) { note("OutOfSync reported: live " + st.live + " ≠ git " + st.git + ". Nothing corrected: selfHeal is off"); }
         else { note("applied git: replicas " + st.live + " → " + st.git); st.live = st.git; acted = true; }
       }
       if (!st.gitHasSvc && st.liveHasSvc) {
         if (st.prune) { st.liveHasSvc = false; note("pruned: the live Service was deleted because its manifest left git"); acted = true; }
-        else { note("the Service is gone from git but stays in the cluster — without prune it lingers forever"); }
+        else { note("the Service is gone from git but stays in the cluster; without prune it lingers forever"); }
       }
-      if (!acted && st.live === st.git && st.gitHasSvc) note("nothing to do — live already matches git");
+      if (!acted && st.live === st.git && st.gitHasSvc) note("nothing to do: live already matches git");
     }
     function draw() {
       var drift = st.live !== st.git || st.gitHasSvc !== st.liveHasSvc;
@@ -754,7 +754,7 @@
           '<div class="wcell"><span class="wk">sync status</span>' +
             (st.suspended ? verdict("warn", "Suspended") : drift ? verdict("bad", "OutOfSync") : verdict("ok", "Synced")) + "</div>" +
           '<div class="wcell"><span class="wk">what a green dashboard hides</span><span class="wv">' +
-            (st.suspended ? "a suspended app reports no error at all — check suspension first"
+            (st.suspended ? "a suspended app reports no error at all; check suspension first"
                           : drift ? "the diff is real until the next tick" : "nothing right now") + "</span></div>" +
         "</div>" +
         '<div class="wlog">' + (st.log.length ? st.log.map(function (l) { return "<div>› " + l + "</div>"; }).join("")
@@ -766,7 +766,7 @@
 
   /* ── 5.2 · the admission pipeline ─────────────────────────── */
   function admission(mount) {
-    var f = frame("One pod through the admission pipeline", "the order is what makes policies fire — or silently not");
+    var f = frame("One pod through the admission pipeline", "the order is what makes policies fire, or silently not");
     var st = { limitRange: true, declares: false, privileged: false, kyverno: "Audit", pss: "baseline" };
     var ctls = h("div", { "class": "wctls" });
     var picks = h("div", { "class": "wctls wctls-row" });
@@ -807,7 +807,7 @@
       var pssFail = (st.pss === "baseline" || st.pss === "restricted") && st.privileged;
       stages.push({ n: "PodSecurity (" + st.pss + ")", ok: !pssFail,
         note: pssFail ? "violates the profile: privileged containers are not allowed"
-                      : st.pss === "restricted" && !st.privileged ? "would also demand runAsNonRoot, drop ALL, seccomp — assume they are set"
+                      : st.pss === "restricted" && !st.privileged ? "would also demand runAsNonRoot, drop ALL, seccomp; assume they are set"
                       : "nothing dangerous declared" });
       var kyvFail = st.kyverno === "Deny" && !hasRequests;
       stages.push({ n: "kyverno ValidatingPolicy", ok: !kyvFail,
@@ -815,7 +815,7 @@
           ? (st.kyverno === "Deny" ? "rejected: every container must set cpu and memory requests"
                                    : "violation recorded in a PolicyReport, pod admitted")
           : (st.limitRange && !st.declares
-              ? "sees requests that the LimitRange injected — the policy passes on values the user never wrote"
+              ? "sees requests that the LimitRange injected; the policy passes on values the user never wrote"
               : "requests are present") });
       var firstBad = stages.filter(function (s) { return !s.ok; })[0];
       stages.push({ n: "persisted to etcd", ok: !firstBad, note: firstBad ? "never reached" : "the pod exists" });
@@ -828,10 +828,10 @@
                  '<span class="whop-s">' + (state === "pass" ? "✓" : state === "fail" ? "✕" : "·") + "</span>" +
                  '<span class="whop-note">' + s.note + "</span></div>";
         }).join('<span class="whop-arr">↓</span>') + "</div>" +
-        (firstBad ? '<div class="wnote bad">Rejected at <b>' + firstBad.n + "</b>. The message arrives in the apply error, verbatim — and if this were a Deployment, it would land on the ReplicaSet instead of on your terminal.</div>"
+        (firstBad ? '<div class="wnote bad">Rejected at <b>' + firstBad.n + "</b>. The message arrives in the apply error, verbatim, and if this were a Deployment, it would land on the ReplicaSet instead of on your terminal.</div>"
                   : '<div class="wnote ok">Admitted.</div>') +
         (st.limitRange && !st.declares && st.kyverno === "Deny" && hasRequests
-          ? '<div class="wnote warn">Note what just happened: the policy is in <b>Deny</b> and the pod declared nothing, yet it passed — because a <em>mutation</em> ran first and satisfied the validation. This is why the lab drills that policy in a namespace with no LimitRange.</div>'
+          ? '<div class="wnote warn">Note what just happened: the policy is in <b>Deny</b> and the pod declared nothing, yet it passed, because a <em>mutation</em> ran first and satisfied the validation. This is why the lab drills that policy in a namespace with no LimitRange.</div>'
           : "");
     }
     f.body.appendChild(ctls); f.body.appendChild(picks); f.body.appendChild(out); draw();

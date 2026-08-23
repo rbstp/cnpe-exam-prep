@@ -155,22 +155,22 @@ spec:
           spec:
             hard: { requests.cpu: "1", requests.memory: 2Gi, pods: "10" }</code></pre></div>
       <p><code>kubectl create -f</code> it (generateName forbids apply), then watch: <code>kubectl get workflow -w</code>.</p>
-      <div class="verify"><b>verify</b> — the workflow reaches Succeeded, <em>and</em> <code>kubectl get ns team-d --show-labels</code> plus <code>kubectl -n team-d get resourcequota</code> show the artifacts. A green workflow that produced nothing would still be a failure; check the output, not the runner.</div>
+      <div class="verify"><b>verify:</b> the workflow reaches Succeeded, <em>and</em> <code>kubectl get ns team-d --show-labels</code> plus <code>kubectl -n team-d get resourcequota</code> show the artifacts. A green workflow that produced nothing would still be a failure; check the output, not the runner.</div>
     </div>
 
     <div class="exercise" data-title="Break it on RBAC, on purpose">
       <p>Rerun with <code>serviceAccountName: default</code> and a new team name. Which rule it names first is instructive: with the bare default SA the executor usually trips over <code>workflowtaskresults</code> (its own reporting channel) before your namespace rule even gets a chance — an Argo-specific wrinkle that looks baffling until you have seen it once.</p>
-      <div class="verify"><b>verify</b> — the workflow fails, and <code>kubectl get workflow &lt;name&gt; -o jsonpath='{.status.nodes}' | jq '.[] | {phase, message}'</code> contains a <code>forbidden</code> message naming a missing verb and resource. The message structure is identical for every RBAC failure you will ever debug.</div>
+      <div class="verify"><b>verify:</b> the workflow fails, and <code>kubectl get workflow &lt;name&gt; -o jsonpath='{.status.nodes}' | jq '.[] | {phase, message}'</code> contains a <code>forbidden</code> message naming a missing verb and resource. The message structure is identical for every RBAC failure you will ever debug.</div>
     </div>
 
     <div class="exercise" data-title="Parameterise from outside">
       <p>Submit the same workflow for <code>team-e</code> without editing the file. The UI's submit flow lists WorkflowTemplates, not bare Workflows, so either promote yours to a <code>WorkflowTemplate</code> first (change the kind, drop generateName for a name) and submit it from the UI with the parameter overridden, or stay in the shell and <code>sed 's/team-d/team-e/' workflow.yaml | kubectl create -f -</code>.</p>
-      <div class="verify"><b>verify</b> — two tenants exist, one workflow spec. Parameters-at-submit is what makes a workflow a self-service endpoint rather than a script, and the WorkflowTemplate promotion is exactly how you would productise it.</div>
+      <div class="verify"><b>verify:</b> two tenants exist, one workflow spec. Parameters-at-submit is what makes a workflow a self-service endpoint rather than a script, and the WorkflowTemplate promotion is exactly how you would productise it.</div>
     </div>
 
     <div class="exercise" data-title="A guardrail branch (stretch)">
       <p>Add a first DAG node <code>check</code> using a <code>script</code> template that exits non-zero when <code>{{workflow.parameters.team}}</code> doesn't match <code>^team-[a-z]+$</code>, and make the other nodes depend on it.</p>
-      <div class="verify"><b>verify</b> — a run with <code>team=Team_X</code> fails at check and creates nothing. Input validation before side effects; the same shape as admission, one layer earlier. Clean up the test tenants when done: <code>kubectl delete ns team-d team-e</code>.</div>
+      <div class="verify"><b>verify:</b> a run with <code>team=Team_X</code> fails at check and creates nothing. Input validation before side effects; the same shape as admission, one layer earlier. Clean up the test tenants when done: <code>kubectl delete ns team-d team-e</code>.</div>
     </div>
 
   </div>
@@ -200,7 +200,7 @@ spec:
   <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
   <div class="pbody">
     <ul class="docs">
-      <li><b>argo-workflows.readthedocs.io</b> — core concepts, the fields reference for <code>resource</code> templates, DAG examples, and the WorkflowTemplate page.</li>
+      <li><b>argo-workflows.readthedocs.io</b>: core concepts, the fields reference for <code>resource</code> templates, DAG examples, and the WorkflowTemplate page.</li>
       <li>The Workflows UI's built-in examples (submit → examples) are a legitimate crib sheet during practice.</li>
       <li><b>Offline:</b> <code>kubectl explain workflow.spec.templates --recursive</code> and <code>argo submit --help</code>.</li>
     </ul>

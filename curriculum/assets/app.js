@@ -1,4 +1,4 @@
-/* CNPE curriculum — page runtime.
+/* CNPE curriculum: page runtime.
    Builds the chrome from nav.js, wires copy buttons, progress, TOC, palette and keys.
    Everything persists in localStorage; nothing here needs a server (file:// works). */
 (function () {
@@ -49,7 +49,7 @@
   /* Union, never overwrite: an imported file can move an item from not-done to
      done and can add items this browser has never seen, but it cannot un-tick
      anything. Reset progress first if you want a plain restore. The mock exam's
-     clock is deliberately left alone — only its scored tasks merge. */
+     clock is deliberately left alone; only its scored tasks merge. */
   function mergeProgress(src) {
     var n = { done: 0, ex: 0, exam: 0 };
     function union(into, from, bucket) {
@@ -86,7 +86,7 @@
     }
     var n = mergeProgress(src);
     save();                                  // mergeProgress may have moved store.last on its own
-    if (!n.done && !n.ex && !n.exam) return "Nothing new in that file — this browser is already up to date.";
+    if (!n.done && !n.ex && !n.exam) return "Nothing new in that file; this browser is already up to date.";
     return { added: n };
   }
 
@@ -178,7 +178,7 @@
     inner.appendChild(hb);
 
     // Almost every section tells you to run a make target, so the lab has to be
-    // reachable from any page — someone can land on a deep section from a link.
+    // reachable from any page, since someone can land on a deep section from a link.
     var repo = el("a", "iconbtn",
       '<svg class="gh" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">' +
         '<path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 '
@@ -249,7 +249,7 @@
     var pref = window.CNPE_THEME.pref();
     var name = pref === "system" ? "system (" + window.CNPE_THEME.resolved() + ")" : pref;
     b.innerHTML = THEME_ICON[pref];
-    b.title = "Theme: " + name + " — switch to " + THEME_NEXT[pref] + " (t)";
+    b.title = "Theme: " + name + " · switch to " + THEME_NEXT[pref] + " (t)";
     b.setAttribute("aria-label", b.title);
   }
 
@@ -740,7 +740,7 @@
       var name = "cnpe-progress-" + new Date().toISOString().slice(0, 10) + ".json";
       if (saveFile(name, text)) { say("Wrote " + name + " to your downloads."); return; }
       // some browsers refuse a scripted download from file://; hand over the text instead
-      say("This browser blocked the download — copy the JSON below into " + name + ".");
+      say("This browser blocked the download; copy the JSON below into " + name + ".");
       var box = document.getElementById("io-box") || el("div", "iobox");
       box.id = "io-box";
       box.innerHTML = "";
@@ -900,7 +900,7 @@
       }).join("") +
       '<div class="wcell wspan"><span class="wk">read this before the total</span><span class="wv">' +
         (Object.keys(byDomain).some(function (d) { return byDomain[d].got === 0; })
-          ? "A domain at zero fails you in ways an average hides — re-drill that one first."
+          ? "A domain at zero fails you in ways an average hides; re-drill that one first."
           : "Every domain is on the board. Now push the weakest one above 70%.") +
       "</span></div>";
     }

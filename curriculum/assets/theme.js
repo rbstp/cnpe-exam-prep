@@ -1,10 +1,10 @@
-/* CNPE curriculum — theme.
+/* CNPE curriculum: theme.
    Loaded from <head>, before the body paints, so a pinned theme is on the root
    element from the first frame and no page flashes the wrong ground.
 
    Three states, cycled by the masthead button (or the "t" key):
 
-     system   nothing stored, no attribute — style.css follows
+     system   nothing stored, no attribute; style.css follows
               prefers-color-scheme, so this also works with scripting off
      light    data-theme="light"
      dark     data-theme="dark"

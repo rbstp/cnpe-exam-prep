@@ -27,7 +27,7 @@
     <p class="lede">A namespace is a folder. A <em>tenant</em> is a namespace with a stack of controls attached, each one closing a different hole, and each one able to be the thing that just refused your pod. The competency's word is "optimizing", which is the giveaway: the exam cares about isolation that does not waste capacity, and about knowing which control refused you.</p>
     <div class="callout model">
       <span class="tag">The soft/hard spectrum</span>
-      <p>Multi-tenancy is not a switch. <strong>Soft</strong>: shared control plane and nodes, separation by namespace, quota, policy and RBAC — this lab, and most platforms. <strong>Harder</strong>: dedicated node pools via taints (no shared kernel), then virtual clusters (own API server, e.g. vcluster), then separate clusters. Each step up costs idle capacity and operational surface. Being able to name the ladder <em>and</em> say what each rung buys is a complete answer to any "how would you isolate these tenants" question.</p>
+      <p>Multi-tenancy is not a switch. <strong>Soft</strong>: shared control plane and nodes, separation by namespace, quota, policy and RBAC: this lab, and most platforms. <strong>Harder</strong>: dedicated node pools via taints (no shared kernel), then virtual clusters (own API server, e.g. vcluster), then separate clusters. Each step up costs idle capacity and operational surface. Being able to name the ladder <em>and</em> say what each rung buys is a complete answer to any "how would you isolate these tenants" question.</p>
     </div>
   </div>
 </section>
@@ -36,9 +36,9 @@
   <div class="phdr"><h2>The isolation stack, control by control</h2><span class="meta">what refuses you, and with which message</span></div>
   <div class="pbody">
     <ol>
-      <li><strong>ResourceQuota</strong> caps the namespace total: <code>requests.*</code>, <code>limits.*</code>, object counts (<code>pods: "20"</code>, <code>count/services.loadbalancers: "1"</code>), and storage per class. Crucially, a quota that lists <code>requests.cpu</code> or <code>limits.memory</code> <em>rejects any pod that fails to declare them</em> — which leads directly to point 2.</li>
+      <li><strong>ResourceQuota</strong> caps the namespace total: <code>requests.*</code>, <code>limits.*</code>, object counts (<code>pods: "20"</code>, <code>count/services.loadbalancers: "1"</code>), and storage per class. Crucially, a quota that lists <code>requests.cpu</code> or <code>limits.memory</code> <em>rejects any pod that fails to declare them</em>, which leads directly to point 2.</li>
       <li><strong>LimitRange</strong> fills in per-container defaults (<code>default</code>, <code>defaultRequest</code>) and bounds (<code>min</code>, <code>max</code>, <code>maxLimitRequestRatio</code>), so a bare pod arrives at the quota check with numbers already attached. LimitRange defaulting is what keeps tenant onboarding friction-free while the quota stays enforceable.</li>
-      <li><strong>NetworkPolicy</strong> default-deny plus explicit allows. team-a allows same-namespace traffic and DNS to kube-dns, nothing else. Additive allow-lists mean you loosen by adding policies and tighten only by removing rules — an asymmetry the netpol break drill exploits.</li>
+      <li><strong>NetworkPolicy</strong> default-deny plus explicit allows. team-a allows same-namespace traffic and DNS to kube-dns, nothing else. Additive allow-lists mean you loosen by adding policies and tighten only by removing rules, an asymmetry the netpol break drill exploits.</li>
       <li><strong>Pod Security Standards</strong> labels on the namespace (enforce baseline, warn and audit restricted here). Covered properly in section 5.3.</li>
       <li><strong>RBAC scoping</strong>: a Role and RoleBinding giving user <code>dev-a</code> real rights inside team-a and none outside. Covered properly in section 5.1.</li>
     </ol>
@@ -62,7 +62,7 @@
       </table>
     </div>
     <p>Being able to name the refusing control from one line of error text is worth more than any amount of theory here, because it is the difference between fixing the right object and thrashing.</p>
-    <p>Do the arithmetic the way the admission controller does. Push the replicas up and see which line binds first — and what changes when the tenant declares resources instead of letting the LimitRange fill them in:</p>
+    <p>Do the arithmetic the way the admission controller does. Push the replicas up and see which line binds first, and what changes when the tenant declares resources instead of letting the LimitRange fill them in:</p>
     <div class="widget" data-widget="quota"></div>
 
 
@@ -79,12 +79,12 @@
     <p>Quota bounds the worst case. It does not make sharing efficient, and four other mechanisms carry that load:</p>
     <ul>
       <li><strong>Priority and preemption.</strong> A <code>PriorityClass</code> decides who gets evicted when the cluster is full. Platform components (ingress, monitoring, CNI) should outrank tenant workloads; a tenant that can preempt your metrics stack is a tenant that can blind you. Quota can be scoped per priority class (<code>scopeSelector</code>) so nobody hoards the high-priority lane.</li>
-      <li><strong>Overcommit ratios.</strong> Setting <code>limits</code> well above <code>requests</code> across every tenant is how you get density; it is also how you get a node that OOMs under coincident spikes. The lab's LimitRange (50m request / 200m limit) is a deliberate 4× burst ratio — a decision, not an accident.</li>
+      <li><strong>Overcommit ratios.</strong> Setting <code>limits</code> well above <code>requests</code> across every tenant is how you get density; it is also how you get a node that OOMs under coincident spikes. The lab's LimitRange (50m request / 200m limit) is a deliberate 4× burst ratio: a decision, not an accident.</li>
       <li><strong>Node pools with taints.</strong> When two tenants must not share a kernel (or a GPU, or a licence), taint the pool and pair it with nodeAffinity. Cost: stranded capacity in each pool.</li>
       <li><strong>Idle reclamation.</strong> The unused space between requests and usage is the tenancy tax, and it is exactly what OpenCost puts a number on in section 1.5. "Optimizing multi-tenancy resource usage" is, in practice, driving that number down without breaking the guardrails above.</li>
     </ul>
 
-    <p>Two more things a real tenant needs that people forget in exam prep: a default <code>ServiceAccount</code> with nothing attached (so workloads do not inherit power), and namespaced <strong>quota on objects that cost money outside the cluster</strong> — LoadBalancers, PVCs, NodePorts. That is why team-a caps <code>count/services.loadbalancers</code> at 1: quota as a cost tool, not just a fairness tool.</p>
+    <p>Two more things a real tenant needs that people forget in exam prep: a default <code>ServiceAccount</code> with nothing attached (so workloads do not inherit power), and namespaced <strong>quota on objects that cost money outside the cluster</strong>: LoadBalancers, PVCs, NodePorts. That is why team-a caps <code>count/services.loadbalancers</code> at 1: quota as a cost tool, not just a fairness tool.</p>
   </div>
 </section>
 
@@ -98,14 +98,14 @@ kubectl -n team-a create deploy filler --image=ghcr.io/nginxinc/nginx-unprivileg
 kubectl -n team-a get rs -l app=filler -o jsonpath='{.items[0].status.replicas}'
 kubectl -n team-a get events --sort-by=.lastTimestamp | grep -i quota | tail -3</code></pre></div>
       <p>Do the arithmetic before peeking: the LimitRange injects 50m requests and 200m limits per container, so <code>requests.cpu: "2"</code> allows 40 pods but <code>limits.cpu: "4"</code> allows exactly 20, tying with <code>pods: "20"</code>. Whichever line the event names, you should be able to derive why.</p>
-      <div class="verify"><b>verify</b> — replicas stall below 25, and the ReplicaSet events say exactly which quota line refused. The skill is reading <code>exceeded quota: team-a-quota, requested: ..., used: ..., limited: ...</code> fluently. Clean up with <code>kubectl -n team-a delete deploy filler</code>.</div>
+      <div class="verify"><b>verify:</b> replicas stall below 25, and the ReplicaSet events say exactly which quota line refused. The skill is reading <code>exceeded quota: team-a-quota, requested: ..., used: ..., limited: ...</code> fluently. Clean up with <code>kubectl -n team-a delete deploy filler</code>.</div>
     </div>
 
     <div class="exercise" data-title="Prove the LimitRange writes the requests">
       <p>Run a pod with no resources block and read what it got:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n team-a run bare --image=busybox:1.37 --restart=Never -- sleep 300
 kubectl -n team-a get pod bare -o jsonpath='{.spec.containers[0].resources}' | jq</code></pre></div>
-      <div class="verify"><b>verify</b> — requests 50m/64Mi and limits 200m/256Mi, injected by <code>team-a-limits</code>, matching nothing you typed. Then try to exceed the max: request <code>cpu: "2"</code> in a pod and confirm admission rejects it with a LimitRange error, not a quota error. Knowing which of the two refused you is a real exam differentiator.</div>
+      <div class="verify"><b>verify:</b> requests 50m/64Mi and limits 200m/256Mi, injected by <code>team-a-limits</code>, matching nothing you typed. Then try to exceed the max: request <code>cpu: "2"</code> in a pod and confirm admission rejects it with a LimitRange error, not a quota error. Knowing which of the two refused you is a real exam differentiator.</div>
     </div>
 
     <div class="exercise" data-title="Cross-tenant traffic must die">
@@ -115,12 +115,12 @@ kubectl -n team-a run poke --image=curlimages/curl:8.11.1 --restart=Never -- \
   curl -s -m 5 -o /dev/null -w '%{http_code}' http://web.team-b.svc:8080
 kubectl -n team-a wait --for=jsonpath='{.status.phase}'=Failed pod/poke --timeout=60s \
   || kubectl -n team-a get pod poke -o jsonpath='{.status.containerStatuses[0].state.terminated.exitCode}'</code></pre></div>
-      <div class="verify"><b>verify</b> — the curl times out (exit 28). Then write the pair of policies that would allow exactly this one flow, an egress rule in team-a and an ingress rule in team-b, apply them, and rerun until you get a 200. Both ends must open; discovering that empirically once saves you re-deriving it under exam pressure.</div>
+      <div class="verify"><b>verify:</b> the curl times out (exit 28). Then write the pair of policies that would allow exactly this one flow, an egress rule in team-a and an ingress rule in team-b, apply them, and rerun until you get a 200. Both ends must open; discovering that empirically once saves you re-deriving it under exam pressure.</div>
     </div>
 
     <div class="exercise" data-title="The DNS trap, on demand">
       <p><code>FAULT=netpol make break</code> strips the DNS egress rule. Diagnose it without the answer, but remember drops only show when something <em>tries</em>: the resident nginx pods never resolve anything, so generate the evidence yourself with <code>kubectl -n team-a exec deploy/&lt;whatever runs there&gt; -- nslookup kubernetes.default</code> (or run a busybox pod), then read <code>hubble observe --namespace team-a --verdict DROPPED</code> and see port 53 dying. <code>make break-answer</code> to confirm, <code>make break-fix</code> to restore.</p>
-      <div class="verify"><b>verify</b> — the same nslookup now succeeds.</div>
+      <div class="verify"><b>verify:</b> the same nslookup now succeeds.</div>
     </div>
 
   </div>
@@ -130,10 +130,10 @@ kubectl -n team-a wait --for=jsonpath='{.status.phase}'=Failed pod/poke --timeou
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>A tenant applies a Deployment. It is accepted, and no pods appear. Where is the error?</summary>
-      <div class="answer"><p>One level down, on the ReplicaSet — quota and PSS are pod-level admission decisions, and the Deployment controller only records the failure in the RS's events and conditions. <code>kubectl -n &lt;ns&gt; describe rs -l app=&lt;x&gt;</code> or namespace events. This indirection is a stock exam scenario.</p></div></details>
+      <div class="answer"><p>One level down, on the ReplicaSet: quota and PSS are pod-level admission decisions, and the Deployment controller only records the failure in the RS's events and conditions. <code>kubectl -n &lt;ns&gt; describe rs -l app=&lt;x&gt;</code> or namespace events. This indirection is a stock exam scenario.</p></div></details>
 
     <details class="quiz"><summary>Why does adding a LimitRange sometimes make previously-working pods fail?</summary>
-      <div class="answer"><p>Because it enforces <code>min</code>/<code>max</code> as well as injecting defaults. Existing pods keep running (admission is not retroactive), but the next pod whose explicit requests fall outside the bounds is rejected — and the message comes from the LimitRange, not the quota.</p></div></details>
+      <div class="answer"><p>Because it enforces <code>min</code>/<code>max</code> as well as injecting defaults. Existing pods keep running (admission is not retroactive), but the next pod whose explicit requests fall outside the bounds is rejected, and the message comes from the LimitRange, not the quota.</p></div></details>
 
     <details class="quiz"><summary>Quota says <code>requests.cpu: "2"</code>. A tenant asks why they cannot run 40 pods when the LimitRange injects 50m each.</summary>
       <div class="answer"><p>Because the other quota lines bind first: <code>limits.cpu: "4"</code> against a 200m default limit allows 20 pods, and <code>pods: "20"</code> caps it at the same number. Whichever binds first is the one named in the event. The lesson: quota is a conjunction, and the tightest line wins.</p></div></details>
@@ -142,7 +142,7 @@ kubectl -n team-a wait --for=jsonpath='{.status.phase}'=Failed pod/poke --timeou
       <div class="answer"><p>Namespace + quota + policy (cheap, shared kernel and shared API server). Dedicated node pools via taints (no shared kernel; stranded capacity per pool). Virtual clusters (own API server and CRDs; more moving parts to run). Separate clusters (strongest; multiplied operational and idle cost). Pick the thinnest rung that satisfies the actual threat model.</p></div></details>
 
     <details class="quiz"><summary>Why is <code>count/services.loadbalancers: "1"</code> in a tenant quota?</summary>
-      <div class="answer"><p>Because a LoadBalancer bills outside the cluster whether or not traffic flows. Quota here is a spend control, not a fairness control — the same reasoning that puts per-StorageClass storage quota in a tenant template.</p></div></details>
+      <div class="answer"><p>Because a LoadBalancer bills outside the cluster whether or not traffic flows. Quota here is a spend control, not a fairness control: the same reasoning that puts per-StorageClass storage quota in a tenant template.</p></div></details>
   </div>
 </section>
 
@@ -150,8 +150,8 @@ kubectl -n team-a wait --for=jsonpath='{.status.phase}'=Failed pod/poke --timeou
   <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
   <div class="pbody">
     <ul class="docs">
-      <li><b>kubernetes.io</b> — Resource Quotas (the full list of countable resources), Limit Ranges, Network Policies.</li>
-      <li><b>kubernetes.io Concepts → Security → Multi-tenancy</b> — reads like it was written for this competency; the isolation-ladder framing above is theirs.</li>
+      <li><b>kubernetes.io</b>: Resource Quotas (the full list of countable resources), Limit Ranges, Network Policies.</li>
+      <li><b>kubernetes.io Concepts → Security → Multi-tenancy</b>: reads like it was written for this competency; the isolation-ladder framing above is theirs.</li>
       <li><b>Offline:</b> <code>kubectl explain resourcequota.spec.hard</code>, <code>kubectl explain limitrange.spec.limits</code>, and <code>kubectl describe quota -n &lt;ns&gt;</code> for the used/hard table.</li>
     </ul>
   </div>
