@@ -48,6 +48,7 @@ cat > "$OUT/404.html" <<'HTML'
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Not found · CNPE study console</title>
 <link rel="stylesheet" href="/assets/style.css">
+<script src="/assets/theme.js"></script>
 </head>
 <body>
 <div class="wrap"><div class="cols">

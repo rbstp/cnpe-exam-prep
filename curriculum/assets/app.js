@@ -170,6 +170,8 @@
     sb.addEventListener("click", openPalette);
     inner.appendChild(sb);
 
+    inner.appendChild(themeButton());
+
     var hb = el("button", "iconbtn", "?");
     hb.type = "button"; hb.title = "Keyboard shortcuts";
     hb.addEventListener("click", function () { toggleOverlay(helpOverlay); });
@@ -202,6 +204,53 @@
     }
     var art = document.querySelector("article");
     if (art && !art.id) { art.id = "main"; art.setAttribute("tabindex", "-1"); }
+  }
+
+  /* ── theme switch ────────────────────────────────────────────
+     theme.js owns the state and has already applied it from <head>; the button
+     only reports it and cycles system → light → dark. */
+  var THEME_ICON = {
+    system:
+      '<svg class="thm" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" ' +
+        'stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">' +
+        '<rect x="1.5" y="2.5" width="13" height="9" rx="1.1"/>' +
+        '<path d="M5.6 13.8h4.8" stroke-linecap="round"/></svg>',
+    light:
+      '<svg class="thm" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" ' +
+        'stroke="currentColor" stroke-width="1.5" stroke-linecap="round">' +
+        '<circle cx="8" cy="8" r="3"/>' +
+        '<path d="M8 1v1.7M8 13.3V15M1 8h1.7M13.3 8H15M3.1 3.1l1.2 1.2M11.7 11.7l1.2 1.2' +
+          'M12.9 3.1l-1.2 1.2M4.3 11.7l-1.2 1.2"/></svg>',
+    dark:
+      '<svg class="thm" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" ' +
+        'stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">' +
+        '<path d="M13.3 10.1A5.8 5.8 0 0 1 5.9 2.7a5.9 5.9 0 1 0 7.4 7.4Z"/></svg>'
+  };
+  var THEME_NEXT = { system: "light", light: "dark", dark: "system" };
+  function themeButton() {
+    var b = el("button", "iconbtn themebtn");
+    b.type = "button";
+    if (!window.CNPE_THEME) {                      // theme.js missing: nothing to switch
+      b.style.display = "none";
+      return b;
+    }
+    b.addEventListener("click", function () { window.CNPE_THEME.cycle(); });
+    paintTheme(b);
+    if (!themeWired) {
+      // the topbar is rebuilt on every boot, so look the button up when it fires
+      window.CNPE_THEME.onChange(function () { paintTheme(document.querySelector(".themebtn")); });
+      themeWired = true;
+    }
+    return b;
+  }
+  var themeWired = false;
+  function paintTheme(b) {
+    if (!b || !window.CNPE_THEME) return;
+    var pref = window.CNPE_THEME.pref();
+    var name = pref === "system" ? "system (" + window.CNPE_THEME.resolved() + ")" : pref;
+    b.innerHTML = THEME_ICON[pref];
+    b.title = "Theme: " + name + " — switch to " + THEME_NEXT[pref] + " (t)";
+    b.setAttribute("aria-label", b.title);
   }
 
   /* ── page head + stat tiles ──────────────────────────────── */
@@ -573,6 +622,7 @@
           "<dt>c</dt><dd>collapse or expand every exercise</dd>" +
           "<dt>m</dt><dd>mark this section complete</dd>"
         : "") +
+      "<dt>t</dt><dd>theme: system, light, dark</dd>" +
       "<dt>?</dt><dd>this card</dd>" +
       "<dt>esc</dt><dd>close</dd></dl>" +
       '<p style="margin:16px 0 0;color:var(--paper-3);font-size:13.5px">Progress is stored in this browser only. ' +
@@ -627,6 +677,9 @@
         case "m":
           var btn = entry ? document.querySelector(".finish button.tbtn") : null;
           if (btn) { btn.click(); btn.scrollIntoView({ block: "center" }); }
+          break;
+        case "t":
+          if (window.CNPE_THEME) window.CNPE_THEME.cycle();
           break;
       }
     });

@@ -69,6 +69,10 @@ HEAD = """<!doctype html>
 """
 
 bundle = """<title>CNPE study console</title>
+<script>
+%s
+</script>
+<!-- /head -->
 <style>
 %s
 </style>
@@ -143,6 +147,7 @@ window.CNPE_EXAM_KEYS = %s;
 })();
 </script>
 """ % (
+    read("assets/theme.js"),
     inline_fonts(read("assets/style.css")),
     read("assets/nav.js"),
     "\n".join(parts),
@@ -152,8 +157,13 @@ window.CNPE_EXAM_KEYS = %s;
 )
 
 if not FRAGMENT:
-    title, rest = bundle.split("\n", 1)
-    bundle = HEAD + title + "\n</head>\n<body>\n" + rest + "\n</body>\n</html>\n"
+    # the title and the theme script belong in <head>: the theme has to be on the
+    # root element before anything paints. A fragment keeps them inline, where
+    # they still run before the rest of the document is parsed.
+    head, rest = bundle.split("<!-- /head -->\n", 1)
+    bundle = HEAD + head + "</head>\n<body>\n" + rest + "\n</body>\n</html>\n"
+else:
+    bundle = bundle.replace("<!-- /head -->\n", "")
 
 with open(OUT, "w", encoding="utf-8") as fh:
     fh.write(bundle)
