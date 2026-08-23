@@ -10,7 +10,7 @@ pac() {
     if ! pacman -Si "$p" >/dev/null 2>&1; then
       warn "pacman: $p not in the repos, will try an upstream binary"
     elif ! sudo pacman -S --needed --noconfirm "$p"; then
-      warn "pacman: installing $p FAILED (it does exist in the repos) — see the error above"
+      warn "pacman: installing $p FAILED (it does exist in the repos); see the error above"
     fi
   done
 }

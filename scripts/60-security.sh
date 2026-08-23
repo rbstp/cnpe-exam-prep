@@ -16,7 +16,7 @@ helmi kyverno kyverno/kyverno kyverno \
   # without this every ImageValidatingPolicy dies on "server gave HTTP response
   # to HTTPS client" before it ever sees a signature.
 
-log "OPA Gatekeeper (the other engine on the exam list — know both)"
+log "OPA Gatekeeper (the other engine on the exam list; know both)"
 repo_add gatekeeper https://open-policy-agent.github.io/gatekeeper/charts
 helmi gatekeeper gatekeeper/gatekeeper gatekeeper-system \
   --set replicas=1 --set audit.replicas=1
@@ -32,7 +32,7 @@ helmi external-secrets external-secrets/external-secrets external-secrets \
   --set installCRDs=true --set webhook.replicaCount=1 --set certController.replicaCount=1 \
   || warn "external-secrets optional"
 
-log "Applying starter Kyverno policies (audit mode — read the reports, don't just install)"
+log "Applying starter Kyverno policies (audit mode: read the reports, don't just install)"
 kubectl apply -f "$REPO_ROOT/examples/kyverno/" || warn "examples/kyverno not applied (error above)"
 
 log "Applying Pod Security Standards + quota examples"
@@ -45,7 +45,7 @@ cat <<'INFO'
   Gatekeeper kubectl get constrainttemplates,constraints
              kubectl -n gatekeeper-system logs deploy/gatekeeper-audit
   Audit log  docker exec -it cnpe-control-plane tail -f /var/log/kubernetes/audit.log | jq .
-             (that is a real API audit trail — filter by user, verb, resource)
+             (that is a real API audit trail: filter by user, verb, resource)
 
   RBAC drill:
     kubectl auth can-i --list --as=system:serviceaccount:team-a:default -n team-a

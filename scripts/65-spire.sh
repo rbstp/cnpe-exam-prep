@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPIFFE/SPIRE — workload identity. On the official CNPE tool list under
+# SPIFFE/SPIRE: workload identity. On the official CNPE tool list under
 # "Identity and secret services", and the foundation under "Configuring Secure
 # Service-to-Service Communication": every workload gets a cryptographic
 # identity (an SVID) derived from its k8s attributes, with no shared secret.
@@ -9,7 +9,7 @@ need helm; need kubectl
 NS="${SPIRE_NS:-spire}"
 TRUST_DOMAIN="${TRUST_DOMAIN:-lab.local}"
 
-log "Namespace $NS (privileged PSS — the agent needs hostPath + hostPID)"
+log "Namespace $NS (privileged PSS: the agent needs hostPath + hostPID)"
 kubectl create ns "$NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 # The SPIRE agent mounts the kubelet socket and shares the host PID namespace to
 # attest workloads. Under a 'restricted' PSS label it cannot start at all.
@@ -40,14 +40,14 @@ cat <<INFO
   Trust domain   spiffe://${TRUST_DOMAIN}
   Namespace      ${NS}
 
-  Prove it works — every registration entry is an identity the server will issue:
+  Prove it works; every registration entry is an identity the server will issue:
     kubectl -n ${NS} exec -it statefulset/spire-server -c spire-server -- \\
       /opt/spire/bin/spire-server entry show
     kubectl -n ${NS} exec -it statefulset/spire-server -c spire-server -- \\
       /opt/spire/bin/spire-server healthcheck
 
-  The self-service part (this is the bit worth practising — identity as a
-  declarative platform API, not a ticket):
+  The self-service part (this is the bit worth practising, identity as a
+  declarative platform API rather than a ticket):
     kubectl get clusterspiffeids
     kubectl explain clusterspiffeid.spec
 

@@ -18,7 +18,7 @@ eq() { [ "$3" = "$2" ] && ok_ "$1" "$3" || bad_ "$1" "got '$3', want '$2'"; }
 # ge <label> <min> <actual>
 ge() { [ "${3:-0}" -ge "$2" ] 2>/dev/null && ok_ "$1" "$3" || bad_ "$1" "got '${3:-0}', want >= $2"; }
 
-head_ "Domain 1 — Platform architecture & infrastructure"
+head_ "Domain 1: Platform architecture & infrastructure"
 NODES_READY=$($K get nodes -o json 2>/dev/null | jq '[.items[]|select(.status.conditions[]|select(.type=="Ready" and .status=="True"))]|length')
 eq "nodes Ready" 3 "$NODES_READY"
 # Derive the expected version from K8S_IMAGE so overriding it does not produce a
@@ -48,7 +48,7 @@ else
   skip_ "local registry push" "FAST=1"
 fi
 
-head_ "Domain 2 — GitOps & continuous delivery"
+head_ "Domain 2: GitOps & continuous delivery"
 GITEA_CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://${GITEA_HOST}:3000/api/healthz" 2>/dev/null)
 eq "gitea reachable from host" "200" "$GITEA_CODE"
 eq "flux GitRepository ready" "True" "$($K -n flux-system get gitrepository platform -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)"
@@ -60,7 +60,7 @@ ge "argo-workflows running" 1 "$($K -n argo get deploy argo-workflows-server -o 
 ge "tekton deployments ready" 4 "$($K -n tekton-pipelines get deploy -o json 2>/dev/null | jq '[.items[]|select(.status.readyReplicas>0)]|length')"
 ge "tekton catalog tasks" 2 "$($K get tasks.tekton.dev --no-headers 2>/dev/null | wc -l)"
 
-head_ "Domain 3 — Platform APIs & self-service"
+head_ "Domain 3: Platform APIs & self-service"
 UNHEALTHY=$($K get providers.pkg.crossplane.io -o json 2>/dev/null | jq '[.items[]|select((.status.conditions[]?|select(.type=="Healthy")|.status)!="True")]|length')
 eq "crossplane providers unhealthy" 0 "$UNHEALTHY"
 FN_BAD=$($K get functions.pkg.crossplane.io -o json 2>/dev/null | jq '[.items[]|select((.status.conditions[]?|select(.type=="Healthy")|.status)!="True")]|length')
@@ -71,7 +71,7 @@ $K get ns team-c >/dev/null 2>&1 && ok_ "XR actually created its namespace" "tea
 ge "cloudnative-pg operator ready" 1 "$($K -n cnpg-system get deploy -o json 2>/dev/null | jq '[.items[]|select(.status.readyReplicas>0)]|length')"
 ge "kro ready" 1 "$($K -n kro get deploy -o json 2>/dev/null | jq '[.items[]|select(.status.readyReplicas>0)]|length')"
 
-head_ "Domain 4 — Observability & operations"
+head_ "Domain 4: Observability & operations"
 ge "prometheus ready" 1 "$($K -n monitoring get sts prometheus-prometheus-kube-prometheus-prometheus -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"
 ge "grafana ready" 1 "$($K -n monitoring get deploy prometheus-grafana -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"
 ge "alertmanager ready" 1 "$($K -n monitoring get sts alertmanager-prometheus-kube-prometheus-alertmanager -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"
@@ -105,7 +105,7 @@ HINT
 else
   skip_ "prometheus target health" "FAST=1"
 fi
-# Loki actually HOLDS streams — a running Loki with no shipper stays empty
+# Loki actually HOLDS streams; a running Loki with no shipper stays empty
 if [ "${FAST:-0}" != "1" ]; then
   $K -n monitoring port-forward svc/loki 13100:3100 >/dev/null 2>&1 &
   LPID=$!; sleep 4
@@ -121,7 +121,7 @@ fi
 AUDIT_BYTES=$(docker exec "${CLUSTER}-control-plane" stat -c %s /var/log/kubernetes/audit.log 2>/dev/null || echo 0)
 ge "API audit log being written (bytes)" 10000 "$AUDIT_BYTES"
 
-head_ "Domain 5 — Security & policy"
+head_ "Domain 5: Security & policy"
 CIL=$($K -n kube-system get ds cilium -o jsonpath='{.status.numberReady}' 2>/dev/null)
 eq "cilium agents ready" 3 "$CIL"
 ge "hubble relay ready" 1 "$($K -n kube-system get deploy hubble-relay -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"
@@ -162,7 +162,7 @@ if [ "${FAST:-0}" != "1" ]; then
   $K -n team-a delete pod np-probe --ignore-not-found >/dev/null 2>&1
 fi
 
-head_ "SPIRE — workload identity (optional layer)"
+head_ "SPIRE: workload identity (optional layer)"
 if $K get ns spire >/dev/null 2>&1; then
   ge "spire-server ready" 1 "$($K -n spire get sts spire-server -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"
   ge "spire agents ready" 1 "$($K -n spire get ds spire-agent -o jsonpath='{.status.numberReady}' 2>/dev/null)"
@@ -176,7 +176,7 @@ else
   skip_ "SPIRE" "not installed (make spire)"
 fi
 
-head_ "Mesh cluster — Istio ambient (optional layer)"
+head_ "Mesh cluster: Istio ambient (optional layer)"
 if kind get clusters 2>/dev/null | grep -qx "$MESH_CLUSTER"; then
   MK="kubectl --context kind-$MESH_CLUSTER"
   ge "istiod ready" 1 "$($MK -n istio-system get deploy istiod -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"
@@ -190,7 +190,7 @@ else
   skip_ "mesh cluster" "not created (make mesh)"
 fi
 
-head_ "Portal — Backstage golden path (optional layer)"
+head_ "Portal: Backstage golden path (optional layer)"
 if [ -d "$LAB_HOME/portal/packages/backend" ]; then
   ok_ "backstage app scaffolded" "$LAB_HOME/portal"
   grep -q 'scaffolder-backend-module-gitea' "$LAB_HOME/portal/packages/backend/src/index.ts" 2>/dev/null \

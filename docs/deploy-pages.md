@@ -26,10 +26,10 @@ The source tree is untouched. `curriculum/tools/stage-site.sh` does the layout w
 the publish step, so `file://` and `make study` keep working exactly as before:
 
 * copies `curriculum/` minus `tools/` and `README.md` → site root
-* `python3 tools/bundle.py → console.html` — the whole console as one file, fonts inlined as `data:` URIs
-* `.nojekyll` — a no-op for Actions-published artifacts, kept so nothing changes if this is ever published from a branch instead
+* `python3 tools/bundle.py → console.html`: the whole console as one file, fonts inlined as `data:` URIs
+* `.nojekyll`: a no-op for Actions-published artifacts, kept so nothing changes if this is ever published from a branch instead
 * `CNAME` containing `cnpe.rbstp.dev` (override with `SITE_DOMAIN=`)
-* `404.html` — served for any missing path at any depth, so its links are **root-absolute** (`/assets/style.css`, `/`); that is exactly why it is generated here and not checked into the tree, where absolute paths would break `file://`
+* `404.html`: served for any missing path at any depth, so its links are **root-absolute** (`/assets/style.css`, `/`); that is exactly why it is generated here and not checked into the tree, where absolute paths would break `file://`
 
 Run the identical staging locally with `make site`, then:
 
@@ -41,10 +41,10 @@ Resulting URLs:
 
 | URL | file |
 |---|---|
-| `https://cnpe.rbstp.dev/` | `curriculum/index.html` — the dashboard |
+| `https://cnpe.rbstp.dev/` | `curriculum/index.html` (the dashboard) |
 | `https://cnpe.rbstp.dev/01-architecture/01-networking.html` | section 1.1 (five numbered domain dirs, numbered sections) |
 | `https://cnpe.rbstp.dev/mock-exam.html` | the timed mock exam |
-| `https://cnpe.rbstp.dev/console.html` | single-file console — one URL to hand over, or save offline |
+| `https://cnpe.rbstp.dev/console.html` | single-file console: one URL to hand over, or save offline |
 
 GitHub Pages also resolves those section paths without the `.html`, but nothing here
 depends on that: every internal link carries the extension so the same files work over
@@ -56,9 +56,9 @@ These are repo settings, not repo contents, so a PR cannot set them.
 
 | Setting | Where | Value | Status |
 |---|---|---|---|
-| Visibility | Settings → General → Danger Zone | public | **already public** — nothing to do. (Pages on a *private* repo needs Pro/Team/Enterprise; not your case.) |
+| Visibility | Settings → General → Danger Zone | public | **already public**, nothing to do. (Pages on a *private* repo needs Pro/Team/Enterprise; not your case.) |
 | Source | Settings → Pages → Build and deployment → **Source** | **GitHub Actions** | **you must set this.** Pages is not enabled on this repo yet. |
-| Custom domain | Settings → Pages → **Custom domain** | `cnpe.rbstp.dev` → Save | **you must set this**, *after* the DNS record exists — GitHub runs a DNS check on save and rejects a name that does not resolve to it yet. |
+| Custom domain | Settings → Pages → **Custom domain** | `cnpe.rbstp.dev` → Save | **you must set this**, *after* the DNS record exists; GitHub runs a DNS check on save and rejects a name that does not resolve to it yet. |
 | Enforce HTTPS | Settings → Pages → **Enforce HTTPS** | ticked | **you must tick this**, and the checkbox stays greyed out until GitHub has issued the certificate. Come back to it. |
 
 Order: merge this PR → set Source = GitHub Actions → add the Cloudflare record → set the
@@ -76,24 +76,24 @@ account from ever claiming a `*.rbstp.dev` Pages site. It does not affect this d
 ## 2. Cloudflare DNS
 
 One record. Nothing else in the zone changes, and **nothing that serves the apex is
-touched** — `rbstp.dev` keeps whatever A/AAAA/flattened-CNAME records gist-blog needs.
+touched**: `rbstp.dev` keeps whatever A/AAAA/flattened-CNAME records gist-blog needs.
 
 Cloudflare dashboard → **rbstp.dev** → **DNS** → **Records** → **Add record**:
 
 | Field (as labelled in the UI) | Value |
 |---|---|
 | **Type** | `CNAME` |
-| **Name** | `cnpe` — Cloudflare appends the zone; it will read `cnpe.rbstp.dev` |
-| **Target** | `rbstp.github.io` — your Pages host, **not** `cnpe-exam-prep.rbstp.github.io` and **not** an IP |
-| **Proxy status** | click the toggle to **DNS only** (grey cloud) — see below |
+| **Name** | `cnpe` (Cloudflare appends the zone; it will read `cnpe.rbstp.dev`) |
+| **Target** | `rbstp.github.io`, your Pages host, **not** `cnpe-exam-prep.rbstp.github.io` and **not** an IP |
+| **Proxy status** | click the toggle to **DNS only** (grey cloud); see below |
 | **TTL** | `Auto` |
-| **Comment** (optional) | `GitHub Pages — cnpe-exam-prep` |
+| **Comment** (optional) | `GitHub Pages: cnpe-exam-prep` |
 
 Save.
 
 A `CNAME` is the correct record type because `cnpe` is a subdomain. The four
 `185.199.10x.153` A records you may have seen are only for an apex, which cannot hold a
-CNAME — do **not** add A records for `cnpe`, and do not copy whatever the apex uses.
+CNAME: do **not** add A records for `cnpe`, and do not copy whatever the apex uses.
 
 `cnpe.rbstp.dev` and `rbstp.dev` are different names, so GitHub's "a custom domain can
 only be used by one repository" rule does not put this in conflict with gist-blog.
@@ -105,7 +105,7 @@ only be used by one repository" rule does not put this in conflict with gist-blo
 GitHub gets its Let's Encrypt certificate for `cnpe.rbstp.dev` via an HTTP-01 challenge
 served over **plain HTTP** at `http://cnpe.rbstp.dev/.well-known/acme-challenge/…`. With
 the record grey, requests bypass Cloudflare's edge entirely, GitHub sees the real request
-and issues the cert — usually within minutes, occasionally up to an hour.
+and issues the cert, usually within minutes, occasionally up to an hour.
 
 With the record **orange (Proxied)** before the cert exists, two things break it:
 
@@ -123,7 +123,7 @@ the record to **Proxied** if you want to. If you do:
   from GitHub over plain HTTP, GitHub's Enforce HTTPS redirects it back to HTTPS, and you
   get `ERR_TOO_MANY_REDIRECTS`. `Full` works but does not validate the origin cert;
   strict is correct here since GitHub presents a valid one. Note this setting can be
-  zone-wide — if the zone is currently `Flexible` for some other reason, set per-hostname
+  zone-wide; if the zone is currently `Flexible` for some other reason, set per-hostname
   configuration rather than flipping the zone under the apex.
 * Universal SSL already covers `cnpe.rbstp.dev` (it covers the apex and one level of
   subdomain), so the edge cert needs no action.
@@ -131,7 +131,7 @@ the record to **Proxied** if you want to. If you do:
 **My recommendation: leave it grey.** Pages is already behind a CDN with a valid cert and
 HTTP/2. Proxying adds a second TLS hop, a cache layer that can serve a stale console for
 a few minutes after a deploy, and one more thing to be wrong the next time a cert
-renews — in exchange for WAF and analytics you do not need on a static study site.
+renews, in exchange for WAF and analytics you do not need on a static study site.
 
 ### Things already in your zone that could bite
 
@@ -140,9 +140,9 @@ Check these before blaming the deploy:
 | Thing | Where | Effect |
 |---|---|---|
 | **Always Use HTTPS** | SSL/TLS → Edge Certificates | Only affects *proxied* records. Harmless while `cnpe` is grey; blocks cert issuance if you proxy too early. |
-| **CAA records** | DNS → Records, type `CAA` | The one that silently kills this. If the zone restricts issuance to specific CAs and `letsencrypt.org` is not among them, GitHub can never get a cert. Check with `dig +short CAA rbstp.dev` — if that returns nothing, you are fine; if it returns entries, one must permit `letsencrypt.org`. |
+| **CAA records** | DNS → Records, type `CAA` | The one that silently kills this. If the zone restricts issuance to specific CAs and `letsencrypt.org` is not among them, GitHub can never get a cert. Check with `dig +short CAA rbstp.dev`: if that returns nothing, you are fine; if it returns entries, one must permit `letsencrypt.org`. |
 | **HSTS with `includeSubDomains`** | SSL/TLS → Edge Certificates → HTTP Strict Transport Security | If enabled (especially with preload), browsers will force HTTPS on `cnpe.rbstp.dev` before the cert exists, so you get a TLS error rather than a working HTTP page during the issuance window. Wait it out; do not disable HSTS. |
-| **A wildcard `*` record** | DNS → Records | An explicit `cnpe` record wins over `*`, so no conflict. But if a wildcard exists, `cnpe.rbstp.dev` *already resolves* today — so a `dig` that "works" before you add the record proves nothing. Check what is there first. |
+| **A wildcard `*` record** | DNS → Records | An explicit `cnpe` record wins over `*`, so no conflict. But if a wildcard exists, `cnpe.rbstp.dev` *already resolves* today, so a `dig` that "works" before you add the record proves nothing. Check what is there first. |
 | **Apex records for rbstp.dev** | DNS → Records | Leave alone. Adding `cnpe` does not interact with them. |
 | **Universal SSL** | SSL/TLS → Edge Certificates | Covers `cnpe.rbstp.dev` automatically once proxied. No action. |
 | **Page/Configuration Rules on `rbstp.dev/*`** | Rules | A rule written against the whole zone will also match `cnpe.rbstp.dev` once proxied. Worth a glance if you later turn the cloud orange. |
@@ -152,7 +152,7 @@ Check these before blaming the deploy:
 `localStorage` is per-origin, so a `file://` copy and `https://cnpe.rbstp.dev` keep
 *separate* stores, and no two browsers share one. This PR adds **Export**/**Import**
 buttons on the dashboard: Export writes `cnpe-progress-YYYY-MM-DD.json`, Import merges
-one back in — union only, so an import can tick something but never un-tick it, and the
+one back in: union only, so an import can tick something but never un-tick it, and the
 mock exam's clock is left alone (only its scored tasks merge). Reset first if you want a
 plain restore rather than a merge.
 
@@ -160,12 +160,12 @@ That was chosen over the alternatives:
 
 | Option | Cost | Trade-off |
 |---|---|---|
-| **(a) leave it** | none | Fine if you study in one browser. But it also means the progress you build up via `make study` never shows up on the hosted site — the two origins are different stores. |
+| **(a) leave it** | none | Fine if you study in one browser. But it also means the progress you build up via `make study` never shows up on the hosted site; the two origins are different stores. |
 | **(b) export/import** ✅ | ~90 lines, no deps | Manual, and you have to remember to do it. Keeps every current property: no network at runtime, no account, no secret, works identically over `file://` and in the single-file bundle. |
 | **(c) Worker + KV, shared key** | a Worker, a KV namespace, a route, client sync + conflict handling | Free tier is ample (KV: 100k reads, 1k writes/day). But it puts the console on the network at runtime, and a *shared* key means anyone with the URL and key can read and overwrite your progress. Workers routes only run on **proxied** hostnames, so this forces the orange cloud and everything in §2 that comes with it. It also needs a real answer for "laptop and desktop both wrote while offline". |
 | **(d) Gist + fine-grained token in localStorage** | ~50 lines, no infra | Puts a real GitHub credential with gist-write scope in `localStorage` on a public origin. Any XSS on the site, any shared or borrowed browser, any extension reading storage, and the token leaks. Not worth it for tick-boxes. |
 
-If you outgrow (b), (c) is the right shape — but with a per-device key and last-write-wins
+If you outgrow (b), (c) is the right shape, but with a per-device key and last-write-wins
 per section rather than one shared key. Ask and I will build it.
 
 ## 4. Verification
@@ -216,7 +216,7 @@ curl -sS -o /dev/null -w 'apex %{http_code}\n' https://rbstp.dev/
 
 1. **Fonts.** Open `https://cnpe.rbstp.dev/`, DevTools → Network → filter `Font`, reload.
    Six `woff2` at `200`: plex-sans 400/600, plex-cond 600/700, plex-mono 400/500.
-   Headings should be narrow and condensed, code monospaced — a serif or the system UI
+   Headings should be narrow and condensed, code monospaced; a serif or the system UI
    font means they did not load.
 2. **Palette.** Press <kbd>/</kbd> → the overlay opens. Type `crossplane` → one hit
    (3.5). <kbd>Enter</kbd> navigates to it. <kbd>?</kbd> lists every shortcut.
@@ -225,7 +225,7 @@ curl -sS -o /dev/null -w 'apex %{http_code}\n' https://rbstp.dev/
    `DNS (CoreDNS)` hop flips to ✕, the hops below grey out, and the note becomes the
    `nslookup` / `hubble observe --verdict DROPPED` pair.
 4. **Progress persists.** On that page click **Mark section complete** and tick one
-   exercise's **mark verified**. Reload — both stay. Go to `/` → *Sections complete*
+   exercise's **mark verified**. Reload: both stay. Go to `/` → *Sections complete*
    reads `1/29` and a **▶ Resume 1.1** button appears.
 5. **Export/import.** On `/` click **Export** → `cnpe-progress-<today>.json` downloads.
    Open the site in a different browser (or a private window), click **Import**, pick that
@@ -237,7 +237,7 @@ curl -sS -o /dev/null -w 'apex %{http_code}\n' https://rbstp.dev/
    with no flash of the other ground, because `assets/theme.js` runs from `<head>`.
 7. **The single file.** `/console.html` → same dashboard. Network shows one document and
    **zero** font requests (they are `data:` URIs). Clicking a section only changes the
-   `#hash`. Save it with <kbd>Ctrl/Cmd-S</kbd>, turn off wifi, open the saved file — it
+   `#hash`. Save it with <kbd>Ctrl/Cmd-S</kbd>, turn off wifi, open the saved file: it
    still works, palette and figures included.
 
 ### If something is wrong
@@ -247,6 +247,6 @@ curl -sS -o /dev/null -w 'apex %{http_code}\n' https://rbstp.dev/
 | Pages settings reject the custom domain | DNS has not propagated. `dig +short CNAME cnpe.rbstp.dev` first. |
 | **Enforce HTTPS** stays greyed out for over an hour | Cert not issued. Confirm the record is **grey**, then check `dig +short CAA rbstp.dev`. |
 | `ERR_TOO_MANY_REDIRECTS` | Proxied with SSL/TLS mode `Flexible`. Set `Full (strict)`, or go back to grey. |
-| Site loads unstyled | `/assets/style.css` is 404ing — check the workflow's *Check the staged site* step ran green. |
+| Site loads unstyled | `/assets/style.css` is 404ing; check the workflow's *Check the staged site* step ran green. |
 | Custom domain reverted to blank after a deploy | The classic Actions-Pages failure mode; the `CNAME` in the artifact is there to prevent it. Re-set it and check the artifact contains `CNAME`. |
 | A deploy did not fire | The push touched nothing under `curriculum/`. Run the workflow manually: Actions → Deploy Study Console → Run workflow. |

@@ -30,7 +30,7 @@ Hubble UI|kube-system|hubble-ui|80|12000|Cilium network flows
 
 printf '\n%s\n' "──────────────────────────────────────────────────────────────────────────────"
 if [ "$CPK_UP" = yes ]; then
-  ok "cloud-provider-kind is running — LoadBalancer IPs below are reachable directly"
+  ok "cloud-provider-kind is running; LoadBalancer IPs below are reachable directly"
 else
   warn "cloud-provider-kind is NOT running, so LoadBalancer IPs stay <pending>."
   warn "Start it (needs root to bind :80/:443):"
@@ -58,7 +58,7 @@ cat <<INFO
 
 Backstage portal (runs on the HOST, not in the cluster)
   Portal           http://localhost:3000     start: cd $LAB_HOME/portal && yarn start
-                   backend API on :7007      (needs Node 22 — mise.toml pins it)
+                   backend API on :7007      (needs Node 22; mise.toml pins it)
   Golden path      Create -> "Golden path service" -> publishes to gitea org '${GITEA_ORG}'
                    Argo CD then generates an Application automatically
 

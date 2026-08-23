@@ -10,11 +10,11 @@ Every layer installs and uninstalls on its own. That matters on a laptop, becaus
 
 The lab is the machinery; [curriculum/](curriculum/index.html) is the study plan that drives it. It covers all five domains and every competency in the official curriculum PDF, split into 29 evening-sized sections, each one concepts plus exercises against this lab, each exercise ending with a command that proves the thing worked.
 
-It is published at **[cnpe.rbstp.dev](https://cnpe.rbstp.dev)**, and it is a small self-contained site rather than a pile of markdown — so it also runs straight off disk: open `curriculum/index.html` in a browser (no server, no build step — `file://` is fine), or run `make study`. Every code block has a copy button, `/` jumps to any section by name, tool or concept, exercises tick off as you verify them, thirteen sections carry an interactive figure you can drive, and the dashboard tracks how far through the plan you are. It follows your system's light or dark setting; the masthead button (or `t`) pins one. Progress lives in that browser's local storage — **Export** and **Import** on the dashboard move it between browsers, machines, or a local copy and a hosted one.
+It is published at **[cnpe.rbstp.dev](https://cnpe.rbstp.dev)**, and it is a small self-contained site rather than a pile of markdown, so it also runs straight off disk: open `curriculum/index.html` in a browser (no server, no build step; `file://` is fine), or run `make study`. Every code block has a copy button, `/` jumps to any section by name, tool or concept, exercises tick off as you verify them, thirteen sections carry an interactive figure you can drive, and the dashboard tracks how far through the plan you are. It follows your system's light or dark setting; the masthead button (or `t`) pins one. Progress lives in that browser's local storage; **Export** and **Import** on the dashboard move it between browsers, machines, or a local copy and a hosted one.
 
 The [dashboard](curriculum/index.html) maps every official competency to a section and to the `make validate` check or exercise that demonstrates it, and there is a [15-task mock exam](curriculum/mock-exam.html) with grading commands and a built-in 120-minute clock.
 
-`make site` stages the same directory exactly as it is published to GitHub Pages, including a single-file console at **[cnpe.rbstp.dev/console.html](https://cnpe.rbstp.dev/console.html)** with the fonts inlined — one URL to hand over, or to save and read offline. See [docs/deploy-pages.md](docs/deploy-pages.md) for the deploy, the DNS and the settings it needs.
+`make site` stages the same directory exactly as it is published to GitHub Pages, including a single-file console at **[cnpe.rbstp.dev/console.html](https://cnpe.rbstp.dev/console.html)** with the fonts inlined: one URL to hand over, or to save and read offline. See [docs/deploy-pages.md](docs/deploy-pages.md) for the deploy, the DNS and the settings it needs.
 
 | | |
 |---|---|
@@ -202,7 +202,7 @@ make nuke            Delete everything including Gitea data
 The part I care about most. It checks behaviour, not pod status.
 
 ```
-── Domain 3 — Platform APIs & self-service
+── Domain 3: Platform APIs & self-service
   ✓ crossplane providers unhealthy                 0
   ✓ crossplane functions unhealthy                 0
   ✓ XRD established                                True
@@ -214,7 +214,7 @@ The part I care about most. It checks behaviour, not pod status.
 ── NetworkPolicy enforcement (the thing kindnet fakes)
   ✓ egress blocked by NetworkPolicy                curl exit=28 (denied, correct)
 
-── Portal — Backstage golden path
+── Portal: Backstage golden path
   ✓ backstage app scaffolded                       /path/to/clone/portal
   ✓ gitea scaffolder module registered
   ✓ golden-path template installed
@@ -236,7 +236,7 @@ Grafana is genuinely `admin` / `admin`, set by `scripts/50-observability.sh`.
 
 ```
 ──────────────────────────────────────────────────────────────────────────────
- ok  cloud-provider-kind is running — LoadBalancer IPs below are reachable directly
+ ok  cloud-provider-kind is running; LoadBalancer IPs below are reachable directly
 ──────────────────────────────────────────────────────────────────────────────
 
 SERVICE           URL                      ACCESS
@@ -256,7 +256,7 @@ Hubble UI         http://localhost:12000   Cilium network flows
 
 Backstage portal (runs on the HOST, not in the cluster)
   Portal           http://localhost:3000     start: cd <clone>/portal && yarn start
-                   backend API on :7007      (needs Node 22 — mise.toml pins it)
+                   backend API on :7007      (needs Node 22; mise.toml pins it)
   Golden path      Create -> "Golden path service" -> publishes to gitea org 'services'
                    Argo CD then generates an Application automatically
 

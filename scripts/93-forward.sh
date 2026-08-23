@@ -44,7 +44,7 @@ case "${1:-start}" in
 esac
 
 # Never stack duplicates on the same ports.
-[ -f "$PIDFILE" ] && { warn "forwards already running — restarting them"; stop; }
+[ -f "$PIDFILE" ] && { warn "forwards already running; restarting them"; stop; }
 
 log "Starting port-forwards (logs in /tmp/cnpe-lab/pf-<name>.log)"
 : > "$PIDFILE"
@@ -52,7 +52,7 @@ printf '  %-13s %s\n' "SERVICE" "URL"
 echo "$FORWARDS" | while IFS='|' read -r name ns svc ports; do
   [ -z "$name" ] && continue
   kubectl --context "kind-$CLUSTER" -n "$ns" get svc "$svc" >/dev/null 2>&1 || {
-    printf '  %-13s %s\n' "$name" "(service not found — layer not installed)"; continue; }
+    printf '  %-13s %s\n' "$name" "(service not found: layer not installed)"; continue; }
   nohup kubectl --context "kind-$CLUSTER" -n "$ns" port-forward "svc/$svc" "$ports" \
     > "/tmp/cnpe-lab/pf-$name.log" 2>&1 &
   echo "$! $name" >> "$PIDFILE"
@@ -63,7 +63,7 @@ sleep 4
 ALIVE=$(awk '{print $1}' "$PIDFILE" 2>/dev/null | while read -r p; do kill -0 "$p" 2>/dev/null && echo x; done | wc -l)
 TOTAL=$(wc -l < "$PIDFILE" 2>/dev/null || echo 0)
 [ "$ALIVE" = "$TOTAL" ] && ok "$ALIVE/$TOTAL forwards up" \
-  || warn "$ALIVE/$TOTAL up — check /tmp/cnpe-lab/pf-*.log (a dead one usually means the port is taken)"
+  || warn "$ALIVE/$TOTAL up; check /tmp/cnpe-lab/pf-*.log (a dead one usually means the port is taken)"
 
 cat <<INFO
 

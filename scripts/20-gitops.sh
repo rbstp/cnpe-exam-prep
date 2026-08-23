@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Domain 2 (25%): Argo CD, Flux, Argo Rollouts, Argo Workflows.
-# The exam may hand you either Argo CD or Flux — install both, use both.
+# The exam may hand you either Argo CD or Flux: install both, use both.
 source "$(dirname "$0")/lib.sh"
 need helm; need kubectl
 
@@ -17,7 +17,7 @@ helmi argocd argo/argo-cd argocd \
   --set repoServer.metrics.enabled=true
 ARGO_PW=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || echo "<already rotated>")
 
-log "Argo Rollouts (progressive delivery — blue/green + canary)"
+log "Argo Rollouts (progressive delivery: blue/green + canary)"
 helmi argo-rollouts argo/argo-rollouts argo-rollouts \
   --set dashboard.enabled=true --set dashboard.service.type=LoadBalancer
 
@@ -50,7 +50,7 @@ spec:
   ref: { branch: main }
   secretRef: { name: gitea-auth }
 YAML
-  ok "GitRepository/platform created — build Kustomizations on top of it"
+  ok "GitRepository/platform created; build Kustomizations on top of it"
 fi
 
 log "Registering the git repo with Argo CD"

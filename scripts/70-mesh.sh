@@ -52,7 +52,7 @@ helm --kube-context "$CTX" upgrade --install flagger flagger/flagger \
   --namespace "$([ "$MESH" = istio ] && echo istio-system || echo linkerd)" \
   --create-namespace --set meshProvider="$MESH" \
   --set metricsServer="http://prometheus:9090" --wait --timeout 8m \
-  || warn "flagger needs a Prometheus in this cluster — install kube-prometheus-stack here too if you want metric-driven canaries"
+  || warn "flagger needs a Prometheus in this cluster; install kube-prometheus-stack here too if you want metric-driven canaries"
 
 kubectl config use-context "kind-$CLUSTER" >/dev/null
 ok "Mesh cluster ready (context: $CTX). Switch with: kubectl config use-context $CTX"

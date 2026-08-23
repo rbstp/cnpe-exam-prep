@@ -37,7 +37,7 @@ apply_one() {
   fi
   # Never push a manifest we just broke.
   python3 -c "import yaml,sys; yaml.safe_load(open('$BK/work/$file.yaml'))" 2>/dev/null \
-    || die "edited $file.yaml is not valid YAML — original kept at $BK/$file.yaml"
+    || die "edited $file.yaml is not valid YAML; original kept at $BK/$file.yaml"
 
   log "$desc: applying (backup: $BK/$file.yaml)"
   docker cp "$BK/work/$file.yaml" "$NODE:$src" >/dev/null || die "could not write $src"
@@ -64,12 +64,12 @@ apply_one kube-controller-manager "kube-controller-manager-$NODE" "kube-controll
 
 log "Checking the API is still healthy before touching etcd"
 [ "$(kubectl --context "kind-$CLUSTER" get --raw='/readyz' 2>/dev/null)" = "ok" ] \
-  || die "/readyz is not ok — refusing to touch etcd"
+  || die "/readyz is not ok; refusing to touch etcd"
 apply_one etcd "etcd-$NODE" "etcd"
 
 log "Verifying the cluster still works"
 [ "$(kubectl --context "kind-$CLUSTER" get --raw='/readyz' 2>/dev/null)" = "ok" ] \
-  && ok "/readyz ok" || warn "/readyz not ok — check 'kubectl get --raw=/readyz?verbose'"
+  && ok "/readyz ok" || warn "/readyz not ok; check 'kubectl get --raw=/readyz?verbose'"
 
 # kube-proxy reads a ConfigMap, not a static pod, so it is fixed through the API.
 log "kube-proxy metricsBindAddress"

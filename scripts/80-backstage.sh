@@ -39,7 +39,7 @@ elif [ $((NODE_MAJOR % 2)) -ne 0 ] || [ "$NODE_MAJOR" -gt 24 ]; then
   else
     warn "Install Node 22 (nvm/mise/fnm) and re-run 'make portal'."
   fi
-  die "refusing to scaffold Backstage on an unsupported Node — see above"
+  die "refusing to scaffold Backstage on an unsupported Node; see above"
 fi
 
 # ── 1. scaffold the app ──────────────────────────────────────────────────
@@ -77,7 +77,7 @@ PYEOF
 else
   ok "Backstage app already at $APP"
 fi
-[ -d "$APP/packages/backend" ] || die "create-app did not finish — remove $APP and re-run"
+[ -d "$APP/packages/backend" ] || die "create-app did not finish; remove $APP and re-run"
 
 # ── 2. the Gitea scaffolder action ───────────────────────────────────────
 if ! grep -q 'scaffolder-backend-module-gitea' "$APP/packages/backend/package.json"; then
@@ -96,7 +96,7 @@ if 'scaffolder-backend-module-gitea' in src:
 # Insert immediately before backend.start()
 m = re.search(r'^\s*backend\.start\(\);', src, re.M)
 if not m:
-    print('    !! could not find backend.start() — add this line yourself:')
+    print('    !! could not find backend.start(); add this line yourself:')
     print('       ' + line.strip()); sys.exit(0)
 src = src[:m.start()] + line + src[m.start():]
 open(p, 'w').write(src)
@@ -131,14 +131,14 @@ if kubectl --context "kind-$CLUSTER" get ns argocd >/dev/null 2>&1; then
       --from-literal=token="$(cat "$REPO_ROOT/.gitea-token")" \
       --dry-run=client -o yaml | kubectl --context "kind-$CLUSTER" apply -f - >/dev/null
   else
-    warn "no .gitea-token — run 'make gitea' first"
+    warn "no .gitea-token; run 'make gitea' first"
   fi
   log "Applying the golden-path ApplicationSet"
   sed -e "s|gitea.lab|${GITEA_HOST}|g" -e "s|owner: services|owner: ${GITEA_ORG}|" \
     "$REPO_ROOT/examples/argocd-appset-gitea-scm.yaml" \
     | kubectl --context "kind-$CLUSTER" apply -f -
 else
-  warn "argocd namespace missing — run 'make gitops', then re-run 'make portal'"
+  warn "argocd namespace missing; run 'make gitops', then re-run 'make portal'"
 fi
 
 cat <<INFO

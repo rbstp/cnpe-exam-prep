@@ -14,7 +14,7 @@ Scaffolded from the `golden-path-service` template.
 ## Change the running deployment
 
 Edit `k8s/overlays/dev/kustomization.yaml`, commit, push. Argo CD reconciles
-within ~30 seconds. Nothing here is applied by hand — verify with:
+within ~30 seconds. Nothing here is applied by hand; verify with:
 
 ```bash
 kubectl -n argocd get app ${{ values.name }}-dev
