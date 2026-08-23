@@ -157,7 +157,15 @@
       '<span>' + ov.done + "/" + ov.total + '</span><span class="track"><i style="width:' + ov.pct + '%"></i></span>');
     inner.appendChild(prog);
 
-    var sb = el("button", "searchbtn", '<span>⌕</span><span>Jump to section…</span><span class="k">/</span>');
+    // U+2315 is not in the bundled Plex Mono subset, so as a character it came
+    // from whatever the OS fell back to and drew at a different size on every
+    // platform. Inline SVG renders identically everywhere.
+    var sb = el("button", "searchbtn",
+      '<svg class="ic" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" ' +
+        'stroke="currentColor" stroke-linecap="round">' +
+        '<circle cx="6.75" cy="6.75" r="4.75" stroke-width="1.6"/>' +
+        '<path d="M10.4 10.4 14 14" stroke-width="1.8"/>' +
+      '</svg><span>Jump to section…</span><span class="k">/</span>');
     sb.type = "button";
     sb.addEventListener("click", openPalette);
     inner.appendChild(sb);
