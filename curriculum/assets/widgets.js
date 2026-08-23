@@ -19,21 +19,32 @@
     return e;
   }
   function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+  var figSeq = 0;
   function frame(title, hint) {
     var w = h("figure", { "class": "wfig" });
+    var id = "wfig-" + (++figSeq);
+    w.setAttribute("role", "group");
+    w.setAttribute("aria-labelledby", id);
     var head = h("figcaption", { "class": "whead" });
-    head.appendChild(h("span", { "class": "wtitle", html: title }));
+    var t = h("span", { "class": "wtitle", html: title });
+    t.id = id;
+    head.appendChild(t);
     if (hint) head.appendChild(h("span", { "class": "whint", html: hint }));
     w.appendChild(head);
     var bodyEl = h("div", { "class": "wbody" });
     w.appendChild(bodyEl);
     return { root: w, body: bodyEl };
   }
+  var ctlSeq = 0;
   function control(label, input, valueEl) {
-    var row = h("label", { "class": "wctl" });
-    row.appendChild(h("span", { "class": "wlbl", html: label }));
+    var row = h("div", { "class": "wctl" });
+    var id = "wctl-" + (++ctlSeq);
+    var lbl = h("label", { "class": "wlbl", html: label });
+    lbl.setAttribute("for", id);
+    input.id = id;
+    row.appendChild(lbl);
     row.appendChild(input);
-    if (valueEl) row.appendChild(valueEl);
+    if (valueEl) { valueEl.setAttribute("aria-hidden", "true"); row.appendChild(valueEl); }
     return row;
   }
   function slider(min, max, step, val) {
@@ -59,8 +70,8 @@
   function qos(mount) {
     var f = frame("Requests, limits and what the kernel does with them",
                   "move the sliders — the class and the failure mode fall out");
-    var st = { cpuReq: 100, cpuLim: 500, memReq: 128, memLim: 256, cpuUse: 300, memUse: 200 };
-    var out = h("div", { "class": "wout" });
+    var st = { cpuReq: 100, cpuLim: 500, memReq: 128, memLim: 256, cpuUse: 300, memUse: 208 };
+    var out = announce(h("div", { "class": "wout" }));
     var ctls = h("div", { "class": "wctls" });
 
     function mk(key, label, min, max, step, unit) {
@@ -129,7 +140,7 @@
     var f = frame("One node, four numbers", "the gap between requested and used is the whole cost domain");
     var st = { alloc: 3800, req: 3600, use: 1100 };
     var ctls = h("div", { "class": "wctls" });
-    var out = h("div", { "class": "wout" });
+    var out = announce(h("div", { "class": "wout" }));
     [["req", "sum of requests", 0, 3800], ["use", "actual usage", 0, 3800]].forEach(function (d) {
       var val = h("span", { "class": "wval" });
       var s = slider(d[2], d[3], 50, st[d[0]]);
@@ -171,7 +182,7 @@
     var st = { replicas: 12, cpuReq: 50, cpuLim: 200, explicit: false };
     var hard = { "requests.cpu": 2000, "limits.cpu": 4000, pods: 20 };
     var ctls = h("div", { "class": "wctls" });
-    var out = h("div", { "class": "wout" });
+    var out = announce(h("div", { "class": "wout" }));
 
     var tog = toggle("declare resources explicitly (otherwise the LimitRange injects 50m / 200m)", false);
     tog.input.addEventListener("change", function () { st.explicit = tog.input.checked; sync(); draw(); });
@@ -225,9 +236,9 @@
   /* ── 1.5 · right-sizing and what it costs ─────────────────── */
   function efficiency(mount) {
     var f = frame("Right-sizing, in money", "notional rates: $28/CPU-month, $3.50/GiB-month");
-    var st = { req: 500, use: 90, replicas: 6, mem: 512, memUse: 180 };
+    var st = { req: 500, use: 90, replicas: 6, mem: 512, memUse: 192 };
     var ctls = h("div", { "class": "wctls" });
-    var out = h("div", { "class": "wout" });
+    var out = announce(h("div", { "class": "wout" }));
     [["req", "cpu request each", 25, 1000, 25, "m"], ["use", "cpu actually used", 10, 1000, 10, "m"],
      ["mem", "memory request each", 64, 1024, 64, "Mi"], ["memUse", "memory actually used", 32, 1024, 32, "Mi"],
      ["replicas", "replicas", 1, 20, 1, ""]].forEach(function (d) {
@@ -306,7 +317,7 @@
     ];
     var st = { i: 0, replicas: 4, route: false, healthy: true, aborted: false };
     var ctls = h("div", { "class": "wctls wctls-row" });
-    var out = h("div", { "class": "wout" });
+    var out = announce(h("div", { "class": "wout" }));
 
     var next = h("button", { "class": "wbtn", type: "button", html: "▶ promote to next step" });
     var abort = h("button", { "class": "wbtn danger", type: "button", html: "■ abort" });
@@ -369,7 +380,7 @@
     var f = frame("A counter, and what rate() makes of it", "drag the window — and restart the process to see a reset");
     var st = { win: 5, spike: false, reset: false };
     var ctls = h("div", { "class": "wctls" });
-    var out = h("div", { "class": "wout" });
+    var out = announce(h("div", { "class": "wout" }));
     var val = h("span", { "class": "wval" });
     var s = slider(1, 15, 1, st.win);
     s.addEventListener("input", function () { st.win = +s.value; draw(); });
@@ -453,7 +464,7 @@
     var f = frame("From condition true to phone buzzing", "the delay is the sum of four settings, not one");
     var st = { evalI: 30, forS: 120, groupWait: 30, blip: 45 };
     var ctls = h("div", { "class": "wctls" });
-    var out = h("div", { "class": "wout" });
+    var out = announce(h("div", { "class": "wout" }));
     [["evalI", "evaluation interval", 15, 120, 15, "s"], ["forS", "for:", 0, 600, 30, "s"],
      ["groupWait", "group_wait", 0, 300, 15, "s"], ["blip", "how long the condition actually holds", 15, 900, 15, "s"]]
       .forEach(function (d) {
@@ -471,13 +482,17 @@
       var notified = fires + st.groupWait;                                    // Alertmanager sends
       var everFires = st.blip >= fires;
       var total = Math.max(notified, st.blip) * 1.15;
-      var pct = function (v) { return v / total * 100; };
+      var pct = function (v) { return Math.max(0, Math.min(100, v / total * 100)); };
+      var span = function (left, width) { return Math.max(0, Math.min(100 - left, width)); };
       out.innerHTML =
         '<div class="wtl">' +
-          '<div class="wtl-track"><i class="cond" style="left:0;width:' + pct(st.blip) + '%"><span>condition true</span></i></div>' +
-          '<div class="wtl-track"><i class="pend" style="left:' + pct(detect) + '%;width:' + pct(Math.min(st.forS, Math.max(0, st.blip - detect))) + '%"><span>Pending</span></i>' +
-            (everFires ? '<i class="fire" style="left:' + pct(fires) + '%;width:' + pct(Math.max(6, st.blip - fires)) + '%"><span>Firing</span></i>' : "") + "</div>" +
-          '<div class="wtl-track">' + (everFires ? '<i class="notif" style="left:' + pct(notified) + '%;width:' + pct(Math.max(30, total * 0.11)) + '%"><span>notified</span></i>' : "") + "</div>" +
+          '<div class="wtl-track"><i class="cond" style="left:0;width:' + span(0, pct(st.blip)) + '%"><span>condition true</span></i></div>' +
+          '<div class="wtl-track"><i class="pend" style="left:' + pct(detect) + '%;width:' +
+            span(pct(detect), pct(Math.min(st.forS, Math.max(0, st.blip - detect)))) + '%"><span>Pending</span></i>' +
+            (everFires ? '<i class="fire" style="left:' + pct(fires) + '%;width:' +
+              span(pct(fires), Math.max(8, pct(st.blip - fires))) + '%"><span>Firing</span></i>' : "") + "</div>" +
+          '<div class="wtl-track">' + (everFires ? '<i class="notif" style="left:' + pct(notified) + '%;width:' +
+            span(pct(notified), Math.max(11, pct(total * 0.11))) + '%"><span>notified</span></i>' : "") + "</div>" +
           '<div class="wtl-axis">' + [0, 0.25, 0.5, 0.75, 1].map(function (q) {
             return "<span>" + Math.round(total * q) + "s</span>";
           }).join("") + "</div>" +
@@ -489,9 +504,12 @@
           '<div class="wcell"><span class="wk">total lag</span><span class="wv wnum">' + (everFires ? notified + "s" : "—") + "</span></div>" +
         "</div>" +
         '<div class="wnote ' + (everFires ? "" : "ok") + '">' +
-          (everFires
-            ? "The alert is visible as Pending in Prometheus " + detect + "s in, and <em>nowhere else</em> until " + fires + "s. If someone says \"the alert is showing but nothing paged\", that is this window."
-            : "The condition cleared after " + st.blip + "s, before <code>for: " + st.forS + "s</code> elapsed — so it never fired and nobody was told. That is exactly what <code>for:</code> is for: swallowing blips.") +
+          (!everFires
+            ? "The condition cleared after " + st.blip + "s, before the alert could survive detection (" + detect + "s) plus <code>for: " + st.forS + "s</code> — so it never fired and nobody was told. That is exactly what <code>for:</code> is for: swallowing blips."
+            : st.forS === 0
+              ? "With <code>for: 0</code> the alert goes straight to Firing on the first evaluation that sees it — no Pending window at all. Fast, and it will page you for a single scrape's worth of noise."
+              : "The alert is visible as Pending in Prometheus " + detect + "s in, and <em>nowhere else</em> until " + fires +
+                "s — note the transition lands on an evaluation tick, not exactly at detection + for:. If someone says \"the alert is showing but nothing paged\", that is this window.") +
         "</div>";
     }
     f.body.appendChild(ctls); f.body.appendChild(out); draw();
@@ -513,7 +531,7 @@
     ];
     var st = {};
     var ctls = h("div", { "class": "wctls" });
-    var out = h("div", { "class": "wout" });
+    var out = announce(h("div", { "class": "wout" }));
     opts.forEach(function (o) {
       st[o[0]] = o[2];
       var t = toggle(o[1], o[2]);
@@ -557,7 +575,7 @@
     var f = frame("Role or ClusterRole, RoleBinding or ClusterRoleBinding", "four combinations, and only one of them is usually right");
     var st = { role: "Role", binding: "RoleBinding", verb: "list", res: "pods" };
     var ctls = h("div", { "class": "wctls wctls-row" });
-    var out = h("div", { "class": "wout" });
+    var out = announce(h("div", { "class": "wout" }));
     function picker(label, key, values) {
       var wrap = h("div", { "class": "wpick" });
       wrap.appendChild(h("span", { "class": "wlbl", html: label }));
@@ -634,7 +652,7 @@
     var f = frame("Follow one request until it fails", "flip a condition and watch which hop drops it");
     var st = { dns: true, selector: true, ready: true, policy: true, port: true };
     var ctls = h("div", { "class": "wctls" });
-    var out = h("div", { "class": "wout" });
+    var out = announce(h("div", { "class": "wout" }));
     [["dns", "DNS egress to kube-dns is allowed"],
      ["selector", "Service selector matches the pod labels"],
      ["ready", "pods pass their readiness probe"],
@@ -689,7 +707,7 @@
     var st = { git: 3, live: 3, gitHasSvc: true, liveHasSvc: true, selfHeal: true, prune: false, suspended: false, log: [] };
     var ctls = h("div", { "class": "wctls wctls-row" });
     var togs = h("div", { "class": "wctls" });
-    var out = h("div", { "class": "wout" });
+    var out = announce(h("div", { "class": "wout" }));
 
     function btn(label, fn, cls) {
       var b = h("button", { "class": "wbtn " + (cls || ""), type: "button", html: label });
@@ -752,7 +770,7 @@
     var st = { limitRange: true, declares: false, privileged: false, kyverno: "Audit", pss: "baseline" };
     var ctls = h("div", { "class": "wctls" });
     var picks = h("div", { "class": "wctls wctls-row" });
-    var out = h("div", { "class": "wout" });
+    var out = announce(h("div", { "class": "wout" }));
 
     [["limitRange", "namespace has a LimitRange (defaults 50m/64Mi)"],
      ["declares", "the pod declares its own requests"],
@@ -819,6 +837,8 @@
     f.body.appendChild(ctls); f.body.appendChild(picks); f.body.appendChild(out); draw();
     mount.appendChild(f.root);
   }
+
+  function announce(node) { node.setAttribute("aria-live", "polite"); return node; }
 
   var REGISTRY = {
     qos: qos, capacity: capacity, quota: quota, efficiency: efficiency,

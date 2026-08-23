@@ -6,13 +6,18 @@ the stylesheet, the section manifest, the widgets and the page runtime. Useful
 for sharing the console as one file, or for previewing it somewhere that only
 takes a single document.
 
-    python3 tools/bundle.py [out.html]        # run from curriculum/
+    python3 tools/bundle.py [out.html] [--fragment]
+
+--fragment omits <!doctype>/<html>/<head>/<body> for hosts that supply their own
+document skeleton; the default output is a complete standalone page.
 """
-import os, re, sys, html
+import os, re, sys, json
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "cnpe-console.html")
+args = [a for a in sys.argv[1:] if not a.startswith("--")]
+FRAGMENT = "--fragment" in sys.argv
+OUT = args[0] if args else os.path.join(ROOT, "cnpe-console.html")
 
 def read(p):
     with open(os.path.join(ROOT, p), encoding="utf-8") as fh:
@@ -33,11 +38,25 @@ nav = read("assets/nav.js")
 paths = re.findall(r'path:\s*"([^"]+)"', nav)
 pages = ["index.html"] + paths
 
+valid = set(re.findall(r'id:\s*"([^"]+)"', nav)) | {"index"}
 parts, seen = [], {}
 for p in pages:
     key, exam, art = article_of(p)
+    if key not in valid:
+        raise SystemExit("%s: data-id %r is not in the section manifest" % (p, key))
+    if key in seen:
+        raise SystemExit("%s and %s share data-id %r" % (p, seen[key][0], key))
     seen[key] = (p, exam)
-    parts.append("  %s: %s," % (js_key := ('"%s"' % key), "`" + art.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${") + "`"))
+    body = (art.replace("\\", "\\\\").replace("`", "\\`").replace("${", "\\${")
+               .replace("</script", "&lt;/script"))
+    parts.append('  "%s": `%s`,' % (key, body))
+
+HEAD = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+"""
 
 bundle = """<title>CNPE study console</title>
 <style>
@@ -72,6 +91,7 @@ window.CNPE_EXAM_KEYS = %s;
     var h = (location.hash || "#index").slice(1);
     return window.CNPE_PAGES[h] ? h : "index";
   }
+  var pendingFragment = "";
   function render() {
     var k = keyFromHash();
     document.body.setAttribute("data-root", "");
@@ -81,6 +101,11 @@ window.CNPE_EXAM_KEYS = %s;
     else document.body.removeAttribute("data-exam");
     view.innerHTML = window.CNPE_PAGES[k];
     window.CNPE_BOOT();
+    if (pendingFragment) {
+      var el = document.getElementById(pendingFragment);
+      pendingFragment = "";
+      if (el) { el.scrollIntoView(); return; }
+    }
     window.scrollTo(0, 0);
   }
   addEventListener("hashchange", render);
@@ -90,14 +115,19 @@ window.CNPE_EXAM_KEYS = %s;
     if (!a) return;
     var href = a.getAttribute("href") || "";
     if (/^(https?:|mailto:|#)/.test(href)) return;
-    e.preventDefault();
+    var frag = href.split("#")[1] || "";
     var file = href.split("#")[0].replace(/^(\\.\\.\\/)+/, "");
-    if (file === "index.html" || file === "") { location.hash = "#index"; return; }
-    for (var k in window.CNPE_PAGES) {
-      if (k !== "index" && (window.CNPE_NAV.filter(function (n) { return n.id === k; })[0] || {}).path === file) {
-        location.hash = "#" + k; return;
+    var target = null;
+    if (file === "index.html" || file === "") target = "index";
+    else {
+      for (var k in window.CNPE_PAGES) {
+        if (k !== "index" && (window.CNPE_NAV.filter(function (n) { return n.id === k; })[0] || {}).path === file) { target = k; break; }
       }
     }
+    if (!target) return;                       // not a page of this bundle: let the browser have it
+    e.preventDefault();
+    pendingFragment = frag;
+    if (location.hash === "#" + target) render(); else location.hash = "#" + target;
   });
   render();
 })();
@@ -106,11 +136,16 @@ window.CNPE_EXAM_KEYS = %s;
     read("assets/style.css"),
     read("assets/nav.js"),
     "\n".join(parts),
-    '["EX"]',
+    json.dumps(sorted(k for k, (_, ex) in seen.items() if ex)),
     read("assets/widgets.js") if os.path.exists(os.path.join(ROOT, "assets/widgets.js")) else "",
     read("assets/app.js"),
 )
 
+if not FRAGMENT:
+    title, rest = bundle.split("\n", 1)
+    bundle = HEAD + title + "\n</head>\n<body>\n" + rest + "\n</body>\n</html>\n"
+
 with open(OUT, "w", encoding="utf-8") as fh:
     fh.write(bundle)
-print("wrote %s (%.0f KB, %d pages)" % (OUT, len(bundle) / 1024, len(pages)))
+print("wrote %s (%.0f KB, %d pages, %s)"
+      % (OUT, len(bundle) / 1024, len(pages), "fragment" if FRAGMENT else "standalone document"))

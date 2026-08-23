@@ -19,11 +19,18 @@
   var store = (function () {
     var s = { ex: {}, done: {}, exam: {}, last: null };
     try { var raw = localStorage.getItem(KEY); if (raw) s = Object.assign(s, JSON.parse(raw)); } catch (e) {}
+    ["ex", "done", "exam"].forEach(function (k) {
+      if (!s[k] || typeof s[k] !== "object") s[k] = {};       // tolerate anything that is not a map
+    });
+    if (typeof s.last !== "string") s.last = null;
     return s;
   })();
   function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} }
 
-  function exKey(id, i) { return id + "#" + i; }
+  function slug(s) {
+    return (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48);
+  }
+  function exKey(id, i, title) { return id + "#" + (slug(title) || i); }
   function sectionCounts(id) {
     var total = 0, done = 0;
     Object.keys(store.ex).forEach(function (k) {
@@ -99,6 +106,14 @@
 
     bar.appendChild(inner);
     body.insertBefore(bar, body.firstChild);
+
+    if (!document.querySelector(".skip")) {
+      var skip = el("a", "skip", "Skip to content");
+      skip.href = "#main";
+      body.insertBefore(skip, body.firstChild);
+    }
+    var art = document.querySelector("article");
+    if (art && !art.id) { art.id = "main"; art.setAttribute("tabindex", "-1"); }
   }
 
   /* ── page head + stat tiles ──────────────────────────────── */
@@ -138,23 +153,16 @@
     var pct = c.total ? Math.round(c.done / c.total * 100) : 0;
     t.querySelector(".val").innerHTML = c.done + '<span class="u">/ ' + c.total + "</span>";
     t.querySelector(".spark i").style.width = pct + "%";
-    var mini = document.querySelector(".toc .mini");
-    if (mini) {
-      mini.querySelector(".row span:last-child").textContent = c.done + "/" + c.total;
-      mini.querySelector(".track i").style.width = pct + "%";
-    }
+    var cnt = document.getElementById("toc-ex-count"), barEl = document.getElementById("toc-ex-bar");
+    if (cnt) cnt.textContent = c.done + "/" + c.total;
+    if (barEl) barEl.style.width = pct + "%";
   }
 
   /* ── code blocks: language bar, copy, light highlighting ─── */
-  var KWS = /\b(kubectl|helm|flux|argocd|argo|tkn|kubeseal|cosign|skopeo|trivy|docker|git|curl|jq|kustomize|istioctl|linkerd|hubble|cilium|crossplane|stern|kubectx|make|yq|base64|sudo|watch|source|echo|sleep|grep|awk|sed|sort|head|tail|wc|seq|for|do|done|while|if|then|fi|export)\b/;
+  var KWS = /\b(kubectl|helm|flux|argocd|argo|tkn|kubeseal|cosign|skopeo|trivy|docker|git|curl|jq|kustomize|istioctl|linkerd|hubble|cilium|crossplane|stern|kubectx|make|yq|base64|sudo|watch|source|echo|sleep|grep|awk|sed|sort|head|tail|wc|seq|for|do|done|while|if|then|fi|export)\b/g;
   function highlight(code, lang) {
     var html = code.innerHTML; // already entity-escaped in source
-    var patterns = [
-      { re: /(^|\n)([ \t]*#[^\n]*)/g, fn: function (m, a, b) { return a + '<span class="t-cm">' + b + "</span>"; } },
-      { re: /('[^'\n]*'|"[^"\n]*")/g, fn: function (m) { return '<span class="t-str">' + m + "</span>"; } }
-    ];
-    // strings + comments first, tracked so later passes skip them
-    var parts = [];
+    // strings and comments first; later passes only touch what is left over
     var protectedRe = /(^|\n)([ \t]*#[^\n]*)|('[^'\n]*')|("[^"\n]*")/g;
     var out = "", last = 0, m;
     while ((m = protectedRe.exec(html)) !== null) {
@@ -165,7 +173,6 @@
     }
     out += paint(html.slice(last), lang);
     code.innerHTML = out;
-    void parts; void patterns;
   }
   function paint(s, lang) {
     if (!s) return s;
@@ -187,6 +194,8 @@
 
   function buildCodeBlocks() {
     Array.prototype.forEach.call(document.querySelectorAll(".cb"), function (cb) {
+      if (cb.getAttribute("data-built")) return;
+      cb.setAttribute("data-built", "1");
       var lang = cb.getAttribute("data-lang") || "text";
       var code = cb.querySelector("code");
       var bar = el("div", "cb-bar", "<span>" + lang + '</span><span class="spacer"></span>');
@@ -209,11 +218,24 @@
     });
     // one-click copy for the "needs" chips
     Array.prototype.forEach.call(document.querySelectorAll(".needs code"), function (c) {
+      if (c.getAttribute("data-built")) return;
+      c.setAttribute("data-built", "1");
+      var cmd = c.textContent, busy = false;
       c.title = "click to copy";
-      c.addEventListener("click", function () {
-        var t = c.textContent, old = c.textContent;
-        var fin = function () { c.textContent = "copied ✓"; setTimeout(function () { c.textContent = old; }, 1100); };
-        if (navigator.clipboard) navigator.clipboard.writeText(t).then(fin, fin); else fin();
+      c.tabIndex = 0;
+      c.setAttribute("role", "button");
+      var fire = function () {
+        if (busy) return;
+        busy = true;
+        var fin = function () {
+          c.textContent = "copied ✓";
+          setTimeout(function () { c.textContent = cmd; busy = false; }, 1100);
+        };
+        if (navigator.clipboard) navigator.clipboard.writeText(cmd).then(fin, fin); else fin();
+      };
+      c.addEventListener("click", fire);
+      c.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fire(); }
       });
     });
   }
@@ -230,28 +252,43 @@
     if (!entry) return;
     var list = document.querySelectorAll(".exercise");
     Array.prototype.forEach.call(list, function (ex, i) {
+      if (ex.getAttribute("data-built")) return;
+      ex.setAttribute("data-built", "1");
       var title = ex.getAttribute("data-title") || "Exercise " + (i + 1);
-      var k = exKey(entry.id, i);
+      var k = exKey(entry.id, i, title);
       if (!(k in store.ex)) store.ex[k] = 0;
       var body = ex.innerHTML;
       ex.innerHTML = "";
-      var hdr = el("header", null,
-        '<span class="dot"></span><h4>' + title + '</h4><span class="mark">' +
-        (store.ex[k] ? "verified" : "mark verified") + '</span><span class="chev">▾</span>');
-      var wrapDiv = el("div", "body", body);
-      ex.appendChild(hdr); ex.appendChild(wrapDiv);
-      if (store.ex[k]) ex.classList.add("done");
-      hdr.querySelector(".mark").addEventListener("click", function (e) {
+
+      var hdr = el("header");
+      var disc = el("button", "disc");
+      disc.type = "button";
+      disc.innerHTML = '<span class="dot" aria-hidden="true"></span><h4>' + title + '</h4><span class="chev" aria-hidden="true">▾</span>';
+      var mark = el("button", "mark");
+      mark.type = "button";
+      var bodyEl = el("div", "body", body);
+      bodyEl.id = "ex-" + slug(entry.id + "-" + title);
+      disc.setAttribute("aria-controls", bodyEl.id);
+
+      function paint() {
+        var on = !!store.ex[k];
+        ex.classList.toggle("done", on);
+        mark.textContent = on ? "verified" : "mark verified";
+        mark.setAttribute("aria-pressed", on ? "true" : "false");
+        mark.setAttribute("aria-label", (on ? "Verified: " : "Mark verified: ") + title);
+        var collapsed = ex.classList.contains("collapsed");
+        disc.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        disc.querySelector(".chev").textContent = collapsed ? "▸" : "▾";
+      }
+      mark.addEventListener("click", function (e) {
         e.stopPropagation();
-        store.ex[k] = store.ex[k] ? 0 : 1; save();
-        ex.classList.toggle("done", !!store.ex[k]);
-        hdr.querySelector(".mark").textContent = store.ex[k] ? "verified" : "mark verified";
-        refreshExTile();
+        store.ex[k] = store.ex[k] ? 0 : 1; save(); paint(); refreshExTile();
       });
-      hdr.addEventListener("click", function () {
-        ex.classList.toggle("collapsed");
-        hdr.querySelector(".chev").textContent = ex.classList.contains("collapsed") ? "▸" : "▾";
-      });
+      disc.addEventListener("click", function () { ex.classList.toggle("collapsed"); paint(); });
+
+      hdr.appendChild(disc); hdr.appendChild(mark);
+      ex.appendChild(hdr); ex.appendChild(bodyEl);
+      paint();
     });
     save();
     refreshExTile();   // the tile is built before the exercises are registered
@@ -261,8 +298,9 @@
   function buildToc() {
     var toc = document.getElementById("toc");
     if (!toc) return;
+    toc.style.display = "";
     var heads = document.querySelectorAll("article .panel > .phdr h2");
-    if (!heads.length) { toc.style.display = "none"; return; }
+    if (!heads.length) { toc.style.display = "none"; toc.innerHTML = ""; return; }
     var html = "<h4>On this page</h4>";
     Array.prototype.forEach.call(heads, function (h, i) {
       var panel = h.closest(".panel");
@@ -271,23 +309,32 @@
     });
     if (entry && document.querySelector(".exercise")) {
       var c = sectionCounts(entry.id);
-      html += '<div class="mini"><div class="row"><span>exercises</span><span>' + c.done + "/" + c.total +
-        '</span></div><div class="track"><i style="width:' + (c.total ? c.done / c.total * 100 : 0) + '%"></i></div></div>';
+      html += '<div class="mini"><div class="row"><span>exercises</span><span id="toc-ex-count">' + c.done + "/" + c.total +
+        '</span></div><div class="track"><i id="toc-ex-bar" style="width:' + (c.total ? c.done / c.total * 100 : 0) + '%"></i></div></div>';
     }
     toc.innerHTML = html;
 
-    var links = toc.querySelectorAll("a");
-    var targets = Array.prototype.map.call(links, function (a) { return document.querySelector(a.getAttribute("href")); });
-    function spy() {
-      var y = window.scrollY + 120, idx = 0;
-      targets.forEach(function (t, i) { if (t && t.offsetTop <= y) idx = i; });
-      Array.prototype.forEach.call(links, function (a, i) { a.classList.toggle("active", i === idx); });
+    spyState.links = Array.prototype.slice.call(toc.querySelectorAll("a"));
+    spyState.targets = spyState.links.map(function (a) { return document.querySelector(a.getAttribute("href")); });
+    if (!spyState.wired) {
+      window.addEventListener("scroll", throttle(spy, 120));
+      spyState.wired = true;
     }
-    window.addEventListener("scroll", throttle(spy, 120)); spy();
+    spy();
+  }
+  var spyState = { links: [], targets: [], wired: false };
+  function spy() {
+    var y = window.scrollY + 120, idx = 0;
+    spyState.targets.forEach(function (t, i) { if (t && t.offsetTop <= y) idx = i; });
+    spyState.links.forEach(function (a, i) { a.classList.toggle("active", i === idx); });
   }
   function throttle(fn, ms) {
-    var t = 0;
-    return function () { var n = Date.now(); if (n - t > ms) { t = n; fn(); } };
+    var t = 0, timer = null;
+    return function () {
+      var n = Date.now();
+      if (n - t > ms) { t = n; fn(); }
+      else { clearTimeout(timer); timer = setTimeout(function () { t = Date.now(); fn(); }, ms); }
+    };
   }
 
   /* ── pager + finish ──────────────────────────────────────── */
@@ -327,7 +374,7 @@
             : '<a class="next" href="' + href("index.html") + '"><span class="dir">next ▶</span>Back to the dashboard</a>');
     art.appendChild(pager);
 
-    store.last = entry.id; save();
+    if (entry.d > 0) { store.last = entry.id; save(); }   // the mock exam is not "where you were reading"
   }
 
   /* ── command palette ─────────────────────────────────────── */
@@ -335,15 +382,26 @@
   function buildPalette() {
     paletteOverlay = el("div", "overlay");
     var p = el("div", "palette");
+    p.setAttribute("role", "dialog");
+    p.setAttribute("aria-modal", "true");
+    p.setAttribute("aria-label", "Jump to a section");
     p.innerHTML =
-      '<div class="pin"><span>⌕</span><input type="text" placeholder="Search sections, tools, concepts…" autocomplete="off" spellcheck="false"></div>' +
-      "<ul></ul>" +
-      '<div class="hint">↑↓ navigate · ⏎ open · esc close · type a tool name (kyverno, flux, spiffe…) to find its section</div>';
+      '<div class="pin"><span aria-hidden="true">⌕</span><input type="text" role="combobox" aria-expanded="true" ' +
+        'aria-controls="palette-list" aria-autocomplete="list" aria-label="Search sections, tools and concepts" ' +
+        'placeholder="Search sections, tools, concepts…" autocomplete="off" spellcheck="false"></div>' +
+      '<ul id="palette-list" role="listbox" aria-label="Sections"></ul>' +
+      '<div class="hint" aria-live="polite" id="palette-hint">↑↓ navigate · ⏎ open · esc close · type a tool name (kyverno, flux, spiffe…) to find its section</div>';
     paletteOverlay.appendChild(p);
     body.appendChild(paletteOverlay);
     paletteInput = p.querySelector("input");
     paletteList = p.querySelector("ul");
     paletteInput.addEventListener("input", function () { renderPalette(paletteInput.value); });
+    // keep Tab inside the dialog
+    p.addEventListener("keydown", function (e) {
+      if (e.key !== "Tab") return;
+      e.preventDefault();
+      paletteInput.focus();
+    });
     paletteInput.addEventListener("keydown", function (e) {
       if (e.key === "ArrowDown") { e.preventDefault(); paletteSel = Math.min(paletteSel + 1, paletteItems.length - 1); markSel(); }
       else if (e.key === "ArrowUp") { e.preventDefault(); paletteSel = Math.max(paletteSel - 1, 0); markSel(); }
@@ -360,6 +418,12 @@
       return q.split(/\s+/).every(function (tok) { return hay.indexOf(tok) >= 0; });
     });
     paletteItems = items; paletteSel = 0;
+    var hint = document.getElementById("palette-hint");
+    if (hint) {
+      hint.textContent = !q ? "↑↓ navigate · ⏎ open · esc close · type a tool name (kyverno, flux, spiffe…) to find its section"
+        : items.length ? items.length + (items.length === 1 ? " match" : " matches") + " · ↑↓ navigate · ⏎ open"
+        : "no section matches “" + q + "”";
+    }
     paletteList.innerHTML = items.map(function (n, i) {
       var d = domainOf(n.d);
       var hit = "";
@@ -367,7 +431,8 @@
         var t = n.tags.split(/\s+/).filter(function (w) { return w.indexOf(q.split(/\s+/)[0]) === 0; }).slice(0, 4);
         if (t.length) hit = " · " + t.join(" ");
       }
-      return '<li data-i="' + i + '"><span class="pid">' + n.id + '</span><span class="ptitle">' + n.title +
+      return '<li id="pal-' + i + '" role="option" aria-selected="false" data-i="' + i + '"><span class="pid">' + n.id +
+        '</span><span class="ptitle">' + n.title +
         '</span><span class="pmeta">' + (d ? "d" + d.n : "exam") + hit + "</span></li>";
     }).join("");
     Array.prototype.forEach.call(paletteList.children, function (li) {
@@ -377,16 +442,25 @@
     markSel();
   }
   function markSel() {
-    Array.prototype.forEach.call(paletteList.children, function (li, i) { li.classList.toggle("sel", i === paletteSel); });
+    Array.prototype.forEach.call(paletteList.children, function (li, i) {
+      var on = i === paletteSel;
+      li.classList.toggle("sel", on);
+      li.setAttribute("aria-selected", on ? "true" : "false");
+    });
     var s = paletteList.children[paletteSel];
-    if (s && s.scrollIntoView) s.scrollIntoView({ block: "nearest" });
+    if (s) {
+      if (s.scrollIntoView) s.scrollIntoView({ block: "nearest" });
+      if (paletteInput) paletteInput.setAttribute("aria-activedescendant", s.id);
+    } else if (paletteInput) paletteInput.removeAttribute("aria-activedescendant");
   }
   function go(i) {
     var n = paletteItems[i];
     if (n) location.href = href(n.path);
   }
+  var lastFocus = null;
   function openPalette() {
     closeOverlays();
+    lastFocus = document.activeElement;
     paletteOverlay.classList.add("open");
     paletteInput.value = ""; renderPalette(""); paletteInput.focus();
   }
@@ -395,14 +469,22 @@
   var helpOverlay;
   function buildHelp() {
     helpOverlay = el("div", "overlay");
+    if (helpOverlay) helpOverlay.remove();
+    var sectionKeys = !!document.querySelector(".exercise");
     var c = el("div", "helpcard");
+    c.setAttribute("role", "dialog");
+    c.setAttribute("aria-modal", "true");
+    c.setAttribute("aria-label", "Keyboard shortcuts");
+    c.tabIndex = -1;
     c.innerHTML = "<h3>Keyboard</h3><dl>" +
       "<dt>/ &nbsp;or&nbsp; ⌘K</dt><dd>jump to any section by name, tool or concept</dd>" +
       "<dt>n &nbsp;/&nbsp; p</dt><dd>next / previous section</dd>" +
       "<dt>d</dt><dd>back to the dashboard</dd>" +
-      "<dt>x</dt><dd>jump to the exercises panel</dd>" +
-      "<dt>c</dt><dd>collapse or expand every exercise</dd>" +
-      "<dt>m</dt><dd>mark this section complete</dd>" +
+      (sectionKeys
+        ? "<dt>x</dt><dd>jump to the exercises panel</dd>" +
+          "<dt>c</dt><dd>collapse or expand every exercise</dd>" +
+          "<dt>m</dt><dd>mark this section complete</dd>"
+        : "") +
       "<dt>?</dt><dd>this card</dd>" +
       "<dt>esc</dt><dd>close</dd></dl>" +
       '<p style="margin:16px 0 0;color:var(--fg-3);font-size:13.5px">Progress is stored in this browser only. ' +
@@ -413,11 +495,20 @@
   }
   function toggleOverlay(o) {
     var open = o.classList.contains("open");
+    var trigger = document.activeElement;
     closeOverlays();
-    if (!open) o.classList.add("open");
+    if (!open) {
+      lastFocus = trigger;
+      o.classList.add("open");
+      var focusable = o.querySelector("button, [href], input");
+      if (focusable && focusable.focus) focusable.focus();
+    }
   }
   function closeOverlays() {
+    var wasOpen = !!document.querySelector(".overlay.open");
     Array.prototype.forEach.call(document.querySelectorAll(".overlay"), function (o) { o.classList.remove("open"); });
+    if (wasOpen && lastFocus && lastFocus.focus) { try { lastFocus.focus(); } catch (e) {} }
+    lastFocus = null;
   }
 
   /* ── keyboard ────────────────────────────────────────────── */
@@ -428,6 +519,7 @@
       if (e.key === "Escape") { closeOverlays(); return; }
       if ((e.key === "k" || e.key === "K") && (e.metaKey || e.ctrlKey)) { e.preventDefault(); openPalette(); return; }
       if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (document.querySelector(".overlay.open")) return;   // the modal owns the keyboard
       var idx = entry ? NAV.indexOf(entry) : -1;
       switch (e.key) {
         case "/": e.preventDefault(); openPalette(); break;
@@ -445,7 +537,8 @@
           });
           break;
         case "m":
-          var btn = document.querySelector(".finish .tbtn"); if (btn) { btn.click(); btn.scrollIntoView({ block: "center" }); }
+          var btn = entry ? document.querySelector(".finish button.tbtn") : null;
+          if (btn) { btn.click(); btn.scrollIntoView({ block: "center" }); }
           break;
       }
     });
@@ -470,7 +563,7 @@
     host.innerHTML = DOMAINS.map(function (d) {
       var secs = NAV.filter(function (n) { return n.d === d.n; });
       var done = secs.filter(function (n) { return store.done[n.id]; }).length;
-      var pct = Math.round(done / secs.length * 100);
+      var pct = secs.length ? Math.round(done / secs.length * 100) : 0;
       return '<div class="dcard"><header><span class="badge d' + d.n + '">D' + d.n + '</span><h3>' + d.name +
         '</h3><span class="w">' + d.weight + "</span></header><ol>" +
         secs.map(function (n) {
@@ -500,10 +593,14 @@
   }
 
   /* ── mock exam widgets ───────────────────────────────────── */
+  var examTimer = null;
   function buildExam() {
+    if (examTimer) { clearInterval(examTimer); examTimer = null; }
     if (!body.hasAttribute("data-exam")) return;
     var TOTAL = 120 * 60;
-    var st = store.exam || {};
+    var st = store.exam && typeof store.exam === "object" ? store.exam : {};
+    if (!st.tasks || typeof st.tasks !== "object") st.tasks = {};
+    store.exam = st;
     var clock = document.getElementById("clock");
     var scoreVal = document.getElementById("score-val");
     var startBtn = document.getElementById("t-start");
@@ -528,31 +625,68 @@
       store.exam = st; save(); paintClock();
     });
     if (resetBtn) resetBtn.addEventListener("click", function () {
-      st = {}; store.exam = st; save(); paintClock();
+      st.startedAt = 0; st.spent = 0; st.running = false; st.tasks = {};
+      save();
+      Array.prototype.forEach.call(document.querySelectorAll(".task"), function (t) { t.classList.remove("done"); });
+      Array.prototype.forEach.call(document.querySelectorAll(".task .dot"), function (d) { d.setAttribute("aria-pressed", "false"); });
+      paintClock(); paintScore();
     });
-    setInterval(paintClock, 1000); paintClock();
+    examTimer = setInterval(paintClock, 1000);
+    paintClock();
+
+    // the clock should measure time you spent, not wall-clock while the tab was shut
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "hidden" && st.running) {
+        st.spent = (st.spent || 0) + (Date.now() - st.startedAt) / 1000;
+        st.startedAt = Date.now();
+        save();
+      }
+    });
+    addEventListener("pagehide", function () {
+      if (st.running) { st.spent = (st.spent || 0) + (Date.now() - st.startedAt) / 1000; st.startedAt = Date.now(); save(); }
+    });
 
     var tasks = document.querySelectorAll(".task");
-    st.tasks = st.tasks || {};
     var maxPts = 0;
     Array.prototype.forEach.call(tasks, function (t, i) {
       var pts = +(t.getAttribute("data-pts") || 0);
       maxPts += pts;
       var title = t.getAttribute("data-title") || "";
+      if (t.getAttribute("data-built")) return;
+      t.setAttribute("data-built", "1");
       var inner = t.innerHTML;
       t.innerHTML = "";
-      var h = el("header", null,
-        '<span class="dot"></span><span class="tno">' + (i + 1) + '</span><span class="tt">' + title +
-        '</span><span class="pts">' + pts + " pts</span>");
+
+      var h = el("header");
+      var dot = el("button", "dot");
+      dot.type = "button";
+      dot.setAttribute("aria-label", "Mark task " + (i + 1) + " scored: " + title);
+      var disc = el("button", "disc");
+      disc.type = "button";
+      disc.innerHTML = '<span class="tno">' + (i + 1) + '</span><span class="tt">' + title +
+                       '</span><span class="pts">' + pts + " pts</span>";
       var b = el("div", "body", inner);
-      t.appendChild(h); t.appendChild(b);
-      if (st.tasks[i]) t.classList.add("done");
-      h.querySelector(".dot").addEventListener("click", function (e) {
+      b.id = "task-" + i;
+      disc.setAttribute("aria-controls", b.id);
+      disc.setAttribute("aria-expanded", "true");
+
+      function paintTask() {
+        var on = !!st.tasks[i];
+        t.classList.toggle("done", on);
+        dot.setAttribute("aria-pressed", on ? "true" : "false");
+      }
+      dot.addEventListener("click", function (e) {
         e.stopPropagation();
-        st.tasks[i] = st.tasks[i] ? 0 : 1; store.exam = st; save();
-        t.classList.toggle("done", !!st.tasks[i]); paintScore();
+        st.tasks[i] = st.tasks[i] ? 0 : 1; save(); paintTask(); paintScore();
       });
-      h.addEventListener("click", function () { b.style.display = b.style.display === "none" ? "" : "none"; });
+      disc.addEventListener("click", function () {
+        var hidden = b.style.display === "none";
+        b.style.display = hidden ? "" : "none";
+        disc.setAttribute("aria-expanded", hidden ? "true" : "false");
+      });
+      h.appendChild(dot); h.appendChild(disc);
+      t.appendChild(h); t.appendChild(b);
+      paintTask();
     });
     function paintScore() {
       if (!scoreVal) return;
