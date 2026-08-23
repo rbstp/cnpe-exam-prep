@@ -132,7 +132,7 @@
     var logo = el("a", "logo",
       '<svg class="mark" viewBox="0 0 24 24" aria-hidden="true">' +
         '<defs><linearGradient id="cnpeMark" x1="0" y1="0" x2="1" y2="1">' +
-          '<stop offset="0%" stop-color="var(--brand-2)"/><stop offset="100%" stop-color="var(--brand)"/>' +
+          '<stop class="s1" offset="0%" stop-color="#59A79C"/><stop class="s2" offset="100%" stop-color="#D08453"/>' +
         '</linearGradient></defs>' +
         '<path d="M12 1.9 20.7 7v10L12 22.1 3.3 17V7z" fill="none" stroke="url(#cnpeMark)" stroke-width="1.5" stroke-linejoin="round"/>' +
         '<path d="M7.8 14.6l2.9-3.3 2.2 2.4 3.3-4.1" fill="none" stroke="url(#cnpeMark)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>' +
@@ -550,7 +550,7 @@
         : "") +
       "<dt>?</dt><dd>this card</dd>" +
       "<dt>esc</dt><dd>close</dd></dl>" +
-      '<p style="margin:16px 0 0;color:var(--fg-3);font-size:13.5px">Progress is stored in this browser only. ' +
+      '<p style="margin:16px 0 0;color:var(--paper-3);font-size:13.5px">Progress is stored in this browser only. ' +
       'Every code block has a copy button; the lab-layer chips at the top of a section copy their make command too.</p>';
     helpOverlay.appendChild(c);
     helpOverlay.addEventListener("click", function (e) { if (e.target === helpOverlay) closeOverlays(); });
@@ -816,7 +816,7 @@
         var b = byDomain[d], pct = b.max ? Math.round(b.got / b.max * 100) : 0;
         var state = b.got === 0 ? "bad" : pct >= 70 ? "ok" : "warn";
         return '<div class="wcell"><span class="wk">domain ' + d + '</span>' +
-          '<span class="wv wnum">' + b.got + '<span class="u" style="font-size:12px;color:var(--fg-3)"> / ' + b.max + '</span></span>' +
+          '<span class="wv wnum">' + b.got + '<span class="u" style="font-size:12px;color:var(--paper-3)"> / ' + b.max + '</span></span>' +
           '<span class="wbar"><i class="' + (state === "ok" ? "green" : state === "warn" ? "warn" : "bad") +
           '" style="width:' + pct + '%"></i></span></div>';
       }).join("") +
