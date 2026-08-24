@@ -19,13 +19,17 @@
   var store = (function () {
     var s = { ex: {}, done: {}, exam: {}, last: null };
     try { var raw = localStorage.getItem(KEY); if (raw) s = Object.assign(s, JSON.parse(raw)); } catch (e) {}
-    ["ex", "done", "exam"].forEach(function (k) {
+    ["ex", "done", "exam", "drill", "drillmeta"].forEach(function (k) {
       if (!s[k] || typeof s[k] !== "object") s[k] = {};       // tolerate anything that is not a map
     });
     if (typeof s.last !== "string") s.last = null;
     return s;
   })();
   function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} }
+  // The one deliberate seam: drill.js keeps its records in this same store so
+  // export/import and reset cover them. Functions, not the object, because
+  // "Reset progress" replaces the object.
+  window.CNPE_PROGRESS = { get: function () { return store; }, save: save };
 
   /* ── progress transfer ───────────────────────────────────────
      localStorage is per-origin, so a file:// copy and a hosted copy keep
@@ -51,7 +55,7 @@
      anything. Reset progress first if you want a plain restore. The mock exam's
      clock is deliberately left alone; only its scored tasks merge. */
   function mergeProgress(src) {
-    var n = { done: 0, ex: 0, exam: 0 };
+    var n = { done: 0, ex: 0, exam: 0, drill: 0 };
     function union(into, from, bucket) {
       if (!from || typeof from !== "object" || Array.isArray(from)) return;
       Object.keys(from).forEach(function (k) {
@@ -67,6 +71,22 @@
       if (!store.exam.tasks || typeof store.exam.tasks !== "object") store.exam.tasks = {};
       union(store.exam.tasks, src.exam.tasks, "exam");
     }
+    // Drill records are counters, not ticks: per question, the record answered
+    // more recently wins outright rather than unioning.
+    if (src.drill && typeof src.drill === "object" && !Array.isArray(src.drill)) {
+      if (!store.drill || typeof store.drill !== "object") store.drill = {};
+      Object.keys(src.drill).forEach(function (k) {
+        var inc = src.drill[k], cur = store.drill[k];
+        if (!inc || typeof inc !== "object") return;
+        if (!cur || (inc.t || 0) > (cur.t || 0)) { store.drill[k] = inc; n.drill++; }
+      });
+    }
+    if (src.drillmeta && typeof src.drillmeta === "object" && !Array.isArray(src.drillmeta)) {
+      if (!store.drillmeta || typeof store.drillmeta !== "object") store.drillmeta = {};
+      var best = Math.max(store.drillmeta.best || 0, src.drillmeta.best || 0);
+      if ((src.drillmeta.t || 0) > (store.drillmeta.t || 0)) store.drillmeta = src.drillmeta;
+      if (best) store.drillmeta.best = best;
+    }
     if (typeof src.last === "string" && NAV.filter(function (x) { return x.id === src.last; }).length) {
       store.last = src.last;
     }
@@ -81,12 +101,12 @@
     if (!src || typeof src !== "object" || Array.isArray(src)) {
       return "That file does not look like exported CNPE progress.";
     }
-    if (!src.done && !src.ex && !src.exam) {
+    if (!src.done && !src.ex && !src.exam && !src.drill) {
       return "That file has no CNPE progress in it.";
     }
     var n = mergeProgress(src);
     save();                                  // mergeProgress may have moved store.last on its own
-    if (!n.done && !n.ex && !n.exam) return "Nothing new in that file; this browser is already up to date.";
+    if (!n.done && !n.ex && !n.exam && !n.drill) return "Nothing new in that file; this browser is already up to date.";
     return { added: n };
   }
 
@@ -144,8 +164,8 @@
     var crumbs = el("div", "crumbs");
     if (entry) {
       crumbs.innerHTML =
-        '<span class="sep">/</span><a href="' + href("index.html") + '">' + (d ? "Domain " + d.n : "Exam") + "</a>" +
-        '<span class="sep">/</span><span class="here">' + (entry.id === "EX" ? "Mock exam" : entry.id + " " + entry.title) + "</span>";
+        '<span class="sep">/</span><a href="' + href("index.html") + '">' + (d ? "Domain " + d.n : entry.id === "EX" ? "Exam" : "Practice") + "</a>" +
+        '<span class="sep">/</span><span class="here">' + (entry.id === "EX" ? "Mock exam" : entry.id === "DR" ? "Drill" : entry.id + " " + entry.title) + "</span>";
     } else {
       crumbs.innerHTML = '<span class="sep">/</span><span class="here">Overview</span>';
     }
@@ -263,9 +283,9 @@
     var eyebrow = head.querySelector(".eyebrow");
     var h1 = head.querySelector("h1");
     if (eyebrow) {
-      eyebrow.innerHTML = d
-        ? '<span class="badge d' + d.n + '">Domain ' + d.n + " · " + d.weight + "</span><span>" + d.name + "</span>"
-        : '<span class="badge d2">Assessment</span><span>All five domains, 120 minutes</span>';
+      if (d) eyebrow.innerHTML = '<span class="badge d' + d.n + '">Domain ' + d.n + " · " + d.weight + "</span><span>" + d.name + "</span>";
+      else if (entry.id === "EX") eyebrow.innerHTML = '<span class="badge d2">Assessment</span><span>All five domains, 120 minutes</span>';
+      // other domainless pages (the drill) keep the eyebrow written in their markup
     }
     if (h1 && !h1.textContent.trim()) {
       h1.innerHTML = (entry.id === "EX" ? "" : '<span class="id">' + entry.id + "</span>") + entry.title;
@@ -483,32 +503,37 @@
     var idx = NAV.indexOf(entry);
     var prev = NAV[idx - 1], next = NAV[idx + 1];
 
-    var fin = el("div", "finish");
-    var done = !!store.done[entry.id];
-    fin.innerHTML = '<div class="txt">Finished this section? Marking it complete updates the dashboard and your overall progress.</div>';
-    var b = el("button", "tbtn" + (done ? " on" : ""), done ? "✓ Section complete" : "Mark section complete");
-    b.type = "button";
-    b.addEventListener("click", function () {
-      store.done[entry.id] = store.done[entry.id] ? 0 : 1; save();
-      b.className = "tbtn" + (store.done[entry.id] ? " on" : "");
-      b.textContent = store.done[entry.id] ? "✓ Section complete" : "Mark section complete";
-      var ov = overall();
-      var p = document.querySelector(".topbar .prog");
-      if (p) p.innerHTML = "<span>" + ov.done + "/" + ov.total + '</span><span class="track"><i style="width:' + ov.pct + '%"></i></span>';
-    });
-    fin.appendChild(b);
-    if (next) {
-      var nb = el("button", "tbtn ghost", "Next section →"); nb.type = "button";
-      nb.addEventListener("click", function () { location.href = href(next.path); });
-      fin.appendChild(nb);
+    // Only numbered sections get the completion strip; the exam scores itself
+    // and the drill tracks its own history.
+    if (entry.d > 0) {
+      var fin = el("div", "finish");
+      var done = !!store.done[entry.id];
+      fin.innerHTML = '<div class="txt">Finished this section? Marking it complete updates the dashboard and your overall progress.</div>';
+      var b = el("button", "tbtn" + (done ? " on" : ""), done ? "✓ Section complete" : "Mark section complete");
+      b.type = "button";
+      b.addEventListener("click", function () {
+        store.done[entry.id] = store.done[entry.id] ? 0 : 1; save();
+        b.className = "tbtn" + (store.done[entry.id] ? " on" : "");
+        b.textContent = store.done[entry.id] ? "✓ Section complete" : "Mark section complete";
+        var ov = overall();
+        var p = document.querySelector(".topbar .prog");
+        if (p) p.innerHTML = "<span>" + ov.done + "/" + ov.total + '</span><span class="track"><i style="width:' + ov.pct + '%"></i></span>';
+      });
+      fin.appendChild(b);
+      if (next) {
+        var nb = el("button", "tbtn ghost", "Next section →"); nb.type = "button";
+        nb.addEventListener("click", function () { location.href = href(next.path); });
+        fin.appendChild(nb);
+      }
+      art.appendChild(fin);
     }
-    art.appendChild(fin);
 
+    var label = function (x) { return (x.d > 0 ? x.id + " " : "") + x.title; };
     var pager = el("div", "pager");
     pager.innerHTML =
-      (prev ? '<a class="prev" href="' + href(prev.path) + '"><span class="dir">◀ previous</span>' + (prev.id === "EX" ? "" : prev.id + " ") + prev.title + "</a>"
+      (prev ? '<a class="prev" href="' + href(prev.path) + '"><span class="dir">◀ previous</span>' + label(prev) + "</a>"
             : '<a class="prev ghost">&nbsp;</a>') +
-      (next ? '<a class="next" href="' + href(next.path) + '"><span class="dir">next ▶</span>' + (next.id === "EX" ? "" : next.id + " ") + next.title + "</a>"
+      (next ? '<a class="next" href="' + href(next.path) + '"><span class="dir">next ▶</span>' + label(next) + "</a>"
             : '<a class="next" href="' + href("index.html") + '"><span class="dir">next ▶</span>Back to the dashboard</a>');
     art.appendChild(pager);
 
@@ -571,7 +596,7 @@
       }
       return '<li id="pal-' + i + '" role="option" aria-selected="false" data-i="' + i + '"><span class="pid">' + n.id +
         '</span><span class="ptitle">' + n.title +
-        '</span><span class="pmeta">' + (d ? "d" + d.n : "exam") + hit + "</span></li>";
+        '</span><span class="pmeta">' + (d ? "d" + d.n : n.id === "EX" ? "exam" : "drill") + hit + "</span></li>";
     }).join("");
     Array.prototype.forEach.call(paletteList.children, function (li) {
       li.addEventListener("click", function () { go(+li.getAttribute("data-i")); });
@@ -617,6 +642,7 @@
       "<dt>/ &nbsp;or&nbsp; ⌘K</dt><dd>jump to any section by name, tool or concept</dd>" +
       "<dt>n &nbsp;/&nbsp; p</dt><dd>next / previous section</dd>" +
       "<dt>d</dt><dd>back to the dashboard</dd>" +
+      "<dt>g</dt><dd>drill: shuffled self-check questions</dd>" +
       (sectionKeys
         ? "<dt>x</dt><dd>jump to the exercises panel</dd>" +
           "<dt>c</dt><dd>collapse or expand every exercise</dd>" +
@@ -665,6 +691,7 @@
         case "n": if (idx >= 0 && NAV[idx + 1]) location.href = href(NAV[idx + 1].path); break;
         case "p": if (idx > 0) location.href = href(NAV[idx - 1].path); break;
         case "d": location.href = href("index.html"); break;
+        case "g": location.href = href("drill.html"); break;
         case "x": var ep = document.getElementById("exercises"); if (ep) ep.scrollIntoView(); break;
         case "c":
           var exs = document.querySelectorAll(".exercise");
@@ -720,15 +747,23 @@
       var last = store.last ? NAV.filter(function (n) { return n.id === store.last; })[0] : null;
       var nextUp = NAV.filter(function (n) { return n.d > 0 && !store.done[n.id]; })[0];
       var target = last || nextUp;
+      var html = "";
       if (target) {
-        resume.innerHTML = '<a class="tbtn" style="text-decoration:none" href="' + href(target.path) + '">▶ ' +
-          (last ? "Resume " : "Start ") + target.id + " · " + target.title + "</a>";
+        html += '<a class="tbtn" style="text-decoration:none" href="' + href(target.path) + '">▶ ' +
+          (last ? "Resume " : "Start ") + target.id + " · " + target.title + "</a> ";
       }
+      // the drill entry point, carrying its streak while the streak is alive
+      var dm = store.drillmeta || {};
+      var dk = function (d) { return d.getFullYear() + "-" + (d.getMonth() + 101 + "").slice(1) + "-" + (d.getDate() + 100 + "").slice(1); };
+      var alive = (dm.streak || 0) > 0 && (dm.earned === dk(new Date()) || dm.earned === dk(new Date(Date.now() - 864e5)));
+      html += '<a class="tbtn ghost" style="text-decoration:none" href="' + href("drill.html") + '">Drill 10' +
+        (alive ? " · " + dm.streak + "-day streak" : "") + "</a>";
+      resume.innerHTML = html;
     }
     var reset = document.getElementById("reset-progress");
     if (reset) reset.addEventListener("click", function () {
-      if (confirm("Clear all section and exercise progress stored in this browser?")) {
-        store = { ex: {}, done: {}, exam: {}, last: null }; save(); location.reload();
+      if (confirm("Clear all section, exercise, exam and drill progress stored in this browser?")) {
+        store = { ex: {}, done: {}, exam: {}, drill: {}, drillmeta: {}, last: null }; save(); location.reload();
       }
     });
 
@@ -766,7 +801,7 @@
           if (typeof res === "string") { say(res); return; }
           var a = res.added;
           alert("Imported: " + a.done + " section(s), " + a.ex + " exercise(s), " + a.exam +
-                " exam task(s).\nNothing already ticked here was changed.");
+                " exam task(s), " + a.drill + " drill record(s).\nNothing already ticked here was changed.");
           location.reload();
         };
         fr.onerror = function () { input.remove(); say("Could not read that file."); };
@@ -923,6 +958,7 @@
     buildCodeBlocks();
     buildExercises();
     if (window.CNPE_WIDGETS) window.CNPE_WIDGETS.mount();
+    if (window.CNPE_DRILL_UI) window.CNPE_DRILL_UI.mount();
     buildToc();
     buildFooter();
     buildPalette();
