@@ -78,7 +78,7 @@
 
     <div class="callout trap">
       <span class="tag">An erroring analysis is not a passing analysis</span>
-      <p>If the metric provider returns an error (bad query, missing series, unreachable Prometheus), the measurement is <em>Error</em>, and errors count against <code>failureLimit</code> just like failures do. So a canary can abort because your PromQL was wrong, not because the new version was. Read the AnalysisRun's measurements before blaming the release. In production, a broken metrics pipeline blocking a rollout is a feature, not a bug.</p>
+      <p>If the metric provider returns an error (bad query, missing series, unreachable Prometheus), the measurement is <em>Error</em>, and errors have their own budget: blow <code>consecutiveErrorLimit</code> (four in a row, by default) and the analysis kills the rollout just as dead as failures blowing <code>failureLimit</code>. So a canary can abort because your PromQL was wrong, not because the new version was. Read the AnalysisRun's measurements before blaming the release. In production, a broken metrics pipeline blocking a rollout is a feature, not a bug.</p>
     </div>
 
 
@@ -153,7 +153,7 @@ kubectl argo rollouts status demo -n team-a --timeout 60s  # scriptable, exits n
 kubectl argo rollouts get rollout demo -n team-a --watch</code></pre></div>
       <p>First rollout of a new Rollout goes straight to healthy (nothing to compare against). Now change the image to trigger a real canary, in a second terminal:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.28-alpine -n team-a</code></pre></div>
-      <p>Check the analysis itself: <code>kubectl -n team-a get analysisrun</code> and read one with <code>-o yaml</code>; the measured value and the success condition are both in status. If the analysis errors because the demo app exposes no <code>http_requests_total</code>, that is faithful to production life; read the AnalysisRun error, then either drive traffic that produces the metric or loosen the query, and understand that an <em>erroring</em> analysis is treated per <code>failureLimit</code> too.</p>
+      <p>Check the analysis itself: <code>kubectl -n team-a get analysisrun</code> and read one with <code>-o yaml</code>; the measured value and the success condition are both in status. If the analysis errors because the demo app exposes no <code>http_requests_total</code>, that is faithful to production life; read the AnalysisRun error, then either drive traffic that produces the metric or loosen the query, and understand that an <em>erroring</em> analysis aborts the rollout too, on its own budget (<code>consecutiveErrorLimit</code>).</p>
       <div class="verify"><b>verify:</b> the watch shows the canary ReplicaSet appear, weight steps advance, and the AnalysisRun tick.</div>
     </div>
 
@@ -164,7 +164,7 @@ kubectl argo rollouts get rollout demo -n team-a --watch</code></pre></div>
 
     <div class="exercise" data-title="Convert canary to blue-green">
       <p>Rewrite the Rollout: strategy <code>blueGreen</code>, two Services (<code>demo-active</code>, <code>demo-preview</code>, both selecting <code>app: demo</code>), <code>autoPromotionEnabled: false</code>. Push a new image and inspect both Services' <code>spec.selector</code> before and after <code>kubectl argo rollouts promote demo -n team-a</code>.</p>
-      <div class="verify"><b>verify:</b> before promotion the preview Service selector carries the new ReplicaSet's pod-template-hash while active still points at the old one; after promotion both point at the new. That selector flip <em>is</em> blue-green.</div>
+      <div class="verify"><b>verify:</b> before promotion the preview Service selector carries the new ReplicaSet's <code>rollouts-pod-template-hash</code> while active still points at the old one; after promotion both point at the new. That selector flip <em>is</em> blue-green.</div>
     </div>
 
     <div class="exercise" data-title="Flagger on the mesh">
@@ -182,10 +182,10 @@ kubectl argo rollouts get rollout demo -n team-a --watch</code></pre></div>
       <div class="answer"><p>Rollouts rounds to whole pods: it runs one canary pod alongside the stable set, so the real split is nearer 25–33%, not 10%. Exact weights require a traffic provider (Istio, Gateway API, NGINX) or more replicas.</p></div></details>
 
     <details class="quiz"><summary>A canary aborted and the AnalysisRun shows measurements in phase Error. What do you check?</summary>
-      <div class="answer"><p>The metric query and its provider: wrong series name, no data yet, unreachable Prometheus, or a selector that matches nothing. Errors count toward <code>failureLimit</code>, so a broken query aborts releases exactly like a bad release does; check the measurement message before touching the application.</p></div></details>
+      <div class="answer"><p>The metric query and its provider: wrong series name, no data yet, unreachable Prometheus, or a selector that matches nothing. Errors count toward <code>consecutiveErrorLimit</code> (default 4), so a broken query aborts releases exactly like a bad release does; check the measurement message before touching the application.</p></div></details>
 
     <details class="quiz"><summary>Blue-green with <code>autoPromotionEnabled: false</code>: which Service points where, before and after promote?</summary>
-      <div class="answer"><p>Before: active selects the old ReplicaSet's <code>pod-template-hash</code>, preview selects the new one. After: both select the new hash, and the old ReplicaSet lingers for <code>scaleDownDelaySeconds</code> so rollback is a selector flip away.</p></div></details>
+      <div class="answer"><p>Before: active selects the old ReplicaSet's <code>rollouts-pod-template-hash</code>, preview selects the new one. After: both select the new hash, and the old ReplicaSet lingers for <code>scaleDownDelaySeconds</code> so rollback is a selector flip away.</p></div></details>
 
     <details class="quiz"><summary>Argo CD manages your Rollout. You abort a bad canary. What happens next, and what should you do?</summary>
       <div class="answer"><p>The Rollout spec in git still names the bad image, so the next sync re-applies it and the rollout starts again. Revert the commit (or pin the tag back): abort is an operational stop, git is the desired state. Same lesson as any manual fix under GitOps.</p></div></details>

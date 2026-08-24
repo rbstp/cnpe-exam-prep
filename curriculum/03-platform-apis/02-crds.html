@@ -28,7 +28,7 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 3.1 · designing and creating CRDs</span></div>
   <div class="pbody">
-    <p class="lede">Everything in this section needs nothing installed; the whole point is that a CRD needs no controller to exist. Apply one and you immediately have a typed, validated, RBAC-aware, watchable, <code>kubectl explain</code>-documented API, with zero behaviour behind it. That gap is where platform engineering lives.</p>
+    <p class="lede">Nothing in this section needs a controller running; the whole point is that a CRD exists without one. Apply one and you immediately have a typed, validated, RBAC-aware, watchable, <code>kubectl explain</code>-documented API, with zero behaviour behind it. That gap is where platform engineering lives.</p>
     <div class="callout exam">
       <span class="tag">What a task looks like</span>
       <p>"Create a CRD for <em>X</em> with required field <em>Y</em>, an enum, and a printer column; create one valid instance; show that an invalid one is rejected." Every clause is graded by an object or an error message. Typing a CRD from memory under time pressure is a genuine skill; do it by hand at least three times before exam day.</p>
@@ -37,7 +37,7 @@
 </section>
 
 <section class="panel accent-c" id="anatomy">
-  <div class="phdr"><h2>Anatomy, field by field that matters</h2><span class="meta">group · names · scope · versions</span></div>
+  <div class="phdr"><h2>Anatomy: the fields that matter</h2><span class="meta">group · names · scope · versions</span></div>
   <div class="pbody">
     <p><code>group</code> + <code>names</code> (plural, singular, kind, shortNames, categories) + <code>scope</code> (Namespaced or Cluster) + <code>versions[]</code>. The metadata name is not free-form: it must be exactly <code>&lt;plural&gt;.&lt;group&gt;</code>, and getting that wrong is the most common first error.</p>
 
@@ -62,12 +62,12 @@
     <ul>
       <li><code>x-kubernetes-validations</code>: CEL rules with custom messages, evaluated by the API server. This is how you express cross-field constraints (<code>self.max &gt;= self.min</code>) and immutability (<code>self == oldSelf</code>) without a webhook. The message you write is the message your user sees, so write it like a human.</li>
       <li><code>x-kubernetes-preserve-unknown-fields</code>: opts a subtree out of pruning. By default anything not in the schema is <em>silently pruned on write</em>, which looks like data loss and is actually the schema doing its job.</li>
-      <li>Also worth knowing: <code>x-kubernetes-list-type: map</code> with <code>listMapKeys</code> (makes server-side apply merge lists sanely instead of replacing them), and <code>x-kubernetes-int-or-string</code>.</li>
+      <li>Also worth knowing: <code>x-kubernetes-list-type: map</code> with <code>x-kubernetes-list-map-keys</code> (makes server-side apply merge lists sanely instead of replacing them), and <code>x-kubernetes-int-or-string</code>.</li>
     </ul>
 
     <div class="callout trap">
       <span class="tag">Pruning is not an error</span>
-      <p>Apply a field the schema does not declare and it disappears with no complaint, no event, no warning by default. Users report "my setting is ignored"; the truth is it was never stored. This is why a permissive `preserve-unknown-fields` subtree is tempting and why a platform API mostly should not have one: you would be trading a clear rejection for a silent failure.</p>
+      <p>Apply a field the schema does not declare and it disappears with no complaint, no event, no warning by default. Users report "my setting is ignored"; the truth is it was never stored. This is why a permissive <code>preserve-unknown-fields</code> subtree is tempting and why a platform API mostly should not have one: you would be trading a clear rejection for a silent failure.</p>
     </div>
 
     <h3>Subresources and presentation</h3>
@@ -144,7 +144,7 @@ kind: TenantBucket
 metadata: { name: good, namespace: default }
 spec: { tier: silver, sizeGB: 100 }
 EOF
-kubectl get tb    # printer columns show Tier and SizeGB, default filled in elsewhere</code></pre></div>
+kubectl get tb    # printer columns show Tier and SizeGB; apply one without sizeGB to watch the default appear</code></pre></div>
       <p>With <code>cicd</code> installed, that last command also prints a warning that <code>tb</code> could match Tekton's triggerbindings. Keep it; it demonstrates that short names are cluster-global and first-come.</p>
       <div class="verify"><b>verify:</b> the rejections, which are the real test of the schema: <code>tier: platinum</code> must fail on the enum, <code>sizeGB: 900</code> on the maximum, and <code>tier: bronze, sizeGB: 100</code> on the CEL rule with <em>your</em> message in the error. Three different validators refusing three different ways; know which produced which text.</div>
     </div>
