@@ -4,13 +4,13 @@ An unofficial lab for the CNCF [Certified Cloud Native Platform Engineer (CNPE)]
 
 The exam is hands-on and covers five domains, so reading docs is not enough. This repo builds a working internal developer platform on `kind` and then proves each piece actually functions. Not "the pod is Running", but "a repo pushed to Gitea produced an Argo CD Application that deployed itself, and reverting drift works".
 
-Every layer installs and uninstalls on its own. That matters on a laptop, because running all of it at once will saturate the CPU.
+Every layer installs on its own. That matters on a laptop, because running all of it at once will saturate the CPU.
 
 ## Curriculum
 
 The lab is the machinery; [curriculum/](curriculum/index.html) is the study plan that drives it. It covers all five domains and every competency in the official curriculum PDF, split into 29 evening-sized sections, each one concepts plus exercises against this lab, each exercise ending with a command that proves the thing worked.
 
-It is published at **[cnpe.rbstp.dev](https://cnpe.rbstp.dev)**, and it is a small self-contained site rather than a pile of markdown, so it also runs straight off disk: open `curriculum/index.html` in a browser (no server, no build step; `file://` is fine), or run `make study`. Every code block has a copy button, `/` jumps to any section by name, tool or concept, exercises tick off as you verify them, thirteen sections carry an interactive figure you can drive, and the dashboard tracks how far through the plan you are. It follows your system's light or dark setting; the masthead button (or `t`) pins one. Progress lives in that browser's local storage; **Export** and **Import** on the dashboard move it between browsers, machines, or a local copy and a hosted one.
+It is published at **[cnpe.rbstp.dev](https://cnpe.rbstp.dev)**, and it is a small self-contained site rather than a pile of markdown, so it also runs straight off disk: open `curriculum/index.html` in a browser (no server, no build step; `file://` is fine), or run `make study`. Every code block has a copy button, `/` jumps to any section by name, tool or concept, exercises tick off as you verify them, the sections carry thirteen interactive figures you can drive, and the dashboard tracks how far through the plan you are. It follows your system's light or dark setting; the masthead button (or `t`) pins one. Progress lives in that browser's local storage; **Export** and **Import** on the dashboard move it between browsers, machines, or a local copy and a hosted one.
 
 The [dashboard](curriculum/index.html) maps every official competency to a section and to the `make validate` check or exercise that demonstrates it, and there is a [15-task mock exam](curriculum/mock-exam.html) with grading commands and a built-in 120-minute clock.
 
@@ -176,15 +176,17 @@ make up              Create the cluster: kind + Cilium + LB + metrics + VPA + re
 make gitea           Local git server, seeded repos, CoreDNS entry
 make gitops          Argo CD, Argo Rollouts, Argo Workflows, Flux
 make cicd            Tekton Pipelines/Triggers/Dashboard, Trivy Operator
-make api             Crossplane, CloudNativePG, kro
+make api             Crossplane, CloudNativePG, kro, kubebuilder hints
 make obs             Prometheus, Grafana, OTel, Jaeger, Loki+Alloy, OpenCost
 make sec             Kyverno, Gatekeeper, sealed/external secrets, PSS
 make spire           SPIFFE/SPIRE workload identity
-make mesh            Second cluster + Istio ambient + Flagger
+make mesh            Second cluster + Istio ambient (MESH=linkerd works) + Flagger
 make portal          Scaffold Backstage on the host
 make core            Minimum useful lab (~4 GB)
 make full            Everything on the main cluster (~14 GB)
 make validate        Functionally verify every layer (FAST=1 to skip probes)
+make study           Open the CNPE study console (curriculum) in a browser
+make site            Stage the study console exactly as Pages publishes it, into ./_site
 make fix-cp-metrics  Expose control-plane metrics on an existing cluster
 make urls            Every UI, its URL/port-forward, and credentials
 make forward         Start a background port-forward for every UI
