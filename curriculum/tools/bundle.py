@@ -61,12 +61,22 @@ for p in pages:
                .replace("</script", "&lt;/script"))
     parts.append('  "%s": `%s`,' % (key, body))
 
+def favicon_uri():
+    with open(os.path.join(ROOT, "assets/favicon.svg"), "rb") as fh:
+        return "data:image/svg+xml;base64," + base64.b64encode(fh.read()).decode("ascii")
+
+# The theme-color metas must precede the theme script: it recolors them for a
+# pinned theme, and only sees elements already parsed when it runs.
 HEAD = """<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-"""
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F7F5F1" media="(prefers-color-scheme: light)">
+<meta name="description" content="An interactive study console for the Certified Cloud Native Platform Engineer (CNPE) exam: 29 sections across all five domains, hands-on exercises against a local lab, and a timed mock exam.">
+<link rel="icon" type="image/svg+xml" href="%s">
+""" % favicon_uri()
 
 bundle = """<title>CNPE study console</title>
 <script>

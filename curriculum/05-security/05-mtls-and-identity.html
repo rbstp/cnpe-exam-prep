@@ -3,8 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F7F5F1" media="(prefers-color-scheme: light)">
+<meta name="description" content="Service-to-service security is two ideas: encryption in transit, and cryptographic identity, each workload proving which service it is rather than which IP it currently has.">
 <title>5.5 mTLS and workload identity: Istio and SPIRE · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
+<link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
 <script src="../assets/theme.js"></script>
 </head>
 <body data-id="5.5" data-root="../">
@@ -27,7 +31,7 @@
     <p class="lede">Run <code>make mesh</code> (second cluster, context <code>kind-mesh</code>) and <code>make spire</code> (main cluster) separately if the laptop complains; they do not interact. The concepts do, though: both answer "who is this workload, cryptographically", and both derive that identity from the ServiceAccount.</p>
     <div class="callout model">
       <span class="tag">Why identity beats network location</span>
-      <p>A NetworkPolicy says "traffic from these pod labels may reach these pods". mTLS-based authorization says "a caller holding a certificate for <em>this ServiceAccount</em> may call this service". The second survives IP churn, works across clusters, and cannot be spoofed by landing a pod in the right namespace. That is the zero-trust argument. It also upgrades every RBAC decision you made in 5.1 into a network-level identity.</p>
+      <p>A NetworkPolicy says "traffic from these pod labels may reach these pods". mTLS-based authorization says "a caller holding a certificate for <em>this ServiceAccount</em> may call this service". The second survives IP churn, works across clusters, and cannot be spoofed by landing a pod in the right namespace. That is the zero-trust argument. It also promotes every ServiceAccount you bound in 5.1 into a network-level identity.</p>
     </div>
   </div>
 </section>
@@ -77,7 +81,7 @@
 <b>your pod</b> ──reads──▶ <u>/run/spire/sockets/agent.sock</u>  (mounted via the csi.spiffe.io CSI driver)
                           receives: X.509-SVID + trust bundle, rotated automatically</pre>
 
-    <p>Two attestation steps, and both matter: the agent proves the <em>node</em> to the server, then proves the <em>workload</em> to itself by inspecting the calling process (its namespace, ServiceAccount, labels). Registration entries map selectors to SPIFFE IDs, and the lab installs a <code>ClusterSPIFFEID</code> CR that templates those registrations for workloads instead of making you write them one by one.</p>
+    <p>Two attestation steps, and both matter: the agent proves the <em>node</em> to the server, then identifies each <em>workload</em> for itself by inspecting the calling process (its namespace, ServiceAccount, labels). Registration entries map selectors to SPIFFE IDs, and the lab installs a <code>ClusterSPIFFEID</code> CR that templates those registrations for workloads instead of making you write them one by one.</p>
 
     <div class="callout reflex">
       <span class="tag">When to reach for which</span>

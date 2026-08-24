@@ -3,8 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F7F5F1" media="(prefers-color-scheme: light)">
+<meta name="description" content="The lab has no storage layer to install because kind ships one: the standard StorageClass backed by the local-path provisioner.">
 <title>1.3 Storage: volumes, claims, classes · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
+<link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
 <script src="../assets/theme.js"></script>
 </head>
 <body data-id="1.3" data-root="../">
@@ -60,7 +64,7 @@
 
     <div class="callout trap">
       <span class="tag">Access modes are a claim, not a guarantee</span>
-      <p>RWX means "this PV supports many nodes mounting it read-write", and it is a property of the backing storage, not a wish you can express. Nothing in Kubernetes enforces that two pods writing an RWO volume from the same node behave sensibly, and requesting RWX does not turn a local disk into a shared filesystem. <code>RWOP</code> (ReadWriteOncePod) is the strict one: exactly one pod, enforced by the kubelet, which is how you stop two replicas corrupting a single-writer database.</p>
+      <p>RWX means "this PV supports many nodes mounting it read-write", and it is a property of the backing storage, not a wish you can express. Nothing in Kubernetes enforces that two pods writing an RWO volume from the same node behave sensibly, and requesting RWX does not turn a local disk into a shared filesystem. <code>RWOP</code> (ReadWriteOncePod) is the strict one: exactly one pod, enforced by the scheduler (the kubelet backstops it at mount), which is how you stop two replicas corrupting a single-writer database.</p>
     </div>
   </div>
 </section>
@@ -101,7 +105,7 @@
       <li>Set exactly one default class (<code>storageclass.kubernetes.io/is-default-class</code>) and know what it costs, because every PVC without an explicit class silently buys it. If two are marked default, the DefaultStorageClass <em>admission plugin</em>, not the scheduler, picks the most recently created one. That is worse than an error: it is silent, and it changes the next time someone adds a class.</li>
       <li>Prefer <code>WaitForFirstConsumer</code> in any topology-aware environment, or you will provision volumes in zones your pods cannot reach.</li>
       <li><code>Delete</code> for ephemeral tenant workloads, <code>Retain</code> for anything whose loss ends up in a postmortem.</li>
-      <li>Cap storage per tenant with quota: <code>requests.storage</code> and <code>&lt;class&gt;.storageclass.storage.k8s.io/requests.storage</code>: per-class quota is how you stop everyone ordering the expensive one (section 1.4).</li>
+      <li>Cap storage per tenant with quota: <code>requests.storage</code> for the total, <code>&lt;class&gt;.storageclass.storage.k8s.io/requests.storage</code> per class. Per-class quota is how you stop everyone ordering the expensive one (section 1.4).</li>
     </ul>
     <div class="callout reflex">
       <span class="tag">Command reflex</span>

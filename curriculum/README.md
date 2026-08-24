@@ -14,7 +14,7 @@ GitHub will not render it in place; clone the repo (or use raw + a local browser
 Press `/` in any page to jump to a section by name, tool or concept, `t` to switch the theme
 (system, light or dark; system by default) and `?` for the shortcuts.
 Progress (exercises verified, sections completed) is stored in your browser's local storage.
-Thirteen sections carry an interactive figure (QoS and eviction, node capacity, quota
+Thirteen interactive figures sit across twelve sections (QoS and eviction, node capacity, quota
 binding, right-sizing cost, the request path, the reconciliation loop, sync × health,
 canary weights, counters and `rate()`, alert timing, the admission pipeline, PSS profiles
 and RBAC scope), each wired to the concept it explains.

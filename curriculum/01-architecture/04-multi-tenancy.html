@@ -3,8 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F7F5F1" media="(prefers-color-scheme: light)">
+<meta name="description" content="examples/multitenancy/team-a.yaml is the whole syllabus for this section in 75 lines: one namespace carrying every guardrail the exam can ask about.">
 <title>1.4 Multi-tenancy: isolation you can defend · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
+<link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
 <script src="../assets/theme.js"></script>
 </head>
 <body data-id="1.4" data-root="../">
@@ -36,7 +40,7 @@
   <div class="phdr"><h2>The isolation stack, control by control</h2><span class="meta">what refuses you, and with which message</span></div>
   <div class="pbody">
     <ol>
-      <li><strong>ResourceQuota</strong> caps the namespace total: <code>requests.*</code>, <code>limits.*</code>, object counts (<code>pods: "20"</code>, <code>count/services.loadbalancers: "1"</code>), and storage per class. Crucially, a quota that lists <code>requests.cpu</code> or <code>limits.memory</code> <em>rejects any pod that fails to declare them</em>, which leads directly to point 2.</li>
+      <li><strong>ResourceQuota</strong> caps the namespace total: <code>requests.*</code>, <code>limits.*</code>, object counts (<code>pods: "20"</code>, <code>services.loadbalancers: "1"</code>), and storage per class. Crucially, a quota that lists <code>requests.cpu</code> or <code>limits.memory</code> <em>rejects any pod that fails to declare them</em>, which leads directly to point 2.</li>
       <li><strong>LimitRange</strong> fills in per-container defaults (<code>default</code>, <code>defaultRequest</code>) and bounds (<code>min</code>, <code>max</code>, <code>maxLimitRequestRatio</code>), so a bare pod arrives at the quota check with numbers already attached. LimitRange defaulting is what keeps tenant onboarding friction-free while the quota stays enforceable.</li>
       <li><strong>NetworkPolicy</strong> default-deny plus explicit allows. team-a allows same-namespace traffic and DNS to kube-dns, nothing else. Additive allow-lists mean you loosen by adding policies and tighten only by removing rules, an asymmetry the netpol break drill exploits.</li>
       <li><strong>Pod Security Standards</strong> labels on the namespace (enforce baseline, warn and audit restricted here). Covered properly in section 5.3.</li>
@@ -84,7 +88,7 @@
       <li><strong>Idle reclamation.</strong> The unused space between requests and usage is the tenancy tax, and it is exactly what OpenCost puts a number on in section 1.5. "Optimizing multi-tenancy resource usage" is, in practice, driving that number down without breaking the guardrails above.</li>
     </ul>
 
-    <p>Two more things a real tenant needs that people forget in exam prep: a default <code>ServiceAccount</code> with nothing attached (so workloads do not inherit power), and namespaced <strong>quota on objects that cost money outside the cluster</strong>: LoadBalancers, PVCs, NodePorts. That is why team-a caps <code>count/services.loadbalancers</code> at 1: quota as a cost tool, not just a fairness tool.</p>
+    <p>Two more things a real tenant needs that people forget in exam prep: a default <code>ServiceAccount</code> with nothing attached (so workloads do not inherit power), and namespaced <strong>quota on objects that cost money outside the cluster</strong>: LoadBalancers, PVCs, NodePorts. That is why team-a caps <code>services.loadbalancers</code> at 1: quota as a cost tool, not just a fairness tool.</p>
   </div>
 </section>
 
@@ -105,7 +109,7 @@ kubectl -n team-a get events --sort-by=.lastTimestamp | grep -i quota | tail -3<
       <p>Run a pod with no resources block and read what it got:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n team-a run bare --image=busybox:1.37 --restart=Never -- sleep 300
 kubectl -n team-a get pod bare -o jsonpath='{.spec.containers[0].resources}' | jq</code></pre></div>
-      <div class="verify"><b>verify:</b> requests 50m/64Mi and limits 200m/256Mi, injected by <code>team-a-limits</code>, matching nothing you typed. Then try to exceed the max: request <code>cpu: "2"</code> in a pod and confirm admission rejects it with a LimitRange error, not a quota error.</div>
+      <div class="verify"><b>verify:</b> requests 50m/64Mi and limits 200m/256Mi, injected by <code>team-a-limits</code>, matching nothing you typed. Then try to exceed the max: set <code>limits.cpu: "2"</code> on a pod and confirm admission rejects it with a LimitRange error, not a quota error.</div>
     </div>
 
     <div class="exercise" data-title="Cross-tenant traffic must die">
@@ -141,7 +145,7 @@ kubectl -n team-a wait --for=jsonpath='{.status.phase}'=Failed pod/poke --timeou
     <details class="quiz"><summary>Name the isolation ladder and one cost of each rung.</summary>
       <div class="answer"><p>Namespace + quota + policy (cheap, shared kernel and shared API server). Dedicated node pools via taints (no shared kernel; stranded capacity per pool). Virtual clusters (own API server and CRDs; more moving parts to run). Separate clusters (strongest; multiplied operational and idle cost). Pick the thinnest rung that satisfies the actual threat model.</p></div></details>
 
-    <details class="quiz"><summary>Why is <code>count/services.loadbalancers: "1"</code> in a tenant quota?</summary>
+    <details class="quiz"><summary>Why is <code>services.loadbalancers: "1"</code> in a tenant quota?</summary>
       <div class="answer"><p>Because a LoadBalancer bills outside the cluster whether or not traffic flows. Quota here is a spend control, not a fairness control: the same reasoning that puts per-StorageClass storage quota in a tenant template.</p></div></details>
   </div>
 </section>

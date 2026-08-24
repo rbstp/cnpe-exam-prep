@@ -27,9 +27,21 @@
 
   function resolved() { return pref === "system" ? (mq && mq.matches ? "light" : "dark") : pref; }
 
+  // The two grounds, for the browser chrome (tab bar, address bar) via the
+  // theme-color metas. Values mirror --dk-ink / --lt-ink in style.css.
+  var CHROME = { dark: "#141416", light: "#F7F5F1" };
+
   function paint() {
     if (pref === "system") root.removeAttribute("data-theme");
     else root.setAttribute("data-theme", pref);
+    // A pinned theme should recolor the chrome too; the metas' media queries
+    // only ever follow the OS. Pinned: both metas get the pinned ground.
+    // System: each meta goes back to the ground its media query names.
+    var metas = document.querySelectorAll('meta[name="theme-color"]');
+    for (var i = 0; i < metas.length; i++) {
+      var scheme = (metas[i].getAttribute("media") || "").indexOf("light") >= 0 ? "light" : "dark";
+      metas[i].setAttribute("content", CHROME[pref === "system" ? scheme : pref]);
+    }
   }
 
   function announce() {

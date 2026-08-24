@@ -10,7 +10,7 @@ human are [GitHub settings](#1-github-settings-you-have-to-click-yourself) and
 ## How the deploy works
 
 `.github/workflows/deploy-study-console.yml` runs on pushes to `master` that touch
-`curriculum/**` (plus `workflow_dispatch`), and mirrors the approach already used by
+`curriculum/**` or the workflow itself (plus `workflow_dispatch`), and mirrors the approach already used by
 `rbstp/gist-blog`: `actions/configure-pages` → `actions/upload-pages-artifact` →
 `actions/deploy-pages`, same action majors, same `github-pages` environment, same
 `pages` concurrency group.

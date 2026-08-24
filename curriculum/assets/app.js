@@ -189,7 +189,8 @@
           + '3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>' +
       '</svg>');
     repo.href = "https://github.com/rbstp/cnpe-exam-prep";
-    repo.title = "The lab this curriculum runs on \u2014 github.com/rbstp/cnpe-exam-prep";
+    repo.title = "The lab this curriculum runs on: github.com/rbstp/cnpe-exam-prep";
+    repo.target = "_blank";
     repo.rel = "noopener";
     repo.setAttribute("aria-label", "The lab repository on GitHub");
     inner.appendChild(repo);
@@ -605,8 +606,7 @@
   /* ── help overlay ────────────────────────────────────────── */
   var helpOverlay;
   function buildHelp() {
-    helpOverlay = el("div", "overlay");
-    if (helpOverlay) helpOverlay.remove();
+    helpOverlay = el("div", "overlay");   // boot() already stripped the previous one
     var sectionKeys = !!document.querySelector(".exercise");
     var c = el("div", "helpcard");
     c.setAttribute("role", "dialog");
@@ -778,7 +778,7 @@
   }
 
   /* ── mock exam widgets ───────────────────────────────────── */
-  var examTimer = null;
+  var examTimer = null, examLifecycleWired = false;
   function buildExam() {
     if (examTimer) { clearInterval(examTimer); examTimer = null; }
     if (!body.hasAttribute("data-exam")) return;
@@ -799,6 +799,9 @@
     function paintClock() {
       if (!clock) return;
       var r = Math.floor(remaining());
+      if (r === 0 && st.running) {   // time is up: stop the meter where it ran out
+        st.running = false; st.spent = TOTAL; save();
+      }
       var mm = String(Math.floor(r / 60)).padStart(3, " "), ss = String(r % 60).padStart(2, "0");
       clock.textContent = mm + ":" + ss;
       clock.className = "clock" + (r === 0 ? " out" : r < 15 * 60 ? " low" : "");
@@ -819,17 +822,20 @@
     examTimer = setInterval(paintClock, 1000);
     paintClock();
 
-    // the clock should measure time you spent, not wall-clock while the tab was shut
-    document.addEventListener("visibilitychange", function () {
-      if (document.visibilityState === "hidden" && st.running) {
-        st.spent = (st.spent || 0) + (Date.now() - st.startedAt) / 1000;
-        st.startedAt = Date.now();
-        save();
-      }
-    });
-    addEventListener("pagehide", function () {
-      if (st.running) { st.spent = (st.spent || 0) + (Date.now() - st.startedAt) / 1000; st.startedAt = Date.now(); save(); }
-    });
+    // The clock should measure time you spent, not wall-clock while the tab was
+    // shut. Wired once: the bundled console re-runs boot() on every navigation,
+    // and these listen on the document, so a per-boot registration would stack.
+    if (!examLifecycleWired) {
+      var stamp = function () {
+        var s = store.exam;
+        if (s && s.running) { s.spent = (s.spent || 0) + (Date.now() - s.startedAt) / 1000; s.startedAt = Date.now(); save(); }
+      };
+      document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState === "hidden") stamp();
+      });
+      addEventListener("pagehide", stamp);
+      examLifecycleWired = true;
+    }
 
     var tasks = document.querySelectorAll(".task");
     var maxPts = 0;

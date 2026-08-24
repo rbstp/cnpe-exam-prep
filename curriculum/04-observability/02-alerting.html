@@ -3,8 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F7F5F1" media="(prefers-color-scheme: light)">
+<meta name="description" content="Two systems, one handoff. Prometheus evaluates rules and decides what is true. Alertmanager receives firing alerts and decides who hears about it.">
 <title>4.2 Alerting: rules, Alertmanager, routing · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
+<link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
 <script src="../assets/theme.js"></script>
 </head>
 <body data-id="4.2" data-root="../">
@@ -41,14 +45,14 @@
       <li><code>for</code>: how long the expression must hold before Pending becomes Firing. This is your flap filter, and picking it is a real decision: too short and you page on transients, too long and you notice late.</li>
       <li><code>labels</code>: <em>routing material</em>. <code>severity</code>, <code>team</code>, <code>service</code>. Whatever your routes match on must be produced here.</li>
       <li><code>annotations</code>: human material: <code>summary</code>, <code>description</code>, <code>runbook_url</code>. Templated with <code>{{ $labels.x }}</code> and <code>{{ $value }}</code>.</li>
-      <li><code>keep_firing_for</code> is the opposite of <code>for</code>: keeps an alert firing briefly after it resolves, to damp flapping resolutions.</li>
+      <li><code>keep_firing_for</code> is the opposite of <code>for</code>: keeps an alert firing briefly after the expression goes false, to damp flapping resolutions.</li>
     </ul>
 
     <p><strong>Recording rules</strong> are the other half of the CRD: they precompute an expensive expression into a new series on a schedule (<code>job:http_errors:rate5m</code>, by convention <code>level:metric:operation</code>). Dashboards and alerts then read a cheap series. If a scenario says "this dashboard takes 30 seconds to load", a recording rule is the expected answer.</p>
 
     <div class="callout trap">
       <span class="tag">The same selector story as ServiceMonitors</span>
-      <p>Rules are only evaluated if they match the Prometheus object's <code>ruleSelector</code>. This lab's is <code>{}</code> (everything); a stock install's is the release label. An unmatched rule produces <em>no evaluation and no error</em>. Read the selector before blaming the rule, and note that this is the third place in domain 4 where a selector silently discards correct configuration.</p>
+      <p>Rules are only evaluated if they match the Prometheus object's <code>ruleSelector</code>. This lab's is <code>{}</code> (everything); a stock install's is the release label. An unmatched rule produces <em>no evaluation and no error</em>. Read the selector before blaming the rule, and note that this is yet another place in domain 4 where a selector silently discards correct configuration.</p>
     </div>
 
     <div class="callout exam">
@@ -89,7 +93,7 @@
       </table>
     </div>
 
-    <p><strong>Silences</strong> mute matching alerts for a time window without touching config; created in the UI or via <code>amtool</code>, and they change <em>notification</em>, never truth: Prometheus still shows the alert firing. <strong>Inhibition</strong> suppresses alerts when a related, more severe one is already firing (node down inhibits everything on that node), matched by <code>source_matchers</code>, <code>target_matchers</code> and an <code>equal</code> label list. Distinguishing silence (temporary, human, targeted) from inhibition (permanent rule, relationship-based) is a fair exam question.</p>
+    <p><strong>Silences</strong> mute matching alerts for a time window without touching config: create them in the UI or via <code>amtool</code>. They change <em>notification</em>, never truth: Prometheus still shows the alert firing. <strong>Inhibition</strong> suppresses alerts when a related, more severe one is already firing (node down inhibits everything on that node), matched by <code>source_matchers</code>, <code>target_matchers</code> and an <code>equal</code> label list. Distinguishing silence (temporary, human, targeted) from inhibition (permanent rule, relationship-based) is a fair exam question.</p>
 
     <div class="callout lab">
       <span class="tag">Verify the rendered truth</span>

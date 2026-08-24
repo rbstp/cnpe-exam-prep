@@ -3,8 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F7F5F1" media="(prefers-color-scheme: light)">
+<meta name="description" content="The exam will not ask you to write a controller in Go. It will ask you to operate, integrate and above all diagnose operators, which means reading their outputs fluently: status conditions, events, owned resources, and">
 <title>3.3 Operators: reconciliation and how to read it · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
+<link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
 <script src="../assets/theme.js"></script>
 </head>
 <body data-id="3.3" data-root="../">
@@ -73,7 +77,7 @@ kubectl -n &lt;operator-ns&gt; logs deploy/&lt;controller&gt; --tail=100</code><
       <li><strong>OLM</strong> (Operator Lifecycle Manager): installs and upgrades operators from catalogs. Not installed here; know the name.</li>
       <li><strong>Kubebuilder / Operator SDK / controller-runtime</strong>: the scaffolding. <code>kubebuilder</code> is on your PATH from <code>make tools</code>, and scaffolding a controller once (<code>kubebuilder init</code>, <code>kubebuilder create api</code>) is genuinely instructive for understanding what operators are made of. It is also beyond what the CNPE tests.</li>
       <li><strong>Reconcile loop hazards</strong> worth naming: hot loops (a controller that writes status on every pass and re-triggers itself), requeue backoff, leader election (why an operator's Deployment is usually 1 replica or uses a lease), and cache staleness right after a write.</li>
-      <li><strong>Operator vs controller vs webhook</strong>: a controller reconciles; an operator is a controller plus domain knowledge shipped with its CRDs; a webhook intercepts writes synchronously. Different failure modes: a dead controller means nothing converges, a dead webhook (with <code>failurePolicy: Fail</code>) means nothing can be written at all.</li>
+      <li><strong>Operator vs controller vs webhook</strong>: a controller reconciles; an operator is a controller plus domain knowledge shipped with its CRDs; a webhook intercepts writes synchronously. Different failure modes: a dead controller means nothing converges, a dead webhook (with <code>failurePolicy: Fail</code>) means nothing it matches can be written at all.</li>
     </ul>
     <div class="callout exam">
       <span class="tag">Integration is a competency word</span>
@@ -107,7 +111,7 @@ kubectl get cluster pg -w</code></pre></div>
     </div>
 
     <div class="exercise" data-title="Read a stuck operator without the answer key">
-      <p>The lab ships a deliberately broken manifest: <code>examples/crossplane/pg-cluster.yaml</code> targets <code>team-a</code>, where the default-deny NetworkPolicy silently blocks the instance's access to the API server. Apply it, and diagnose from evidence only: conditions say Initialized True but Ready False, phase "Setting up primary" forever, and <code>kubectl -n team-a logs job/pg-1-initdb</code> ends in <code>dial tcp 10.96.0.1:443: i/o timeout</code>. The file's comments explain why the obvious ipBlock fix fails (ClusterIP is DNAT'd before policy evaluation) and give the Cilium <code>toEntities: [kube-apiserver]</code> answer; do not read them until you have formed your own theory.</p>
+      <p>The lab ships a deliberately broken manifest: <code>examples/crossplane/pg-cluster.yaml</code> targets <code>team-a</code>, where the default-deny NetworkPolicy silently blocks the instance's access to the API server. (team-a comes from <code>make sec</code>; if you skipped that layer, <code>kubectl apply -f examples/multitenancy/team-a.yaml</code> stages the same trap.) Apply it, and diagnose from evidence only: conditions say Initialized True but Ready False, phase "Setting up primary" forever, and <code>kubectl -n team-a logs job/pg-1-initdb</code> ends in <code>dial tcp 10.96.0.1:443: i/o timeout</code>. The file's comments explain why the obvious ipBlock fix fails (ClusterIP is DNAT'd before policy evaluation) and give the Cilium <code>toEntities: [kube-apiserver]</code> answer; do not read them until you have formed your own theory.</p>
       <div class="verify"><b>verify:</b> after applying the CiliumNetworkPolicy from the comments, the cluster converges Ready in team-a.</div>
     </div>
 

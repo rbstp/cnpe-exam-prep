@@ -3,8 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F7F5F1" media="(prefers-color-scheme: light)">
+<meta name="description" content="Cost on Kubernetes is an allocation problem, not a billing problem.">
 <title>1.5 Cost: OpenCost and right-sizing · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
+<link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
 <script src="../assets/theme.js"></script>
 </head>
 <body data-id="1.5" data-root="../">
@@ -38,7 +42,7 @@
     <ol>
       <li><strong>Requests, not usage.</strong> Capacity planning and most internal pricing allocate by what you reserved. A deployment requesting 4 CPU and using 200m costs 4 CPU. The gap between the two is the "efficiency" number OpenCost reports, and closing it is right-sizing.</li>
       <li><strong>Idle capacity.</strong> Nodes are bought whole; unrequested space is idle cost. OpenCost can either show it separately or spread it across tenants, and knowing that <em>both accounting choices exist</em> is the exam-relevant fact. Showing idle separately makes the platform team accountable for bin-packing; spreading it makes tenants feel the true cost of the cluster they share. Neither is wrong; they answer different questions.</li>
-      <li><strong>Object sprawl.</strong> LoadBalancers, PVs, snapshots, forgotten namespaces and orphaned PVCs bill whether or not traffic flows. This is why the team-a quota caps <code>count/services.loadbalancers</code> at 1, and why quota is a cost tool as much as a fairness tool.</li>
+      <li><strong>Object sprawl.</strong> LoadBalancers, PVs, snapshots, forgotten namespaces and orphaned PVCs bill whether or not traffic flows. This is why the team-a quota caps <code>services.loadbalancers</code> at 1, and why quota is a cost tool as much as a fairness tool.</li>
       <li><strong>Node shape and lifecycle.</strong> The lever above the workload: instance families, spot/preemptible capacity, consolidation (Karpenter-style), and scale-to-zero for dev environments. You cannot demonstrate these in kind, but "right-size the pods, then right-size the nodes" is the correct order to say out loud.</li>
     </ol>
 
@@ -96,7 +100,7 @@ kubectl cost --opencost namespace --historical --window 1d</code></pre></div>
       <div class="cb" data-lang="bash"><pre><code>kubectl cost --opencost namespace --show-efficiency</code></pre></div>
       <p>From raw metrics, CPU requested minus used, per namespace (run in the Prometheus UI from <code>make urls</code>):</p>
       <div class="cb" data-lang="promql"><pre><code>sum by (namespace) (kube_pod_container_resource_requests{resource="cpu"})
-  - sum by (namespace) (rate(container_cpu_usage_seconds_total{container!=""}[10m]))</code></pre></div>
+  - sum by (namespace) (rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[10m]))</code></pre></div>
       <p>The label filters matter: cadvisor also emits pod-level and node-level aggregate series (empty <code>container</code>) and, on many versions, the pause container as <code>container="POD"</code>. Without <code>{container!="",container!="POD"}</code> you count the same CPU two or three times and the gap you compute is wrong.</p>
       <div class="verify"><b>verify:</b> the namespace at the top of the PromQL result matches the low efficiency scores in kubectl-cost. Name the top offender and what you would change.</div>
     </div>
@@ -106,7 +110,7 @@ kubectl cost --opencost namespace --historical --window 1d</code></pre></div>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -k examples/demo-app/base
 kubectl set resources deploy demo --requests=cpu=500m,memory=512Mi</code></pre></div>
       <p>Wait ten minutes for metrics to accumulate, get the VPA recommendation for it (section 1.2), then apply sane numbers with <code>kubectl set resources</code> again.</p>
-      <div class="verify"><b>verify:</b> <code>kubectl cost --opencost namespace --show-efficiency</code> for <code>default</code> improves between the two states, and the pods never restarted into a Pending state.</div>
+      <div class="verify"><b>verify:</b> <code>kubectl cost --opencost namespace --show-efficiency</code> for <code>default</code> improves between the two states, and the rollout left nothing Pending.</div>
     </div>
 
     <div class="exercise" data-title="Connect quota to cost">
