@@ -3,7 +3,8 @@ name: CI
 # The deploy workflow runs these same site checks, but only on push to master,
 # by which point a broken PR has already merged. This runs the identical gate
 # at PR time (the assertions live in curriculum/tools/check-site.sh, shared by
-# both), plus shellcheck over the lab scripts.
+# both), a browser pass over the staged site (curriculum/tools/streak-check.js,
+# also shared with the deploy), plus shellcheck over the lab scripts.
 
 on:
   pull_request:
@@ -38,6 +39,31 @@ jobs:
         env:
           SITE_DOMAIN: cnpe.rbstp.dev
         run: curriculum/tools/check-site.sh "${{ runner.temp }}/_site"
+
+  browser:
+    name: Study streak behaves in a real browser
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Stage the site
+        working-directory: curriculum
+        env:
+          SITE_DOMAIN: cnpe.rbstp.dev
+        run: tools/stage-site.sh "${{ runner.temp }}/_site"
+
+      # Playwright is a CI-only dependency, pinned so a release cannot turn
+      # this gate red on its own: no manifest or lockfile is written, only an
+      # untracked node_modules, and the console itself stays dependency-free.
+      - name: Install Playwright Chromium
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.1
+          npx playwright install --with-deps chromium
+
+      - name: Drive the staged site
+        run: node curriculum/tools/streak-check.js "${{ runner.temp }}/_site"
 
   shellcheck:
     name: ShellCheck the lab scripts
