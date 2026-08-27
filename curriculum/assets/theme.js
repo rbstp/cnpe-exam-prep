@@ -29,7 +29,7 @@
 
   // The two grounds, for the browser chrome (tab bar, address bar) via the
   // theme-color metas. Values mirror --dk-ink / --lt-ink in style.css.
-  var CHROME = { dark: "#0C1014", light: "#F1F4F8" };
+  var CHROME = { dark: "#101010", light: "#F4F4F4" };
 
   function paint() {
     if (pref === "system") root.removeAttribute("data-theme");
