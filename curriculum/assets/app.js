@@ -149,13 +149,17 @@
     var bar = el("div", "topbar");
     var inner = el("div", "inner");
 
+    // Three stacked platform layers, the middle one in verdigris. The gradient
+    // stops keep their s1/s2 classes so the theme rules in style.css recolor
+    // them; the verdigris stroke gets the same treatment via .sv.
     var logo = el("a", "logo",
       '<svg class="mark" viewBox="0 0 24 24" aria-hidden="true">' +
         '<defs><linearGradient id="cnpeMark" x1="0" y1="0" x2="1" y2="1">' +
           '<stop class="s1" offset="0%" stop-color="#CFA351"/><stop class="s2" offset="100%" stop-color="#D08453"/>' +
         '</linearGradient></defs>' +
-        '<path d="M12 1.9 20.7 7v10L12 22.1 3.3 17V7z" fill="none" stroke="url(#cnpeMark)" stroke-width="1.5" stroke-linejoin="round"/>' +
-        '<path d="M7.8 14.6l2.9-3.3 2.2 2.4 3.3-4.1" fill="none" stroke="url(#cnpeMark)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<path d="M12 2.6 20.4 7 12 11.4 3.6 7z" fill="none" stroke="url(#cnpeMark)" stroke-width="1.7" stroke-linejoin="round"/>' +
+        '<path class="sv" d="M20.4 12 12 16.4 3.6 12" fill="none" stroke="#59A79C" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<path d="M20.4 17 12 21.4 3.6 17" fill="none" stroke="url(#cnpeMark)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>' +
       '</svg>' +
       '<span class="word">CNPE</span><span class="sub">study console</span>');
     logo.href = href("index.html");
