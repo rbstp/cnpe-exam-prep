@@ -46,8 +46,8 @@ cat > "$OUT/404.html" <<'HTML'
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#F7F5F1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0C1014" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F1F4F8" media="(prefers-color-scheme: light)">
 <title>Not found · CNPE study console</title>
 <link rel="stylesheet" href="/assets/style.css">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">

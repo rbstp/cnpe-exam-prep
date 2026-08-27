@@ -215,6 +215,28 @@
     return { done: done, total: secs.length, pct: secs.length ? Math.round(done / secs.length * 100) : 0 };
   }
 
+  /* The reconcile trace: one square wave along the masthead's bottom edge,
+     high where a section is done, low where it is not, in section order.
+     The section being read gets its own brighter overlay segment. style.css
+     reveals the wave left to right on load with a clip animation; dash tricks
+     misrender under vector-effect, so the SVG itself stays plain. */
+  function traceSvg() {
+    var secs = NAV.filter(function (n) { return n.d > 0; });
+    var n = secs.length || 1, hi = 2, lo = 6.5;
+    var d = "", cur = "";
+    for (var i = 0; i < secs.length; i++) {
+      var y = store.done[secs[i].id] ? hi : lo;
+      var x0 = (i / n * 100).toFixed(2), x1 = ((i + 1) / n * 100).toFixed(2);
+      d += (i ? "L" + x0 + " " + y : "M0 " + y) + "L" + x1 + " " + y;
+      if (entry && secs[i].id === entry.id) cur = "M" + x0 + " " + y + "L" + x1 + " " + y;
+    }
+    return '<svg viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true" focusable="false">' +
+      '<path class="tr" d="' + d + '"/>' +
+      (cur ? '<path class="cur" d="' + cur + '"/>' : "") +
+      "</svg>";
+  }
+  function progHtml(ov) { return "<span>" + ov.done + "/" + ov.total + "</span>"; }
+
   /* ── small helpers ───────────────────────────────────────── */
   function el(tag, cls, html) {
     var e = document.createElement(tag);
@@ -237,16 +259,16 @@
     var bar = el("div", "topbar");
     var inner = el("div", "inner");
 
-    // Three stacked platform layers, the middle one in verdigris. The gradient
+    // Three stacked platform layers, the middle one in blue. The gradient
     // stops keep their s1/s2 classes so the theme rules in style.css recolor
-    // them; the verdigris stroke gets the same treatment via .sv.
+    // them; the blue stroke gets the same treatment via .sv.
     var logo = el("a", "logo",
       '<svg class="mark" viewBox="0 0 24 24" aria-hidden="true">' +
         '<defs><linearGradient id="cnpeMark" x1="0" y1="0" x2="1" y2="1">' +
-          '<stop class="s1" offset="0%" stop-color="#CFA351"/><stop class="s2" offset="100%" stop-color="#D08453"/>' +
+          '<stop class="s1" offset="0%" stop-color="#F0C069"/><stop class="s2" offset="100%" stop-color="#E0A33E"/>' +
         '</linearGradient></defs>' +
         '<path d="M12 2.6 20.4 7 12 11.4 3.6 7z" fill="none" stroke="url(#cnpeMark)" stroke-width="1.7" stroke-linejoin="round"/>' +
-        '<path class="sv" d="M20.4 12 12 16.4 3.6 12" fill="none" stroke="#59A79C" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<path class="sv" d="M20.4 12 12 16.4 3.6 12" fill="none" stroke="#6FB3DC" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>' +
         '<path d="M20.4 17 12 21.4 3.6 17" fill="none" stroke="url(#cnpeMark)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>' +
       '</svg>' +
       '<span class="word">CNPE</span><span class="sub">study console</span>');
@@ -265,8 +287,7 @@
     inner.appendChild(el("div", "spacer"));
 
     var ov = overall();
-    var prog = el("div", "prog",
-      '<span>' + ov.done + "/" + ov.total + '</span><span class="track"><i style="width:' + ov.pct + '%"></i></span>');
+    var prog = el("div", "prog" + (ov.done === ov.total ? " synced" : ""), progHtml(ov));
     inner.appendChild(prog);
 
     // U+2315 is not in the bundled Plex Mono subset, so as a character it came
@@ -308,6 +329,7 @@
     inner.appendChild(repo);
 
     bar.appendChild(inner);
+    bar.appendChild(el("div", "trace", traceSvg()));
     body.insertBefore(bar, body.firstChild);
 
     if (!document.querySelector(".skip")) {
@@ -391,8 +413,8 @@
       tile("c", "Lab layers", entry.needs, true) +
       tile("p", "Session length", "~" + entry.mins + '<span class="u">min</span>', false) +
       tile("y", "Exam weight", d ? d.weight : "100%", false) +
-      '<div class="stat g" id="stat-ex"><div class="lbl">Exercises verified</div><div class="val">' +
-        c.done + '<span class="u">/ ' + c.total + '</span></div><div class="spark"><i style="width:' + pct + '%"></i></div></div>';
+      '<div class="stat g" id="stat-ex"><div class="lbl">Exercises verified</div><div class="vrow"><div class="val">' +
+        c.done + '<span class="u">/ ' + c.total + '</span></div><div class="spark"><i style="width:' + pct + '%"></i></div></div></div>';
   }
   function tile(cls, label, value, small) {
     return '<div class="stat ' + cls + '"><div class="lbl">' + label + '</div><div class="val' + (small ? " sm" : "") + '">' + value + "</div></div>";
@@ -614,7 +636,12 @@
         b.textContent = store.done[entry.id] ? "✓ Section complete" : "Mark section complete";
         var ov = overall();
         var p = document.querySelector(".topbar .prog");
-        if (p) p.innerHTML = "<span>" + ov.done + "/" + ov.total + '</span><span class="track"><i style="width:' + ov.pct + '%"></i></span>';
+        if (p) {
+          p.innerHTML = progHtml(ov);
+          p.classList.toggle("synced", ov.done === ov.total);
+        }
+        var tr = document.querySelector(".topbar .trace");
+        if (tr) tr.innerHTML = traceSvg();
       });
       fin.appendChild(b);
       if (next) {
@@ -892,8 +919,8 @@
           (acts ? " · " + acts + (acts === 1 ? " heartbeat" : " heartbeats") : " · no heartbeat") + '"></i>';
       }
       stats.innerHTML =
-        '<div class="stat g"><div class="lbl">Sections complete</div><div class="val">' + ov.done +
-          '<span class="u">/ ' + ov.total + '</span></div><div class="spark"><i style="width:' + ov.pct + '%"></i></div></div>' +
+        '<div class="stat g"><div class="lbl">Sections complete</div><div class="vrow"><div class="val">' + ov.done +
+          '<span class="u">/ ' + ov.total + '</span></div><div class="spark"><i style="width:' + ov.pct + '%"></i></div></div></div>' +
         tile("c", "Exercises verified", doneEx + (totalEx ? '<span class="u">/ ' + totalEx + " seen</span>" : ""), false) +
         '<div class="stat g" id="stat-streak"><div class="lbl">Uptime' + (sk.best ? " · record " + sk.best : "") +
           '</div><div class="vrow"><div class="val">' + sk.streak +
