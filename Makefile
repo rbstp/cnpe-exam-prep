@@ -47,6 +47,8 @@ forward: ## Start a background port-forward for every UI
 	@$(S)/93-forward.sh start
 forward-stop: ## Kill all port-forwards started by 'make forward'
 	@$(S)/93-forward.sh stop
+grade:   ## Run a mock exam's grading block from its page (EXAM=1|2)
+	@bash curriculum/tools/grade.sh "$(or $(EXAM),1)"
 study:   ## Open the CNPE study console (curriculum) in a browser
 	@f="$(CURDIR)/curriculum/index.html"; \
 	 if command -v xdg-open >/dev/null; then xdg-open "$$f" >/dev/null 2>&1 & \

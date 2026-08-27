@@ -106,7 +106,7 @@
     </div>
 
     <div class="task" data-pts="3" data-title="Read a compliance report like a grader (domain 5)">
-      <p>The Trivy Operator maintains a CIS compliance rollup for this cluster. Write its current <em>fail count</em> — taken from the report object's status, not from any dashboard — to <code>/tmp/mock2-cis.txt</code>, nothing else in the file.</p>
+      <p>The Trivy Operator maintains a CIS compliance rollup for this cluster. Write its current <em>fail count</em> — taken from the report object's status, not from any dashboard — to <code>/tmp/mock2-cis.txt</code>, nothing else in the file. (On a fresh cluster the rollup's status stays empty until its cron first fires, hours away; getting the operator to fill it in now is part of the task.)</p>
     </div>
 
   </div>
@@ -115,7 +115,7 @@
 <section class="panel accent-y" id="grading">
   <div class="phdr"><h2>Grading</h2><span class="meta">grade partial credit strictly</span></div>
   <div class="pbody">
-    <p>Run all of it; each line prints what earns the points.</p>
+    <p>Run all of it; each line prints what earns the points. From the repo, <code>make grade EXAM=2</code> runs this block verbatim — it extracts it from this very page, so paper and grader cannot drift.</p>
     <div class="cb" data-lang="bash"><pre><code># 1
 kubectl get sc mock2-retain -o jsonpath='{.volumeBindingMode}/{.reclaimPolicy}{"\n"}'                # WaitForFirstConsumer/Retain
 kubectl get pvc mock2-data -o jsonpath='{.status.phase}{"\n"}'                                       # Bound
@@ -132,7 +132,7 @@ kubectl -n mock2-argo scale deploy demo --replicas=5 &amp;&amp; sleep 25 &amp;&a
 kubectl -n mock2-argo get deploy demo -o jsonpath='{.spec.replicas}{"\n"}'                           # 2 (Argo CD put it back)
 # 4
 kubectl get pipelinerun -l tekton.dev/pipeline=mock2-relay \
-  -o jsonpath='{.items[0].status.conditions[?(@.type=="Succeeded")].status}{"\n"}'                   # True
+  -o jsonpath='{.items[*].status.conditions[?(@.type=="Succeeded")].status}' | grep -o True | head -1   # True (a run Succeeded; failed retries don't hurt)
 kubectl logs -l tekton.dev/pipelineTask=echo | grep mock2-                                           # the stamp crossed the task boundary
 # 5
 flux get helmrelease mock2-podinfo -n flux-system                                                    # Ready True
@@ -171,7 +171,8 @@ kubectl get ns mock2-restricted -o jsonpath='{.metadata.labels.pod-security\.kub
 kubectl -n mock2-restricted get pod hardened -o jsonpath='{.status.phase}{"\n"}'                     # Running
 kubectl -n mock2-restricted run naked --image=busybox:1.37 --restart=Never -- sleep 5 2&gt;&amp;1 | grep -ci 'violate'   # &gt;=1 (rejected)
 # 15
-diff &lt;(cat /tmp/mock2-cis.txt) &lt;(kubectl get clustercompliancereport cis -o jsonpath='{.status.summary.failCount}') &amp;&amp; echo fail-count-matches</code></pre></div>
+diff &lt;(cat /tmp/mock2-cis.txt) &lt;(kubectl get "$(kubectl get clustercompliancereport -o name | grep -m1 cis)" \
+  -o jsonpath='{.status.summary.failCount}') &amp;&amp; echo fail-count-matches                              # the CIS report carries its benchmark version in its name</code></pre></div>
   </div>
 </section>
 
@@ -188,7 +189,7 @@ diff &lt;(cat /tmp/mock2-cis.txt) &lt;(kubectl get clustercompliancereport cis -
 
     <details class="quiz"><summary>4 · Tekton results</summary><div class="answer"><p>Section 2.4: <code>mock2-stamp</code> writes to <code>$(results.stamp.path)</code>; the Pipeline's <code>echo</code> task gets <code>params: [{name: msg, value: $(tasks.stamp.results.stamp)}]</code> — the reference names the pipeline <em>task</em>, not the Task — plus <code>runAfter: [stamp]</code>, though the result reference alone already orders them. If the run pends forever, you referenced a result that is never produced; <code>tkn pr describe</code> says so.</p></div></details>
 
-    <details class="quiz"><summary>5 · Flux HelmRelease</summary><div class="answer"><p>Section 2.3: <code>flux create source helm podinfo --url=https://stefanprodan.github.io/podinfo</code>, then <code>flux create helmrelease mock2-podinfo --source=HelmRepository/podinfo --chart=podinfo --target-namespace=mock2-helm --create-target-namespace --interval=5m</code> with <code>--values</code> (or a spec) setting <code>replicaCount: 2</code>. The deployment lands as <code>mock2-podinfo</code> in <code>mock2-helm</code>.</p></div></details>
+    <details class="quiz"><summary>5 · Flux HelmRelease</summary><div class="answer"><p>Section 2.3: <code>flux create source helm podinfo --url=https://stefanprodan.github.io/podinfo</code>, then <code>flux create helmrelease mock2-podinfo --source=HelmRepository/podinfo --chart=podinfo --target-namespace=mock2-helm --create-target-namespace --release-name=mock2-podinfo --interval=5m</code> with <code>--values</code> (or a spec) setting <code>replicaCount: 2</code>. The <code>--release-name</code> is the catch: when <code>targetNamespace</code> is set and no release name is given, Flux composes one as <code>&lt;targetNamespace&gt;-&lt;name&gt;</code>, the chart names the deployment after it, and grading finds <code>mock2-helm-mock2-podinfo</code> instead of <code>mock2-podinfo</code>.</p></div></details>
 
     <details class="quiz"><summary>6 · CloudNativePG</summary><div class="answer"><p>Section 3.3. A minimal <code>Cluster</code> (<code>postgresql.cnpg.io/v1</code>): <code>instances: 1</code>, <code>storage: {size: 1Gi}</code>. Watch <code>kubectl get clusters.postgresql.cnpg.io -w</code> until phase "Cluster in healthy state". The operator creates <code>mock2-pg-app</code>; <code>jsonpath='{.data.username}' | base64 -d</code> → <code>app</code>. (In <code>default</code> deliberately: <code>examples/crossplane/pg-cluster.yaml</code> documents why a default-deny tenant namespace hangs initdb forever.)</p></div></details>
 
@@ -196,26 +197,51 @@ diff &lt;(cat /tmp/mock2-cis.txt) &lt;(kubectl get clustercompliancereport cis -
 
     <details class="quiz"><summary>8 · WorkflowTemplate + parameter</summary><div class="answer"><p>Section 3.4: a WorkflowTemplate whose <code>spec.arguments.parameters</code> declares <code>who</code> with a default, one template echoing <code>{{workflow.parameters.who}}</code>; the Workflow uses <code>workflowTemplateRef: {name: mock2-greeter}</code> and overrides via its own <code>arguments.parameters</code>. The SA needs <code>create</code>/<code>patch</code> on <code>workflowtaskresults.argoproj.io</code> — the same executor trap as always, stated in the task because the graded skill here is the template, not the RBAC.</p></div></details>
 
-    <details class="quiz"><summary>9 · recording rule</summary><div class="answer"><p>Section 4.2: a PrometheusRule in <code>monitoring</code> with <code>groups[].rules[]: {record: "namespace:pods_running:count", expr: 'count by (namespace) (kube_pod_status_phase{phase="Running"} == 1)'}</code>. This lab's Prometheus selects all rules (<code>ruleSelectorNilUsesHelmValues=false</code>); on a stock install you'd need the release label — same story as ServiceMonitors. Give it ~30s to evaluate before querying.</p></div></details>
+    <details class="quiz"><summary>9 · recording rule</summary><div class="answer"><p>Section 4.2: a PrometheusRule in <code>monitoring</code> with <code>groups[].rules[]: {record: "namespace:pods_running:count", expr: 'count by (namespace) (kube_pod_status_phase{phase="Running"} == 1)'}</code>. This lab's Prometheus selects all rules (<code>ruleSelectorNilUsesHelmValues=false</code>); on a stock install you'd need the release label — same story as ServiceMonitors. Give it a minute or two before querying: the operator has to reload rule files and the group has to complete an evaluation — measured here, the series first answered after ~90s.</p></div></details>
 
-    <details class="quiz"><summary>10 · LogQL extraction</summary><div class="answer"><p>Section 4.3: <code>kubectl -n monitoring port-forward svc/loki 3100:3100</code>, then <code>curl -sG http://localhost:3100/loki/api/v1/query_range --data-urlencode 'query={namespace="argocd"} |= "mock2-demo"' --data-urlencode 'limit=1000' | jq -r '.data.result[].values[][1]'</code> into the file (query_range defaults to the last hour, which is exactly the window asked for). <code>logcli</code> works too if you have it.</p></div></details>
+    <details class="quiz"><summary>10 · LogQL extraction</summary><div class="answer"><p>Section 4.3: <code>kubectl -n monitoring port-forward svc/loki 3100:3100</code>, then <code>curl -sG http://localhost:3100/loki/api/v1/query_range --data-urlencode 'query={namespace="argocd"} |= "mock2-demo"' --data-urlencode 'limit=1000' | jq -r '.data.result[].values[][1] | rtrimstr("\n")'</code> into the file (query_range defaults to the last hour, which is exactly the window asked for). The <code>rtrimstr</code> is not decoration: Alloy stores each line newline-terminated, so without it every value prints with a blank line after it and the every-line-matches check fails. <code>logcli</code> works too if you have it.</p></div></details>
 
     <details class="quiz"><summary>11 · Alertmanager silence</summary><div class="answer"><p>Section 4.2. The alertmanager pod carries <code>amtool</code>: <code>kubectl -n monitoring exec alertmanager-prometheus-kube-prometheus-alertmanager-0 -- amtool silence add alertname=Watchdog --duration=2h --comment=mock2 --author=you --alertmanager.url=http://localhost:9093</code>. Or POST the JSON to <code>/api/v2/silences</code> through a port-forward. A silenced alert keeps firing in Prometheus — Alertmanager suppresses the <em>notification</em>, which is the whole design point (and why the grading reads <code>suppressed</code>, not <code>resolved</code>). Expire it with <code>amtool silence expire &lt;id&gt;</code> afterwards.</p></div></details>
 
-    <details class="quiz"><summary>12 · generate policy</summary><div class="answer"><p>Section 5.2: generation lives in Kyverno's <em>classic</em> dialect — a <code>ClusterPolicy</code> with a <code>generate</code> rule (<code>generate.kind: NetworkPolicy</code>, <code>name: default-deny</code>, <code>namespace: "{{request.object.metadata.name}}"</code>, a podSelector-empty deny in <code>data</code>), matching kind Namespace with <code>names: ["mock2-gen*"]</code>. If the namespace appears but the policy never does, read the policy's status and events: the background controller may need a small aggregated ClusterRole permitting it to create NetworkPolicies — diagnosing that <em>is</em> the task.</p></div></details>
+    <details class="quiz"><summary>12 · generate policy</summary><div class="answer"><p>Section 5.2: generation lives in Kyverno's <em>classic</em> dialect — a <code>ClusterPolicy</code> with a <code>generate</code> rule (<code>generate.kind: NetworkPolicy</code>, <code>name: default-deny</code>, <code>namespace: "{{request.object.metadata.name}}"</code>, a podSelector-empty deny in <code>data</code>), matching kind Namespace with <code>names: ["mock2-gen*"]</code>. No extra RBAC is needed here: the chart's <code>kyverno:background-controller</code> ClusterRole already carries create/update/delete on <code>networkpolicies</code>, and generation lands within seconds of the namespace. The aggregated-ClusterRole move (label <code>rbac.kyverno.io/aggregate-to-background-controller: "true"</code>) is only for generating kinds outside that default list.</p></div></details>
 
     <details class="quiz"><summary>13 · sealed secret</summary><div class="answer"><p>Section 5.1 verbatim: <code>kubectl -n team-b create secret generic mock2-token --from-literal=token=s3cr3t --dry-run=client -o yaml | kubeseal --controller-namespace kube-system --controller-name sealed-secrets -o yaml</code>, apply the output. The two controller flags are the trap: kubeseal's defaults point at a controller name this lab's chart didn't use.</p></div></details>
 
     <details class="quiz"><summary>14 · restricted PSS</summary><div class="answer"><p>Section 5.3. The namespace label: <code>pod-security.kubernetes.io/enforce: restricted</code>. The pod needs <code>runAsNonRoot: true</code>, <code>seccompProfile: {type: RuntimeDefault}</code>, and per-container <code>allowPrivilegeEscalation: false</code> + <code>capabilities: {drop: ["ALL"]}</code> — the demo-app base deployment in <code>examples/demo-app/</code> is a working reference. The rejection message on the naked pod names every missing field: read it once and you can write the securityContext from memory.</p></div></details>
 
-    <details class="quiz"><summary>15 · compliance report</summary><div class="answer"><p>Section 5.4: <code>kubectl get clustercompliancereport cis -o jsonpath='{.status.summary.failCount}' &gt; /tmp/mock2-cis.txt</code>. The point is knowing compliance lives in queryable objects with a status, like everything else on the platform.</p></div></details>
+    <details class="quiz"><summary>15 · compliance report</summary><div class="answer"><p>Section 5.4, with two live traps. The report is not literally named <code>cis</code>: <code>kubectl get clustercompliancereport</code> lists <code>k8s-cis-1.23</code> — the benchmark version rides in the name, so discover it, don't guess it. And on a fresh cluster its <code>status.summary</code> is empty until the 6-hour cron fires; any spec change forces an immediate reconcile — <code>kubectl patch clustercompliancereport k8s-cis-1.23 --type merge -p '{"spec":{"cron":"* * * * *"}}'</code> filled the summary within a second here (patch the cron back after). Then <code>-o jsonpath='{.status.summary.failCount}' &gt; /tmp/mock2-cis.txt</code>. The point stands: compliance lives in queryable objects with a status, like everything else on the platform.</p></div></details>
   </div>
 </section>
 
 <section class="panel accent-g" id="after">
   <div class="phdr"><h2>After scoring</h2><span class="meta">two papers, one picture</span></div>
   <div class="pbody">
-    <p>Put this score next to your <a href="mock-exam.html">mock exam 1</a> domains: a domain weak on both papers is a real gap, not a bad day, and its sections are where the next evenings go. The dashboard's weak-spots panel says the same thing from your drill history — when all three agree, believe them. Clean up: expire the Watchdog silence, and <code>kubectl delete ns mock2-net mock2-argo mock2-helm mock2-green mock2-gen-1 mock2-plain mock2-restricted</code> plus the <code>default</code>-namespace objects when you want the lab back.</p>
+    <p>Put this score next to your <a href="mock-exam.html">mock exam 1</a> domains: a domain weak on both papers is a real gap, not a bad day, and its sections are where the next evenings go. The dashboard's weak-spots panel says the same thing from your drill history — when all three agree, believe them.</p>
+    <p>Clean up <em>parents first</em>: three of these namespaces have controllers standing behind them, and deleting a namespace out from under its controller just gets it rebuilt — measured here, Argo CD re-created <code>mock2-argo</code> fifteen seconds after the delete, Flux reinstalled <code>mock2-helm</code> seventy seconds after, and the kro instance still owns <code>mock2-green</code>.</p>
+    <div class="cb" data-lang="bash"><pre><code># controllers first, or they rebuild what you are deleting
+kubectl -n argocd delete app mock2-demo
+flux -n flux-system delete helmrelease mock2-podinfo --silent
+flux -n flux-system delete source helm podinfo --silent
+kubectl delete mock2space green &amp;&amp; kubectl delete rgd mock2space
+kubectl delete clusterpolicy mock2-generate-default-deny
+# now the namespaces stay gone
+kubectl delete ns mock2-net mock2-argo mock2-helm mock2-green mock2-gen-1 mock2-plain mock2-restricted --ignore-not-found
+# the default-namespace objects and the rest of the paper trail
+kubectl delete pod mock2-pod &amp;&amp; kubectl delete pvc mock2-data
+kubectl delete pv "$(kubectl get pv -o jsonpath='{.items[?(@.spec.claimRef.name=="mock2-data")].metadata.name}')"   # Retain kept it, now Released
+kubectl delete sc mock2-retain
+kubectl delete cluster.postgresql.cnpg.io mock2-pg
+kubectl delete pipelinerun -l tekton.dev/pipeline=mock2-relay
+kubectl delete pipeline mock2-relay &amp;&amp; kubectl delete task mock2-stamp mock2-echo
+kubectl delete wf mock2-hello &amp;&amp; kubectl delete workflowtemplate mock2-greeter
+kubectl delete sa mock2-wf &amp;&amp; kubectl delete role,rolebinding mock2-wf-taskresults
+kubectl -n monitoring delete prometheusrule mock2-recording
+kubectl -n team-b delete sealedsecret mock2-token          # its Secret goes with it
+kubectl patch clustercompliancereport k8s-cis-1.23 --type merge -p '{"spec":{"cron":"0 */6 * * *"}}'   # if you sped it up
+pkill -f 'port-forward svc/prometheus-kube-prometheus'     # grading port-forwards, if you pasted by hand
+# and let the Watchdog page someone again (both amtool calls need the url flag)
+kubectl -n monitoring exec alertmanager-prometheus-kube-prometheus-alertmanager-0 -- sh -c \
+  'am=http://localhost:9093; amtool silence expire $(amtool silence query -q alertname=Watchdog --alertmanager.url=$am) --alertmanager.url=$am'</code></pre></div>
   </div>
 </section>
 

@@ -28,7 +28,15 @@ EXPECT_K8S=$(printf '%s' "$K8S_IMAGE" | sed -e 's|@.*||' -e 's|.*:||')
 eq "kubelet version" "$EXPECT_K8S" "$($K get nodes -o jsonpath='{.items[0].status.nodeInfo.kubeletVersion}' 2>/dev/null)"
 ZONES=$($K get nodes -o jsonpath='{range .items[*]}{.metadata.labels.topology\.kubernetes\.io/zone}{"\n"}{end}' 2>/dev/null | sort -u | grep -c .)
 ge "topology zones labelled" 2 "$ZONES"
+# Trivy scan jobs and probe pods churn constantly; a pod caught Pending
+# mid-schedule is not a broken lab. Give transients up to 60s to clear
+# before calling the failure real.
 BAD_PODS=$($K get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded --no-headers 2>/dev/null | wc -l)
+for _ in $(seq 1 6); do
+  [ "$BAD_PODS" -eq 0 ] && break
+  sleep 10
+  BAD_PODS=$($K get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded --no-headers 2>/dev/null | wc -l)
+done
 eq "pods not Running/Succeeded" 0 "$BAD_PODS"
 NOTDEP=$(helm list -A -o json 2>/dev/null | jq '[.[]|select(.status!="deployed")]|length')
 eq "helm releases not deployed" 0 "$NOTDEP"
