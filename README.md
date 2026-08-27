@@ -287,16 +287,21 @@ Real LoadBalancer IPs need `cloud-provider-kind`, which wants root to bind ports
 
 ## make break
 
-Incident response is a third of the observability domain and the hardest thing to practise alone. `make break` injects one of seven faults into `team-a` at random and starts you on a clock. Target is 7 minutes, which is roughly exam pace.
+Incident response is a third of the observability domain and the hardest thing to practise alone. `make break` injects one fault at random from a scenario library, prints the kind of ticket a platform team actually receives, and starts you on a clock. Target is 7 minutes for the workload group and 10 for the platform ones, which is roughly exam pace.
 
-The seven are image, probe, resources, rbac, quota, netpol and config. Each fails differently, and some are invisible in `kubectl get pods`. The rbac one only shows up under `kubectl auth can-i --as=...`, and the netpol one strips the DNS egress rule off the tenant policy, leaving a Running pod that cannot resolve anything. That last one is worth understanding: NetworkPolicies are additive allow-lists, so you cannot break DNS by *adding* a restrictive policy. You have to remove the rule that allowed it.
+The library spans the exam domains. The `workload` group is the classic broken-pod drill in `team-a`: image, probe, resources, rbac, quota, netpol and config. Each fails differently, and some are invisible in `kubectl get pods`. The rbac one only shows up under `kubectl auth can-i --as=...`, and the netpol one strips the DNS egress rule off the tenant policy, leaving a Running pod that cannot resolve anything. That last one is worth understanding: NetworkPolicies are additive allow-lists, so you cannot break DNS by *adding* a restrictive policy. You have to remove the rule that allowed it.
+
+The other four groups break the platform tooling itself, which is where the exam puts most of its weight. `gitops` points an Argo CD Application at a git ref that does not exist, suspends a Flux Kustomization and then deletes the workload it manages, or aims a Rollouts canary analysis at a Prometheus address that resolves to nothing. `cicd` removes the Task a Tekton Pipeline references, or revokes the RBAC that keeps an EventListener alive. `apis` revokes a Crossplane provider's ClusterRoleBinding under a fresh XR, or pauses an XR so spec changes stop propagating. `security` ships a Kyverno Deny policy nobody asked for, or flips the namespace to PSS `restricted` while stripping the pod's securityContext. Wherever a healthy starting state is what makes the symptom realistic, the scenario is built healthy first, then broken. The GitOps scenarios deploy into their own `drill-gitops` namespace so they never fight the ApplicationSet exercise over the same objects.
 
 ```bash
-make break            # random fault
-FAULT=netpol make break   # drill one specific fault
-make break-answer     # reveal what was injected
-make break-fix        # auto-diagnose, repair, and explain why it broke
+make break                     # random fault from the whole library
+DOMAIN=gitops make break       # random fault from one domain
+FAULT=flux-suspend make break  # drill one specific fault
+make break-answer              # reveal what was injected, and why it broke
+make break-fix                 # auto-diagnose, repair, and explain the evidence
 ```
+
+Domains are `workload`, `gitops`, `cicd`, `apis` and `security`. Injecting a new fault first heals and removes whatever the previous drill left behind, so you can chain drills without cleaning up in between.
 
 `make break-fix` detects faults from cluster state rather than reading the answer file, and prints the evidence it matched on. Use it to reset, or to check your own diagnosis after you have had a go.
 

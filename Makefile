@@ -61,7 +61,7 @@ urls:    ## Every UI, its URL/port-forward, and credentials
 	@$(S)/91-urls.sh
 status:  ## Clusters, endpoints, unhealthy pods, host load
 	@$(S)/90-status.sh
-break:   ## Inject a random fault, then diagnose it under time pressure
+break:   ## Inject a random fault, then diagnose it under time pressure (DOMAIN=/FAULT= to scope)
 	@$(S)/95-break.sh
 break-fix: ## Auto-diagnose and repair whatever 'make break' injected
 	@$(S)/96-break-fix.sh
@@ -73,4 +73,4 @@ nuke:    ## Delete everything including Gitea data
 .PHONY: help host tools up gitea gitops cicd api obs sec mesh portal core full spire validate fix-cp-metrics study site urls forward forward-stop status break break-fix down nuke
 
 break-answer: ## Reveal the last injected fault
-	@echo "Injected fault type: $$(cat /tmp/cnpe-lab/.last-fault 2>/dev/null || echo none)"
+	@cat /tmp/cnpe-lab/.last-fault 2>/dev/null || echo "none injected yet"
