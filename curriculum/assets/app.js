@@ -220,7 +220,7 @@
      The section being read gets its own brighter overlay segment. style.css
      reveals the wave left to right on load with a clip animation; dash tricks
      misrender under vector-effect, so the SVG itself stays plain. */
-  function traceSvg() {
+  function tracePaths() {
     var secs = NAV.filter(function (n) { return n.d > 0; });
     var n = secs.length || 1, hi = 2, lo = 6.5;
     var d = "", cur = "";
@@ -230,10 +230,26 @@
       d += (i ? "L" + x0 + " " + y : "M0 " + y) + "L" + x1 + " " + y;
       if (entry && secs[i].id === entry.id) cur = "M" + x0 + " " + y + "L" + x1 + " " + y;
     }
+    return { d: d, cur: cur };
+  }
+  function traceSvg() {
+    var p = tracePaths();
     return '<svg viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true" focusable="false">' +
-      '<path class="tr" d="' + d + '"/>' +
-      (cur ? '<path class="cur" d="' + cur + '"/>' : "") +
+      '<path class="tr" d="' + p.d + '"/>' +
+      (p.cur ? '<path class="cur" d="' + p.cur + '"/>' : "") +
       "</svg>";
+  }
+  /* rewrite the wave in place, so the reveal animation stays a load-time
+     event instead of replaying on every mark/unmark */
+  function traceRefresh() {
+    var tr = document.querySelector(".topbar .trace");
+    if (!tr) return;
+    var svg = tr.querySelector("svg");
+    if (!svg) { tr.innerHTML = traceSvg(); return; }
+    var p = tracePaths();
+    svg.querySelector(".tr").setAttribute("d", p.d);
+    var c = svg.querySelector(".cur");
+    if (c && p.cur) c.setAttribute("d", p.cur);
   }
   function progHtml(ov) { return "<span>" + ov.done + "/" + ov.total + "</span>"; }
 
@@ -259,16 +275,16 @@
     var bar = el("div", "topbar");
     var inner = el("div", "inner");
 
-    // Three stacked platform layers, the middle one in blue. The gradient
-    // stops keep their s1/s2 classes so the theme rules in style.css recolor
-    // them; the blue stroke gets the same treatment via .sv.
+    // Three stacked platform layers, the middle one in the ok green, echoing
+    // the certified badge. The gradient stops keep their s1/s2 classes so the
+    // theme rules in style.css recolor them; the green stroke via .sv.
     var logo = el("a", "logo",
       '<svg class="mark" viewBox="0 0 24 24" aria-hidden="true">' +
         '<defs><linearGradient id="cnpeMark" x1="0" y1="0" x2="1" y2="1">' +
           '<stop class="s1" offset="0%" stop-color="#F0C069"/><stop class="s2" offset="100%" stop-color="#E0A33E"/>' +
         '</linearGradient></defs>' +
         '<path d="M12 2.6 20.4 7 12 11.4 3.6 7z" fill="none" stroke="url(#cnpeMark)" stroke-width="1.7" stroke-linejoin="round"/>' +
-        '<path class="sv" d="M20.4 12 12 16.4 3.6 12" fill="none" stroke="#6FB3DC" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<path class="sv" d="M20.4 12 12 16.4 3.6 12" fill="none" stroke="#8CBF6B" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>' +
         '<path d="M20.4 17 12 21.4 3.6 17" fill="none" stroke="url(#cnpeMark)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>' +
       '</svg>' +
       '<span class="word">CNPE</span><span class="sub">study console</span>');
@@ -640,8 +656,7 @@
           p.innerHTML = progHtml(ov);
           p.classList.toggle("synced", ov.done === ov.total);
         }
-        var tr = document.querySelector(".topbar .trace");
-        if (tr) tr.innerHTML = traceSvg();
+        traceRefresh();
       });
       fin.appendChild(b);
       if (next) {
