@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#141416" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F7F5F1" media="(prefers-color-scheme: light)">
+<meta name="description" content="A second paper: fifteen fresh timed tasks across all five CNPE domains, no overlap with mock exam 1, with grading commands, answers, and a built-in 120-minute clock.">
+<title>Mock exam 2 · CNPE</title>
+<link rel="stylesheet" href="assets/style.css">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<script src="assets/theme.js"></script>
+</head>
+<body data-id="EX2" data-root="" data-exam>
+<div class="wrap"><div class="cols">
+<article>
+
+<header class="pagehead">
+  <div class="eyebrow"></div>
+  <h1>Mock exam 2</h1>
+  <p class="sum">A second paper: fifteen tasks, 120 minutes, 100 points, weighted like the real blueprint (15/25/25/20/15), and no task shape repeated from <a href="mock-exam.html">mock exam 1</a> — different competencies, same domains. Layers required: <code>make full</code>, nothing else staged. Task 5 pulls one public Helm chart, so the cluster needs its normal internet access; everything else is local. Score and clock are stored separately from exam 1's.</p>
+</header>
+
+<div class="stats" data-static style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
+  <div class="stat c"><div class="lbl">Lab layers</div><div class="val sm">make full</div></div>
+  <div class="stat p"><div class="lbl">Tasks</div><div class="val">15</div></div>
+  <div class="stat y"><div class="lbl">Target</div><div class="val">70<span class="u">+ / 100</span></div></div>
+  <div class="stat g" id="stat-score"><div class="lbl">Your score</div><div class="val" id="score-val">0<span class="u">/ 100</span></div><div class="spark"><i style="width:0%"></i></div></div>
+</div>
+
+<section class="panel accent-r" id="timer">
+  <div class="phdr"><h2>The clock</h2><span class="meta">persists across reloads</span></div>
+  <div class="pbody">
+    <div class="examtimer">
+      <div>
+        <div class="lbl">time remaining</div>
+        <div class="clock" id="clock">120:00</div>
+      </div>
+      <button class="tbtn" id="t-start" type="button">▶ Start 120:00</button>
+      <button class="tbtn ghost" id="t-reset" type="button">Reset</button>
+      <div class="score">Tick a task's dot when its grading command passes. Score updates above.</div>
+    </div>
+    <div id="score-domains" class="wgrid" style="margin-top:16px"></div>
+    <p style="margin-top:14px">Same rules as paper 1: start the timer, no peeking at curriculum sections or the answers below, and grade only at the end with the commands in the grading section. Docs and <code>--help</code> are allowed, as on the real exam. Anything a grading command cannot see does not count. Target: 70+ and <em>no domain at zero</em>. If a task stalls, note the time, move on, come back.</p>
+  </div>
+</section>
+
+<section class="panel accent-c" id="tasks">
+  <div class="phdr"><h2>Tasks</h2><span class="meta">click a task to collapse it · click the dot to score it</span></div>
+  <div class="pbody">
+
+    <div class="task" data-pts="7" data-title="A storage class that waits, a claim that binds (domain 1)">
+      <p>Create StorageClass <code>mock2-retain</code> on the local-path provisioner (<code>rancher.io/local-path</code>) with <code>volumeBindingMode: WaitForFirstConsumer</code> and <code>reclaimPolicy: Retain</code>. In <code>default</code>, create a 1Gi PVC <code>mock2-data</code> using it and a pod <code>mock2-pod</code> (image <code>busybox:1.37</code>, sleeping) that mounts it. The claim must end Bound and its PV must carry the Retain policy.</p>
+    </div>
+
+    <div class="task" data-pts="8" data-title="Isolate a service with NetworkPolicy (domain 1)">
+      <p>Create namespace <code>mock2-net</code> containing: deployment+service <code>web</code> (image <code>ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine</code>, port 8080, 1 replica) and two idle busybox:1.37 pods, <code>trusted</code> (label <code>access=web</code>) and <code>other</code>. Default-deny all ingress and egress in the namespace, then open exactly enough that <code>trusted</code> can fetch <code>http://web:8080</code> by service name while <code>other</code> cannot reach it at all.</p>
+    </div>
+
+    <div class="task" data-pts="8" data-title="An Argo CD Application that heals itself (domain 2)">
+      <p>Create an Argo CD Application <code>mock2-demo</code> from the already-registered platform repo (<code>http://gitea.lab:3000/lab/platform.git</code>), path <code>demo-app/base</code>, deploying into namespace <code>mock2-argo</code> (have Argo CD create it), with automated sync, prune, and self-heal. Prove the self-heal: scale the live deployment to 5 by hand and watch Argo CD put it back to 2 with no git change and no further kubectl from you.</p>
+    </div>
+
+    <div class="task" data-pts="9" data-title="A Tekton result crosses task boundaries (domain 2)">
+      <p>Author Task <code>mock2-stamp</code> that emits a result <code>stamp</code> whose value starts with <code>mock2-</code>, and Task <code>mock2-echo</code> that takes a param <code>msg</code> and prints it. Wire them into Pipeline <code>mock2-relay</code> (in <code>default</code>) as pipeline tasks named <code>stamp</code> and <code>echo</code>, where <code>echo</code> runs after <code>stamp</code> and receives the result as its param. Run it; the PipelineRun must Succeed and the echo step's log must show the stamp.</p>
+    </div>
+
+    <div class="task" data-pts="8" data-title="A Flux HelmRelease from a public chart (domain 2)">
+      <p>Using Flux, create a HelmRepository for <code>https://stefanprodan.github.io/podinfo</code> and a HelmRelease <code>mock2-podinfo</code> (in <code>flux-system</code>) installing chart <code>podinfo</code> into namespace <code>mock2-helm</code> (create it, or let Flux) with 2 replicas via values. The release must reach Ready with both replicas serving.</p>
+    </div>
+
+    <div class="task" data-pts="8" data-title="Operate an operator: CloudNativePG (domain 3)">
+      <p>Using the CloudNativePG operator already installed, provision a single-instance Postgres cluster <code>mock2-pg</code> in <code>default</code> (1Gi storage; keep resources small). Wait until the operator reports it healthy, then write the auto-generated application username from its connection Secret to <code>/tmp/mock2-pg-user.txt</code>.</p>
+    </div>
+
+    <div class="task" data-pts="9" data-title="A platform API in one file: kro (domain 3)">
+      <p>Write a kro ResourceGraphDefinition <code>mock2space</code> defining kind <code>Mock2Space</code> (schema: <code>team</code> string, <code>cpu</code> string defaulting to "1") that expands to a Namespace named after the team plus a ResourceQuota <code>tenant-quota</code> inside it capping <code>requests.cpu</code> at the given value. Create instance <code>green</code> (team <code>mock2-green</code>, cpu "2") and make sure the namespace and quota really exist.</p>
+    </div>
+
+    <div class="task" data-pts="8" data-title="A reusable, parameterized Workflow (domain 3)">
+      <p>Create WorkflowTemplate <code>mock2-greeter</code> in <code>default</code> with an input parameter <code>who</code> (default <code>nobody</code>) whose single step prints <code>hello &lt;who&gt;</code>. Submit Workflow <code>mock2-hello</code> referencing the template and overriding the parameter to <code>platform</code>. It must reach Succeeded with <code>hello platform</code> in its log. (Run it under a ServiceAccount carrying the executor rights the curriculum warns about, or it will fail no matter how correct the template is.)</p>
+    </div>
+
+    <div class="task" data-pts="7" data-title="A recording rule Prometheus actually records (domain 4)">
+      <p>Create a PrometheusRule that records <code>namespace:pods_running:count</code> — the number of Running pods per namespace, from <code>kube_pod_status_phase</code>. Prove Prometheus is evaluating it by querying the new series name through the API and getting results back.</p>
+    </div>
+
+    <div class="task" data-pts="7" data-title="Pull an audit trail out of Loki (domain 4)">
+      <p>Using LogQL against the lab's Loki, save every log line from namespace <code>argocd</code> in the last hour that mentions <code>mock2-demo</code> (task 3's Application; its self-heal left traces in the application controller's log) to <code>/tmp/mock2-logs.txt</code>, one line per line, no timestamps or JSON wrapping. The file must be non-empty and every line must contain <code>mock2-demo</code>. (Skipped task 3? Any Application name you did deploy works, but grading greps for <code>mock2-demo</code>.)</p>
+    </div>
+
+    <div class="task" data-pts="6" data-title="Silence an alert without touching its rule (domain 4)">
+      <p>The kube-prometheus-stack ships a permanently firing <code>Watchdog</code> alert. Without editing any rule, create a 2-hour Alertmanager silence for <code>alertname=Watchdog</code> with a comment containing <code>mock2</code>, and confirm the alert now shows as suppressed. (Expire the silence after grading; it's a dead-man's-switch alert and something upstream may be watching it.)</p>
+    </div>
+
+    <div class="task" data-pts="4" data-title="A policy that creates, not just refuses (domain 5)">
+      <p>Using the policy engine already installed, make the cluster <em>generate</em> a default-deny NetworkPolicy named <code>default-deny</code> in every newly created namespace whose name starts with <code>mock2-gen</code> — and only those, so the other exam namespaces stay untouched. Prove both halves: a matching namespace gets the policy, a non-matching one does not.</p>
+    </div>
+
+    <div class="task" data-pts="4" data-title="A secret that is safe in git (domain 5)">
+      <p>Produce Secret <code>mock2-token</code> in <code>team-b</code> with key <code>token</code> = <code>s3cr3t</code> — but the only thing you apply to the cluster is its sealed form: seal it for this cluster's controller with <code>kubeseal</code>, apply the SealedSecret, and let the controller materialize the real Secret.</p>
+    </div>
+
+    <div class="task" data-pts="4" data-title="Run something real under restricted PSS (domain 5)">
+      <p>Create namespace <code>mock2-restricted</code> enforcing the <code>restricted</code> Pod Security Standard. Run pod <code>hardened</code> there (image <code>ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine</code>) with a securityContext that passes the profile — it must reach Running. A bare <code>kubectl run</code> in that namespace must be rejected.</p>
+    </div>
+
+    <div class="task" data-pts="3" data-title="Read a compliance report like a grader (domain 5)">
+      <p>The Trivy Operator maintains a CIS compliance rollup for this cluster. Write its current <em>fail count</em> — taken from the report object's status, not from any dashboard — to <code>/tmp/mock2-cis.txt</code>, nothing else in the file.</p>
+    </div>
+
+  </div>
+</section>
+
+<section class="panel accent-y" id="grading">
+  <div class="phdr"><h2>Grading</h2><span class="meta">grade partial credit strictly</span></div>
+  <div class="pbody">
+    <p>Run all of it; each line prints what earns the points.</p>
+    <div class="cb" data-lang="bash"><pre><code># 1
+kubectl get sc mock2-retain -o jsonpath='{.volumeBindingMode}/{.reclaimPolicy}{"\n"}'                # WaitForFirstConsumer/Retain
+kubectl get pvc mock2-data -o jsonpath='{.status.phase}{"\n"}'                                       # Bound
+kubectl get pv "$(kubectl get pvc mock2-data -o jsonpath='{.spec.volumeName}')" \
+  -o jsonpath='{.spec.persistentVolumeReclaimPolicy}{"\n"}'                                          # Retain
+# 2
+kubectl -n mock2-net exec trusted -- wget -qO- -T 3 http://web:8080 &gt;/dev/null &amp;&amp; echo trusted-reaches-web
+kubectl -n mock2-net exec other -- wget -qO- -T 3 http://web:8080 &gt;/dev/null 2&gt;&amp;1 || echo other-blocked
+kubectl -n mock2-net get netpol --no-headers | wc -l                                                 # at least a deny + your allows
+# 3
+kubectl -n argocd get app mock2-demo -o jsonpath='{.status.sync.status}/{.status.health.status}{"\n"}'   # Synced/Healthy
+kubectl -n argocd get app mock2-demo -o jsonpath='{.spec.syncPolicy.automated.selfHeal}{"\n"}'       # true
+kubectl -n mock2-argo scale deploy demo --replicas=5 &amp;&amp; sleep 25 &amp;&amp; \
+kubectl -n mock2-argo get deploy demo -o jsonpath='{.spec.replicas}{"\n"}'                           # 2 (Argo CD put it back)
+# 4
+kubectl get pipelinerun -l tekton.dev/pipeline=mock2-relay \
+  -o jsonpath='{.items[0].status.conditions[?(@.type=="Succeeded")].status}{"\n"}'                   # True
+kubectl logs -l tekton.dev/pipelineTask=echo | grep mock2-                                           # the stamp crossed the task boundary
+# 5
+flux get helmrelease mock2-podinfo -n flux-system                                                    # Ready True
+kubectl -n mock2-helm get deploy mock2-podinfo -o jsonpath='{.status.readyReplicas}{"\n"}'           # 2
+# 6
+kubectl get clusters.postgresql.cnpg.io mock2-pg -o jsonpath='{.status.phase}{"\n"}'                 # Cluster in healthy state
+kubectl get clusters.postgresql.cnpg.io mock2-pg -o jsonpath='{.status.readyInstances}{"\n"}'        # 1
+diff &lt;(cat /tmp/mock2-pg-user.txt) &lt;(kubectl get secret mock2-pg-app -o jsonpath='{.data.username}' | base64 -d) &amp;&amp; echo user-matches
+# 7
+kubectl get rgd mock2space -o jsonpath='{.status.state}{"\n"}'                                       # Active
+kubectl get mock2space green -o name                                                                 # the instance exists
+kubectl get ns mock2-green -o jsonpath='{.status.phase}{"\n"}'                                       # Active
+kubectl -n mock2-green get resourcequota tenant-quota -o jsonpath='{.spec.hard.requests\.cpu}{"\n"}' # 2
+# 8
+kubectl get workflowtemplate mock2-greeter -o name                                                   # the template exists
+kubectl get wf mock2-hello -o jsonpath='{.status.phase}{"\n"}'                                       # Succeeded
+kubectl logs -l workflows.argoproj.io/workflow=mock2-hello -c main | grep 'hello platform'           # the override landed
+# 9
+kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 19090:9090 &amp; sleep 3
+curl -s 'http://localhost:19090/api/v1/query?query=namespace:pods_running:count' | jq '.data.result | length'   # &gt; 0: recording
+# 10
+test -s /tmp/mock2-logs.txt &amp;&amp; echo non-empty
+test "$(grep -c mock2-demo /tmp/mock2-logs.txt)" = "$(wc -l &lt; /tmp/mock2-logs.txt | tr -d ' ')" &amp;&amp; echo every-line-matches
+# 11
+kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-alertmanager 9093:9093 &amp; sleep 3
+curl -s http://localhost:9093/api/v2/silences | jq -r '.[] | select(.status.state=="active") | .matchers[].value'   # Watchdog
+curl -s 'http://localhost:9093/api/v2/alerts?filter=alertname%3D%22Watchdog%22' | jq -r '.[0].status.state'         # suppressed
+# 12
+kubectl create ns mock2-gen-1 &amp;&amp; sleep 5 &amp;&amp; kubectl -n mock2-gen-1 get netpol default-deny -o name   # generated
+kubectl create ns mock2-plain &amp;&amp; sleep 5 &amp;&amp; kubectl -n mock2-plain get netpol --no-headers | wc -l   # 0: the scope held
+# 13
+kubectl -n team-b get sealedsecret mock2-token -o name                                               # the git-safe form
+kubectl -n team-b get secret mock2-token -o jsonpath='{.data.token}' | base64 -d; echo               # s3cr3t (controller unsealed it)
+# 14
+kubectl get ns mock2-restricted -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}{"\n"}'   # restricted
+kubectl -n mock2-restricted get pod hardened -o jsonpath='{.status.phase}{"\n"}'                     # Running
+kubectl -n mock2-restricted run naked --image=busybox:1.37 --restart=Never -- sleep 5 2&gt;&amp;1 | grep -ci 'violate'   # &gt;=1 (rejected)
+# 15
+diff &lt;(cat /tmp/mock2-cis.txt) &lt;(kubectl get clustercompliancereport cis -o jsonpath='{.status.summary.failCount}') &amp;&amp; echo fail-count-matches</code></pre></div>
+  </div>
+</section>
+
+<section class="panel accent-p" id="answers">
+  <div class="phdr"><h2>Answers</h2><span class="meta">open only after grading</span></div>
+  <div class="pbody">
+    <p>Key moves only; each maps to a curriculum section where the full treatment lives.</p>
+
+    <details class="quiz"><summary>1 · storage class, claim, binding</summary><div class="answer"><p>Section 1.3's shapes. The trap is expecting the PVC to bind before the pod exists: <code>WaitForFirstConsumer</code> means Pending-with-no-events is <em>correct</em> until <code>mock2-pod</code> mounts it. Retain goes on the class; the PV inherits it at provision time.</p></div></details>
+
+    <details class="quiz"><summary>2 · NetworkPolicy isolation</summary><div class="answer"><p><code>examples/multitenancy/team-a.yaml</code> is the pattern (section 1.1/1.4): a default-deny for the namespace, an egress DNS allow to kube-dns, then a pair of policies — egress from <code>access=web</code> pods to the web pods on 8080, ingress to web from <code>access=web</code>. Both ends must open; forgetting DNS makes even <code>trusted</code> fail on name resolution.</p></div></details>
+
+    <details class="quiz"><summary>3 · self-healing Application</summary><div class="answer"><p>Section 2.2: an <code>Application</code> with <code>source</code> repoURL/path, <code>destination.namespace: mock2-argo</code>, <code>syncPolicy.automated: {prune: true, selfHeal: true}</code> and <code>syncOptions: [CreateNamespace=true]</code>. The repo is already registered (the lab did it), so no credentials work is needed. Self-heal reverts the manual scale within seconds — the deployment's <code>replicas: 2</code> comes back from git.</p></div></details>
+
+    <details class="quiz"><summary>4 · Tekton results</summary><div class="answer"><p>Section 2.4: <code>mock2-stamp</code> writes to <code>$(results.stamp.path)</code>; the Pipeline's <code>echo</code> task gets <code>params: [{name: msg, value: $(tasks.stamp.results.stamp)}]</code> — the reference names the pipeline <em>task</em>, not the Task — plus <code>runAfter: [stamp]</code>, though the result reference alone already orders them. If the run pends forever, you referenced a result that is never produced; <code>tkn pr describe</code> says so.</p></div></details>
+
+    <details class="quiz"><summary>5 · Flux HelmRelease</summary><div class="answer"><p>Section 2.3: <code>flux create source helm podinfo --url=https://stefanprodan.github.io/podinfo</code>, then <code>flux create helmrelease mock2-podinfo --source=HelmRepository/podinfo --chart=podinfo --target-namespace=mock2-helm --create-target-namespace --interval=5m</code> with <code>--values</code> (or a spec) setting <code>replicaCount: 2</code>. The deployment lands as <code>mock2-podinfo</code> in <code>mock2-helm</code>.</p></div></details>
+
+    <details class="quiz"><summary>6 · CloudNativePG</summary><div class="answer"><p>Section 3.3. A minimal <code>Cluster</code> (<code>postgresql.cnpg.io/v1</code>): <code>instances: 1</code>, <code>storage: {size: 1Gi}</code>. Watch <code>kubectl get clusters.postgresql.cnpg.io -w</code> until phase "Cluster in healthy state". The operator creates <code>mock2-pg-app</code>; <code>jsonpath='{.data.username}' | base64 -d</code> → <code>app</code>. (In <code>default</code> deliberately: <code>examples/crossplane/pg-cluster.yaml</code> documents why a default-deny tenant namespace hangs initdb forever.)</p></div></details>
+
+    <details class="quiz"><summary>7 · kro RGD</summary><div class="answer"><p>Section 3.6's <code>tenantspace</code> example, renamed: schema kind <code>Mock2Space</code> with <code>team: string</code>, <code>cpu: string | default="1"</code>; resources <code>ns</code> (Namespace named <code>${schema.spec.team}</code>) and <code>quota</code> (in <code>${ns.metadata.name}</code>, <code>requests.cpu: ${schema.spec.cpu}</code>). Mind the flow-style YAML trap the section calls out: <code>${…}</code> in flow style needs quoting. Instance: kind <code>Mock2Space</code>, name <code>green</code>, <code>spec: {team: mock2-green, cpu: "2"}</code>.</p></div></details>
+
+    <details class="quiz"><summary>8 · WorkflowTemplate + parameter</summary><div class="answer"><p>Section 3.4: a WorkflowTemplate whose <code>spec.arguments.parameters</code> declares <code>who</code> with a default, one template echoing <code>{{workflow.parameters.who}}</code>; the Workflow uses <code>workflowTemplateRef: {name: mock2-greeter}</code> and overrides via its own <code>arguments.parameters</code>. The SA needs <code>create</code>/<code>patch</code> on <code>workflowtaskresults.argoproj.io</code> — the same executor trap as always, stated in the task because the graded skill here is the template, not the RBAC.</p></div></details>
+
+    <details class="quiz"><summary>9 · recording rule</summary><div class="answer"><p>Section 4.2: a PrometheusRule in <code>monitoring</code> with <code>groups[].rules[]: {record: "namespace:pods_running:count", expr: 'count by (namespace) (kube_pod_status_phase{phase="Running"} == 1)'}</code>. This lab's Prometheus selects all rules (<code>ruleSelectorNilUsesHelmValues=false</code>); on a stock install you'd need the release label — same story as ServiceMonitors. Give it ~30s to evaluate before querying.</p></div></details>
+
+    <details class="quiz"><summary>10 · LogQL extraction</summary><div class="answer"><p>Section 4.3: <code>kubectl -n monitoring port-forward svc/loki 3100:3100</code>, then <code>curl -sG http://localhost:3100/loki/api/v1/query_range --data-urlencode 'query={namespace="argocd"} |= "mock2-demo"' --data-urlencode 'limit=1000' | jq -r '.data.result[].values[][1]'</code> into the file (query_range defaults to the last hour, which is exactly the window asked for). <code>logcli</code> works too if you have it.</p></div></details>
+
+    <details class="quiz"><summary>11 · Alertmanager silence</summary><div class="answer"><p>Section 4.2. The alertmanager pod carries <code>amtool</code>: <code>kubectl -n monitoring exec alertmanager-prometheus-kube-prometheus-alertmanager-0 -- amtool silence add alertname=Watchdog --duration=2h --comment=mock2 --author=you --alertmanager.url=http://localhost:9093</code>. Or POST the JSON to <code>/api/v2/silences</code> through a port-forward. A silenced alert keeps firing in Prometheus — Alertmanager suppresses the <em>notification</em>, which is the whole design point (and why the grading reads <code>suppressed</code>, not <code>resolved</code>). Expire it with <code>amtool silence expire &lt;id&gt;</code> afterwards.</p></div></details>
+
+    <details class="quiz"><summary>12 · generate policy</summary><div class="answer"><p>Section 5.2: generation lives in Kyverno's <em>classic</em> dialect — a <code>ClusterPolicy</code> with a <code>generate</code> rule (<code>generate.kind: NetworkPolicy</code>, <code>name: default-deny</code>, <code>namespace: "{{request.object.metadata.name}}"</code>, a podSelector-empty deny in <code>data</code>), matching kind Namespace with <code>names: ["mock2-gen*"]</code>. If the namespace appears but the policy never does, read the policy's status and events: the background controller may need a small aggregated ClusterRole permitting it to create NetworkPolicies — diagnosing that <em>is</em> the task.</p></div></details>
+
+    <details class="quiz"><summary>13 · sealed secret</summary><div class="answer"><p>Section 5.1 verbatim: <code>kubectl -n team-b create secret generic mock2-token --from-literal=token=s3cr3t --dry-run=client -o yaml | kubeseal --controller-namespace kube-system --controller-name sealed-secrets -o yaml</code>, apply the output. The two controller flags are the trap: kubeseal's defaults point at a controller name this lab's chart didn't use.</p></div></details>
+
+    <details class="quiz"><summary>14 · restricted PSS</summary><div class="answer"><p>Section 5.3. The namespace label: <code>pod-security.kubernetes.io/enforce: restricted</code>. The pod needs <code>runAsNonRoot: true</code>, <code>seccompProfile: {type: RuntimeDefault}</code>, and per-container <code>allowPrivilegeEscalation: false</code> + <code>capabilities: {drop: ["ALL"]}</code> — the demo-app base deployment in <code>examples/demo-app/</code> is a working reference. The rejection message on the naked pod names every missing field: read it once and you can write the securityContext from memory.</p></div></details>
+
+    <details class="quiz"><summary>15 · compliance report</summary><div class="answer"><p>Section 5.4: <code>kubectl get clustercompliancereport cis -o jsonpath='{.status.summary.failCount}' &gt; /tmp/mock2-cis.txt</code>. The point is knowing compliance lives in queryable objects with a status, like everything else on the platform.</p></div></details>
+  </div>
+</section>
+
+<section class="panel accent-g" id="after">
+  <div class="phdr"><h2>After scoring</h2><span class="meta">two papers, one picture</span></div>
+  <div class="pbody">
+    <p>Put this score next to your <a href="mock-exam.html">mock exam 1</a> domains: a domain weak on both papers is a real gap, not a bad day, and its sections are where the next evenings go. The dashboard's weak-spots panel says the same thing from your drill history — when all three agree, believe them. Clean up: expire the Watchdog silence, and <code>kubectl delete ns mock2-net mock2-argo mock2-helm mock2-green mock2-gen-1 mock2-plain mock2-restricted</code> plus the <code>default</code>-namespace objects when you want the lab back.</p>
+  </div>
+</section>
+
+</article>
+<aside class="toc" id="toc"></aside>
+</div></div>
+<script src="assets/nav.js"></script>
+<script src="assets/widgets.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

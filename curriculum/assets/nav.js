@@ -105,6 +105,10 @@ window.CNPE_NAV = [
     needs: "make full", mins: 120,
     tags: "mock exam timed tasks grading scoring simulation killer.sh practice" },
 
+  { id: "EX2", d: 0, path: "mock-exam-2.html", title: "Mock exam 2: 15 fresh tasks, 120 minutes",
+    needs: "make full", mins: 120,
+    tags: "mock exam 2 second paper timed tasks grading scoring simulation retake practice" },
+
   { id: "DR", d: 0, path: "drill.html", title: "Drill: every self-check question, shuffled",
     needs: "nothing running", mins: 10,
     tags: "drill flashcards review recall retrieval practice questions quiz self-check weak spots streak spaced repetition" }

@@ -64,7 +64,7 @@ cat > "$OUT/404.html" <<'HTML'
       each holding its numbered sections.</p>
   </header>
   <div class="finish" style="margin-top:0">
-    <div class="txt">The dashboard lists all 29 sections, the mock exam and the drill, and remembers where you left off.</div>
+    <div class="txt">The dashboard lists all 29 sections, both mock exams and the drill, and remembers where you left off.</div>
     <a class="tbtn" href="/">▶ Go to the dashboard</a>
     <a class="tbtn ghost" href="/console.html">Single-file console</a>
   </div>

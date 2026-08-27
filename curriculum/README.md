@@ -5,7 +5,7 @@ in a browser (no server, no build step, `file://` works), or run `make study` fr
 GitHub will not render it in place; clone the repo (or use raw + a local browser) to read it.
 
 - `index.html`: the dashboard, with the map, competency coverage, study plan and exam-day tactics
-- `mock-exam.html`: 15 timed tasks with grading commands and a 120-minute clock
+- `mock-exam.html`, `mock-exam-2.html`: two papers of 15 timed tasks each (no task shape shared, scored separately) with grading commands and a 120-minute clock
 - `drill.html`: every self-check question as flashcards, weighted toward what you miss; ten a day keeps a streak
 - `0*-…/*.html`: the 29 sections, each theory + exercises + self-check
 - `assets/`: one stylesheet, the section manifest (`nav.js`), the page runtime (`app.js`), the interactive figures (`widgets.js`), the theme switch (`theme.js`, loaded from `<head>`) and the typefaces
