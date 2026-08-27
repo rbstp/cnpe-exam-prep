@@ -3,7 +3,7 @@
 # straight from the exam page. The page is the single source of truth: this
 # extracts the <code> block from its Grading section and executes it with
 # 'bash -v', so each command (and its expected-value comment) prints right
-# before its output — exactly as if you had pasted the block yourself.
+# before its output, exactly as if you had pasted the block yourself.
 #
 #     tools/grade.sh [1|2]        # default 1;  or: make grade EXAM=2
 #

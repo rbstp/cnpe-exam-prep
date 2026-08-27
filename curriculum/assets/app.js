@@ -768,7 +768,7 @@
         " in one domain is the minimum. Keep drilling.";
     } else {
       verdict = "Weakest: <strong>domain " + weakest.dom.n + " · " + weakest.dom.name + "</strong> at " +
-        weakest.pct + "% over " + weakest.n + " answers — worth " +
+        weakest.pct + "% over " + weakest.n + " answers, worth " +
         (weakest.pct >= 80 ? "keeping warm" : "an evening") + ". " +
         '<a href="' + href("drill.html") + '" data-drill-domain="' + weakest.dom.n + '">Drill domain ' +
         weakest.dom.n + "</a>.";
