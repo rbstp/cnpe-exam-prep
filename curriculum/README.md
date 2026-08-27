@@ -6,12 +6,13 @@ GitHub will not render it in place; clone the repo (or use raw + a local browser
 
 - `index.html`: the dashboard, with the map, competency coverage, study plan and exam-day tactics
 - `mock-exam.html`, `mock-exam-2.html`: two papers of 15 timed tasks each (no task shape shared, scored separately) with grading commands and a 120-minute clock
-- `drill.html`: every self-check question as flashcards, weighted toward what you miss; ten a day is the drill's daily goal, and any study action (a card answered, an exercise verified, a section completed, a mock task scored) keeps the console-wide streak on the dashboard
+- `drill.html`: every self-check question as flashcards, weighted toward what you miss; ten a day is the drill's daily goal, and any study action (a card answered, an exercise verified, a section completed, a mock task scored) is a heartbeat for the dashboard's console-wide study uptime
 - `0*-…/*.html`: the 29 sections, each theory + exercises + self-check
 - `assets/`: one stylesheet, the section manifest (`nav.js`), the page runtime (`app.js`), the interactive figures (`widgets.js`), the theme switch (`theme.js`, loaded from `<head>`) and the typefaces
 - `assets/fonts/`: IBM Plex Sans, Sans Condensed and Mono (latin subsets), shipped so the console needs no network; SIL OFL 1.1, see `OFL.txt`
 - `tools/bundle.py`: bundles the whole console into one hash-routed HTML file (`python3 tools/bundle.py`, or `--fragment` for a host that supplies its own `<head>`), handy for sharing or reading it somewhere that takes a single document
 - `tools/extract-drill.py`: regenerates `assets/drill-data.js` from the section pages' self-check panels; run it after editing any self-check question (CI fails the deploy if the file is stale)
+- `tools/streak-check.js`: drives a staged copy of the site in headless Chromium (Playwright) and asserts the study-streak behaviour end to end; CI runs it on every PR
 
 Most command blocks carry a collapsed **output** drawer underneath: the real result of that
 command, so the sections read self-contained even away from a running cluster. Every command block

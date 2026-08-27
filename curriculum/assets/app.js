@@ -882,21 +882,22 @@
     var totalEx = Object.keys(store.ex).length, doneEx = Object.keys(store.ex).filter(function (k) { return store.ex[k]; }).length;
     var stats = document.querySelector(".stats");
     if (stats) {
-      // The last eight weeks, one cell per day, column-major so today lands
-      // bottom right. Anything that bumped the day's counters lights it.
+      // The last eight weeks as an uptime strip: one cell per day, column-major
+      // so today lands bottom right. Any heartbeat that day lights it.
       var cells = "", now = new Date();
       for (var i = 55; i >= 0; i--) {
         var dk = dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i));
         var acts = dayActs(store.days[dk]);
-        cells += '<i class="' + (acts ? "on" : "") + '" title="' + dk + (acts ? " · " + acts : "") + '"></i>';
+        cells += '<i class="' + (acts ? "on" : "") + '" title="' + dk +
+          (acts ? " · " + acts + (acts === 1 ? " heartbeat" : " heartbeats") : " · no heartbeat") + '"></i>';
       }
       stats.innerHTML =
         '<div class="stat g"><div class="lbl">Sections complete</div><div class="val">' + ov.done +
           '<span class="u">/ ' + ov.total + '</span></div><div class="spark"><i style="width:' + ov.pct + '%"></i></div></div>' +
         tile("c", "Exercises verified", doneEx + (totalEx ? '<span class="u">/ ' + totalEx + " seen</span>" : ""), false) +
-        '<div class="stat g" id="stat-streak"><div class="lbl">Study streak</div><div class="val">' + sk.streak +
-          '<span class="u">' + (sk.streak === 1 ? "day" : "days") + (sk.best ? " · best " + sk.best : "") + '</span></div>' +
-          '<div class="heat" role="img" aria-label="Study activity over the last 8 weeks, newest day bottom right">' + cells + "</div></div>" +
+        '<div class="stat g" id="stat-streak"><div class="lbl">Study uptime</div><div class="val">' + sk.streak +
+          '<span class="u">' + (sk.streak === 1 ? "day" : "days") + (sk.best ? " · record " + sk.best : "") + '</span></div>' +
+          '<div class="heat" role="img" aria-label="Study heartbeat over the last 8 weeks, one cell per day, newest bottom right">' + cells + "</div></div>" +
         tile("p", "Exam length", '120<span class="u">min</span>', false) +
         tile("y", "Tasks on the day", '15–20<span class="u">≈7 min each</span>', false);
     }
@@ -924,9 +925,9 @@
         html += '<a class="tbtn" style="text-decoration:none" href="' + href(target.path) + '">▶ ' +
           (last ? "Resume " : "Start ") + target.id + " · " + target.title + "</a> ";
       }
-      // the drill entry point, carrying the console-wide streak while it is alive
+      // the drill entry point, carrying the console-wide streak while it is up
       html += '<a class="tbtn ghost" style="text-decoration:none" href="' + href("drill.html") + '">Drill 10' +
-        (sk.streak ? " · " + sk.streak + "-day streak" : "") + "</a>";
+        (sk.streak ? " · up " + sk.streak + (sk.streak === 1 ? " day" : " days") : "") + "</a>";
       resume.innerHTML = html;
     }
     var reset = document.getElementById("reset-progress");

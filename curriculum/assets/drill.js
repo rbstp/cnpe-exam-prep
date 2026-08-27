@@ -129,7 +129,7 @@
     set("drill-acc", right + wrong ? Math.round(right / (right + wrong) * 100) + '<span class="u">%</span>' : '<span class="u">no answers yet</span>');
     var sk = streak();
     set("drill-streak", sk.streak +
-      '<span class="u">' + (sk.streak === 1 ? "day" : "days") + (sk.best ? " · best " + sk.best : "") + "</span>");
+      '<span class="u">' + (sk.streak === 1 ? "day" : "days") + (sk.best ? " · record " + sk.best : "") + "</span>");
   }
 
   function chipRow(label, values, current, onPick) {
@@ -249,8 +249,8 @@
     metaLine("session done");
 
     var pct = Math.round(right.length / (right.length + missed.length) * 100);
-    var sk = streak();   // any answer today keeps the console-wide streak alive
-    var streakLine = sk.streak + (sk.streak === 1 ? " day" : " days") +
+    var sk = streak();   // any answer today is the day's heartbeat, so the streak is up
+    var streakLine = "up " + sk.streak + (sk.streak === 1 ? " day" : " days") +
       (m.earned === today()
         ? " · today's " + GOAL + " are in"
         : " · " + Math.max(1, GOAL - todayN) + " more for today's " + GOAL);
@@ -259,7 +259,7 @@
       '<div class="wcell"><span class="wk">got it</span><span class="wv wnum">' + right.length + "</span></div>" +
       '<div class="wcell"><span class="wk">missed</span><span class="wv wnum">' + missed.length + "</span></div>" +
       '<div class="wcell"><span class="wk">this session</span><span class="wv wnum">' + pct + '<span class="u">%</span></span></div>' +
-      '<div class="wcell"><span class="wk">streak</span><span class="wv">' + streakLine + "</span></div>";
+      '<div class="wcell"><span class="wk">uptime</span><span class="wv">' + streakLine + "</span></div>";
     host.appendChild(grid);
 
     if (missed.length) {
