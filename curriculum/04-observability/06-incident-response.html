@@ -113,24 +113,29 @@ cnpe-worker
   <div class="phdr"><h2>Exercises</h2><span class="meta">reps, not reading</span></div>
   <div class="pbody">
 
-    <div class="exercise" data-title="The seven faults, cold">
+    <div class="exercise" data-title="The fault library, cold">
       <p>One session per few days, not all at once:</p>
-      <div class="cb" data-lang="bash"><pre><code>make break            # random; 7-minute target
-make break-answer     # only after you have committed to a diagnosis</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ make break            # random; 7-minute target</b>
+      <div class="cb" data-lang="bash"><pre><code>make break            # random fault from the whole library
+make break-answer     # only after you have committed to a diagnosis</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-27</span></summary><pre><code><b>$ make break            # random fault from the whole library</b>
+==&gt; Resetting the drill (heal previous fault, remove old scenario objects)
 
-  ⏱  Fault injected into namespace 'team-a'. Deployment: broken
-     Find it and fix it. Target: under 7 minutes (exam pace).
+  ⏱  Fault injected. Domain: workload. Target: under 7 minutes (exam pace).
 
-     Start here, in this order; it works for every one of these:
+     Ticket: "team-a: our 'broken' deployment is not healthy and we cannot see why. It worked an hour ago."
+
+     Start here:
        kubectl -n team-a get pods
        kubectl -n team-a describe pod &lt;pod&gt;
        kubectl -n team-a get events --sort-by=.lastTimestamp | tail -20
        kubectl -n team-a logs &lt;pod&gt; --previous
 
      Reveal the answer when you're done:  make break-answer
+     Auto-repair and see the evidence:    make break-fix
 <b>$ make break-answer     # only after you have committed to a diagnosis</b>
-Injected fault type: rbac</code></pre></details></div>
-      <p>Then drill the ones that hurt, by name: <code>FAULT=image</code>, <code>probe</code>, <code>resources</code>, <code>rbac</code>, <code>quota</code>, <code>netpol</code>, <code>config</code>. The rbac fault is invisible in pod listings and only surfaces under <code>kubectl auth can-i --as=...</code>; the netpol fault leaves everything Running while DNS is dead (the additive-allow-list lesson from 1.4).</p>
+rbac  (domain: workload)
+
+the pod was switched to sa/app-sa, which has no RBAC at all. Nothing in pod status shows it; only 'kubectl auth can-i --as=system:serviceaccount:team-a:app-sa' does. Fix: bind a Role with the needed verbs.</code></pre></details></div>
+      <p>Then drill the ones that hurt, by name. The classic workload seven: <code>FAULT=image</code>, <code>probe</code>, <code>resources</code>, <code>rbac</code>, <code>quota</code>, <code>netpol</code>, <code>config</code>. The rbac fault is invisible in pod listings and only surfaces under <code>kubectl auth can-i --as=...</code>; the netpol fault leaves everything Running while DNS is dead (the additive-allow-list lesson from 1.4). Beyond those, <code>DOMAIN=gitops</code>, <code>cicd</code>, <code>apis</code> or <code>security</code> scopes the draw to faults in the platform tooling itself: a frozen Argo CD sync, a suspended Flux Kustomization, a canary analysis querying a dead Prometheus, a Tekton pipeline missing its Task, a crashlooping EventListener, a Crossplane provider stripped of RBAC, a paused XR, a Kyverno Deny policy, a PSS flip. Those are the incidents domains 2, 3 and 5 grade.</p>
       <div class="verify"><b>verify:</b> your diagnosis written down <em>before</em> <code>make break-answer</code>, and the fix confirmed by the failing behaviour now succeeding. <code>make break-fix</code> afterwards shows the evidence trail a systematic diagnosis would have followed; compare it with the path you actually took and note where you diverged.</div>
     </div>
 

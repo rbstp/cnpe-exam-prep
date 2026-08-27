@@ -41,4 +41,20 @@ wait_rollout() {
   kubectl --context "kind-$CLUSTER" -n "$ns" rollout status "$@" --timeout=10m
 }
 
+# poll <timeout-seconds> <what> <predicate...>: re-run the predicate until it
+# succeeds or the timeout passes. Returns 1 on timeout but only warns, because
+# the break drill keeps going either way and the learner can inspect by hand.
+poll() {
+  local t="$1" what="$2"; shift 2
+  local waited=0
+  until "$@" >/dev/null 2>&1; do
+    waited=$((waited+3))
+    if [ "$waited" -ge "$t" ]; then
+      warn "timed out after ${t}s waiting for $what"
+      return 1
+    fi
+    sleep 3
+  done
+}
+
 cluster_exists() { kind get clusters 2>/dev/null | grep -qx "$1"; }
