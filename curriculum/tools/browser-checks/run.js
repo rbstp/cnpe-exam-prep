@@ -27,7 +27,10 @@ async function run() {
 
   for (const name of AREAS) {
     console.log('\n═══ ' + name + ' ═══');
-    await require('./' + name)(h);
+    // one area blowing up (a timeout, an evaluate against a navigating
+    // document) must not discard every area after it: count it and move on
+    try { await require('./' + name)(h); }
+    catch (e) { h.assert(false, name + ' aborted: ' + e.message.split('\n')[0]); }
   }
 
   await browser.close();

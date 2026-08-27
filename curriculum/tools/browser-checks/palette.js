@@ -93,11 +93,16 @@ module.exports = async function (h) {
 
     await page.keyboard.press('?');
     assert(await page.evaluate(() => !!document.querySelector('.overlay.open .helpcard')), '? opens the help card');
-    // the modal owns the keyboard: n must not navigate while help is open
+    // the modal owns the keyboard: n must not navigate while help is open.
+    // Assert on the still-open card first — a same-document read that a
+    // just-started navigation cannot fake the way a bare URL check could.
     await page.keyboard.press('n');
+    assert(await page.evaluate(() => !!document.querySelector('.overlay.open .helpcard')),
+      'the help card still owns the keyboard after n');
     assert(/01-networking\.html/.test(page.url()), 'n is inert while the help card is open');
     await page.keyboard.press('Escape');
-    assert(await page.evaluate(() => !document.querySelector('.overlay.open')), 'Escape closes the help card');
+    assert(await page.evaluate(() => !document.querySelector('.overlay.open') && !!document.querySelector('.finish')),
+      'Escape closes the help card, still on the section page');
 
     await page.keyboard.press('m');
     let s = await store(page);
