@@ -147,7 +147,7 @@ if [ "${FAST:-0}" != "1" ]; then
   $K -n team-a run np-probe --image=curlimages/curl:8.11.1 --restart=Never \
      --labels=app=np-probe --command -- curl -s -m 8 -o /dev/null -w '%{http_code}' http://example.com >/dev/null 2>&1
   $K -n team-a wait --for=jsonpath='{.status.phase}' pod/np-probe --timeout=90s >/dev/null 2>&1
-  for i in $(seq 1 12); do
+  for _ in $(seq 1 12); do
     ph=$($K -n team-a get pod np-probe -o jsonpath='{.status.phase}' 2>/dev/null)
     [ "$ph" = "Succeeded" ] || [ "$ph" = "Failed" ] && break; sleep 5
   done

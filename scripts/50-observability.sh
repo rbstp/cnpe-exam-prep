@@ -15,7 +15,7 @@ helmi prometheus prometheus-community/kube-prometheus-stack monitoring \
   --set 'prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false' \
   --set 'prometheus.prometheusSpec.ruleSelectorNilUsesHelmValues=false' \
   --set prometheus.prometheusSpec.enableRemoteWriteReceiver=true \
-  --set prometheus.prometheusSpec.enableFeatures={otlp-write-receiver}
+  --set 'prometheus.prometheusSpec.enableFeatures={otlp-write-receiver}'
 
 log "Jaeger all-in-one (memory storage, light enough for a laptop)"
 kubectl create ns tracing --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -62,7 +62,8 @@ helmi opentelemetry-operator open-telemetry/opentelemetry-operator opentelemetry
   --set admissionWebhooks.autoGenerateCert.enabled=true
 
 log "Collector pipeline: OTLP in → Jaeger (traces) + Prometheus (metrics)"
-kubectl -n tracing apply -f - <<'YAML'
+mkdir -p /tmp/cnpe-lab
+cat > /tmp/cnpe-lab/otel-collector.yaml <<'YAML'
 apiVersion: opentelemetry.io/v1beta1
 kind: OpenTelemetryCollector
 metadata: { name: otel, namespace: tracing }
@@ -91,6 +92,15 @@ spec:
         metrics: { receivers: [otlp], processors: [batch], exporters: [otlphttp/prom] }
         logs:    { receivers: [otlp], processors: [batch], exporters: [debug] }
 YAML
+# helmi's --wait above covers the operator Deployment, not its webhook: the
+# serving cert and endpoint lag pod-Ready by a few seconds, and the first CR
+# apply can land in that gap ("connection refused" from the mutating webhook).
+applied=no
+for _ in $(seq 1 24); do
+  kubectl -n tracing apply -f /tmp/cnpe-lab/otel-collector.yaml 2>/dev/null && { applied=yes; break; }
+  sleep 5
+done
+[ "$applied" = yes ] || die "OpenTelemetryCollector apply kept failing; operator webhook not serving after 120s"
 
 log "Auto-instrumentation resource (zero-code tracing: annotate a pod to use it)"
 kubectl apply -f - <<'YAML'
