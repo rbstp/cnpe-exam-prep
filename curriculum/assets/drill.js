@@ -256,12 +256,21 @@
     host.appendChild(grid);
 
     if (missed.length) {
+      // Each missed question is a flashcard here too: the row flips open to its
+      // answer, so re-reading happens in place instead of requiring a redrill.
       var list = el("div", "drill-missed", "<h4>Worth rereading</h4>");
       missed.forEach(function (q) {
         var nav = navOf(q.sec);
-        list.appendChild(el("div", "row",
-          '<span class="sid">' + q.sec + "</span>" + q.q +
-          (nav ? ' <a href="' + nav.path + '">open section</a>' : "")));
+        var row = el("details", "row");
+        // The link lives in the answer body, not the summary: nested interactive
+        // controls confuse tab order, and a stopPropagation guard would break the
+        // bundled console's window-level link routing.
+        row.innerHTML =
+          '<summary><span class="sid">' + q.sec + '</span><span class="mq">' + q.q + "</span></summary>" +
+          '<div class="drill-a">' + q.a +
+          (nav ? '<p class="goto"><a href="' + nav.path + '">open ' + q.sec + " · " + nav.title + "</a></p>" : "") +
+          "</div>";
+        list.appendChild(row);
       });
       host.appendChild(list);
     }
