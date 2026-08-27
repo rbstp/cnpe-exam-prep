@@ -1,0 +1,52 @@
+name: CI
+
+# The deploy workflow runs these same site checks, but only on push to master,
+# by which point a broken PR has already merged. This runs the identical gate
+# at PR time (the assertions live in curriculum/tools/check-site.sh, shared by
+# both), plus shellcheck over the lab scripts.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  site:
+    name: Study console builds clean
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check the drill data is in sync with the self-check panels
+        working-directory: curriculum
+        run: python3 tools/extract-drill.py --check
+
+      - name: Stage the site
+        working-directory: curriculum
+        env:
+          SITE_DOMAIN: cnpe.rbstp.dev
+        run: tools/stage-site.sh "${{ runner.temp }}/_site"
+
+      - name: Check the staged site
+        env:
+          SITE_DOMAIN: cnpe.rbstp.dev
+        run: curriculum/tools/check-site.sh "${{ runner.temp }}/_site"
+
+  shellcheck:
+    name: ShellCheck the lab scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # warning-and-up gates the merge; info/style stay advisory so the gate
+      # trips on real quoting and logic mistakes, not formatting taste.
+      - name: shellcheck
+        run: shellcheck -x --severity=warning scripts/*.sh curriculum/tools/*.sh

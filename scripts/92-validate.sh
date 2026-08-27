@@ -28,7 +28,15 @@ EXPECT_K8S=$(printf '%s' "$K8S_IMAGE" | sed -e 's|@.*||' -e 's|.*:||')
 eq "kubelet version" "$EXPECT_K8S" "$($K get nodes -o jsonpath='{.items[0].status.nodeInfo.kubeletVersion}' 2>/dev/null)"
 ZONES=$($K get nodes -o jsonpath='{range .items[*]}{.metadata.labels.topology\.kubernetes\.io/zone}{"\n"}{end}' 2>/dev/null | sort -u | grep -c .)
 ge "topology zones labelled" 2 "$ZONES"
+# Trivy scan jobs and probe pods churn constantly; a pod caught Pending
+# mid-schedule is not a broken lab. Give transients up to 60s to clear
+# before calling the failure real.
 BAD_PODS=$($K get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded --no-headers 2>/dev/null | wc -l)
+for _ in $(seq 1 6); do
+  [ "$BAD_PODS" -eq 0 ] && break
+  sleep 10
+  BAD_PODS=$($K get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded --no-headers 2>/dev/null | wc -l)
+done
 eq "pods not Running/Succeeded" 0 "$BAD_PODS"
 NOTDEP=$(helm list -A -o json 2>/dev/null | jq '[.[]|select(.status!="deployed")]|length')
 eq "helm releases not deployed" 0 "$NOTDEP"
@@ -147,7 +155,7 @@ if [ "${FAST:-0}" != "1" ]; then
   $K -n team-a run np-probe --image=curlimages/curl:8.11.1 --restart=Never \
      --labels=app=np-probe --command -- curl -s -m 8 -o /dev/null -w '%{http_code}' http://example.com >/dev/null 2>&1
   $K -n team-a wait --for=jsonpath='{.status.phase}' pod/np-probe --timeout=90s >/dev/null 2>&1
-  for i in $(seq 1 12); do
+  for _ in $(seq 1 12); do
     ph=$($K -n team-a get pod np-probe -o jsonpath='{.status.phase}' 2>/dev/null)
     [ "$ph" = "Succeeded" ] || [ "$ph" = "Failed" ] && break; sleep 5
   done

@@ -19,7 +19,7 @@
   var store = (function () {
     var s = { ex: {}, done: {}, exam: {}, last: null };
     try { var raw = localStorage.getItem(KEY); if (raw) s = Object.assign(s, JSON.parse(raw)); } catch (e) {}
-    ["ex", "done", "exam", "drill", "drillmeta"].forEach(function (k) {
+    ["ex", "done", "exam", "exam2", "drill", "drillmeta"].forEach(function (k) {
       if (!s[k] || typeof s[k] !== "object") s[k] = {};       // tolerate anything that is not a map
     });
     if (typeof s.last !== "string") s.last = null;
@@ -66,11 +66,13 @@
     }
     union(store.done, src.done, "done");
     union(store.ex, src.ex, "ex");
-    if (src.exam && typeof src.exam === "object") {
-      if (!store.exam || typeof store.exam !== "object") store.exam = {};
-      if (!store.exam.tasks || typeof store.exam.tasks !== "object") store.exam.tasks = {};
-      union(store.exam.tasks, src.exam.tasks, "exam");
-    }
+    // Both mock exams keep the same shape under their own key.
+    ["exam", "exam2"].forEach(function (k) {
+      if (!src[k] || typeof src[k] !== "object") return;
+      if (!store[k] || typeof store[k] !== "object") store[k] = {};
+      if (!store[k].tasks || typeof store[k].tasks !== "object") store[k].tasks = {};
+      union(store[k].tasks, src[k].tasks, "exam");
+    });
     // Drill records are counters, not ticks: per question, the record answered
     // more recently wins outright rather than unioning.
     if (src.drill && typeof src.drill === "object" && !Array.isArray(src.drill)) {
@@ -101,7 +103,7 @@
     if (!src || typeof src !== "object" || Array.isArray(src)) {
       return "That file does not look like exported CNPE progress.";
     }
-    if (!src.done && !src.ex && !src.exam && !src.drill) {
+    if (!src.done && !src.ex && !src.exam && !src.exam2 && !src.drill) {
       return "That file has no CNPE progress in it.";
     }
     var n = mergeProgress(src);
@@ -168,8 +170,8 @@
     var crumbs = el("div", "crumbs");
     if (entry) {
       crumbs.innerHTML =
-        '<span class="sep">/</span><a href="' + href("index.html") + '">' + (d ? "Domain " + d.n : entry.id === "EX" ? "Exam" : "Practice") + "</a>" +
-        '<span class="sep">/</span><span class="here">' + (entry.id === "EX" ? "Mock exam" : entry.id === "DR" ? "Drill" : entry.id + " " + entry.title) + "</span>";
+        '<span class="sep">/</span><a href="' + href("index.html") + '">' + (d ? "Domain " + d.n : /^EX/.test(entry.id) ? "Exam" : "Practice") + "</a>" +
+        '<span class="sep">/</span><span class="here">' + (entry.id === "EX" ? "Mock exam" : entry.id === "EX2" ? "Mock exam 2" : entry.id === "DR" ? "Drill" : entry.id + " " + entry.title) + "</span>";
     } else {
       crumbs.innerHTML = '<span class="sep">/</span><span class="here">Overview</span>';
     }
@@ -289,10 +291,11 @@
     if (eyebrow) {
       if (d) eyebrow.innerHTML = '<span class="badge d' + d.n + '">Domain ' + d.n + " · " + d.weight + "</span><span>" + d.name + "</span>";
       else if (entry.id === "EX") eyebrow.innerHTML = '<span class="badge d2">Assessment</span><span>All five domains, 120 minutes</span>';
+      else if (entry.id === "EX2") eyebrow.innerHTML = '<span class="badge d2">Assessment</span><span>Second paper · all five domains, 120 minutes</span>';
       // other domainless pages (the drill) keep the eyebrow written in their markup
     }
     if (h1 && !h1.textContent.trim()) {
-      h1.innerHTML = (entry.id === "EX" ? "" : '<span class="id">' + entry.id + "</span>") + entry.title;
+      h1.innerHTML = (/^EX/.test(entry.id) ? "" : '<span class="id">' + entry.id + "</span>") + entry.title;
     }
     var stats = document.querySelector(".stats");
     if (!stats || stats.hasAttribute("data-static")) return;
@@ -600,7 +603,7 @@
       }
       return '<li id="pal-' + i + '" role="option" aria-selected="false" data-i="' + i + '"><span class="pid">' + n.id +
         '</span><span class="ptitle">' + n.title +
-        '</span><span class="pmeta">' + (d ? "d" + d.n : n.id === "EX" ? "exam" : "drill") + hit + "</span></li>";
+        '</span><span class="pmeta">' + (d ? "d" + d.n : /^EX/.test(n.id) ? "exam" : "drill") + hit + "</span></li>";
     }).join("");
     Array.prototype.forEach.call(paletteList.children, function (li) {
       li.addEventListener("click", function () { go(+li.getAttribute("data-i")); });
@@ -716,6 +719,70 @@
     });
   }
 
+  /* ── weak spots: drill accuracy split by domain ──────────────
+     Drill record keys embed the section ("2.3#…"), so the domain is derivable
+     from the store alone; the question bank (when its script is loaded, as it
+     is on the dashboard and in the bundle) only adds the seen/total counts. */
+  var WEAK_MIN = 5;   // answers a domain needs before the panel will call it weak
+  function buildWeakSpots() {
+    var host = document.getElementById("weak-domains");
+    if (!host) return;
+    var totals = {};
+    (window.CNPE_DRILL || []).forEach(function (q) {
+      var d = +q.sec.split(".")[0];
+      totals[d] = (totals[d] || 0) + 1;
+    });
+    var per = {};
+    DOMAINS.forEach(function (d) { per[d.n] = { seen: 0, r: 0, m: 0 }; });
+    var drill = store.drill && typeof store.drill === "object" ? store.drill : {};
+    Object.keys(drill).forEach(function (k) {
+      var rec = drill[k], d = per[+k.split(".")[0]];
+      if (!d || !rec || typeof rec !== "object") return;
+      d.seen++; d.r += rec.r || 0; d.m += rec.m || 0;
+    });
+
+    var weakest = null;
+    var cells = DOMAINS.map(function (dom) {
+      var p = per[dom.n], n = p.r + p.m;
+      var seenTxt = totals[dom.n] ? p.seen + "/" + totals[dom.n] + " seen" : p.seen + " seen";
+      if (!n) {
+        return '<div class="wcell"><span class="wk">domain ' + dom.n + " · " + seenTxt +
+          '</span><span class="wv"><span class="u">no answers yet</span></span>' +
+          '<span class="wbar"><i class="dim" style="width:100%"></i></span></div>';
+      }
+      var pct = Math.round(p.r / n * 100);
+      if (n >= WEAK_MIN && (!weakest || pct < weakest.pct)) weakest = { dom: dom, pct: pct, n: n };
+      return '<div class="wcell"><span class="wk">domain ' + dom.n + " · " + seenTxt +
+        '</span><span class="wv wnum">' + pct + '<span class="u">% of ' + n + "</span></span>" +
+        '<span class="wbar"><i class="' + (pct >= 80 ? "green" : pct >= 60 ? "warn" : "bad") +
+        '" style="width:' + pct + '%"></i></span></div>';
+    });
+
+    var answered = DOMAINS.some(function (d) { return per[d.n].r + per[d.n].m > 0; });
+    var verdict;
+    if (!answered) {
+      verdict = 'No drill history in this browser yet. <a href="' + href("drill.html") +
+        '">Run a session</a> and this panel starts pointing at the domain to spend evenings on.';
+    } else if (!weakest) {
+      verdict = "Too few answers per domain to call a weak spot; " + WEAK_MIN +
+        " in one domain is the minimum. Keep drilling.";
+    } else {
+      verdict = "Weakest: <strong>domain " + weakest.dom.n + " · " + weakest.dom.name + "</strong> at " +
+        weakest.pct + "% over " + weakest.n + " answers, worth " +
+        (weakest.pct >= 80 ? "keeping warm" : "an evening") + ". " +
+        '<a href="' + href("drill.html") + '" data-drill-domain="' + weakest.dom.n + '">Drill domain ' +
+        weakest.dom.n + "</a>.";
+    }
+    host.innerHTML = cells.join("") +
+      '<div class="wcell wspan"><span class="wk">read it like this</span><span class="wv">' + verdict + "</span></div>";
+
+    var link = host.querySelector("[data-drill-domain]");
+    if (link) link.addEventListener("click", function () {
+      // the drill page picks this up once and pre-selects the domain chip
+      try { sessionStorage.setItem("cnpe:drill-domain", link.getAttribute("data-drill-domain")); } catch (e) {}
+    });
+  }
+
   /* ── index dashboard ─────────────────────────────────────── */
   function buildIndex() {
     var host = document.getElementById("domain-grid");
@@ -767,7 +834,7 @@
     var reset = document.getElementById("reset-progress");
     if (reset) reset.addEventListener("click", function () {
       if (confirm("Clear all section, exercise, exam and drill progress stored in this browser?")) {
-        store = { ex: {}, done: {}, exam: {}, drill: {}, drillmeta: {}, last: null }; save(); location.reload();
+        store = { ex: {}, done: {}, exam: {}, exam2: {}, drill: {}, drillmeta: {}, last: null }; save(); location.reload();
       }
     });
 
@@ -822,9 +889,12 @@
     if (examTimer) { clearInterval(examTimer); examTimer = null; }
     if (!body.hasAttribute("data-exam")) return;
     var TOTAL = 120 * 60;
-    var st = store.exam && typeof store.exam === "object" ? store.exam : {};
+    // Each exam page keeps its own clock and score under its own store key,
+    // so a run of paper 2 never disturbs paper 1's record.
+    var bucket = PAGE_ID === "EX2" ? "exam2" : "exam";
+    var st = store[bucket] && typeof store[bucket] === "object" ? store[bucket] : {};
     if (!st.tasks || typeof st.tasks !== "object") st.tasks = {};
-    store.exam = st;
+    store[bucket] = st;
     var clock = document.getElementById("clock");
     var scoreVal = document.getElementById("score-val");
     var startBtn = document.getElementById("t-start");
@@ -849,7 +919,7 @@
     if (startBtn) startBtn.addEventListener("click", function () {
       if (st.running) { st.spent = (st.spent || 0) + (Date.now() - st.startedAt) / 1000; st.running = false; }
       else { st.startedAt = Date.now(); st.running = true; }
-      store.exam = st; save(); paintClock();
+      store[bucket] = st; save(); paintClock();
     });
     if (resetBtn) resetBtn.addEventListener("click", function () {
       st.startedAt = 0; st.spent = 0; st.running = false; st.tasks = {};
@@ -866,8 +936,10 @@
     // and these listen on the document, so a per-boot registration would stack.
     if (!examLifecycleWired) {
       var stamp = function () {
-        var s = store.exam;
-        if (s && s.running) { s.spent = (s.spent || 0) + (Date.now() - s.startedAt) / 1000; s.startedAt = Date.now(); save(); }
+        ["exam", "exam2"].forEach(function (k) {
+          var s = store[k];
+          if (s && s.running) { s.spent = (s.spent || 0) + (Date.now() - s.startedAt) / 1000; s.startedAt = Date.now(); save(); }
+        });
       };
       document.addEventListener("visibilitychange", function () {
         if (document.visibilityState === "hidden") stamp();
@@ -968,6 +1040,7 @@
     buildPalette();
     buildHelp();
     buildIndex();
+    buildWeakSpots();
     buildExam();
     if (!wired) { keys(); wired = true; }
   }

@@ -4,6 +4,15 @@
 source "$(dirname "$0")/lib.sh"
 need kind; need kubectl; need helm; need docker
 
+# Having the docker CLI is not the same as being able to use it: the socket is
+# root:docker, and a system update can recreate the 'docker' group empty, silently
+# kicking you out of it. Catch that here with instructions instead of a raw
+# "permission denied on /var/run/docker.sock" from whichever command hits it first.
+docker info >/dev/null 2>&1 || die "cannot talk to the docker daemon.
+     If dockerd is running, you are probably not in the 'docker' group
+     (check: id -nG | grep -w docker). Fix, then log out and back in:
+       sudo usermod -aG docker \$USER      # or re-run: make host"
+
 # The apiserver is started with --audit-policy-file=/etc/kubernetes/audit/policy.yaml,
 # so the mounted directory must contain a file called exactly policy.yaml. Stage it
 # here rather than mounting the whole kind/ dir (whose file is named
@@ -132,6 +141,8 @@ if ! pgrep -f cloud-provider-kind >/dev/null 2>&1; then
     # no LoadBalancer ever gets an IP. We install Gateway API ourselves anyway.
     CPK="$(command -v cloud-provider-kind)"
     if sudo -n true 2>/dev/null; then
+      # shellcheck disable=SC2024  # the log belongs to the user, not root: the
+      # redirect running unprivileged is the point, /tmp/cnpe-lab is user-owned
       sudo -b nohup "$CPK" --gateway-channel=disabled > /tmp/cnpe-lab/cpk.log 2>&1
       sleep 2
       # Record the PID so 'make down' can stop exactly this process instead of

@@ -42,8 +42,8 @@ apply_one() {
   log "$desc: applying (backup: $BK/$file.yaml)"
   docker cp "$BK/work/$file.yaml" "$NODE:$src" >/dev/null || die "could not write $src"
 
-  local i ready
-  for i in $(seq 1 36); do
+  local ready
+  for _ in $(seq 1 36); do
     ready=$(kubectl --context "kind-$CLUSTER" -n kube-system get pod "$pod" \
       -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null)
     [ "$ready" = "true" ] && break

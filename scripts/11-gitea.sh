@@ -20,7 +20,7 @@ if [ "$(docker inspect -f '{{.State.Running}}' gitea 2>/dev/null || true)" != "t
     gitea/gitea:latest >/dev/null
   log "Waiting for Gitea to come up"
   up=no
-  for i in $(seq 1 60); do
+  for _ in $(seq 1 60); do
     curl -fsS "http://localhost:${GITEA_PORT}/api/healthz" >/dev/null 2>&1 && { up=yes; break; }
     sleep 2
   done
@@ -139,7 +139,7 @@ WORK=$(mktemp -d)
 git -c http.sslVerify=false clone -q \
   "http://${GITEA_USER}:${GITEA_PASS}@localhost:${GITEA_PORT}/${GITEA_USER}/platform.git" "$WORK/platform"
 cp -r "$REPO_ROOT/examples/." "$WORK/platform/"
-( cd "$WORK/platform"
+( cd "$WORK/platform" || exit 1
   git config user.email "lab@lab.local"; git config user.name "CNPE Lab"
   git add -A
   git diff --cached --quiet || { git commit -qm "seed lab manifests"; git push -q origin main; } )

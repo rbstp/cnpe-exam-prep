@@ -320,6 +320,13 @@
       mountEl.setAttribute("data-built", "1");
       host = mountEl;
       session = null;                       // navigating away abandoned any session
+      // The dashboard's weak-spots panel hands over a domain to pre-select,
+      // one navigation at a time.
+      try {
+        var pre = +sessionStorage.getItem("cnpe:drill-domain") || 0;
+        sessionStorage.removeItem("cnpe:drill-domain");
+        if (pre >= 1 && pre <= 5) domain = pre;
+      } catch (e) {}
       if (!window.CNPE_DRILL || !window.CNPE_PROGRESS) {
         host.innerHTML = '<div class="wnote bad">Drill data did not load; regenerate it with <code>python3 tools/extract-drill.py</code>.</div>';
         return;

@@ -31,6 +31,10 @@ the publish step, so `file://` and `make study` keep working exactly as before:
 * `CNAME` containing `cnpe.rbstp.dev` (override with `SITE_DOMAIN=`)
 * `404.html`: served for any missing path at any depth, so its links are **root-absolute** (`/assets/style.css`, `/`); that is exactly why it is generated here and not checked into the tree, where absolute paths would break `file://`
 
+The staged artifact is asserted by `curriculum/tools/check-site.sh` (required files,
+35 pages, self-contained bundle, `CNAME` content). The same script gates pull requests
+via `.github/workflows/ci.yml`, so the merge gate and the deploy gate cannot drift.
+
 Run the identical staging locally with `make site`, then:
 
 ```bash
@@ -43,7 +47,8 @@ Resulting URLs:
 |---|---|
 | `https://cnpe.rbstp.dev/` | `curriculum/index.html` (the dashboard) |
 | `https://cnpe.rbstp.dev/01-architecture/01-networking.html` | section 1.1 (five numbered domain dirs, numbered sections) |
-| `https://cnpe.rbstp.dev/mock-exam.html` | the timed mock exam |
+| `https://cnpe.rbstp.dev/mock-exam.html` | mock exam 1 (timed) |
+| `https://cnpe.rbstp.dev/mock-exam-2.html` | mock exam 2 (timed, scored separately) |
 | `https://cnpe.rbstp.dev/console.html` | single-file console: one URL to hand over, or save offline |
 
 GitHub Pages also resolves those section paths without the `.html`, but nothing here
@@ -197,7 +202,7 @@ echo | openssl s_client -connect cnpe.rbstp.dev:443 -servername cnpe.rbstp.dev 2
 curl -sSI https://cnpe.rbstp.dev/ >/dev/null && echo "cert verifies"
 
 # ── the pages ─────────────────────────────────────────────────────────
-for p in / /console.html /mock-exam.html \
+for p in / /console.html /mock-exam.html /mock-exam-2.html \
          /01-architecture/01-networking.html /05-security/06-pipeline-security.html \
          /assets/style.css /assets/fonts/plex-mono-400.woff2; do
   printf '%-52s %s\n' "$p" "$(curl -sS -o /dev/null -w '%{http_code}' "https://cnpe.rbstp.dev$p")"
