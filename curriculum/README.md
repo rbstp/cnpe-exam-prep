@@ -6,7 +6,7 @@ GitHub will not render it in place; clone the repo (or use raw + a local browser
 
 - `index.html`: the dashboard, with the map, competency coverage, study plan and exam-day tactics
 - `mock-exam.html`, `mock-exam-2.html`: two papers of 15 timed tasks each (no task shape shared, scored separately) with grading commands and a 120-minute clock
-- `drill.html`: every self-check question as flashcards, weighted toward what you miss; ten a day keeps a streak
+- `drill.html`: every self-check question as flashcards, weighted toward what you miss; ten a day is the drill's daily goal, and any study action (a card answered, an exercise verified, a section completed, a mock task scored) keeps the console-wide streak on the dashboard
 - `0*-…/*.html`: the 29 sections, each theory + exercises + self-check
 - `assets/`: one stylesheet, the section manifest (`nav.js`), the page runtime (`app.js`), the interactive figures (`widgets.js`), the theme switch (`theme.js`, loaded from `<head>`) and the typefaces
 - `assets/fonts/`: IBM Plex Sans, Sans Condensed and Mono (latin subsets), shipped so the console needs no network; SIL OFL 1.1, see `OFL.txt`
@@ -21,7 +21,7 @@ it should say; the lab's tool versions float, so details may drift from what you
 
 Press `/` in any page to jump to a section by name, tool or concept, `g` for a drill session,
 `t` to switch the theme (system, light or dark; system by default) and `?` for the shortcuts.
-Progress (exercises verified, sections completed, drill history) is stored in your browser's local storage.
+Progress (exercises verified, sections completed, drill history, the study streak) is stored in your browser's local storage.
 Thirteen interactive figures sit across twelve sections (QoS and eviction, node capacity, quota
 binding, right-sizing cost, the request path, the reconciliation loop, sync × health,
 canary weights, counters and `rate()`, alert timing, the admission pipeline, PSS profiles

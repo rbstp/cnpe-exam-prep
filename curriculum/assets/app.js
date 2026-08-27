@@ -15,21 +15,88 @@
     entry = NAV.filter(function (n) { return n.id === PAGE_ID; })[0] || null;
   }
 
+  /* ── study days: the console-wide streak ─────────────────────
+     Every positive action (a drill answer, an exercise verified, a section
+     completed, a mock exam task scored) bumps a per-day counter under
+     store.days["YYYY-MM-DD"], local date, the same key the drill uses.
+     Un-ticking is not an action and never decrements. The streak and best
+     are derived from the map at render time, never stored as counters, so
+     imported or merged history recomputes instead of fighting a total.
+     Defined above the store initializer: seedDays runs during it. */
+  var DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+  function dayKey(d) { return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
+  function shiftKey(k, by) {                     // k ± n days, in local time
+    var p = k.split("-");
+    return dayKey(new Date(+p[0], +p[1] - 1, +p[2] + by));
+  }
+  function dayActs(rec) {
+    if (!rec || typeof rec !== "object") return 0;
+    return (+rec.c || 0) + (+rec.x || 0) + (+rec.s || 0) + (+rec.e || 0);
+  }
+  function bumpDay(kind) {                       // kind: c cards, x exercises, s sections, e exam tasks
+    if (!store.days || typeof store.days !== "object" || Array.isArray(store.days)) store.days = {};
+    var k = dayKey(new Date());
+    var d = store.days[k];
+    if (!d || typeof d !== "object" || Array.isArray(d)) d = store.days[k] = {};
+    d[kind] = (+d[kind] || 0) + 1;
+  }
+  // The streak used to live in drillmeta as a running counter. An alive legacy
+  // streak of N ending on `earned` backfills the N days ending there, so nobody's
+  // streak resets the day this ships; a dead one only carries its best forward.
+  function seedDays(s) {
+    var dm = s.drillmeta;
+    if (!dm || typeof dm !== "object" || Array.isArray(dm)) return;
+    var n = Math.min(+dm.streak || 0, 3660);     // tolerate a junk counter
+    var end = dm.earned;
+    if (n < 1 || typeof end !== "string" || !DAY_RE.test(end)) return;
+    var t = dayKey(new Date());
+    if (end !== t && end !== shiftKey(t, -1)) return;
+    for (var i = 0; i < n; i++) {
+      var k = shiftKey(end, -i);
+      var d = s.days[k];
+      if (!d || typeof d !== "object" || Array.isArray(d)) d = s.days[k] = {};
+      if (!dayActs(d)) d.c = 10;                 // the ten cards that earned that day
+    }
+  }
+  function studyStreak() {
+    var days = store.days && typeof store.days === "object" && !Array.isArray(store.days) ? store.days : {};
+    var q = {};
+    Object.keys(days).forEach(function (k) {
+      if (DAY_RE.test(k) && dayActs(days[k]) > 0) q[k] = 1;
+    });
+    var cur = dayKey(new Date());                // alive if today or yesterday qualifies
+    if (!q[cur]) cur = shiftKey(cur, -1);
+    var streak = 0;
+    while (q[cur]) { streak++; cur = shiftKey(cur, -1); }
+    var best = 0, run = 0, prev = null;
+    Object.keys(q).sort().forEach(function (k) {
+      run = prev && shiftKey(prev, 1) === k ? run + 1 : 1;
+      prev = k;
+      if (run > best) best = run;
+    });
+    var dm = store.drillmeta && typeof store.drillmeta === "object" ? store.drillmeta : {};
+    return { streak: streak, best: Math.max(best, +dm.best || 0) };
+  }
+
   /* ── storage ─────────────────────────────────────────────── */
   var store = (function () {
     var s = { ex: {}, done: {}, exam: {}, last: null };
     try { var raw = localStorage.getItem(KEY); if (raw) s = Object.assign(s, JSON.parse(raw)); } catch (e) {}
-    ["ex", "done", "exam", "exam2", "drill", "drillmeta"].forEach(function (k) {
+    var hadDays = s.days && typeof s.days === "object" && !Array.isArray(s.days);
+    ["ex", "done", "exam", "exam2", "drill", "drillmeta", "days"].forEach(function (k) {
       if (!s[k] || typeof s[k] !== "object") s[k] = {};       // tolerate anything that is not a map
     });
     if (typeof s.last !== "string") s.last = null;
+    if (!hadDays) seedDays(s);   // one-time migration from the drill-only streak
     return s;
   })();
   function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} }
   // The one deliberate seam: drill.js keeps its records in this same store so
   // export/import and reset cover them. Functions, not the object, because
-  // "Reset progress" replaces the object.
-  window.CNPE_PROGRESS = { get: function () { return store; }, save: save };
+  // "Reset progress" replaces the object. bump feeds the study streak from the
+  // drill's answer path; streak is the derived console-wide reading.
+  window.CNPE_PROGRESS = { get: function () { return store; }, save: save, bump: bumpDay, streak: studyStreak };
 
   /* ── progress transfer ───────────────────────────────────────
      localStorage is per-origin, so a file:// copy and a hosted copy keep
@@ -55,7 +122,7 @@
      anything. Reset progress first if you want a plain restore. The mock exam's
      clock is deliberately left alone; only its scored tasks merge. */
   function mergeProgress(src) {
-    var n = { done: 0, ex: 0, exam: 0, drill: 0 };
+    var n = { done: 0, ex: 0, exam: 0, drill: 0, days: 0 };
     function union(into, from, bucket) {
       if (!from || typeof from !== "object" || Array.isArray(from)) return;
       Object.keys(from).forEach(function (k) {
@@ -89,6 +156,25 @@
       if ((src.drillmeta.t || 0) > (store.drillmeta.t || 0)) store.drillmeta = src.drillmeta;
       if (best) store.drillmeta.best = best;
     }
+    // Study days are counters too: union of days, per-counter max, so a merge
+    // can add history but never lower a count.
+    if (src.days && typeof src.days === "object" && !Array.isArray(src.days)) {
+      if (!store.days || typeof store.days !== "object" || Array.isArray(store.days)) store.days = {};
+      Object.keys(src.days).forEach(function (k) {
+        if (!DAY_RE.test(k)) return;
+        var inc = src.days[k];
+        if (!inc || typeof inc !== "object" || Array.isArray(inc)) return;
+        var cur = store.days[k];
+        if (!cur || typeof cur !== "object" || Array.isArray(cur)) cur = store.days[k] = {};
+        var grew = false;
+        ["c", "x", "s", "e"].forEach(function (f) {
+          var v = +inc[f] || 0;
+          if (v > (+cur[f] || 0)) { cur[f] = v; grew = true; }
+        });
+        if (grew) n.days++;
+      });
+    }
+    seedDays(store);   // an alive legacy streak in an imported drillmeta backfills too
     if (typeof src.last === "string" && NAV.filter(function (x) { return x.id === src.last; }).length) {
       store.last = src.last;
     }
@@ -103,12 +189,12 @@
     if (!src || typeof src !== "object" || Array.isArray(src)) {
       return "That file does not look like exported CNPE progress.";
     }
-    if (!src.done && !src.ex && !src.exam && !src.exam2 && !src.drill) {
+    if (!src.done && !src.ex && !src.exam && !src.exam2 && !src.drill && !src.days) {
       return "That file has no CNPE progress in it.";
     }
     var n = mergeProgress(src);
     save();                                  // mergeProgress may have moved store.last on its own
-    if (!n.done && !n.ex && !n.exam && !n.drill) return "Nothing new in that file; this browser is already up to date.";
+    if (!n.done && !n.ex && !n.exam && !n.drill && !n.days) return "Nothing new in that file; this browser is already up to date.";
     return { added: n };
   }
 
@@ -447,7 +533,9 @@
       }
       mark.addEventListener("click", function (e) {
         e.stopPropagation();
-        store.ex[k] = store.ex[k] ? 0 : 1; save(); paint(); refreshExTile();
+        store.ex[k] = store.ex[k] ? 0 : 1;
+        if (store.ex[k]) bumpDay("x");   // verifying counts as study; un-ticking is not an action
+        save(); paint(); refreshExTile();
       });
       disc.addEventListener("click", function () { ex.classList.toggle("collapsed"); paint(); });
 
@@ -519,7 +607,9 @@
       var b = el("button", "tbtn" + (done ? " on" : ""), done ? "✓ Section complete" : "Mark section complete");
       b.type = "button";
       b.addEventListener("click", function () {
-        store.done[entry.id] = store.done[entry.id] ? 0 : 1; save();
+        store.done[entry.id] = store.done[entry.id] ? 0 : 1;
+        if (store.done[entry.id]) bumpDay("s");
+        save();
         b.className = "tbtn" + (store.done[entry.id] ? " on" : "");
         b.textContent = store.done[entry.id] ? "✓ Section complete" : "Mark section complete";
         var ov = overall();
@@ -788,16 +878,27 @@
     var host = document.getElementById("domain-grid");
     if (!host) return;
     var ov = overall();
+    var sk = studyStreak();
     var totalEx = Object.keys(store.ex).length, doneEx = Object.keys(store.ex).filter(function (k) { return store.ex[k]; }).length;
     var stats = document.querySelector(".stats");
     if (stats) {
+      // The last eight weeks, one cell per day, column-major so today lands
+      // bottom right. Anything that bumped the day's counters lights it.
+      var cells = "", now = new Date();
+      for (var i = 55; i >= 0; i--) {
+        var dk = dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i));
+        var acts = dayActs(store.days[dk]);
+        cells += '<i class="' + (acts ? "on" : "") + '" title="' + dk + (acts ? " · " + acts : "") + '"></i>';
+      }
       stats.innerHTML =
         '<div class="stat g"><div class="lbl">Sections complete</div><div class="val">' + ov.done +
           '<span class="u">/ ' + ov.total + '</span></div><div class="spark"><i style="width:' + ov.pct + '%"></i></div></div>' +
         tile("c", "Exercises verified", doneEx + (totalEx ? '<span class="u">/ ' + totalEx + " seen</span>" : ""), false) +
+        '<div class="stat g" id="stat-streak"><div class="lbl">Study streak</div><div class="val">' + sk.streak +
+          '<span class="u">' + (sk.streak === 1 ? "day" : "days") + (sk.best ? " · best " + sk.best : "") + '</span></div>' +
+          '<div class="heat" role="img" aria-label="Study activity over the last 8 weeks, newest day bottom right">' + cells + "</div></div>" +
         tile("p", "Exam length", '120<span class="u">min</span>', false) +
-        tile("y", "Tasks on the day", '15–20<span class="u">≈7 min each</span>', false) +
-        tile("o", "Domains", "5", false);
+        tile("y", "Tasks on the day", '15–20<span class="u">≈7 min each</span>', false);
     }
     host.innerHTML = DOMAINS.map(function (d) {
       var secs = NAV.filter(function (n) { return n.d === d.n; });
@@ -823,18 +924,15 @@
         html += '<a class="tbtn" style="text-decoration:none" href="' + href(target.path) + '">▶ ' +
           (last ? "Resume " : "Start ") + target.id + " · " + target.title + "</a> ";
       }
-      // the drill entry point, carrying its streak while the streak is alive
-      var dm = store.drillmeta || {};
-      var dk = function (d) { return d.getFullYear() + "-" + (d.getMonth() + 101 + "").slice(1) + "-" + (d.getDate() + 100 + "").slice(1); };
-      var alive = (dm.streak || 0) > 0 && (dm.earned === dk(new Date()) || dm.earned === dk(new Date(Date.now() - 864e5)));
+      // the drill entry point, carrying the console-wide streak while it is alive
       html += '<a class="tbtn ghost" style="text-decoration:none" href="' + href("drill.html") + '">Drill 10' +
-        (alive ? " · " + dm.streak + "-day streak" : "") + "</a>";
+        (sk.streak ? " · " + sk.streak + "-day streak" : "") + "</a>";
       resume.innerHTML = html;
     }
     var reset = document.getElementById("reset-progress");
     if (reset) reset.addEventListener("click", function () {
-      if (confirm("Clear all section, exercise, exam and drill progress stored in this browser?")) {
-        store = { ex: {}, done: {}, exam: {}, exam2: {}, drill: {}, drillmeta: {}, last: null }; save(); location.reload();
+      if (confirm("Clear all section, exercise, exam, drill and streak progress stored in this browser?")) {
+        store = { ex: {}, done: {}, exam: {}, exam2: {}, drill: {}, drillmeta: {}, days: {}, last: null }; save(); location.reload();
       }
     });
 
@@ -872,7 +970,7 @@
           if (typeof res === "string") { say(res); return; }
           var a = res.added;
           alert("Imported: " + a.done + " section(s), " + a.ex + " exercise(s), " + a.exam +
-                " exam task(s), " + a.drill + " drill record(s).\nNothing already ticked here was changed.");
+                " exam task(s), " + a.drill + " drill record(s), " + a.days + " study day(s).\nNothing already ticked here was changed.");
           location.reload();
         };
         fr.onerror = function () { input.remove(); say("Could not read that file."); };
@@ -979,7 +1077,9 @@
       }
       dot.addEventListener("click", function (e) {
         e.stopPropagation();
-        st.tasks[i] = st.tasks[i] ? 0 : 1; save(); paintTask(); paintScore();
+        st.tasks[i] = st.tasks[i] ? 0 : 1;
+        if (st.tasks[i]) bumpDay("e");
+        save(); paintTask(); paintScore();
       });
       disc.addEventListener("click", function () {
         var hidden = b.style.display === "none";

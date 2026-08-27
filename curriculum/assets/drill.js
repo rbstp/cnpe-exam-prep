@@ -12,7 +12,7 @@
   "use strict";
 
   var FRESH_MS = 20 * 3600 * 1000;   // a correct answer rests a card this long
-  var GOAL = 10;                     // cards per day that keep the streak
+  var GOAL = 10;                     // cards per day that fill the drill's daily goal
 
   var session = null;                // { deck, i, right[], missed[], revealed }
   var size = 10, domain = 0;         // deck size · 0 = every domain
@@ -49,8 +49,10 @@
     if (!s.drillmeta || typeof s.drillmeta !== "object") s.drillmeta = {};
     return s.drillmeta;
   }
-  function streakAlive(m) {
-    return (m.streak || 0) > 0 && (m.earned === today() || m.earned === yesterday());
+  // The streak itself is console-wide and derived by app.js from the days map;
+  // drillmeta keeps only the drill's own day counter and daily-goal marker.
+  function streak() {
+    return api().streak ? api().streak() : { streak: 0, best: 0 };
   }
 
   /* ── the deck ────────────────────────────────────────────── */
@@ -95,12 +97,15 @@
     var m = meta();
     if (m.day !== today()) { m.day = today(); m.n = 0; }
     m.n++;
-    if (m.n === GOAL && m.earned !== today()) {           // today earns the streak
+    if (m.n === GOAL && m.earned !== today()) {           // today earns the daily goal
+      // the legacy counter stays maintained so an export read by an older
+      // console still shows a sane streak
       m.streak = m.earned === yesterday() ? (m.streak || 0) + 1 : 1;
       m.earned = today();
       m.best = Math.max(m.best || 0, m.streak);
     }
     m.t = Date.now();
+    if (api().bump) api().bump("c");                      // every answer counts toward the study streak
     save();
   }
 
@@ -110,7 +115,7 @@
     if (span) span.textContent = text;
   }
   function paintTiles() {
-    var all = bank(), r = recs(), m = meta();
+    var all = bank(), r = recs();
     var seen = 0, right = 0, wrong = 0;
     Object.keys(r).forEach(function (k) {
       seen++; right += r[k].r || 0; wrong += r[k].m || 0;
@@ -122,9 +127,9 @@
     set("drill-bank", all.length + '<span class="u">questions</span>');
     set("drill-seen", seen + '<span class="u">/ ' + all.length + "</span>");
     set("drill-acc", right + wrong ? Math.round(right / (right + wrong) * 100) + '<span class="u">%</span>' : '<span class="u">no answers yet</span>');
-    var alive = streakAlive(m);
-    set("drill-streak", (alive ? m.streak : 0) +
-      '<span class="u">' + ((alive ? m.streak : 0) === 1 ? "day" : "days") + "</span>");
+    var sk = streak();
+    set("drill-streak", sk.streak +
+      '<span class="u">' + (sk.streak === 1 ? "day" : "days") + (sk.best ? " · best " + sk.best : "") + "</span>");
   }
 
   function chipRow(label, values, current, onPick) {
@@ -244,9 +249,11 @@
     metaLine("session done");
 
     var pct = Math.round(right.length / (right.length + missed.length) * 100);
-    var streakLine = m.earned === today()
-      ? (streakAlive(m) ? m.streak + (m.streak === 1 ? " day" : " days") + ", earned today" : "earned today")
-      : (GOAL - todayN) + " more today keeps the streak";
+    var sk = streak();   // any answer today keeps the console-wide streak alive
+    var streakLine = sk.streak + (sk.streak === 1 ? " day" : " days") +
+      (m.earned === today()
+        ? " · today's " + GOAL + " are in"
+        : " · " + Math.max(1, GOAL - todayN) + " more for today's " + GOAL);
     var grid = el("div", "wgrid");
     grid.innerHTML =
       '<div class="wcell"><span class="wk">got it</span><span class="wv wnum">' + right.length + "</span></div>" +
