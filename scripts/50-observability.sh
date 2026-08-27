@@ -95,12 +95,12 @@ YAML
 # helmi's --wait above covers the operator Deployment, not its webhook: the
 # serving cert and endpoint lag pod-Ready by a few seconds, and the first CR
 # apply can land in that gap ("connection refused" from the mutating webhook).
-applied=no
+applied=no err=
 for _ in $(seq 1 24); do
-  kubectl -n tracing apply -f /tmp/cnpe-lab/otel-collector.yaml 2>/dev/null && { applied=yes; break; }
+  err=$(kubectl -n tracing apply -f /tmp/cnpe-lab/otel-collector.yaml 2>&1) && { applied=yes; break; }
   sleep 5
 done
-[ "$applied" = yes ] || die "OpenTelemetryCollector apply kept failing; operator webhook not serving after 120s"
+[ "$applied" = yes ] || die "OpenTelemetryCollector apply kept failing for 120s; last error: $err"
 
 log "Auto-instrumentation resource (zero-code tracing: annotate a pod to use it)"
 kubectl apply -f - <<'YAML'

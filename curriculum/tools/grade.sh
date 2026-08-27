@@ -30,9 +30,15 @@ print(html.unescape(m.group(1)))
 PY
 )" || exit 1
 
+# A real file, not a here-string: a grading line reading stdin (kubectl apply
+# -f -) must not be able to swallow the rest of the block.
+TMP="$(mktemp)"
+trap 'rm -f "$TMP"' EXIT
+printf '%s\n' "$BLOCK" > "$TMP"
+
 echo "── grading block from ${PAGE##*/}: each line prints what earns the points"
-bash -v <<<"$BLOCK"
+bash -v "$TMP"
 echo "── done: compare every output against its trailing # comment"
 pkill -f 'port-forward svc/prometheus-kube-prometheus-prometheus 19090' 2>/dev/null
-pkill -f 'port-forward svc/prometheus-kube-prometheus-alertmanager 9093' 2>/dev/null
+pkill -f 'port-forward svc/prometheus-kube-prometheus-alertmanager 19093' 2>/dev/null
 exit 0

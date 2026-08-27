@@ -185,6 +185,7 @@ make portal          Scaffold Backstage on the host
 make core            Minimum useful lab (~4 GB)
 make full            Everything on the main cluster (~14 GB)
 make validate        Functionally verify every layer (FAST=1 to skip probes)
+make grade           Run a mock exam's grading block from its page (EXAM=1|2)
 make study           Open the CNPE study console (curriculum) in a browser
 make site            Stage the study console exactly as Pages publishes it, into ./_site
 make fix-cp-metrics  Expose control-plane metrics on an existing cluster
