@@ -1133,7 +1133,6 @@
     Array.prototype.forEach.call(document.querySelectorAll(".topbar, .overlay"), function (n) { n.remove(); });
     buildTopbar();
     buildHead();
-    buildCodeBlocks();
     buildExercises();
     if (window.CNPE_WIDGETS) window.CNPE_WIDGETS.mount();
     if (window.CNPE_DRILL_UI) window.CNPE_DRILL_UI.mount();
@@ -1144,6 +1143,10 @@
     buildIndex();
     buildWeakSpots();
     buildExam();
+    // Last, after every innerHTML rebuild above: buildExercises and buildExam
+    // re-serialize their panels, which would strip the copy buttons' listeners
+    // while data-built keeps them from ever being wired again.
+    buildCodeBlocks();
     if (!wired) { keys(); wired = true; }
   }
   window.CNPE_BOOT = boot;
