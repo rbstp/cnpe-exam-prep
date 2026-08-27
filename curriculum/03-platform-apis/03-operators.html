@@ -63,7 +63,102 @@
       <div class="cb" data-lang="bash"><pre><code>kubectl get &lt;kind&gt; &lt;name&gt; -o jsonpath='{.status.conditions}' | jq
 kubectl get events --field-selector involvedObject.name=&lt;name&gt; --sort-by=.lastTimestamp
 kubectl get all,pvc,secret -l &lt;the operator's label&gt; -n &lt;ns&gt;
-kubectl -n &lt;operator-ns&gt; logs deploy/&lt;controller&gt; --tail=100</code></pre></div>
+kubectl -n &lt;operator-ns&gt; logs deploy/&lt;controller&gt; --tail=100</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl get cluster pg -o jsonpath='{.status.conditions}' | jq</b>
+[
+  {
+    "lastTransitionTime": "2026-08-27T02:02:29Z",
+    "message": "Cluster has been bootstrapped",
+    "reason": "BootstrapCompleted",
+    "status": "True",
+    "type": "Initialized"
+  },
+  {
+    "lastTransitionTime": "2026-08-27T02:03:45Z",
+    "message": "A single, unique system ID was found across reporting instances.",
+    "reason": "Unique",
+    "status": "True",
+    "type": "ConsistentSystemID"
+  },
+  {
+    "lastTransitionTime": "2026-08-27T02:04:50Z",
+    "message": "Cluster is Ready",
+    "reason": "ClusterIsReady",
+    "status": "True",
+    "type": "Ready"
+  },
+  {
+    "lastTransitionTime": "2026-08-27T02:03:44Z",
+    "message": "Continuous archiving is working",
+    "reason": "ContinuousArchivingSuccess",
+    "status": "True",
+    "type": "ContinuousArchiving"
+  }
+]
+<b>$ kubectl get events --field-selector involvedObject.name=pg --sort-by=.lastTimestamp</b>
+LAST SEEN   TYPE     REASON                        OBJECT       MESSAGE
+3m59s       Normal   CreatingPodDisruptionBudget   cluster/pg   Creating PodDisruptionBudget pg-primary
+3m59s       Normal   CreatingServiceAccount        cluster/pg   Creating ServiceAccount
+3m59s       Normal   CreatingRole                  cluster/pg   Creating Cluster Role
+3m58s       Normal   CreatingInstance              cluster/pg   Primary instance (initdb)
+2m36s       Normal   CreatingInstance              cluster/pg   Creating instance pg-2
+<b>$ kubectl get all,pvc,secret -l cnpg.io/cluster=pg -n default</b>
+NAME       READY   STATUS    RESTARTS   AGE
+pod/pg-1   1/1     Running   0          2m49s
+pod/pg-2   1/1     Running   0          108s
+
+NAME            TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)    AGE
+service/pg-r    ClusterIP   10.96.28.97     &lt;none&gt;        5432/TCP   4m
+service/pg-ro   ClusterIP   10.96.161.206   &lt;none&gt;        5432/TCP   4m
+service/pg-rw   ClusterIP   10.96.181.56    &lt;none&gt;        5432/TCP   3m59s
+
+NAME                         STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+persistentvolumeclaim/pg-1   Bound    pvc-b4511fca-9bf3-4cbf-bc9d-d56906094336   1Gi        RWO            standard       &lt;unset&gt;                 3m59s
+persistentvolumeclaim/pg-2   Bound    pvc-fae7c17c-a4a7-45d5-b239-2662652ed787   1Gi        RWO            standard       &lt;unset&gt;                 2m37s
+
+NAME            TYPE                       DATA   AGE
+secret/pg-app   kubernetes.io/basic-auth   11     4m1s
+<b>$ kubectl -n cnpg-system logs deploy/cnpg-cloudnative-pg --tail=100</b>
+{"level":"info","ts":"2026-08-27T01:52:15.835497336Z","msg":"Starting EventSource","controller":"pooler","controllerGroup":"postgresql.cnpg.io","controllerKind":"Pooler","source":"kind source: *v1.Role"}
+{"level":"info","ts":"2026-08-27T01:52:15.835502695Z","msg":"Starting EventSource","controller":"cluster","controllerGroup":"postgresql.cnpg.io","controllerKind":"Cluster","source":"kind source: *v1.DatabaseRole"}
+{"level":"info","ts":"2026-08-27T01:52:15.83547942Z","msg":"Starting EventSource","controller":"pooler","controllerGroup":"postgresql.cnpg.io","controllerKind":"Pooler","source":"kind source: *v1.ServiceAccount"}
+{"level":"info","ts":"2026-08-27T01:52:15.835506197Z","msg":"Starting EventSource","controller":"plugin","controllerGroup":"","controllerKind":"Service","source":"kind source: *v1.Service"}
+{"level":"info","ts":"2026-08-27T01:52:15.835487001Z","msg":"Starting EventSource","controller":"plugin","controllerGroup":"","controllerKind":"Service","source":"kind source: *v1.Secret"}
+{"level":"info","ts":"2026-08-27T01:52:15.835507298Z","msg":"Starting EventSource","controller":"pooler","controllerGroup":"postgresql.cnpg.io","controllerKind":"Pooler","source":"kind source: *v1.ImageCatalog"}
+{"level":"info","ts":"2026-08-27T01:52:15.935948428Z","msg":"Starting Controller","controller":"backup","controllerGroup":"postgresql.cnpg.io","controllerKind":"Backup"}
+{"level":"info","ts":"2026-08-27T01:52:15.935986228Z","msg":"Starting workers","controller":"backup","controllerGroup":"postgresql.cnpg.io","controllerKind":"Backup","worker count":1}
+{"level":"info","ts":"2026-08-27T01:52:16.036525115Z","msg":"Starting Controller","controller":"scheduled-backup","controllerGroup":"postgresql.cnpg.io","controllerKind":"ScheduledBackup"}
+{"level":"info","ts":"2026-08-27T01:52:16.036555833Z","msg":"Starting workers","controller":"scheduled-backup","controllerGroup":"postgresql.cnpg.io","controllerKind":"ScheduledBackup","worker count":10}
+{"level":"info","ts":"2026-08-27T01:52:16.037638856Z","msg":"Starting Controller","controller":"plugin","controllerGroup":"","controllerKind":"Service"}
+{"level":"info","ts":"2026-08-27T01:52:16.037687808Z","msg":"Starting workers","controller":"plugin","controllerGroup":"","controllerKind":"Service","worker count":10}
+{"level":"info","ts":"2026-08-27T01:52:16.037735706Z","msg":"Starting Controller","controller":"cluster","controllerGroup":"postgresql.cnpg.io","controllerKind":"Cluster"}
+{"level":"info","ts":"2026-08-27T01:52:16.037731587Z","msg":"Starting Controller","controller":"pooler","controllerGroup":"postgresql.cnpg.io","controllerKind":"Pooler"}
+{"level":"info","ts":"2026-08-27T01:52:16.037745707Z","msg":"Starting workers","controller":"cluster","controllerGroup":"postgresql.cnpg.io","controllerKind":"Cluster","worker count":10}
+{"level":"info","ts":"2026-08-27T01:52:16.03775078Z","msg":"Starting workers","controller":"pooler","controllerGroup":"postgresql.cnpg.io","controllerKind":"Pooler","worker count":10}
+{"level":"info","ts":"2026-08-27T01:52:16.037728098Z","msg":"Starting Controller","controller":"database-role","controllerGroup":"postgresql.cnpg.io","controllerKind":"DatabaseRole"}
+{"level":"info","ts":"2026-08-27T01:52:16.037778053Z","msg":"Starting workers","controller":"database-role","controllerGroup":"postgresql.cnpg.io","controllerKind":"DatabaseRole","worker count":10}
+{"level":"info","ts":"2026-08-27T02:02:26.19113155Z","logger":"cluster-resource","msg":"Defaulting for Cluster","version":"v1","name":"pg","namespace":"default"}
+{"level":"info","ts":"2026-08-27T02:02:26.22083863Z","logger":"cluster-resource","msg":"Defaulting for Cluster","version":"v1","name":"pg","namespace":"default"}
+{"level":"info","ts":"2026-08-27T02:02:26.32053831Z","logger":"cluster-resource","msg":"Defaulting for Cluster","version":"v1","name":"pg","namespace":"default"}
+{"level":"info","ts":"2026-08-27T02:02:26.460210545Z","msg":"no orphan PVCs found, skipping the restored cluster reconciliation","controller":"cluster","controllerGroup":"postgresql.cnpg.io","controllerKind":"Cluster","Cluster":{"name":"pg","namespace":"default"},"namespace":"default","name":"pg","reconcileID":"7652038d-f270-4d4c-9a41-d2fbd1ab01f4"}
+{"level":"info","ts":"2026-08-27T02:02:26.716626012Z","msg":"creating service","controller":"cluster","controllerGroup":"postgresql.cnpg.io","controllerKind":"Cluster","Cluster":{"name":"pg","namespace":"default"},"namespace":"default","name":"pg","reconcileID":"7652038d-f270-4d4c-9a41-d2fbd1ab01f4","serviceName":"pg-r","updateStrategy":"patch"}
+{"level":"info","ts":"2026-08-27T02:02:26.949154863Z","msg":"creating service","controller":"cluster","controllerGroup":"postgresql.cnpg.io","controllerKind":"Cluster","Cluster":{"name":"pg","namespace":"default"},"namespace":"default","name":"pg","reconcileID":"7652038d-f270-4d4c-9a41-d2fbd1ab01f4","serviceName":"pg-ro","updateStrategy":"patch"}
+{"level":"info","ts":"2026-08-27T02:02:27.089001205Z","msg":"creating service","controller":"cluster","controllerGroup":"postgresql.cnpg.io","controllerKind":"Cluster","Cluster":{"name":"pg","namespace":"default"},"namespace":"default","name":"pg","reconcileID":"7652038d-f270-4d4c-9a41-d2fbd1ab01f4","serviceName":"pg-rw","updateStrategy":"patch"}
+{"level":"info","ts":"2026-08-27T02:02:27.970787374Z","msg":"Created primary lease","controller":"cluster","controllerGroup":"postgresql.cnpg.io","controllerKind":"Cluster","Cluster":{"name":"pg","namespace":"default"},"namespace":"default","name":"pg","reconcileID":"7652038d-f270-4d4c-9a41-d2fbd1ab01f4","leaseName":"pg"}
+{"level":"info","ts":"2026-08-27T02:02:28.411769916Z","msg":"Creating new Job","controller":"cluster","controllerGroup":"postgresql.cnpg.io","controllerKind":"Cluster","Cluster":{"name":"pg","namespace":"default"},"namespace":"default","name":"pg","reconcileID":"7652038d-f270-4d4c-9a41-d2fbd1ab01f4","jobName":"pg-1-initdb","primary":true}
+{"level":"info","ts":"2026-08-27T02:02:28.578577487Z","logger":"cluster-resource","msg":"Defaulting for Cluster","version":"v1","name":"pg","namespace":"default"}
+{"level":"info","ts":"2026-08-27T02:02:28.64742958Z","msg":"skipping pvc because it has owner metadata","controller":"cluster","controllerGroup":"postgresql.cnpg.io","controllerKind":"Cluster","Cluster":{"name":"pg","namespace":"default"},"namespace":"default","name":"pg","reconcileID":"175abb6a-f53f-48c2-9d02-5df1736425de","step":"get_orphan_pvcs","pvcName":"pg-1"}
+{"level":"info","ts":"2026-08-27T02:02:28.647440816Z","msg":"no orphan PVCs found, skipping the restored cluster reconciliation","controller":"cluster","controllerGroup":"postgresql.cnpg.io","controllerKind":"Cluster","Cluster":{"name":"pg","namespace":"default"},"namespace":"default","name":"pg","reconcileID":"175abb6a-f53f-48c2-9d02-5df1736425de"}
+{"level":"info","ts":"2026-08-27T02:02:29.251311342Z","logger":"cluster-resource","msg":"Defaulting for Cluster","version":"v1","name":"pg","namespace":"default"}
+{"level":"info","ts":"2026-08-27T02:02:35.275772086Z","logger":"cluster-resource","msg":"Defaulting for Cluster","version":"v1","name":"pg","namespace":"default"}
+{"level":"info","ts":"2026-08-27T02:02:41.089429634Z","logger":"cluster-resource","msg":"Defaulting for Cluster","version":"v1","name":"pg","namespace":"default"}
+{"level":"info","ts":"2026-08-27T02:02:43.811342944Z","logger":"cluster-resource","msg":"Defaulting for Cluster","version":"v1","name":"pg","namespace":"default"}
+{"level":"info","ts":"2026-08-27T02:02:44.368388244Z","logger":"cluster-resource","msg":"Defaulting for Cluster","version":"v1","name":"pg","namespace":"default"}
+{"level":"info","ts":"2026-08-27T02:02:49.675245765Z","logger":"cluster-resource","msg":"Defaulting for Cluster","version":"v1","name":"pg","namespace":"default"}
+{"level":"info","ts":"2026-08-27T02:02:55.257182935Z","logger":"cluster-resource","msg":"Defaulting for Cluster","version":"v1","name":"pg","namespace":"default"}
+{"level":"info","ts":"2026-08-27T02:03:00.993060187Z","logger":"cluster-resource","msg":"Defaulting for Cluster","version":"v1","name":"pg","namespace":"default"}
+{"level":"info","ts":"2026-08-27T02:03:06.998428892Z","logger":"cluster-resource","msg":"Defaulting for Cluster","version":"v1","name":"pg","namespace":"default"}
+{"level":"info","ts":"2026-08-27T02:03:12.204012127Z","logger":"cluster-resource","msg":"Defaulting for Cluster","version":"v1","name":"pg","namespace":"default"}
+<i>… (rest of the tail omitted)</i></code></pre></details></div>
       <p>In that order. Conditions tell you the phase, events tell you the attempts, owned objects tell you what exists, logs tell you why the controller gave up. Jumping to logs first is the most common time sink in this domain.</p>
     </div>
   </div>
@@ -100,7 +195,43 @@ spec:
   instances: 2
   storage: { size: 1Gi }
 EOF
-kubectl get cluster pg -w</code></pre></div>
+kubectl get cluster pg -w</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: postgresql.cnpg.io/v1</b>
+<b>kind: Cluster</b>
+<b>metadata: { name: pg, namespace: default }</b>
+<b>spec:</b>
+<b>  instances: 2</b>
+<b>  storage: { size: 1Gi }</b>
+<b>EOF</b>
+cluster.postgresql.cnpg.io/pg created
+<b>$ kubectl get cluster pg -w</b>
+NAME   AGE   INSTANCES   READY   STATUS   PRIMARY
+pg     0s                                 
+pg     2s                                 
+pg     2s                                 
+pg     2s                                 
+pg     2s                        Setting up primary   
+pg     3s    1                   Setting up primary   
+pg     71s   1                   Setting up primary   
+pg     72s   1                   Setting up primary   
+pg     72s   1                   Waiting for the instances to become active   
+pg     77s   1                   Waiting for the instances to become active   
+pg     78s   1                   Waiting for the instances to become active   pg-1
+pg     78s   1                   Waiting for the instances to become active   pg-1
+pg     79s   1                   Waiting for the instances to become active   pg-1
+pg     84s   1           1       Waiting for the instances to become active   pg-1
+pg     84s   1           1       Creating a new replica                       pg-1
+pg     85s   2           1       Creating a new replica                       pg-1
+pg     2m12s   2           1       Creating a new replica                       pg-1
+pg     2m13s   2           1       Creating a new replica                       pg-1
+pg     2m13s   2           1       Waiting for the instances to become active   pg-1
+pg     2m19s   2           1       Waiting for the instances to become active   pg-1
+pg     2m21s   2           1       Waiting for the instances to become active   pg-1
+pg     2m23s   2           1       Waiting for the instances to become active   pg-1
+pg     2m24s   2           2       Waiting for the instances to become active   pg-1
+pg     2m24s   2           2       Cluster in healthy state                     pg-1
+pg     2m25s   2           2       Cluster in healthy state                     pg-1
+<i>^C</i></code></pre></details></div>
       <p>While it converges, run the diagnosis commands: <code>kubectl get events --field-selector involvedObject.name=pg --sort-by=.lastTimestamp</code>, <code>kubectl get cluster pg -o jsonpath='{.status.conditions}' | jq</code>, and <code>kubectl get pods,pvc,svc -l cnpg.io/cluster=pg</code>.</p>
       <div class="verify"><b>verify:</b> Cluster reports Ready, two instance pods, each with its own PVC (section 1.3's semantics, live), and three Services (rw, ro, r). Name what created each object without guessing: ownerReferences.</div>
     </div>

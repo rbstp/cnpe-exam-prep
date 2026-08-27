@@ -13,6 +13,12 @@ GitHub will not render it in place; clone the repo (or use raw + a local browser
 - `tools/bundle.py`: bundles the whole console into one hash-routed HTML file (`python3 tools/bundle.py`, or `--fragment` for a host that supplies its own `<head>`), handy for sharing or reading it somewhere that takes a single document
 - `tools/extract-drill.py`: regenerates `assets/drill-data.js` from the section pages' self-check panels; run it after editing any self-check question (CI fails the deploy if the file is stale)
 
+Most command blocks carry a collapsed **output** drawer underneath: the real result of that
+command, so the sections read self-contained even away from a running cluster. Every command block
+in the curriculum was run, and its output captured, against a freshly built lab on
+**August 26, 2026** (the date each drawer carries). Expand a drawer only after predicting what
+it should say; the lab's tool versions float, so details may drift from what your lab prints.
+
 Press `/` in any page to jump to a section by name, tool or concept, `g` for a drill session,
 `t` to switch the theme (system, light or dark; system by default) and `?` for the shortcuts.
 Progress (exercises verified, sections completed, drill history) is stored in your browser's local storage.

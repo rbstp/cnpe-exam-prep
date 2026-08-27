@@ -86,7 +86,33 @@
     <h3>Diagnosing a failed workflow</h3>
     <div class="cb" data-lang="bash"><pre><code>kubectl get workflow &lt;name&gt; -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, phase, message}'
 kubectl get workflow &lt;name&gt; -o jsonpath='{.status.phase}{"\n"}'
-kubectl logs -l workflows.argoproj.io/workflow=&lt;name&gt; --all-containers --tail=50</code></pre></div>
+kubectl logs -l workflows.argoproj.io/workflow=&lt;name&gt; --all-containers --tail=50</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl get workflow provision-tenant-29926 -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, phase, message}'</b>
+{
+  "displayName": "provision-tenant-29926",
+  "phase": "Failed",
+  "message": null
+}
+{
+  "displayName": "namespace",
+  "phase": "Failed",
+  "message": "main: Error (exit code 64): no more retries Error from server (Forbidden): error when creating \"/tmp/manifest.yaml\": namespaces is forbidden: User \"system:serviceaccount:default:default\" cannot create resource \"namespaces\" in API group \"\" at the cluster scope"
+}
+<b>$ kubectl get workflow provision-tenant-29926 -o jsonpath='{.status.phase}{"\n"}'</b>
+Failed
+<b>$ kubectl logs -l workflows.argoproj.io/workflow=provision-tenant-29926 --all-containers --tail=50</b>
+time=2026-08-27T03:31:16.589Z level=INFO msg="Starting Workflow Executor" gitTag=v4.1.2 gitTreeState=clean goVersion=go1.26.5 argo=true version=v4.1.2 buildDate=2026-08-21T11:10:01Z gitCommit=16a52d67daf2f4a8a76fa8bec02a76a46aa46257
+time=2026-08-27T03:31:16.592Z level=INFO msg="Using executor retry strategy" argo=true Jitter=0.5 Steps=5 Duration=1s Factor=1.6
+time=2026-08-27T03:31:16.592Z level=INFO msg="Executor initialized" goVersion=go1.26.5 deadline=0001-01-01T00:00:00.000Z gitTag=v4.1.2 podName=provision-tenant-29926-make-ns-596359171 buildDate=2026-08-21T11:10:01Z gitTreeState=clean templateName=make-ns includeScriptOutput=false version=v4.1.2 namespace=default argo=true gitCommit=16a52d67daf2f4a8a76fa8bec02a76a46aa46257
+time=2026-08-27T03:31:16.718Z level=INFO msg="Loading manifest" argo=true path=/tmp/manifest.yaml
+time=2026-08-27T03:31:16.718Z level=INFO msg="Start loading input artifacts..." argo=true pluginName=""
+time="2026-08-27T03:31:16.718Z" level=info msg="Alloc=11003 TotalAlloc=16525 Sys=28866 NumGC=4 Goroutines=3"
+time=2026-08-27T03:31:18.326Z level=INFO msg="waiting for signals" argo=true signalPath=/var/run/argo/ctr/main/signal
+time=2026-08-27T03:31:18.368Z level=INFO msg="Starting Workflow Executor" gitTreeState=clean goVersion=go1.26.5 argo=true version=v4.1.2 buildDate=2026-08-21T11:10:01Z gitCommit=16a52d67daf2f4a8a76fa8bec02a76a46aa46257 gitTag=v4.1.2
+time=2026-08-27T03:31:18.371Z level=INFO msg="Using executor retry strategy" argo=true Jitter=0.5 Steps=5 Duration=1s Factor=1.6
+time=2026-08-27T03:31:18.371Z level=INFO msg="Executor initialized" gitTreeState=clean namespace=default podName=provision-tenant-29926-make-ns-596359171 gitTag=v4.1.2 gitCommit=16a52d67daf2f4a8a76fa8bec02a76a46aa46257 deadline=0001-01-01T00:00:00.000Z goVersion=go1.26.5 buildDate=2026-08-21T11:10:01Z templateName=make-ns version=v4.1.2 argo=true includeScriptOutput=false
+time=2026-08-27T03:31:18.375Z level=WARN msg="failed to patch task result, see https://argo-workflows.readthedocs.io/en/latest/workflow-rbac/" error="workflowtaskresults.argoproj.io is forbidden: User \"system:serviceaccount:default:default\" cannot create resource \"workflowtaskresults\" in API group \"argoproj.io\" in the namespace \"default\"" argo=true attempt=0
+time=2026-08-27T03:31:18.375Z level=WARN msg="Non-transient error" argo=true error="workflowtaskresults.argoproj.io is forbidden: User \"system:serviceaccount:default:default\" cannot create resource \"workflowtaskresults\" in API group \"argoproj.io\" in the namespace \"default\""
+<i>… (rest of the executor log omitted)</i></code></pre></details></div>
     <p>The node map is the whole diagnosis: each node's phase and message, in one JSON blob. A workflow's failure diagnostics are pod diagnostics plus that one layer.</p>
   </div>
 </section>
@@ -120,7 +146,18 @@ kubectl create clusterrolebinding tenant-provisioner --clusterrole=tenant-provis
 # Argo's executor reports each step's outcome through its own CRD, so every
 # workflow SA needs this too; forget it and even a correct workflow fails:
 kubectl -n default create role wf-taskresults --verb=create,patch --resource=workflowtaskresults.argoproj.io
-kubectl -n default create rolebinding wf-taskresults --role=wf-taskresults --serviceaccount=default:provisioner</code></pre></div>
+kubectl -n default create rolebinding wf-taskresults --role=wf-taskresults --serviceaccount=default:provisioner</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n default create sa provisioner</b>
+serviceaccount/provisioner created
+<b>$ kubectl create clusterrole tenant-provisioner --verb=create,get --resource=namespaces,resourcequotas</b>
+clusterrole.rbac.authorization.k8s.io/tenant-provisioner created
+<b>$ kubectl create clusterrolebinding tenant-provisioner --clusterrole=tenant-provisioner --serviceaccount=default:provisioner</b>
+clusterrolebinding.rbac.authorization.k8s.io/tenant-provisioner created
+<b># Argo's executor reports each step's outcome through its own CRD, so every</b>
+<b># workflow SA needs this too; forget it and even a correct workflow fails:</b>
+<b>$ kubectl -n default create role wf-taskresults --verb=create,patch --resource=workflowtaskresults.argoproj.io</b>
+role.rbac.authorization.k8s.io/wf-taskresults created
+<b>$ kubectl -n default create rolebinding wf-taskresults --role=wf-taskresults --serviceaccount=default:provisioner</b>
+rolebinding.rbac.authorization.k8s.io/wf-taskresults created</code></pre></details></div>
       <p>Then the workflow, a two-node DAG using <code>resource</code> templates:</p>
       <div class="cb" data-lang="yaml"><pre><code>apiVersion: argoproj.io/v1alpha1
 kind: Workflow

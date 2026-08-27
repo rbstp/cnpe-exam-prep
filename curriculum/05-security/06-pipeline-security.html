@@ -76,7 +76,22 @@
       <div class="cb" data-lang="bash"><pre><code>cd $(mktemp -d) &amp;&amp; cosign generate-key-pair   # passphrase: pick one, remember it
 DIGEST=$(skopeo inspect --tls-verify=false docker://localhost:5001/demo:v1 | jq -r .Digest)
 cosign sign --key cosign.key --allow-http-registry -y localhost:5001/demo@$DIGEST
-cosign verify --key cosign.pub --allow-http-registry localhost:5001/demo@$DIGEST</code></pre></div>
+cosign verify --key cosign.pub --allow-http-registry localhost:5001/demo@$DIGEST</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ cd $(mktemp -d) &amp;&amp; cosign generate-key-pair   # passphrase: pick one, remember it</b>
+Private key written to cosign.key
+Public key written to cosign.pub
+<b>$ DIGEST=$(skopeo inspect --tls-verify=false docker://localhost:5001/demo:v1 | jq -r .Digest)</b>
+<b>$ cosign sign --key cosign.key --allow-http-registry -y localhost:5001/demo@$DIGEST</b>
+Signing artifact...
+Pushing signature to: localhost:5001/demo
+<b>$ cosign verify --key cosign.pub --allow-http-registry localhost:5001/demo@$DIGEST</b>
+
+Verification for localhost:5001/demo@sha256:33213719f2b030a8a1260d1c5358f55524f8f690a790e35b14b00c1f50b46ddf --
+The following checks were performed on each of these signatures:
+  - The cosign claims were validated
+  - Existence of the claims in the transparency log was verified offline
+  - The signatures were verified against the specified public key
+
+[{"critical":{"identity":{"docker-reference":"localhost:5001/demo@sha256:33213719f2b030a8a1260d1c5358f55524f8f690a790e35b14b00c1f50b46ddf"},"image":{"docker-manifest-digest":"sha256:33213719f2b030a8a1260d1c5358f55524f8f690a790e35b14b00c1f50b46ddf"},"type":"https://sigstore.dev/cosign/sign/v1"},"optional":{}}]</code></pre></details></div>
       <p>Then verify a <em>tag</em> instead of the digest and note cosign resolves it to the digest anyway; then try verifying an image you never signed (<code>localhost:5001/validate:v1</code> exists if you ran <code>make validate</code>) and read the failure.</p>
       <div class="verify"><b>verify:</b> "The signatures were verified against the specified public key". One success, one refusal, both understood.</div>
     </div>
@@ -91,7 +106,19 @@ cosign verify --key cosign.pub --allow-http-registry localhost:5001/demo@$DIGEST
       <p>The policy: match pods, <code>matchImageReferences</code> glob <code>kind-registry:5000/demo*</code>, one attestor with <code>cosign.key.data</code> holding your <code>cosign.pub</code> (plus <code>cosign.ctlog.insecureIgnoreTlog: true</code>, since the legacy signature skipped the transparency log), and one validation expression from the Kyverno docs' IVP examples: <code>images.containers.map(image, verifyImageSignatures(image, [attestors.keyed])).all(e, e &gt; 0)</code>. Then:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n team-b run signed --image=kind-registry:5000/demo:v1 --restart=Never -- sleep 60
 docker tag busybox:1.37 localhost:5001/demo:unsigned &amp;&amp; docker push localhost:5001/demo:unsigned
-kubectl -n team-b run unsigned --image=kind-registry:5000/demo:unsigned --restart=Never -- sleep 60</code></pre></div>
+kubectl -n team-b run unsigned --image=kind-registry:5000/demo:unsigned --restart=Never -- sleep 60</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n team-b run signed --image=kind-registry:5000/demo:v1 --restart=Never -- sleep 60</b>
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "signed" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "signed" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "signed" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "signed" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+pod/signed created
+<b>$ docker tag busybox:1.37 localhost:5001/demo:unsigned &amp;&amp; docker push localhost:5001/demo:unsigned</b>
+The push refers to repository [localhost:5001/demo]
+436a1b1fd078: Layer already exists
+unsigned: digest: sha256:7a3ebe5bfd1a4a19797d20b0c0bb39d44393e9a03fd852c0865b0f540d868df0 size: 610
+
+ Info -&gt; Not all multiplatform-content is present and only the available single-platform image was pushed
+         sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0 -&gt; sha256:7a3ebe5bfd1a4a19797d20b0c0bb39d44393e9a03fd852c0865b0f540d868df0
+<b>$ kubectl -n team-b run unsigned --image=kind-registry:5000/demo:unsigned --restart=Never -- sleep 60</b>
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "unsigned" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "unsigned" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "unsigned" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "unsigned" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+Error from server: admission webhook "ivpol.validate.kyverno.svc-fail" denied the request: Policy require-signed-demo failed: demo images must be signed with the platform key</code></pre></details></div>
       <div class="verify"><b>verify:</b> signed admits, unsigned is rejected with your policy's message. If the signed pod is rejected too, <code>kubectl -n kyverno logs deploy/kyverno-admission-controller | grep -i verif</code> names the real reason (registry scheme, missing <code>.sig</code>, tlog), which is precisely the diagnosis ladder above. Clean up the policy so later sections' pods admit freely.</div>
     </div>
 

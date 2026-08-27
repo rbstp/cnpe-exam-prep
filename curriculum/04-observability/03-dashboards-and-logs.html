@@ -106,7 +106,22 @@ data:
         type: loki
         url: http://loki.monitoring.svc:3100
         access: proxy
-EOF</code></pre></div>
+EOF</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n monitoring apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: ConfigMap</b>
+<b>metadata:</b>
+<b>  name: loki-datasource</b>
+<b>  labels: { grafana_datasource: "1" }</b>
+<b>data:</b>
+<b>  loki.yaml: |</b>
+<b>    apiVersion: 1</b>
+<b>    datasources:</b>
+<b>      - name: Loki</b>
+<b>        type: loki</b>
+<b>        url: http://loki.monitoring.svc:3100</b>
+<b>        access: proxy</b>
+<b>EOF</b>
+configmap/loki-datasource created</code></pre></details></div>
       <p>The sidecar picks it up within a minute or so. If nothing arrives, bisect the two hops: shipper first (<code>kubectl -n monitoring get deploy alloy</code>, then its logs for push errors), Loki second.</p>
       <div class="verify"><b>verify:</b> Explore → Loki → <code>{namespace="monitoring"}</code> returns log lines. If nothing returns, name <em>which</em> hop is broken.</div>
     </div>
@@ -114,7 +129,10 @@ EOF</code></pre></div>
     <div class="exercise" data-title="Query logs like an incident">
       <p>Generate known lines, then find them (team-a comes from <code>make sec</code>; <code>kubectl apply -f examples/multitenancy/team-a.yaml</code> creates it standalone):</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n team-a run chatty --image=busybox:1.37 --restart=Never -- \
-  sh -c 'for i in $(seq 60); do echo "level=error msg=payment_failed attempt=$i"; sleep 1; done'</code></pre></div>
+  sh -c 'for i in $(seq 60); do echo "level=error msg=payment_failed attempt=$i"; sleep 1; done'</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n team-a run chatty --image=busybox:1.37 --restart=Never -- \</b>
+<b>  sh -c 'for i in $(seq 60); do echo "level=error msg=payment_failed attempt=$i"; sleep 1; done'</b>
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "chatty" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "chatty" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "chatty" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "chatty" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+pod/chatty created</code></pre></details></div>
       <p>In Explore: <code>{namespace="team-a"} |= "payment_failed"</code>, then the metric form <code>sum(rate({namespace="team-a"} |= "payment_failed" [1m]))</code>.</p>
       <div class="verify"><b>verify:</b> lines visible and the rate curve is about 1/s while the pod runs. Compare <code>stern chatty -n team-a</code> for the same lines live.</div>
     </div>
@@ -122,7 +140,9 @@ EOF</code></pre></div>
     <div class="exercise" data-title="Provision a dashboard as code">
       <p>Build one panel in the UI first (New dashboard → add visualization → Prometheus → <code>sum by (namespace) (rate(container_cpu_usage_seconds_total[5m]))</code>), then export its JSON (share → Export → save JSON, set "export for sharing externally" off), and re-deliver it properly:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring create configmap team-cpu-dashboard --from-file=dash.json=&lt;your-file&gt; \
-  --dry-run=client -o yaml | kubectl label -f - --local --dry-run=client -o yaml grafana_dashboard=1 | kubectl apply -f -</code></pre></div>
+  --dry-run=client -o yaml | kubectl label -f - --local --dry-run=client -o yaml grafana_dashboard=1 | kubectl apply -f -</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n monitoring create configmap team-cpu-dashboard --from-file=dash.json=dash.json \</b>
+<b>  --dry-run=client -o yaml | kubectl label -f - --local --dry-run=client -o yaml grafana_dashboard=1 | kubectl apply -f -</b>
+configmap/team-cpu-dashboard created</code></pre></details></div>
       <div class="verify"><b>verify:</b> delete the hand-made dashboard in the UI, and the provisioned copy appears (default folder) and survives a Grafana pod delete, which the clicked one would not have. State the GitOps moral in one sentence.</div>
     </div>
 

@@ -117,7 +117,63 @@
 
     <div class="exercise" data-title="Interrogate the audit log">
       <p>It lives on the control-plane node, reachable through docker:</p>
-      <div class="cb" data-lang="bash"><pre><code>docker exec cnpe-control-plane tail -1 /var/log/kubernetes/audit.log | jq .</code></pre></div>
+      <div class="cb" data-lang="bash"><pre><code>docker exec cnpe-control-plane tail -1 /var/log/kubernetes/audit.log | jq .</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ docker exec cnpe-control-plane tail -1 /var/log/kubernetes/audit.log | jq .</b>
+{
+  "kind": "Event",
+  "apiVersion": "audit.k8s.io/v1",
+  "level": "Metadata",
+  "auditID": "90a334b1-0a03-420e-a1bc-96d14fb79e67",
+  "stage": "ResponseComplete",
+  "requestURI": "/apis/wgpolicyk8s.io/v1alpha2/namespaces/spire/policyreports/6c7a1017-58fc-422a-8ba5-eed66dba4c27",
+  "verb": "get",
+  "user": {
+    "username": "system:serviceaccount:kyverno:kyverno-reports-controller",
+    "uid": "94675045-58e9-4c7d-a50a-0745ac4b4687",
+    "groups": [
+      "system:serviceaccounts",
+      "system:serviceaccounts:kyverno",
+      "system:authenticated"
+    ],
+    "extra": {
+      "authentication.kubernetes.io/credential-id": [
+        "JTI=48fd7eed-ebbd-47c4-b311-ef850241a1ec"
+      ],
+      "authentication.kubernetes.io/node-name": [
+        "cnpe-worker2"
+      ],
+      "authentication.kubernetes.io/node-uid": [
+        "3e493a08-e750-4c41-b117-9792d6b3d3e2"
+      ],
+      "authentication.kubernetes.io/pod-name": [
+        "kyverno-reports-controller-7447456448-trwwg"
+      ],
+      "authentication.kubernetes.io/pod-uid": [
+        "c2953876-66ee-4bd1-9d50-2ec02831230b"
+      ]
+    }
+  },
+  "sourceIPs": [
+    "172.18.0.2"
+  ],
+  "userAgent": "reports-controller/v0.0.0 (linux/amd64) kubernetes/$Format",
+  "objectRef": {
+    "resource": "policyreports",
+    "namespace": "spire",
+    "name": "6c7a1017-58fc-422a-8ba5-eed66dba4c27",
+    "apiGroup": "wgpolicyk8s.io",
+    "apiVersion": "v1alpha2"
+  },
+  "responseStatus": {
+    "metadata": {},
+    "code": 200
+  },
+  "requestReceivedTimestamp": "2026-08-27T02:44:31.144541Z",
+  "stageTimestamp": "2026-08-27T02:44:31.157282Z",
+  "annotations": {
+    "authorization.k8s.io/decision": "allow",
+    "authorization.k8s.io/reason": "RBAC: allowed by ClusterRoleBinding \"kyverno:reports-controller\" of ClusterRole \"kyverno:reports-controller\" to ServiceAccount \"kyverno-reports-controller/kyverno\""
+  }
+}</code></pre></details></div>
       <p>Now answer three questions an auditor would ask, each with one jq line: who read any secret today (<code>select(.objectRef.resource=="secrets" and .verb=="get")</code>, print user and name); every delete that succeeded (<code>select(.verb=="delete" and .responseStatus.code&lt;300)</code>); all denied requests (<code>select(.annotations["authorization.k8s.io/decision"]=="forbid")</code>). Then close the loop end to end: do something distinctive (<code>kubectl -n team-a delete pod bare --ignore-not-found</code>, or a <code>kubectl auth can-i</code> as dev-a from 5.1) and find your own action in the log within seconds.</p>
       <div class="verify"><b>verify:</b> an audit trail you have personally queried for your own fingerprints is one you can be examined on.</div>
     </div>
@@ -131,7 +187,19 @@
       <p>Not "are there reports" but questions with answers:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl get vulnerabilityreports -A -o json | jq -r '
   .items[] | [.metadata.namespace, .metadata.name,
-  (.report.summary.criticalCount|tostring), (.report.summary.highCount|tostring)] | @tsv' | sort -t$'\t' -k3 -rn | head</code></pre></div>
+  (.report.summary.criticalCount|tostring), (.report.summary.highCount|tostring)] | @tsv' | sort -t$'\t' -k3 -rn | head</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl get vulnerabilityreports -A -o json | jq -r '</b>
+<b>  .items[] | [.metadata.namespace, .metadata.name,</b>
+<b>  (.report.summary.criticalCount|tostring), (.report.summary.highCount|tostring)] | @tsv' | sort -t$'\t' -k3 -rn | head</b>
+default	pod-build-and-scan-skfx6-build-pod-step-build-and-push	25	233
+default	pod-build-and-scan-skfx6-clone-pod-step-clone	19	113
+tekton-pipelines-resolvers	replicaset-79d56b68cd	6	24
+default	replicaset-example-7c5474d4c8-prometheus-example-app	4	37
+default	pod-build-and-scan-skfx6-clone-pod-place-scripts	4	45
+default	pod-build-and-scan-skfx6-build-pod-place-scripts	4	45
+tekton-pipelines	replicaset-tekton-triggers-webhook-5ddd9c4cbd-webhook	3	10
+tekton-pipelines	replicaset-tekton-pipelines-webhook-5568b6-webhook	3	10
+tekton-pipelines	replicaset-7c789d7fd9	3	10
+tekton-pipelines	replicaset-6985f46fcc	3	15</code></pre></details></div>
       <p>Pick the top image and drill in: which CVE, which package, is there a fix version (<code>.report.vulnerabilities[] | select(.severity=="CRITICAL")</code>).</p>
       <div class="verify"><b>verify:</b> a ranked worst-offenders list, and one actionable package bump identified. That triage, from fleet view to one action, is the whole vulnerability-management job in miniature.</div>
     </div>
