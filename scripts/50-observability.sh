@@ -184,7 +184,7 @@ cat <<'INFO'
   Prometheus                      kubectl -n monitoring get svc prometheus-kube-prometheus-prometheus
   Jaeger UI                       kubectl -n tracing get svc jaeger        (port 16686)
   OpenCost                        kubectl -n opencost get svc opencost     (UI on 9090)
-                                  kubectl cost --opencost namespace --show-all-resources
+                                  kubectl cost namespace --opencost --show-all-resources
 
   Drill: annotate a deployment to get traces with zero code changes.
     kubectl patch deploy/<name> -p \

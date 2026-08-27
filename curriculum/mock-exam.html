@@ -66,7 +66,7 @@
     </div>
 
     <div class="task" data-pts="8" data-title="Canary and abort (domain 2)">
-      <p>Apply <code>examples/rollouts/canary.yaml</code>, wait for the rollout <code>demo</code> in <code>team-a</code> to be Healthy, trigger a canary with image tag <code>1.28-alpine</code>, then abort it while it is mid-steps (the metric analysis may abort it for you first, since the demo app exposes no <code>http_requests_total</code>; run the abort yourself anyway). The rollout must end aborted with the stable version at <code>1.27-alpine</code>.</p>
+      <p>Apply <code>examples/rollouts/canary.yaml</code>, wait for the rollout <code>demo</code> in <code>team-a</code> to be Healthy, trigger a canary with image tag <code>1.26-alpine</code>, then abort it while it is mid-steps (the metric analysis may abort it for you first, since the demo app exposes no <code>http_requests_total</code>; run the abort yourself anyway). The rollout must end aborted with the stable version at <code>1.27-alpine</code>.</p>
     </div>
 
     <div class="task" data-pts="8" data-title="A CRD with validation (domain 3)">
@@ -132,7 +132,7 @@ flux get kustomization mock-demo   # Ready True
 kubectl -n mock-flux get deploy demo -o jsonpath='{.status.readyReplicas}{"\n"}'                     # 2
 # 5
 kubectl -n team-a get rollout demo -o jsonpath='{.status.abort}{"\n"}'                               # true
-kubectl -n team-a get rollout demo -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'     # ...1.28-alpine requested
+kubectl -n team-a get rollout demo -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'     # ...1.26-alpine requested
 kubectl argo rollouts status demo -n team-a --timeout 10s 2&gt;&amp;1 | head -1                             # Degraded/aborted, stable serving old
 # 6
 kubectl get crd mockapps.mock.lab -o jsonpath='{.status.conditions[?(@.type=="Established")].status}{"\n"}'  # True
@@ -178,7 +178,7 @@ cosign verify --key cosign.pub --allow-http-registry localhost:5001/demo@$(skope
 
     <details class="quiz"><summary>4 · Flux Kustomization</summary><div class="answer"><p><code>flux create kustomization mock-demo --source=GitRepository/platform --path=./demo-app/base --target-namespace=mock-flux --prune=true --interval=1m</code> after creating the namespace. Section 2.3.</p></div></details>
 
-    <details class="quiz"><summary>5 · canary and abort</summary><div class="answer"><p><code>kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.28-alpine -n team-a</code>, then <code>kubectl argo rollouts abort demo -n team-a</code> during the pause step. Aborted leaves spec at the new tag, stable ReplicaSet serving the old one, <code>status.abort: true</code>. Section 2.5.</p></div></details>
+    <details class="quiz"><summary>5 · canary and abort</summary><div class="answer"><p><code>kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.26-alpine -n team-a</code>, then <code>kubectl argo rollouts abort demo -n team-a</code> during the pause step. Aborted leaves spec at the new tag, stable ReplicaSet serving the old one, <code>status.abort: true</code>. Section 2.5.</p></div></details>
 
     <details class="quiz"><summary>6 · CRD with validation</summary><div class="answer"><p>Section 3.2's CRD skeleton with <code>enum: [dev, prod]</code> and an <code>additionalPrinterColumns</code> entry (<code>name: TIER</code>, jsonPath <code>.spec.tier</code>). The rejection sentence comes from the enum validator.</p></div></details>
 

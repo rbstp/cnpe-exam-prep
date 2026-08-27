@@ -275,7 +275,7 @@ No-UI things worth knowing
   API audit log    docker exec -it cnpe-control-plane tail -f /var/log/kubernetes/audit.log | jq .
   Rollouts TUI     kubectl argo rollouts dashboard
   Hubble CLI       cilium hubble port-forward &  then: hubble observe
-  Cost CLI         kubectl cost --opencost namespace --show-all-resources
+  Cost CLI         kubectl cost namespace --opencost --show-all-resources
   Compliance       kubectl get clustercompliancereports,vulnerabilityreports,sbomreports -A
   SPIRE identities kubectl -n spire exec sts/spire-server -c spire-server -- \
                      /opt/spire/bin/spire-server entry show
