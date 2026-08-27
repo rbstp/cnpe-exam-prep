@@ -103,7 +103,14 @@
       <div class="cb" data-lang="bash"><pre><code>kubectl create deploy backend --image=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine --port=8080
 kubectl expose deploy backend --port=8080
 kubectl run client --image=curlimages/curl:8.11.1 --restart=Never -- sh -c 'sleep 3600'
-kubectl exec client -- curl -s -o /dev/null -w '%{http_code}\n' http://backend:8080</code></pre></div>
+kubectl exec client -- curl -s -o /dev/null -w '%{http_code}\n' http://backend:8080</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl create deploy backend --image=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine --port=8080</b>
+deployment.apps/backend created
+<b>$ kubectl expose deploy backend --port=8080</b>
+service/backend exposed
+<b>$ kubectl run client --image=curlimages/curl:8.11.1 --restart=Never -- sh -c 'sleep 3600'</b>
+pod/client created
+<b>$ kubectl exec client -- curl -s -o /dev/null -w '%{http_code}\n' http://backend:8080</b>
+200</code></pre></details></div>
       <p>Verify the encryption claim with evidence: <code>istioctl ztunnel-config workload</code> lists both pods with protocol HBONE, and <code>kubectl -n istio-system logs ds/ztunnel | grep -i backend | tail</code> shows connections with source and destination SPIFFE identities.</p>
       <div class="verify"><b>verify:</b> HBONE in the ztunnel config and SPIFFE identities in the logs. The app never changed; the platform upgraded it.</div>
     </div>
@@ -118,7 +125,20 @@ spec: { mtls: { mode: STRICT } }
 EOF
 kubectl create ns outsider   # not labelled ambient, therefore not in the mesh
 kubectl -n outsider run intruder --image=curlimages/curl:8.11.1 --restart=Never -- \
-  curl -s -m 5 -o /dev/null -w '%{http_code}' http://backend.default.svc:8080</code></pre></div>
+  curl -s -m 5 -o /dev/null -w '%{http_code}' http://backend.default.svc:8080</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: security.istio.io/v1</b>
+<b>kind: PeerAuthentication</b>
+<b>metadata: { name: default, namespace: default }</b>
+<b>spec: { mtls: { mode: STRICT } }</b>
+<b>EOF</b>
+peerauthentication.security.istio.io/default created
+<b>$ kubectl create ns outsider   # not labelled ambient, therefore not in the mesh</b>
+namespace/outsider created
+<b>$ kubectl -n outsider run intruder --image=curlimages/curl:8.11.1 --restart=Never -- \</b>
+<b>  curl -s -m 5 -o /dev/null -w '%{http_code}' http://backend.default.svc:8080</b>
+pod/intruder created
+<b>$ kubectl -n outsider logs intruder</b>
+000</code></pre></details></div>
       <div class="verify"><b>verify:</b> the in-mesh client still gets 200; the outsider's curl fails (its plaintext is refused). Delete the PeerAuthentication and the outsider succeeds again. That triple (before, strict, after) is the demonstration the competency wording asks for.</div>
     </div>
 
@@ -131,7 +151,157 @@ kubectl -n outsider run intruder --image=curlimages/curl:8.11.1 --restart=Never 
       <p><code>kubectx kind-cnpe</code>, then:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n spire exec sts/spire-server -c spire-server -- \
   /opt/spire/bin/spire-server entry show
-kubectl get clusterspiffeids</code></pre></div>
+kubectl get clusterspiffeids</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n spire exec sts/spire-server -c spire-server -- \</b>
+<b>  /opt/spire/bin/spire-server entry show</b>
+Found 82 entries
+Entry ID                : cnpe.f689fd1b-3650-40a9-b286-2027082a0b0f
+SPIFFE ID               : spiffe://lab.local/ns/argo-rollouts/sa/argo-rollouts
+Parent ID               : spiffe://lab.local/spire/agent/k8s_psat/cnpe/3e493a08-e750-4c41-b117-9792d6b3d3e2
+Revision                : 0
+X509-SVID TTL           : default
+JWT-SVID TTL            : default
+Selector                : k8s:pod-uid:62bcfbc0-50de-47d1-8d4c-03cea8a7ada1
+Hint                    : default
+
+Entry ID                : cnpe.a6e5b7b3-7045-4cc4-ab83-927be2e17912
+SPIFFE ID               : spiffe://lab.local/ns/argo-rollouts/sa/argo-rollouts
+Parent ID               : spiffe://lab.local/spire/agent/k8s_psat/cnpe/9f10fbfe-1d5c-4ed1-af96-9a9e22e11c23
+Revision                : 0
+X509-SVID TTL           : default
+JWT-SVID TTL            : default
+Selector                : k8s:pod-uid:67550dfb-4b01-4853-8444-129e737f9de8
+Hint                    : default
+
+Entry ID                : cnpe.411a6117-8eff-49c5-88e5-26e3fe8169b2
+SPIFFE ID               : spiffe://lab.local/ns/argo-rollouts/sa/argo-rollouts-dashboard
+Parent ID               : spiffe://lab.local/spire/agent/k8s_psat/cnpe/3e493a08-e750-4c41-b117-9792d6b3d3e2
+Revision                : 0
+X509-SVID TTL           : default
+JWT-SVID TTL            : default
+Selector                : k8s:pod-uid:1086be52-6ae4-473e-adc9-539fecd83956
+Hint                    : default
+
+Entry ID                : cnpe.7f673027-388e-4602-8bac-6372a6fbbcab
+SPIFFE ID               : spiffe://lab.local/ns/argo/sa/argo-workflows-server
+Parent ID               : spiffe://lab.local/spire/agent/k8s_psat/cnpe/9f10fbfe-1d5c-4ed1-af96-9a9e22e11c23
+Revision                : 0
+X509-SVID TTL           : default
+JWT-SVID TTL            : default
+Selector                : k8s:pod-uid:934e7f1b-532a-4feb-b8dd-455a293461f5
+Hint                    : default
+
+Entry ID                : cnpe.b77b309f-d092-4410-8dd8-641efb487d17
+SPIFFE ID               : spiffe://lab.local/ns/argo/sa/argo-workflows-workflow-controller
+Parent ID               : spiffe://lab.local/spire/agent/k8s_psat/cnpe/3e493a08-e750-4c41-b117-9792d6b3d3e2
+Revision                : 0
+X509-SVID TTL           : default
+JWT-SVID TTL            : default
+Selector                : k8s:pod-uid:e6b28c00-42d8-4682-b002-104ccee47f45
+Hint                    : default
+
+Entry ID                : cnpe.ee72b8b6-24e6-4b3c-8145-aa2424377815
+SPIFFE ID               : spiffe://lab.local/ns/argocd/sa/argocd-application-controller
+Parent ID               : spiffe://lab.local/spire/agent/k8s_psat/cnpe/9f10fbfe-1d5c-4ed1-af96-9a9e22e11c23
+Revision                : 0
+X509-SVID TTL           : default
+JWT-SVID TTL            : default
+Selector                : k8s:pod-uid:6060093b-3490-4e57-a3dd-a313b25daddf
+Hint                    : default
+
+Entry ID                : cnpe.63659ff9-0b32-4544-8e81-d96af66c6a1f
+SPIFFE ID               : spiffe://lab.local/ns/argocd/sa/argocd-applicationset-controller
+Parent ID               : spiffe://lab.local/spire/agent/k8s_psat/cnpe/9f10fbfe-1d5c-4ed1-af96-9a9e22e11c23
+Revision                : 0
+X509-SVID TTL           : default
+JWT-SVID TTL            : default
+Selector                : k8s:pod-uid:ead2e2f8-6cbe-421d-8ace-7c08dd84da4a
+Hint                    : default
+
+Entry ID                : cnpe.8e32612a-f03f-42ec-b3ee-d4cfb7f8e802
+SPIFFE ID               : spiffe://lab.local/ns/argocd/sa/argocd-repo-server
+Parent ID               : spiffe://lab.local/spire/agent/k8s_psat/cnpe/9f10fbfe-1d5c-4ed1-af96-9a9e22e11c23
+Revision                : 0
+X509-SVID TTL           : default
+JWT-SVID TTL            : default
+Selector                : k8s:pod-uid:c9d1ee4f-d9c6-447f-a989-c1829d6ce30e
+Hint                    : default
+
+Entry ID                : cnpe.6eb6f835-5da3-4075-8c65-3abdf0843151
+SPIFFE ID               : spiffe://lab.local/ns/argocd/sa/argocd-server
+Parent ID               : spiffe://lab.local/spire/agent/k8s_psat/cnpe/3e493a08-e750-4c41-b117-9792d6b3d3e2
+Revision                : 0
+X509-SVID TTL           : default
+JWT-SVID TTL            : default
+Selector                : k8s:pod-uid:003a3a4b-490a-4c3f-b0d9-dc75f07e3f64
+Hint                    : default
+
+Entry ID                : cnpe.f00bca44-ba66-4150-90b7-ebeaa9346e79
+SPIFFE ID               : spiffe://lab.local/ns/argocd/sa/default
+Parent ID               : spiffe://lab.local/spire/agent/k8s_psat/cnpe/9f10fbfe-1d5c-4ed1-af96-9a9e22e11c23
+Revision                : 0
+X509-SVID TTL           : default
+JWT-SVID TTL            : default
+Selector                : k8s:pod-uid:b46f92c6-6e94-41d7-9987-ba9afef0f3dc
+Hint                    : default
+
+Entry ID                : cnpe.5b96f37c-b032-4c38-bfd7-9d260e71aa6f
+SPIFFE ID               : spiffe://lab.local/ns/cnpg-system/sa/cnpg-cloudnative-pg
+Parent ID               : spiffe://lab.local/spire/agent/k8s_psat/cnpe/9f10fbfe-1d5c-4ed1-af96-9a9e22e11c23
+Revision                : 0
+X509-SVID TTL           : default
+JWT-SVID TTL            : default
+Selector                : k8s:pod-uid:83a82031-f4e4-4554-ace6-7313c9210bcf
+Hint                    : default
+
+Entry ID                : cnpe.794e5a7e-384b-4cca-bbfa-96b4b39c67b0
+SPIFFE ID               : spiffe://lab.local/ns/crossplane-system/sa/crossplane
+Parent ID               : spiffe://lab.local/spire/agent/k8s_psat/cnpe/9f10fbfe-1d5c-4ed1-af96-9a9e22e11c23
+Revision                : 0
+X509-SVID TTL           : default
+JWT-SVID TTL            : default
+Selector                : k8s:pod-uid:4870669a-ff67-4200-bec7-4e4e35760c6d
+Hint                    : default
+<i>… (596 lines omitted)</i>
+SPIFFE ID               : spiffe://lab.local/ns/trivy-system/sa/trivy-operator
+Parent ID               : spiffe://lab.local/spire/agent/k8s_psat/cnpe/3e493a08-e750-4c41-b117-9792d6b3d3e2
+Revision                : 0
+X509-SVID TTL           : default
+JWT-SVID TTL            : default
+Selector                : k8s:pod-uid:1ec71fc7-51f5-4293-922d-f82124fa3ce2
+Hint                    : default
+
+Entry ID                : cnpe.a7ad897d-5d41-49e6-875c-9eef9bd8b396
+SPIFFE ID               : spiffe://lab.local/ns/vpa/sa/vpa-admission-controller
+Parent ID               : spiffe://lab.local/spire/agent/k8s_psat/cnpe/3e493a08-e750-4c41-b117-9792d6b3d3e2
+Revision                : 0
+X509-SVID TTL           : default
+JWT-SVID TTL            : default
+Selector                : k8s:pod-uid:a3f1bf4a-315c-4481-85ac-78593f50e011
+Hint                    : default
+
+Entry ID                : cnpe.3cad5033-b1a9-4682-892e-e1471e4c27a1
+SPIFFE ID               : spiffe://lab.local/ns/vpa/sa/vpa-recommender
+Parent ID               : spiffe://lab.local/spire/agent/k8s_psat/cnpe/3e493a08-e750-4c41-b117-9792d6b3d3e2
+Revision                : 0
+X509-SVID TTL           : default
+JWT-SVID TTL            : default
+Selector                : k8s:pod-uid:f830581e-0fc4-4d85-b109-9a4701b47be8
+Hint                    : default
+
+Entry ID                : cnpe.458b7884-4ad1-4e3f-9885-9cb1fc3f1f9d
+SPIFFE ID               : spiffe://lab.local/ns/vpa/sa/vpa-updater
+Parent ID               : spiffe://lab.local/spire/agent/k8s_psat/cnpe/3e493a08-e750-4c41-b117-9792d6b3d3e2
+Revision                : 0
+X509-SVID TTL           : default
+JWT-SVID TTL            : default
+Selector                : k8s:pod-uid:10b880f4-50bb-43db-a46f-96ea7e219d31
+Hint                    : default
+
+<b>$ kubectl get clusterspiffeids</b>
+NAME                                  AGE
+spire-spire-default                   46m
+spire-spire-oidc-discovery-provider   46m
+spire-spire-test-keys                 46m</code></pre></details></div>
       <p>Then inspect the ClusterSPIFFEID CR and connect its template to the entries it generated. If you want the full loop, mount the CSI socket (<code>csi.spiffe.io</code> driver) in a pod and list the socket file; the identities are delivered as files, no network call, which is the property that makes SPIRE composable with everything.</p>
       <div class="verify"><b>verify:</b> registration entries exist mapping SPIFFE IDs to Kubernetes selectors, and you can read one entry aloud: this ID is issued to workloads matching this namespace/SA, attested by this parent agent.</div>
     </div>

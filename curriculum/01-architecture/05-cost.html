@@ -90,17 +90,133 @@
 
     <div class="exercise" data-title="Read the allocation">
       <p>OpenCost's UI is on the LoadBalancer <code>make urls</code> prints, but the CLI is faster and exam-shaped:</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl cost --opencost namespace --show-all-resources
-kubectl cost --opencost namespace --historical --window 1d</code></pre></div>
-      <div class="verify"><b>verify:</b> a table where <code>monitoring</code> dominates (kube-prometheus-stack is the heaviest thing installed) and the team namespaces are near zero. If the command errors, diagnose the path: kubectl-cost talks to the opencost service, which talks to Prometheus; <code>kubectl -n opencost get deploy,svc</code> and the pod logs tell you which hop broke.</div>
+      <div class="cb" data-lang="bash"><pre><code>kubectl cost namespace --opencost --show-all-resources
+kubectl cost namespace --opencost --historical --window 1d</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl cost namespace --opencost --show-all-resources</b>
++-----------------+-------------------------------+--------------------+-----------------+
+| CLUSTER         | NAMESPACE                     | MONTHLY RATE (ALL) | COST EFFICIENCY |
++-----------------+-------------------------------+--------------------+-----------------+
+| default-cluster | kube-system                   |          22.934101 |        0.673952 |
+|                 | flux-system                   |          13.663152 |        0.062010 |
+|                 | kyverno                       |          10.060340 |        0.111306 |
+|                 | gatekeeper-system             |           7.597615 |        0.166510 |
+|                 | vpa                           |           6.984870 |        0.049210 |
+|                 | kro                           |           6.205071 |        0.077431 |
+|                 | crossplane-system             |           6.078437 |        0.413770 |
+|                 | team-b                        |           6.060347 |        0.015395 |
+|                 | team-a                        |           3.981019 |        0.053393 |
+|                 | tracing                       |           3.032553 |        0.100108 |
+|                 | tekton-pipelines              |           2.572672 |        0.469501 |
+|                 | tekton-pipelines-resolvers    |           2.572672 |        0.036930 |
+|                 | flux-demo                     |           1.388055 |        0.101211 |
+|                 | trivy-system                  |           1.186362 |        1.102488 |
+|                 | opencost                      |           0.779983 |        0.384823 |
+|                 | monitoring                    |           0.111300 |        2.162723 |
+|                 | default                       |           0.018600 |        0.930326 |
+|                 | local-path-storage            |           0.000000 |        0.000000 |
+|                 | spire                         |           0.000000 |        0.000000 |
+|                 | argo-rollouts                 |           0.000000 |        0.000000 |
+|                 | argocd                        |           0.000000 |        0.000000 |
+| __idle__        | __idle__                      |           0.000000 |        0.000000 |
+| default-cluster | cnpg-system                   |           0.000000 |        0.000000 |
+|                 | external-secrets              |           0.000000 |        0.000000 |
+|                 | argo                          |           0.000000 |        0.000000 |
+|                 | opentelemetry-operator-system |           0.000000 |        0.000000 |
++-----------------+-------------------------------+--------------------+-----------------+
+| SUMMED          |                               |          95.227148 |                 |
++-----------------+-------------------------------+--------------------+-----------------+
+<b>$ kubectl cost namespace --opencost --historical --window 1d</b>
++-----------------+-------------------------------+------------------+-----------------+
+| CLUSTER         | NAMESPACE                     | TOTAL COST (ALL) | COST EFFICIENCY |
++-----------------+-------------------------------+------------------+-----------------+
+| default-cluster | kube-system                   |         0.034410 |        0.673952 |
+|                 | flux-system                   |         0.020500 |        0.062010 |
+|                 | kyverno                       |         0.013930 |        0.111306 |
+|                 | gatekeeper-system             |         0.010520 |        0.166510 |
+|                 | vpa                           |         0.010480 |        0.049210 |
+|                 | kro                           |         0.009310 |        0.077431 |
+|                 | crossplane-system             |         0.009120 |        0.413770 |
+|                 | team-b                        |         0.007690 |        0.015395 |
+|                 | tracing                       |         0.004560 |        0.099890 |
+|                 | team-a                        |         0.004130 |        0.053393 |
+|                 | tekton-pipelines              |         0.003870 |        0.468298 |
+|                 | tekton-pipelines-resolvers    |         0.003870 |        0.036836 |
+|                 | monitoring                    |         0.003710 |        2.162723 |
+|                 | trivy-system                  |         0.001780 |        1.102547 |
+|                 | flux-demo                     |         0.001440 |        0.101211 |
+|                 | opencost                      |         0.001080 |        0.384823 |
+|                 | default                       |         0.000620 |        0.930254 |
+|                 | local-path-storage            |         0.000000 |        0.000000 |
+|                 | external-secrets              |         0.000000 |        0.000000 |
+|                 | argo                          |         0.000000 |        0.000000 |
+| __idle__        | __idle__                      |         0.000000 |        0.000000 |
+| default-cluster | cnpg-system                   |         0.000000 |        0.000000 |
+|                 | argocd                        |         0.000000 |        0.000000 |
+|                 | spire                         |         0.000000 |        0.000000 |
+|                 | opentelemetry-operator-system |         0.000000 |        0.000000 |
+|                 | argo-rollouts                 |         0.000000 |        0.000000 |
++-----------------+-------------------------------+------------------+-----------------+
+| SUMMED          |                               |         0.141020 |                 |
++-----------------+-------------------------------+------------------+-----------------+</code></pre></details></div>
+      <div class="verify"><b>verify:</b> a table you can interrogate with the allocation formula. Predict where <code>monitoring</code> lands before looking: kube-prometheus-stack is the heaviest thing installed, yet it sets almost no requests, so <code>max(request, usage)</code> prices it near the bottom with an efficiency above 1. The namespaces that dominate are the ones full of idle <em>requests</em>. If the command errors instead, diagnose the path: kubectl-cost talks to the opencost service, which talks to Prometheus; <code>kubectl -n opencost get deploy,svc</code> and the pod logs tell you which hop broke.</div>
     </div>
 
     <div class="exercise" data-title="Find the worst request/usage gap in the cluster">
       <p>Two views of the same truth. From cost:</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl cost --opencost namespace --show-efficiency</code></pre></div>
+      <div class="cb" data-lang="bash"><pre><code>kubectl cost namespace --opencost --show-efficiency</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl cost namespace --opencost --show-efficiency</b>
++-----------------+-------------------------------+--------------------+-----------------+
+| CLUSTER         | NAMESPACE                     | MONTHLY RATE (ALL) | COST EFFICIENCY |
++-----------------+-------------------------------+--------------------+-----------------+
+| default-cluster | kube-system                   |          22.940766 |        0.673763 |
+|                 | flux-system                   |          13.663152 |        0.062010 |
+|                 | kyverno                       |          10.060340 |        0.111306 |
+|                 | gatekeeper-system             |           7.597615 |        0.166510 |
+|                 | vpa                           |           6.984870 |        0.049210 |
+|                 | kro                           |           6.205071 |        0.077431 |
+|                 | crossplane-system             |           6.078437 |        0.413770 |
+|                 | team-b                        |           6.060347 |        0.015396 |
+|                 | team-a                        |           3.981019 |        0.053393 |
+|                 | tracing                       |           3.039218 |        0.099890 |
+|                 | tekton-pipelines-resolvers    |           2.579337 |        0.036836 |
+|                 | tekton-pipelines              |           2.579337 |        0.468298 |
+|                 | flux-demo                     |           1.388055 |        0.101211 |
+|                 | trivy-system                  |           1.186362 |        1.102609 |
+|                 | opencost                      |           0.779983 |        0.384823 |
+|                 | monitoring                    |           0.111300 |        2.162723 |
+|                 | default                       |           0.018600 |        0.930178 |
+|                 | argo-rollouts                 |           0.000000 |        0.000000 |
+| __idle__        | __idle__                      |           0.000000 |        0.000000 |
+| default-cluster | spire                         |           0.000000 |        0.000000 |
+|                 | opentelemetry-operator-system |           0.000000 |        0.000000 |
+|                 | external-secrets              |           0.000000 |        0.000000 |
+|                 | argo                          |           0.000000 |        0.000000 |
+|                 | local-path-storage            |           0.000000 |        0.000000 |
+|                 | argocd                        |           0.000000 |        0.000000 |
+|                 | cnpg-system                   |           0.000000 |        0.000000 |
++-----------------+-------------------------------+--------------------+-----------------+
+| SUMMED          |                               |          95.253808 |                 |
++-----------------+-------------------------------+--------------------+-----------------+</code></pre></details></div>
       <p>From raw metrics, CPU requested minus used, per namespace (run in the Prometheus UI from <code>make urls</code>):</p>
       <div class="cb" data-lang="promql"><pre><code>sum by (namespace) (kube_pod_container_resource_requests{resource="cpu"})
-  - sum by (namespace) (rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[10m]))</code></pre></div>
+  - sum by (namespace) (rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[10m]))</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n monitoring port-forward svc/prometheus-operated 9090 &amp;   # or open the UI from make urls</b>
+<b>$ curl -sG http://localhost:9090/api/v1/query --data-urlencode \</b>
+<b>  'query=sum by (namespace) (kube_pod_container_resource_requests{resource="cpu"}) - sum by (namespace) (rate(container_cpu_usage_seconds_total{container!="",container!="POD"}[10m]))' \</b>
+<b>  | jq -r '.data.result[] | [.metric.namespace, .value[1]] | @tsv' | sort -t$'\t' -k2 -rn</b>
+flux-system	0.5267671215880919
+team-b	0.34988733380995113
+kro	0.25387000718459796
+kube-system	0.24557372718547377
+team-a	0.22489119384540543
+crossplane-system	0.185862717786078
+gatekeeper-system	0.1480803033971353
+vpa	0.146653874778916
+tracing	0.09838868995846957
+tekton-pipelines-resolvers	0.09818722856439036
+tekton-pipelines	0.0866530147060892
+flux-demo	0.045067453280133396
+trivy-system	0.034891862144704494
+opencost	0.017759279317309074
+monitoring	-0.1752915664261709
+kyverno	-0.7670737681734979</code></pre></details></div>
       <p>The label filters matter: cadvisor also emits pod-level and node-level aggregate series (empty <code>container</code>) and, on many versions, the pause container as <code>container="POD"</code>. Without <code>{container!="",container!="POD"}</code> you count the same CPU two or three times and the gap you compute is wrong.</p>
       <div class="verify"><b>verify:</b> the namespace at the top of the PromQL result matches the low efficiency scores in kubectl-cost. Name the top offender and what you would change.</div>
     </div>
@@ -108,9 +224,13 @@ kubectl cost --opencost namespace --historical --window 1d</code></pre></div>
     <div class="exercise" data-title="Right-size one workload end to end">
       <p>Deploy the demo app with a deliberate oversize:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -k examples/demo-app/base
-kubectl set resources deploy demo --requests=cpu=500m,memory=512Mi</code></pre></div>
+kubectl set resources deploy demo --requests=cpu=500m,memory=512Mi</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl apply -k examples/demo-app/base</b>
+service/demo created
+deployment.apps/demo created
+<b>$ kubectl set resources deploy demo --requests=cpu=500m,memory=512Mi</b>
+error: failed to patch resources update to pod template Deployment.apps "demo" is invalid: [spec.template.spec.containers[0].resources.requests: Invalid value: "500m": must be less than or equal to cpu limit of 200m, spec.template.spec.containers[0].resources.requests: Invalid value: "512Mi": must be less than or equal to memory limit of 128Mi]</code></pre></details></div>
       <p>Wait ten minutes for metrics to accumulate, get the VPA recommendation for it (section 1.2), then apply sane numbers with <code>kubectl set resources</code> again.</p>
-      <div class="verify"><b>verify:</b> <code>kubectl cost --opencost namespace --show-efficiency</code> for <code>default</code> improves between the two states, and the rollout left nothing Pending.</div>
+      <div class="verify"><b>verify:</b> <code>kubectl cost namespace --opencost --show-efficiency</code> for <code>default</code> improves between the two states, and the rollout left nothing Pending.</div>
     </div>
 
     <div class="exercise" data-title="Connect quota to cost">

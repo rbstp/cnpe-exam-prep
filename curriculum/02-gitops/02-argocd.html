@@ -168,7 +168,72 @@ argocd app get demo-staging
 argocd app diff demo-staging          # what would change
 argocd app sync demo-staging          # --prune, --force, --resource
 argocd app history demo-staging       # and: argocd app rollback demo-staging &lt;id&gt;
-argocd app set demo-staging --sync-policy automated --self-heal</code></pre></div>
+argocd app set demo-staging --sync-policy automated --self-heal</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ argocd login 172.18.0.9 --username admin \</b>
+<b>  --password $(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d) --insecure</b>
+WARNING: server is not configured with TLS. Proceed (y/n)? 'admin:login' logged in successfully
+Context '172.18.0.9' updated
+<b>$ argocd app list</b>
+NAME                 CLUSTER                         NAMESPACE  PROJECT  STATUS  HEALTH       SYNCPOLICY  CONDITIONS  REPO                                    PATH                       TARGET
+argocd/demo-prod     https://kubernetes.default.svc  prod       default  Synced  Progressing  Auto-Prune  &lt;none&gt;      http://gitea.lab:3000/lab/platform.git  demo-app/overlays/prod     main
+argocd/demo-staging  https://kubernetes.default.svc  staging    default  Synced  Progressing  Auto-Prune  &lt;none&gt;      http://gitea.lab:3000/lab/platform.git  demo-app/overlays/staging  main
+<b>$ argocd app get demo-staging</b>
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        Synced to main (c7cb9a1)
+Health Status:      Progressing
+
+GROUP  KIND        NAMESPACE  NAME          STATUS   HEALTH       HOOK  MESSAGE
+       Namespace              staging       Running  Synced             namespace/staging created
+       Service     team-a     staging-demo  Synced   Healthy            service/staging-demo created
+apps   Deployment  team-a     staging-demo  Synced   Progressing        deployment.apps/staging-demo created
+<b>$ argocd app diff demo-staging          # what would change</b>
+<b>$ argocd app sync demo-staging          # --prune, --force, --resource</b>
+TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
+2026-08-26T22:17:01-04:00            Service      team-a          staging-demo    Synced  Healthy              
+2026-08-26T22:17:01-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
+2026-08-26T22:17:02-04:00            Service      team-a          staging-demo    Synced  Healthy              service/staging-demo unchanged
+2026-08-26T22:17:02-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              deployment.apps/staging-demo unchanged
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        Synced to main (c7cb9a1)
+Health Status:      Healthy
+
+Operation:          Sync
+Sync Revision:      c7cb9a1e37949219ff64e2c5dd17654109deea6d
+Phase:              Succeeded
+Start:              2026-08-26 22:17:01 -0400 EDT
+Finished:           2026-08-26 22:17:02 -0400 EDT
+Duration:           1s
+Message:            successfully synced (all tasks run)
+
+GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
+       Service     team-a     staging-demo  Synced  Healthy        service/staging-demo unchanged
+apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged
+<b>$ argocd app history demo-staging       # and: argocd app rollback demo-staging &lt;id&gt;</b>
+SOURCE  http://gitea.lab:3000/lab/platform.git
+ID      DATE                           REVISION
+0       2026-08-26 22:16:43 -0400 EDT  main (c7cb9a1)
+1       2026-08-26 22:17:02 -0400 EDT  main (c7cb9a1)
+<b>$ argocd app set demo-staging --sync-policy automated --self-heal</b></code></pre></details></div>
     <p><code>argocd app get --refresh</code> forces a re-comparison against git; <code>--hard-refresh</code> also drops the manifest cache, which is what you reach for when the repo changed but Argo insists it did not.</p>
   </div>
 </section>
@@ -181,7 +246,17 @@ argocd app set demo-staging --sync-policy automated --self-heal</code></pre></di
       <p>Apply the example and predict its output before looking:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -f examples/argocd-appset.yaml
 kubectl -n argocd get applications
-kubectl -n team-a get deploy staging-demo &amp;&amp; kubectl -n team-b get deploy prod-demo</code></pre></div>
+kubectl -n team-a get deploy staging-demo &amp;&amp; kubectl -n team-b get deploy prod-demo</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl apply -f examples/argocd-appset.yaml</b>
+applicationset.argoproj.io/demo-envs created
+<b>$ kubectl -n argocd get applications</b>
+NAME           SYNC STATUS   HEALTH STATUS
+demo-prod      Synced        Progressing
+demo-staging   Synced        Progressing
+<b>$ kubectl -n team-a get deploy staging-demo &amp;&amp; kubectl -n team-b get deploy prod-demo</b>
+NAME           READY   UP-TO-DATE   AVAILABLE   AGE
+staging-demo   0/3     3            0           15s
+NAME        READY   UP-TO-DATE   AVAILABLE   AGE
+prod-demo   0/3     3            0           16s</code></pre></details></div>
       <p>One nuance: the ApplicationSet template sets <code>destination.namespace</code> to the directory basename, but the overlays pin <code>namespace: team-a</code> and <code>team-b</code> in their kustomizations. An explicit namespace in a manifest always wins over the Application's destination default, so the workloads land in the tenant namespaces, prefixed <code>staging-</code> and <code>prod-</code>. If an app is stuck, read its conditions: <code>kubectl -n argocd get app demo-staging -o jsonpath='{.status.conditions}' | jq</code>.</p>
       <div class="verify"><b>verify:</b> <code>demo-staging</code> and <code>demo-prod</code> Applications exist (one per overlay directory in the platform repo), each Synced/Healthy.</div>
     </div>
@@ -194,7 +269,20 @@ kubectl -n team-a get deploy staging-demo &amp;&amp; kubectl -n team-b get deplo
     <div class="exercise" data-title="Fight the controller and lose">
       <p>The appset template sets automated + selfHeal + prune:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n team-a scale deploy staging-demo --replicas=5
-kubectl -n team-a get deploy staging-demo -w</code></pre></div>
+kubectl -n team-a get deploy staging-demo -w</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n team-a scale deploy staging-demo --replicas=5</b>
+deployment.apps/staging-demo scaled
+<b>$ kubectl -n team-a get deploy staging-demo -w</b>
+NAME           READY   UP-TO-DATE   AVAILABLE   AGE
+staging-demo   3/5     3            3           21s
+staging-demo   3/5     3            3           21s
+staging-demo   3/5     5            3           22s
+staging-demo   3/3     5            3           22s
+staging-demo   3/3     5            3           23s
+staging-demo   3/3     5            3           23s
+staging-demo   3/3     3            3           23s
+staging-demo   3/3     3            3           26s
+staging-demo   3/3     3            3           55s
+<i>^C</i></code></pre></details></div>
       <p>Then prove you understand prune the safe way: the service manifest lives in <code>demo-app/base/</code>, so drop <code>service.yaml</code> from the base kustomization's resources list, push, and watch the live Service disappear from <em>both</em> tenants (a base edit hits every overlay, so mind the blast radius). Revert the commit and watch them return.</p>
       <div class="verify"><b>verify:</b> replicas snap back to the git value within seconds, <code>argocd app get demo-staging</code> never settles OutOfSync, and the Service round-trips with the commit. Git history is your undo.</div>
     </div>

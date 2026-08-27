@@ -95,7 +95,44 @@
     <div class="cb" data-lang="bash"><pre><code>crossplane resource trace appenvironment team-c-dev    # the whole tree with statuses, one shot
 kubectl get appenvironment team-c-dev -o jsonpath='{.status.conditions}' | jq
 kubectl -n default get objects.kubernetes.m.crossplane.io -o yaml | grep -A3 message
-kubectl get providers.pkg.crossplane.io,functions.pkg.crossplane.io</code></pre></div>
+kubectl get providers.pkg.crossplane.io,functions.pkg.crossplane.io</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ crossplane resource trace appenvironment team-c-dev    # the whole tree with statuses, one shot</b>
+NAME                                          SYNCED   READY   STATUS
+AppEnvironment/team-c-dev (default)           True     True    Available
+├─ Object/team-c-dev-b4bcdb64391c (default)   True     True    Available
+└─ Object/team-c-dev-e7e1d26b0016 (default)   True     True    Available
+<b>$ kubectl get appenvironment team-c-dev -o jsonpath='{.status.conditions}' | jq</b>
+[
+  {
+    "lastTransitionTime": "2026-08-27T01:53:00Z",
+    "observedGeneration": 4,
+    "reason": "ReconcileSuccess",
+    "status": "True",
+    "type": "Synced"
+  },
+  {
+    "lastTransitionTime": "2026-08-27T01:53:06Z",
+    "observedGeneration": 4,
+    "reason": "Available",
+    "status": "True",
+    "type": "Ready"
+  },
+  {
+    "lastTransitionTime": "2026-08-27T01:53:00Z",
+    "observedGeneration": 4,
+    "reason": "WatchCircuitClosed",
+    "status": "True",
+    "type": "Responsive"
+  }
+]
+<b>$ kubectl -n default get objects.kubernetes.m.crossplane.io -o yaml | grep -A3 message</b>
+<b>$ kubectl get providers.pkg.crossplane.io,functions.pkg.crossplane.io</b>
+NAME                                             INSTALLED   HEALTHY   PACKAGE                                                            AGE
+provider.pkg.crossplane.io/provider-helm         True        True      xpkg.crossplane.io/crossplane-contrib/provider-helm:v1.4.0         45m
+provider.pkg.crossplane.io/provider-kubernetes   True        True      xpkg.crossplane.io/crossplane-contrib/provider-kubernetes:v1.3.0   45m
+
+NAME                                                      INSTALLED   HEALTHY   PACKAGE                                                                      AGE
+function.pkg.crossplane.io/function-auto-ready            True        True      xpkg.crossplane.io/crossplane-contrib/function-auto-ready:v0.7.0             45m
+function.pkg.crossplane.io/function-patch-and-transform   True        True      xpkg.crossplane.io/crossplane-contrib/function-patch-and-transform:v0.10.9   45m</code></pre></details></div>
 
     <p>Two more operational facts worth carrying:</p>
     <ul>
@@ -119,7 +156,40 @@ kubectl get providers.pkg.crossplane.io,functions.pkg.crossplane.io</code></pre>
       <div class="cb" data-lang="bash"><pre><code>kubectl get appenvironment team-c-dev -o jsonpath='{.status.conditions}' | jq
 kubectl get appenvironment team-c-dev -o jsonpath='{.status.namespace}{"\n"}'
 kubectl -n default get objects.kubernetes.m.crossplane.io
-kubectl get ns team-c &amp;&amp; kubectl -n team-c get resourcequota tenant-quota -o jsonpath='{.spec.hard}'</code></pre></div>
+kubectl get ns team-c &amp;&amp; kubectl -n team-c get resourcequota tenant-quota -o jsonpath='{.spec.hard}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl get appenvironment team-c-dev -o jsonpath='{.status.conditions}' | jq</b>
+[
+  {
+    "lastTransitionTime": "2026-08-27T01:53:00Z",
+    "observedGeneration": 4,
+    "reason": "ReconcileSuccess",
+    "status": "True",
+    "type": "Synced"
+  },
+  {
+    "lastTransitionTime": "2026-08-27T01:53:06Z",
+    "observedGeneration": 4,
+    "reason": "Available",
+    "status": "True",
+    "type": "Ready"
+  },
+  {
+    "lastTransitionTime": "2026-08-27T01:53:00Z",
+    "observedGeneration": 4,
+    "reason": "WatchCircuitClosed",
+    "status": "True",
+    "type": "Responsive"
+  }
+]
+<b>$ kubectl get appenvironment team-c-dev -o jsonpath='{.status.namespace}{"\n"}'</b>
+team-c
+<b>$ kubectl -n default get objects.kubernetes.m.crossplane.io</b>
+NAME                      KIND            PROVIDERCONFIG   SYNCED   READY   AGE
+team-c-dev-b4bcdb64391c   Namespace       default          True     True    43m
+team-c-dev-e7e1d26b0016   ResourceQuota   default          True     True    43m
+<b>$ kubectl get ns team-c &amp;&amp; kubectl -n team-c get resourcequota tenant-quota -o jsonpath='{.spec.hard}'</b>
+NAME     STATUS   AGE
+team-c   Active   43m
+{"requests.cpu":"4","requests.memory":"8Gi"}</code></pre></details></div>
       <div class="verify"><b>verify:</b> Ready True, status.namespace says team-c, two composed Objects, and the quota's hard values match the XR's spec (<code>cpuQuota: "4"</code>), not the composition's placeholders. That last check proves the patches ran, which is the difference between "installed" and "works".</div>
     </div>
 

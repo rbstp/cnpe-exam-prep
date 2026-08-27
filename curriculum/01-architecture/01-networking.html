@@ -202,9 +202,17 @@
       <p>With <code>gitops</code> up, Argo CD sits behind a LoadBalancer (running <code>server.insecure</code>, so plain http):</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd get svc argocd-server -o wide      # note the EXTERNAL-IP
 kubectl -n argocd get endpointslices -l kubernetes.io/service-name=argocd-server
-curl -s -o /dev/null -w '%{http_code}\n' http://&lt;EXTERNAL-IP&gt;</code></pre></div>
+curl -s -o /dev/null -w '%{http_code}\n' http://&lt;EXTERNAL-IP&gt;</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n argocd get svc argocd-server -o wide      # note the EXTERNAL-IP</b>
+NAME            TYPE           CLUSTER-IP     EXTERNAL-IP   PORT(S)                      AGE   SELECTOR
+argocd-server   LoadBalancer   10.96.20.112   172.18.0.9    80:30153/TCP,443:30860/TCP   25m   app.kubernetes.io/instance=argocd,app.kubernetes.io/name=argocd-server
+<b>$ kubectl -n argocd get endpointslices -l kubernetes.io/service-name=argocd-server</b>
+NAME                  ADDRESSTYPE   PORTS       ENDPOINTS      AGE
+argocd-server-lm5nc   IPv4          8080,8080   10.244.1.181   25m
+<b>$ curl -s -o /dev/null -w '%{http_code}\n' http://172.18.0.9</b>
+200</code></pre></details></div>
       <p>The EXTERNAL-IP is real only while <code>cloud-provider-kind</code> runs; without it, <code>kubectl -n argocd port-forward svc/argocd-server 8080:80</code> and curl localhost:8080 instead, and the rest of the exercise is unchanged. Now break it in a way you can explain:</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd patch svc argocd-server --type=merge -p '{"spec":{"selector":{"app":"nope"}}}'</code></pre></div>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd patch svc argocd-server --type=merge -p '{"spec":{"selector":{"app":"nope"}}}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n argocd patch svc argocd-server --type=merge -p '{"spec":{"selector":{"app":"nope"}}}'</b>
+service/argocd-server patched</code></pre></details></div>
       <p>Watch the endpointslice lose its endpoints and curl start failing while DNS still resolves. Then look at what your patch actually did before undoing it: <code>kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.selector}'</code> shows the original two labels <em>plus</em> <code>app: nope</code>, because a JSON merge patch merges maps rather than replacing them. So the honest restore is removing your key, not re-adding theirs: <code>--type=merge -p '{"spec":{"selector":{"app":null}}}'</code>.</p>
       <div class="verify"><b>verify:</b> the selector is back to exactly <code>app.kubernetes.io/name: argocd-server</code> and <code>app.kubernetes.io/instance: argocd</code>, and curl returns 200. The merge-patch semantics come up on their own exam tasks.</div>
     </div>
@@ -214,7 +222,26 @@ curl -s -o /dev/null -w '%{http_code}\n' http://&lt;EXTERNAL-IP&gt;</code></pre>
       <div class="cb" data-lang="bash"><pre><code>cilium hubble port-forward &amp;
 kubectl -n team-a run probe --image=curlimages/curl:8.11.1 --restart=Never \
   -- curl -s -m 5 http://example.com
-hubble observe --namespace team-a --verdict DROPPED --last 20</code></pre></div>
+hubble observe --namespace team-a --verdict DROPPED --last 20</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ cilium hubble port-forward &amp;</b>
+[1] 954968
+<b>$ kubectl -n team-a run probe --image=curlimages/curl:8.11.1 --restart=Never \</b>
+<b>  -- curl -s -m 5 http://example.com</b>
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "probe" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "probe" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "probe" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "probe" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+pod/probe created
+<b>$ hubble observe --namespace team-a --verdict DROPPED --last 20</b>
+time=2026-08-26T22:13:56.514-04:00 level=WARN msg="Hubble CLI version is lower than Hubble Relay, API compatibility is not guaranteed, updating to a matching or higher version is recommended" hubble-cli-version=1.19.4 hubble-relay-version=1.20.1+g7d68cfb3
+Aug 27 02:13:45.229: team-a/probe:39428 (ID:2901) &lt;&gt; 104.20.23.154:80 (world) policy-verdict:none TRAFFIC_DIRECTION_UNKNOWN DENIED (TCP Flags: SYN)
+Aug 27 02:13:45.229: team-a/probe:39428 (ID:2901) &lt;&gt; 104.20.23.154:80 (world) Policy denied DROPPED (TCP Flags: SYN)
+Aug 27 02:13:46.270: team-a/probe:39428 (ID:2901) &lt;&gt; 104.20.23.154:80 (world) policy-verdict:none TRAFFIC_DIRECTION_UNKNOWN DENIED (TCP Flags: SYN)
+Aug 27 02:13:46.270: team-a/probe:39428 (ID:2901) &lt;&gt; 104.20.23.154:80 (world) Policy denied DROPPED (TCP Flags: SYN)
+Aug 27 02:13:47.294: team-a/probe:39428 (ID:2901) &lt;&gt; 104.20.23.154:80 (world) policy-verdict:none TRAFFIC_DIRECTION_UNKNOWN DENIED (TCP Flags: SYN)
+Aug 27 02:13:47.294: team-a/probe:39428 (ID:2901) &lt;&gt; 104.20.23.154:80 (world) Policy denied DROPPED (TCP Flags: SYN)
+Aug 27 02:13:47.629: team-a/probe:48966 (ID:2901) &lt;&gt; 172.66.147.243:80 (world) policy-verdict:none TRAFFIC_DIRECTION_UNKNOWN DENIED (TCP Flags: SYN)
+Aug 27 02:13:47.629: team-a/probe:48966 (ID:2901) &lt;&gt; 172.66.147.243:80 (world) Policy denied DROPPED (TCP Flags: SYN)
+Aug 27 02:13:48.639: team-a/probe:48966 (ID:2901) &lt;&gt; 172.66.147.243:80 (world) policy-verdict:none TRAFFIC_DIRECTION_UNKNOWN DENIED (TCP Flags: SYN)
+Aug 27 02:13:48.639: team-a/probe:48966 (ID:2901) &lt;&gt; 172.66.147.243:80 (world) Policy denied DROPPED (TCP Flags: SYN)
+Aug 27 02:13:49.663: team-a/probe:48966 (ID:2901) &lt;&gt; 172.66.147.243:80 (world) policy-verdict:none TRAFFIC_DIRECTION_UNKNOWN DENIED (TCP Flags: SYN)
+Aug 27 02:13:49.663: team-a/probe:48966 (ID:2901) &lt;&gt; 172.66.147.243:80 (world) Policy denied DROPPED (TCP Flags: SYN)</code></pre></details></div>
       <div class="verify"><b>verify:</b> DROPPED flows from the probe pod, and the pod's curl exits non-zero. This is the difference between "policy exists" and "policy enforces".</div>
     </div>
 
@@ -225,8 +252,23 @@ hubble observe --namespace team-a --verdict DROPPED --last 20</code></pre></div>
 
     <div class="exercise" data-title="DNS from inside">
       <p>From a pod in <code>default</code>, resolve short and long names:</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl run dnsprobe --image=busybox:1.37 --restart=Never -it --rm -- \
-  sh -c 'nslookup argocd-server.argocd &amp;&amp; nslookup argocd-server.argocd.svc.cluster.local'</code></pre></div>
+      <div class="cb" data-lang="bash"><pre><code>kubectl run dnsprobe --image=busybox:1.28 --restart=Never -it --rm -- \
+  sh -c 'nslookup argocd-server.argocd &amp;&amp; nslookup argocd-server.argocd.svc.cluster.local'</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl run dnsprobe --image=busybox:1.28 --restart=Never -it --rm -- \</b>
+<b>  sh -c 'nslookup argocd-server.argocd &amp;&amp; nslookup argocd-server.argocd.svc.cluster.local'</b>
+Server:    10.96.0.10
+Address 1: 10.96.0.10 kube-dns.kube-system.svc.cluster.local
+
+Name:      argocd-server.argocd
+Address 1: 10.96.20.112 argocd-server.argocd.svc.cluster.local
+Server:    10.96.0.10
+Address 1: 10.96.0.10 kube-dns.kube-system.svc.cluster.local
+
+Name:      argocd-server.argocd.svc.cluster.local
+Address 1: 10.96.20.112 argocd-server.argocd.svc.cluster.local
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+pod "dnsprobe" deleted from default namespace</code></pre></details></div>
+      <p>(busybox:1.28 on purpose: newer busybox <code>nslookup</code> ignores the search path and returns NXDOMAIN for the short name even though the pod's resolver handles it fine. A famous trap, worth meeting here rather than in an exam.)</p>
       <p>Then repeat inside <code>team-a</code> and explain why it still works (the tenant policy allows port 53 to kube-dns explicitly; find that rule in <code>examples/multitenancy/team-a.yaml</code>).</p>
       <div class="verify"><b>verify:</b> both names resolve from both namespaces, and you can point at the exact policy rule that permits it.</div>
     </div>

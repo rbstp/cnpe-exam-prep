@@ -68,7 +68,19 @@
 
     <h3>Two tools people forget exist</h3>
     <div class="cb" data-lang="bash"><pre><code>kubectl debug -it &lt;pod&gt; --image=busybox:1.37 --target=&lt;container&gt;   # ephemeral container into a distroless pod
-kubectl debug node/&lt;node&gt; -it --image=busybox:1.37                  # a node shell without SSH</code></pre></div>
+kubectl debug node/&lt;node&gt; -it --image=busybox:1.37                  # a node shell without SSH</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl debug -it example-7c5474d4c8-h5kn7 --image=busybox:1.37 --target=prometheus-example-app -- ps   # ephemeral container into a distroless pod</b>
+Targeting container "prometheus-example-app". If you don't see processes from this container it may be because the container runtime doesn't support this feature.
+Defaulting debug container name to debugger-k2kl4.
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+warning: couldn't attach to pod/example-7c5474d4c8-h5kn7, falling back to streaming logs: unable to upgrade connection: container debugger-k2kl4 not found in pod example-7c5474d4c8-h5kn7_default
+PID   USER     TIME  COMMAND
+    1 root      0:00 /bin/prometheus-example-app
+   24 root      0:00 ps
+<b>$ kubectl debug node/cnpe-worker -it --image=busybox:1.37 -- chroot /host sh -c 'hostname &amp;&amp; uptime'   # a node shell without SSH</b>
+Creating debugging pod node-debugger-cnpe-worker-j529t with container debugger on node cnpe-worker.
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.</code></pre></details></div>
     <p>Both exist in the exam environment. The first is the answer to "the image has no shell"; the second to "I need to look at the node and there is no SSH".</p>
 
     <div class="callout reflex">
@@ -105,7 +117,20 @@ kubectl debug node/&lt;node&gt; -it --image=busybox:1.37                  # a no
     <div class="exercise" data-title="The seven faults, cold">
       <p>One session per few days, not all at once:</p>
       <div class="cb" data-lang="bash"><pre><code>make break            # random; 7-minute target
-make break-answer     # only after you have committed to a diagnosis</code></pre></div>
+make break-answer     # only after you have committed to a diagnosis</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ make break            # random; 7-minute target</b>
+
+  ⏱  Fault injected into namespace 'team-a'. Deployment: broken
+     Find it and fix it. Target: under 7 minutes (exam pace).
+
+     Start here, in this order; it works for every one of these:
+       kubectl -n team-a get pods
+       kubectl -n team-a describe pod &lt;pod&gt;
+       kubectl -n team-a get events --sort-by=.lastTimestamp | tail -20
+       kubectl -n team-a logs &lt;pod&gt; --previous
+
+     Reveal the answer when you're done:  make break-answer
+<b>$ make break-answer     # only after you have committed to a diagnosis</b>
+Injected fault type: rbac</code></pre></details></div>
       <p>Then drill the ones that hurt, by name: <code>FAULT=image</code>, <code>probe</code>, <code>resources</code>, <code>rbac</code>, <code>quota</code>, <code>netpol</code>, <code>config</code>. The rbac fault is invisible in pod listings and only surfaces under <code>kubectl auth can-i --as=...</code>; the netpol fault leaves everything Running while DNS is dead (the additive-allow-list lesson from 1.4).</p>
       <div class="verify"><b>verify:</b> your diagnosis written down <em>before</em> <code>make break-answer</code>, and the fix confirmed by the failing behaviour now succeeding. <code>make break-fix</code> afterwards shows the evidence trail a systematic diagnosis would have followed; compare it with the path you actually took and note where you diverged.</div>
     </div>

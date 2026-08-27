@@ -53,7 +53,10 @@
       <span class="tag">The silent selector trap</span>
       <p>Prometheus only picks up ServiceMonitors matching its own <code>serviceMonitorSelector</code>, which on a stock kube-prometheus-stack matches the Helm release label (<code>release: prometheus</code>). A perfectly correct monitor without that label is <em>silently ignored</em>: no error, no event, no target. This lab deliberately disables that filter (<code>serviceMonitorSelectorNilUsesHelmValues=false</code>), so its selector is <code>{}</code> and every monitor everywhere is picked up. Either way, <strong>read the selector first, then write the monitor.</strong></p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.serviceMonitorSelector}'; echo
-kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.serviceMonitorNamespaceSelector}'; echo</code></pre></div>
+kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.serviceMonitorNamespaceSelector}'; echo</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.serviceMonitorSelector}'; echo</b>
+{}
+<b>$ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.serviceMonitorNamespaceSelector}'; echo</b>
+{}</code></pre></details></div>
       <p>Prints <code>{}</code> on this cluster and the release-label selector on a stock install. That one check is the answer to "my target does not appear" everywhere. The exam's cluster has its own selector, so check it rather than assuming. The <em>namespace</em> selector is the second half of the same trap: a monitor in a namespace Prometheus does not watch is equally invisible.</p>
     </div>
 
@@ -139,7 +142,19 @@ metadata: { name: example, namespace: default }
 spec:
   selector: { matchLabels: { app: example } }
   endpoints: [{ port: "8080" }]
-EOF</code></pre></div>
+EOF</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl create deploy example --image=quay.io/brancz/prometheus-example-app:v0.5.0 --port=8080</b>
+deployment.apps/example created
+<b>$ kubectl expose deploy example --port=8080 --name=example</b>
+service/example exposed
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: monitoring.coreos.com/v1</b>
+<b>kind: ServiceMonitor</b>
+<b>metadata: { name: example, namespace: default }</b>
+<b>spec:</b>
+<b>  selector: { matchLabels: { app: example } }</b>
+<b>  endpoints: [{ port: "8080" }]</b>
+<b>EOF</b>
+servicemonitor.monitoring.coreos.com/example created</code></pre></details></div>
       <p>Wait a minute, search Targets: nothing. The endpoint's <code>port</code> must be the Service's port <em>name</em>, and this Service has none, so the monitor matches the Service and then finds no endpoint. It fails silently. Fix it: patch the Service so the port is named (<code>kubectl patch svc example --type=json -p '[{"op":"add","path":"/spec/ports/0/name","value":"web"}]'</code>) and set <code>port: web</code> in the monitor.</p>
       <div class="verify"><b>verify:</b> <code>up{job="example"}</code> returns 1 in the UI. Then add the <code>release: prometheus</code> label to your monitor anyway and confirm nothing changes here, while being able to say why it would be the difference between working and ignored on a stock install.</div>
     </div>

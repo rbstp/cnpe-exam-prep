@@ -158,7 +158,12 @@
 
     <div class="exercise" data-title="Derive QoS">
       <p>Create three pods in <code>default</code>: one with requests==limits, one with only requests, one with nothing. Predict each class before checking:</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl get pod &lt;name&gt; -o jsonpath='{.status.qosClass}{"\n"}'</code></pre></div>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get pod &lt;name&gt; -o jsonpath='{.status.qosClass}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl get pod qos-guaranteed -o jsonpath='{.status.qosClass}{"\n"}'</b>
+Guaranteed
+<b>$ kubectl get pod qos-burstable -o jsonpath='{.status.qosClass}{"\n"}'</b>
+Burstable
+<b>$ kubectl get pod qos-besteffort -o jsonpath='{.status.qosClass}{"\n"}'</b>
+BestEffort</code></pre></details></div>
       <div class="verify"><b>verify:</b> three different answers, all matching your prediction. Delete them.</div>
     </div>
 
@@ -166,7 +171,18 @@
       <p>Memory first. <code>kubectl run</code> lost its resource flags a while back, so this is also a rep for the <code>--overrides</code> escape hatch:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl run oom --image=polinux/stress --restart=Never \
   --overrides='{"spec":{"containers":[{"name":"oom","image":"polinux/stress","command":["stress","--vm","1","--vm-bytes","128M","--vm-hang","0"],"resources":{"requests":{"memory":"64Mi"},"limits":{"memory":"64Mi"}}}]}}'
-kubectl get pod oom -w    # until STATUS shows OOMKilled</code></pre></div>
+kubectl get pod oom -w    # until STATUS shows OOMKilled</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl run oom --image=polinux/stress --restart=Never \</b>
+<b>  --overrides='{"spec":{"containers":[{"name":"oom","image":"polinux/stress","command":["stress","--vm","1","--vm-bytes","128M","--vm-hang","0"],"resources":{"requests":{"memory":"64Mi"},"limits":{"memory":"64Mi"}}}]}}'</b>
+pod/oom created
+<b>$ kubectl get pod oom -w    # until STATUS shows OOMKilled</b>
+NAME   READY   STATUS    RESTARTS   AGE
+oom    0/1     Pending   0          1s
+oom    0/1     ContainerCreating   0          1s
+oom    0/1     ContainerCreating   0          3s
+oom    1/1     Running             0          12s
+oom    0/1     OOMKilled           0          12s
+oom    0/1     OOMKilled           0          14s
+<i>^C</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> <code>kubectl get pod oom -o jsonpath='{.status.containerStatuses[0].state.terminated.reason}'</code> prints <code>OOMKilled</code>. With <code>--restart=Never</code> nothing restarts, so the evidence sits in <code>state</code>, not <code>lastState</code>; in a crash-looping Deployment it is the other way round. CPU, by contrast, would have throttled silently.</div>
     </div>
 
@@ -185,7 +201,33 @@ kubectl get pod oom -w    # until STATUS shows OOMKilled</code></pre></div>
       <div class="cb" data-lang="bash"><pre><code>kubectl autoscale deploy demo --min=2 --max=6 --cpu-percent=20
 kubectl run load --image=busybox:1.37 --restart=Never -- \
   sh -c 'while true; do wget -qO- http://demo.default.svc:80 &gt;/dev/null; done'
-kubectl get hpa demo -w</code></pre></div>
+kubectl get hpa demo -w</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl autoscale deploy demo --min=2 --max=6 --cpu-percent=20</b>
+Flag --cpu-percent has been deprecated, Use --cpu with percentage or resource quantity format (e.g., '70%' for utilization or '500m' for milliCPU).
+horizontalpodautoscaler.autoscaling/demo autoscaled
+<b>$ kubectl run load --image=busybox:1.37 --restart=Never -- \</b>
+<b>  sh -c 'while true; do wget -qO- http://demo.default.svc:80 &gt;/dev/null; done'</b>
+pod/load created
+<b>$ kubectl get hpa demo -w</b>
+NAME   REFERENCE         TARGETS              MINPODS   MAXPODS   REPLICAS   AGE
+demo   Deployment/demo   cpu: &lt;unknown&gt;/20%   2         6         0          0s
+demo   Deployment/demo   cpu: &lt;unknown&gt;/20%   2         6         2          15s
+demo   Deployment/demo   cpu: 114%/20%        2         6         2          30s
+demo   Deployment/demo   cpu: 98%/20%         2         6         4          45s
+demo   Deployment/demo   cpu: 98%/20%         2         6         6          60s
+demo   Deployment/demo   cpu: 34%/20%         2         6         6          75s
+demo   Deployment/demo   cpu: 36%/20%         2         6         6          91s
+demo   Deployment/demo   cpu: 41%/20%         2         6         6          106s
+demo   Deployment/demo   cpu: 30%/20%         2         6         6          2m1s
+demo   Deployment/demo   cpu: 25%/20%         2         6         6          2m16s
+demo   Deployment/demo   cpu: 30%/20%         2         6         6          2m31s
+demo   Deployment/demo   cpu: 39%/20%         2         6         6          2m46s
+demo   Deployment/demo   cpu: 38%/20%         2         6         6          3m1s
+demo   Deployment/demo   cpu: 25%/20%         2         6         6          3m16s
+demo   Deployment/demo   cpu: 26%/20%         2         6         6          3m31s
+demo   Deployment/demo   cpu: 38%/20%         2         6         6          3m46s
+demo   Deployment/demo   cpu: 39%/20%         2         6         6          4m1s
+demo   Deployment/demo   cpu: 30%/20%         2         6         6          4m16s
+<i>^C</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> REPLICAS climbs above 2 within a couple of minutes. Kill <code>load</code> and watch it settle back after the stabilisation window (about 5 minutes). Note the demo container requests 25m CPU, which is why 20% is reachable at all.</div>
     </div>
 
@@ -198,7 +240,26 @@ spec:
   targetRef: { apiVersion: apps/v1, kind: Deployment, name: demo }
   updatePolicy: { updateMode: "Off" }</code></pre></div>
       <p>Give it a few minutes, then:</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl get vpa demo -o jsonpath='{.status.recommendation.containerRecommendations[0]}' | jq</code></pre></div>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get vpa demo -o jsonpath='{.status.recommendation.containerRecommendations[0]}' | jq</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl get vpa demo -o jsonpath='{.status.recommendation.containerRecommendations[0]}' | jq</b>
+{
+  "containerName": "web",
+  "lowerBound": {
+    "cpu": "15m",
+    "memory": "100Mi"
+  },
+  "target": {
+    "cpu": "23m",
+    "memory": "100Mi"
+  },
+  "uncappedTarget": {
+    "cpu": "23m",
+    "memory": "100Mi"
+  },
+  "upperBound": {
+    "cpu": "12479m",
+    "memory": "8405796509"
+  }
+}</code></pre></details></div>
       <div class="verify"><b>verify:</b> a target/lowerBound/upperBound block. Compare target against the 25m request in the manifest and say, out loud, whether this workload is over- or under-provisioned. Section 1.5 turns that comparison into money.</div>
     </div>
 

@@ -100,7 +100,53 @@
       <div class="cb" data-lang="bash"><pre><code>kubectl -n team-a get resourcequota team-a-quota -o yaml   # read used vs hard
 kubectl -n team-a create deploy filler --image=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine --replicas=25
 kubectl -n team-a get rs -l app=filler -o jsonpath='{.items[0].status.replicas}'
-kubectl -n team-a get events --sort-by=.lastTimestamp | grep -i quota | tail -3</code></pre></div>
+kubectl -n team-a get events --sort-by=.lastTimestamp | grep -i quota | tail -3</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n team-a get resourcequota team-a-quota -o yaml   # read used vs hard</b>
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","kind":"ResourceQuota","metadata":{"annotations":{},"name":"team-a-quota","namespace":"team-a"},"spec":{"hard":{"limits.cpu":"4","limits.memory":"8Gi","persistentvolumeclaims":"4","pods":"20","requests.cpu":"2","requests.memory":"4Gi","services.loadbalancers":"1"}}}
+  creationTimestamp: "2026-08-27T02:06:44Z"
+  name: team-a-quota
+  namespace: team-a
+  resourceVersion: "18561"
+  uid: 1e256ecb-ab19-4f1f-bce7-0ae59563b845
+spec:
+  hard:
+    limits.cpu: "4"
+    limits.memory: 8Gi
+    persistentvolumeclaims: "4"
+    pods: "20"
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    services.loadbalancers: "1"
+status:
+  hard:
+    limits.cpu: "4"
+    limits.memory: 8Gi
+    persistentvolumeclaims: "4"
+    pods: "20"
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    services.loadbalancers: "1"
+  used:
+    limits.cpu: "0"
+    limits.memory: "0"
+    persistentvolumeclaims: "0"
+    pods: "0"
+    requests.cpu: "0"
+    requests.memory: "0"
+    services.loadbalancers: "0"
+<b>$ kubectl -n team-a create deploy filler --image=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine --replicas=25</b>
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "nginx-unprivileged" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "nginx-unprivileged" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "nginx-unprivileged" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "nginx-unprivileged" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+deployment.apps/filler created
+<b>$ kubectl -n team-a get rs -l app=filler -o jsonpath='{.items[0].status.replicas}'</b>
+20
+<b>$ kubectl -n team-a get events --sort-by=.lastTimestamp | grep -i quota | tail -3</b>
+21s         Warning   FailedCreate        replicaset/filler-6d6c49db66   Error creating: pods "filler-6d6c49db66-b9qs8" is forbidden: exceeded quota: team-a-quota, requested: limits.cpu=200m,pods=1, used: limits.cpu=4,pods=20, limited: limits.cpu=4,pods=20
+21s         Warning   FailedCreate        replicaset/filler-6d6c49db66   Error creating: pods "filler-6d6c49db66-vlnj4" is forbidden: exceeded quota: team-a-quota, requested: limits.cpu=200m,pods=1, used: limits.cpu=4,pods=20, limited: limits.cpu=4,pods=20
+11s         Warning   FailedCreate        replicaset/filler-6d6c49db66   (combined from similar events): Error creating: pods "filler-6d6c49db66-9ktm7" is forbidden: exceeded quota: team-a-quota, requested: limits.cpu=200m,pods=1, used: limits.cpu=4,pods=20, limited: limits.cpu=4,pods=20</code></pre></details></div>
       <p>Do the arithmetic before peeking: the LimitRange injects 50m requests and 200m limits per container, so <code>requests.cpu: "2"</code> allows 40 pods but <code>limits.cpu: "4"</code> allows exactly 20, tying with <code>pods: "20"</code>. Whichever line the event names, you should be able to derive why.</p>
       <div class="verify"><b>verify:</b> replicas stall below 25, and the ReplicaSet events say exactly which quota line refused. The skill is reading <code>exceeded quota: team-a-quota, requested: ..., used: ..., limited: ...</code> fluently. Clean up with <code>kubectl -n team-a delete deploy filler</code>.</div>
     </div>
@@ -108,7 +154,20 @@ kubectl -n team-a get events --sort-by=.lastTimestamp | grep -i quota | tail -3<
     <div class="exercise" data-title="Prove the LimitRange writes the requests">
       <p>Run a pod with no resources block and read what it got:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n team-a run bare --image=busybox:1.37 --restart=Never -- sleep 300
-kubectl -n team-a get pod bare -o jsonpath='{.spec.containers[0].resources}' | jq</code></pre></div>
+kubectl -n team-a get pod bare -o jsonpath='{.spec.containers[0].resources}' | jq</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n team-a run bare --image=busybox:1.37 --restart=Never -- sleep 300</b>
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "bare" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "bare" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "bare" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "bare" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+pod/bare created
+<b>$ kubectl -n team-a get pod bare -o jsonpath='{.spec.containers[0].resources}' | jq</b>
+{
+  "limits": {
+    "cpu": "200m",
+    "memory": "256Mi"
+  },
+  "requests": {
+    "cpu": "50m",
+    "memory": "64Mi"
+  }
+}</code></pre></details></div>
       <div class="verify"><b>verify:</b> requests 50m/64Mi and limits 200m/256Mi, injected by <code>team-a-limits</code>, matching nothing you typed. Then try to exceed the max: set <code>limits.cpu: "2"</code> on a pod and confirm admission rejects it with a LimitRange error, not a quota error.</div>
     </div>
 
@@ -118,7 +177,17 @@ kubectl -n team-a get pod bare -o jsonpath='{.spec.containers[0].resources}' | j
 kubectl -n team-a run poke --image=curlimages/curl:8.11.1 --restart=Never -- \
   curl -s -m 5 -o /dev/null -w '%{http_code}' http://web.team-b.svc:8080
 kubectl -n team-a wait --for=jsonpath='{.status.phase}'=Failed pod/poke --timeout=60s \
-  || kubectl -n team-a get pod poke -o jsonpath='{.status.containerStatuses[0].state.terminated.exitCode}'</code></pre></div>
+  || kubectl -n team-a get pod poke -o jsonpath='{.status.containerStatuses[0].state.terminated.exitCode}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n team-b run web --image=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine --port=8080 --expose</b>
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "web" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "web" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "web" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "web" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+service/web created
+pod/web created
+<b>$ kubectl -n team-a run poke --image=curlimages/curl:8.11.1 --restart=Never -- \</b>
+<b>  curl -s -m 5 -o /dev/null -w '%{http_code}' http://web.team-b.svc:8080</b>
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "poke" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "poke" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "poke" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "poke" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+pod/poke created
+<b>$ kubectl -n team-a wait --for=jsonpath='{.status.phase}'=Failed pod/poke --timeout=60s \</b>
+<b>  || kubectl -n team-a get pod poke -o jsonpath='{.status.containerStatuses[0].state.terminated.exitCode}'</b>
+pod/poke condition met</code></pre></details></div>
       <div class="verify"><b>verify:</b> the curl times out (exit 28). Then write the pair of policies that would allow exactly this one flow, an egress rule in team-a and an ingress rule in team-b, apply them, and rerun until you get a 200. Both ends must open.</div>
     </div>
 

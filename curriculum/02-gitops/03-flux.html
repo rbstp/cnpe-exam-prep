@@ -92,7 +92,72 @@ flux resume kustomization demo
 flux tree kustomization demo              # what did this thing create
 flux events --for Kustomization/demo
 flux logs --level=error --all-namespaces
-flux trace deploy/demo -n flux-demo       # which Flux object owns this resource</code></pre></div>
+flux trace deploy/demo -n flux-demo       # which Flux object owns this resource</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ flux get sources git                      # and: helm, oci, bucket, all</b>
+NAME    	REVISION          	SUSPENDED	READY	MESSAGE                                           
+platform	main@sha1:c7cb9a1e	False    	True 	stored artifact for revision 'main@sha1:c7cb9a1e'	
+<b>$ flux get kustomizations                   # Ready, revision, last applied</b>
+NAME     	REVISION          	SUSPENDED	READY	MESSAGE                              
+demo-flux	main@sha1:c7cb9a1e	False    	True 	Applied revision: main@sha1:c7cb9a1e	
+<b>$ flux reconcile kustomization demo-flux --with-source   # force the loop now, refetch first</b>
+► annotating GitRepository platform in flux-system namespace
+✔ GitRepository annotated
+◎ waiting for GitRepository reconciliation
+✔ fetched revision main@sha1:c7cb9a1e37949219ff64e2c5dd17654109deea6d
+► annotating Kustomization demo-flux in flux-system namespace
+✔ Kustomization annotated
+◎ waiting for Kustomization reconciliation
+✔ applied revision main@sha1:c7cb9a1e37949219ff64e2c5dd17654109deea6d
+<b>$ flux suspend kustomization demo-flux      # the sanctioned pause for surgery</b>
+► suspending kustomization demo-flux in flux-system namespace
+✔ kustomization suspended
+<b>$ flux resume kustomization demo-flux</b>
+► resuming kustomization demo-flux in flux-system namespace
+✔ kustomization resumed
+◎ waiting for Kustomization reconciliation
+✔ Kustomization demo-flux reconciliation completed
+✔ applied revision main@sha1:c7cb9a1e37949219ff64e2c5dd17654109deea6d
+<b>$ flux tree kustomization demo-flux         # what did this thing create</b>
+Kustomization/flux-system/demo-flux
+├── Service/flux-demo/demo
+└── Deployment/flux-demo/demo
+
+<b>$ flux events --for Kustomization/demo-flux</b>
+LAST SEEN           	TYPE  	REASON                    	OBJECT                 	MESSAGE                                                                                                      
+31m                 	Normal	NewArtifact               	GitRepository/platform 	stored artifact for commit 'seed lab manifests'                                                             	
+5m34s (x26 over 30m)	Normal	GitOperationSucceeded     	GitRepository/platform 	no changes since last reconciliation: observed revision 'main@sha1:62d527f00a730f9a9b30cbd70a20b8e138f70bd6'	
+4m35s               	Normal	NewArtifact               	GitRepository/platform 	stored artifact for commit 'staging: 3 replicas'                                                            	
+3m33s               	Normal	GarbageCollectionSucceeded	GitRepository/platform 	garbage collected 1 artifacts                                                                               	
+2m10s               	Normal	Progressing               	Kustomization/demo-flux	Service/flux-demo/demo created                                                                              	
+                    	      	                          	                       	Deployment/flux-demo/demo created                                                                           	
+2m10s               	Normal	ReconciliationSucceeded   	Kustomization/demo-flux	Reconciliation finished in 653.93345ms, next run in 1m0s                                                    	
+92s (x3 over 3m33s) 	Normal	GitOperationSucceeded     	GitRepository/platform 	no changes since last reconciliation: observed revision 'main@sha1:c7cb9a1e37949219ff64e2c5dd17654109deea6d'	
+68s                 	Normal	Progressing               	Kustomization/demo-flux	Deployment/flux-demo/demo configured                                                                        	
+68s                 	Normal	ReconciliationSucceeded   	Kustomization/demo-flux	Reconciliation finished in 553.601679ms, next run in 1m0s                                                   	
+6s                  	Normal	ReconciliationSucceeded   	Kustomization/demo-flux	Reconciliation finished in 481.338357ms, next run in 1m0s                                                   	
+4s                  	Normal	ReconciliationSucceeded   	Kustomization/demo-flux	Reconciliation finished in 227.246168ms, next run in 1m0s                                                   	
+1s                  	Normal	ReconciliationSucceeded   	Kustomization/demo-flux	Reconciliation finished in 343.998075ms, next run in 1m0s                                                   	
+<b>$ flux logs --level=error --all-namespaces</b>
+<b>$ flux trace deploy/demo -n flux-demo       # which Flux object owns this resource</b>
+
+Object:          Deployment/demo
+Namespace:       flux-demo
+Status:          Managed by Flux
+---
+Kustomization:   demo-flux
+Namespace:       flux-system
+Target:          flux-demo
+Path:            ./demo-app/base
+Revision:        main@sha1:c7cb9a1e37949219ff64e2c5dd17654109deea6d
+Status:          Last reconciled at 2026-08-26 22:20:37 -0400 EDT
+Message:         Applied revision: main@sha1:c7cb9a1e37949219ff64e2c5dd17654109deea6d
+---
+GitRepository:   platform
+Namespace:       flux-system
+URL:             http://gitea.lab:3000/lab/platform.git
+Branch:          main
+Revision:        main@sha1:c7cb9a1e37949219ff64e2c5dd17654109deea6d
+Status:          Last reconciled at 2026-08-26 22:16:03 -0400 EDT
+Message:         stored artifact for revision 'main@sha1:c7cb9a1e37949219ff64e2c5dd17654109deea6d'</code></pre></details></div>
     <p><code>flux trace</code> is the reverse lookup: hand it any live resource and it tells you which Kustomization or HelmRelease put it there. On an unfamiliar cluster that is the fastest orientation command Flux has.</p>
 
     <div class="callout exam">
@@ -138,14 +203,33 @@ flux create kustomization demo-flux \
   --target-namespace=flux-demo \
   --prune=true --interval=1m \
   --health-check-timeout=2m
-flux get kustomizations</code></pre></div>
+flux get kustomizations</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl create ns flux-demo</b>
+namespace/flux-demo created
+<b>$ flux create kustomization demo-flux \</b>
+<b>  --source=GitRepository/platform \</b>
+<b>  --path=./demo-app/base \</b>
+<b>  --target-namespace=flux-demo \</b>
+<b>  --prune=true --interval=1m \</b>
+<b>  --health-check-timeout=2m</b>
+✚ generating Kustomization
+► applying Kustomization
+✔ Kustomization created
+◎ waiting for Kustomization reconciliation
+✔ Kustomization demo-flux is ready
+✔ applied revision main@sha1:c7cb9a1e37949219ff64e2c5dd17654109deea6d
+<b>$ flux get kustomizations</b>
+NAME     	REVISION          	SUSPENDED	READY	MESSAGE                              
+demo-flux	main@sha1:c7cb9a1e	False    	True 	Applied revision: main@sha1:c7cb9a1e	</code></pre></details></div>
       <div class="verify"><b>verify:</b> Ready True with an applied revision SHA, and <code>kubectl -n flux-demo get deploy demo</code> shows 2/2. Then <code>flux tree kustomization demo-flux</code> and confirm it lists exactly the deployment, service, and nothing else.</div>
     </div>
 
     <div class="exercise" data-title="Watch the interval work">
       <p>Scale the deployment by hand, then wait out one interval:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n flux-demo scale deploy demo --replicas=5
-sleep 70 &amp;&amp; kubectl -n flux-demo get deploy demo -o jsonpath='{.spec.replicas}{"\n"}'</code></pre></div>
+sleep 70 &amp;&amp; kubectl -n flux-demo get deploy demo -o jsonpath='{.spec.replicas}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n flux-demo scale deploy demo --replicas=5</b>
+deployment.apps/demo scaled
+<b>$ sleep 70 &amp;&amp; kubectl -n flux-demo get deploy demo -o jsonpath='{.spec.replicas}{"\n"}'</b>
+2</code></pre></details></div>
       <div class="verify"><b>verify:</b> back to 2. Same experiment as Argo's selfHeal, different mechanism; be able to say which component did it (kustomize-controller re-applying at interval).</div>
     </div>
 
@@ -159,7 +243,24 @@ sleep 70 &amp;&amp; kubectl -n flux-demo get deploy demo -o jsonpath='{.spec.rep
       <div class="cb" data-lang="bash"><pre><code>flux create source helm podinfo --url=https://stefanprodan.github.io/podinfo --interval=10m
 flux create helmrelease podinfo --source=HelmRepository/podinfo \
   --chart=podinfo --release-name=podinfo --target-namespace=flux-demo --interval=5m
-kubectl -n flux-demo get deploy podinfo</code></pre></div>
+kubectl -n flux-demo get deploy podinfo</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ flux create source helm podinfo --url=https://stefanprodan.github.io/podinfo --interval=10m</b>
+✚ generating HelmRepository source
+► applying HelmRepository source
+✔ source created
+◎ waiting for HelmRepository source reconciliation
+✔ HelmRepository source reconciliation completed
+✔ fetched revision: sha256:616e9b4128d1df741234ee73d2411fd56d17c47046c506a7f47b82416c946a9b
+<b>$ flux create helmrelease podinfo --source=HelmRepository/podinfo \</b>
+<b>  --chart=podinfo --release-name=podinfo --target-namespace=flux-demo --interval=5m</b>
+✚ generating HelmRelease
+► applying HelmRelease
+✔ HelmRelease created
+◎ waiting for HelmRelease reconciliation
+✔ HelmRelease podinfo is ready
+✔ applied revision 6.14.1
+<b>$ kubectl -n flux-demo get deploy podinfo</b>
+NAME      READY   UP-TO-DATE   AVAILABLE   AGE
+podinfo   1/1     1            1           48s</code></pre></details></div>
       <p>Break it once: set <code>--chart-version='&gt;99.0.0'</code> on a new helmrelease, read the failure in <code>flux get helmreleases</code> and <code>kubectl describe helmrelease</code>, then delete it. Failed source resolution vs failed install vs failed health check appear in different conditions, and knowing which layer failed is the troubleshooting pattern.</p>
       <div class="verify"><b>verify:</b> <code>flux get helmreleases</code> Ready True, release revision 1, and <code>helm list -n flux-system</code> shows the release: Helm storage lives with the HelmRelease, not the workload. (Without <code>--release-name</code>, helm-controller would have named the release <code>flux-demo-podinfo</code> and the Deployment with it.)</div>
     </div>
