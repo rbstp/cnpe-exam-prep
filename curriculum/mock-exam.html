@@ -106,7 +106,7 @@
     </div>
 
     <div class="task" data-pts="4" data-title="Sign and verify an image (domain 5)">
-      <p>Generate a cosign key pair, sign the image <code>localhost:5001/demo:v1</code> by digest, and verify the signature. Both sign and verify must succeed against the registry.</p>
+      <p>Generate a cosign key pair at <code>/tmp/mock-cosign.key</code> / <code>/tmp/mock-cosign.pub</code> (grading reads the public key from that path), sign the image <code>localhost:5001/demo:v1</code> by digest, and verify the signature. Both sign and verify must succeed against the registry.</p>
     </div>
 
   </div>
@@ -119,7 +119,7 @@
     <div class="cb" data-lang="bash"><pre><code># 1
 kubectl get ns team-x -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}{"\n"}'   # baseline
 kubectl -n team-x get resourcequota mock-quota -o jsonpath='{.spec.hard}{"\n"}'                      # cpu 1, mem 2Gi, pods 5
-kubectl -n team-x run graded --image=busybox:1.37 --restart=Never -- sleep 30 &amp;&amp; sleep 5 &amp;&amp; \
+kubectl -n team-x run graded --image=busybox:1.37 --restart=Never --dry-run=client -o yaml -- sleep 30 | kubectl apply -f - ; sleep 5
 kubectl -n team-x get pod graded -o jsonpath='{.spec.containers[0].resources}{"\n"}'                 # 100m/128Mi defaults injected
 # 2
 kubectl -n team-x get deploy web -o jsonpath='{.status.readyReplicas}{"\n"}'                         # 4
@@ -146,7 +146,7 @@ kubectl get workflow -o jsonpath='{.items[?(@.status.phase=="Succeeded")].metada
 kubectl get cm mock-result -o jsonpath='{.data.result}{"\n"}'                                        # done
 # 9
 kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 19090:9090 &amp; sleep 3
-curl -s 'http://localhost:19090/api/v1/query?query=up{namespace="default"}' | jq -r '.data.result[] | select(.metric.pod|test("mock-metrics")) | .value[1]'   # 1
+curl -sG 'http://localhost:19090/api/v1/query' --data-urlencode 'query=max_over_time(up{job="mock-metrics"}[2h])' | jq -r '.data.result[0].value[1]'   # 1 (holds even after task 10 scaled it to 0)
 # 10 (after scaling to 0 and waiting out the for:)
 kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-alertmanager 19093:9093 &amp; sleep 3
 curl -s 'http://localhost:19093/api/v2/alerts?filter=alertname%3D%22MockDown%22' | jq -r '.[0].status.state'   # active
@@ -161,7 +161,7 @@ kubectl -n policy-test run graded-naked --image=busybox:1.37 --restart=Never -- 
 # 14
 jq -e 'select(.verb=="delete") | .user.username, .objectRef.resource' /tmp/mock-audit.json | head    # parses, right shape
 # 15
-cosign verify --key cosign.pub --allow-http-registry localhost:5001/demo@$(skopeo inspect --tls-verify=false docker://localhost:5001/demo:v1 | jq -r .Digest) 2&gt;&amp;1 | grep -c 'signatures were verified'  # 1</code></pre></div>
+cosign verify --key /tmp/mock-cosign.pub --allow-http-registry localhost:5001/demo@$(skopeo inspect --tls-verify=false docker://localhost:5001/demo:v1 | jq -r .Digest) 2&gt;&amp;1 | grep -c 'signatures were verified'  # 1</code></pre></div>
   </div>
 </section>
 
@@ -186,7 +186,7 @@ cosign verify --key cosign.pub --allow-http-registry localhost:5001/demo@$(skope
 
     <details class="quiz"><summary>8 · workflow with RBAC</summary><div class="answer"><p>Section 3.4's pattern with a single <code>resource</code> template (action create, the ConfigMap manifest inline). The SA needs <code>create</code> on configmaps in default <em>and</em> <code>create,patch</code> on <code>workflowtaskresults.argoproj.io</code> (the executor's reporting channel; forget it and a correct workflow still fails), bound with Roles, named in <code>spec.serviceAccountName</code>.</p></div></details>
 
-    <details class="quiz"><summary>9 · scrape a new target</summary><div class="answer"><p>Deployment + Service with a <em>named</em> port, ServiceMonitor selecting the Service's labels, endpoint port by name. This lab's Prometheus selects all monitors (selector <code>{}</code>); on a stock install you would also need the release label, so check the selector first. Section 4.1's second exercise walks through this task step by step.</p></div></details>
+    <details class="quiz"><summary>9 · scrape a new target</summary><div class="answer"><p>Deployment + Service with a <em>named</em> port, ServiceMonitor selecting the Service's labels, endpoint port by name. This lab's Prometheus selects all monitors (selector <code>{}</code>); on a stock install you would also need the release label, so check the selector first. Section 4.1's second exercise walks through this task step by step. Grading queries <code>max_over_time(up{job="mock-metrics"}[2h])</code> rather than live <code>up</code> because task 10 has you scale the target to zero: the point still counts while the target is down, as long as it scraped up at some point in the exam window.</p></div></details>
 
     <details class="quiz"><summary>10 · alert that fires</summary><div class="answer"><p><code>expr: absent(up{job="mock-metrics"} == 1)</code> (or <code>count(up{...}==1) == 0</code> with <code>or vector</code> care), <code>for: 1m</code>. Scale to 0, wait ~2–3 min for evaluate + <code>for:</code> + <code>group_wait</code>. Section 4.2. (Rule selector logic is the same story as answer 9.)</p></div></details>
 
@@ -196,9 +196,9 @@ cosign verify --key cosign.pub --allow-http-registry localhost:5001/demo@$(skope
 
     <details class="quiz"><summary>13 · enforce the policy</summary><div class="answer"><p><code>kubectl patch validatingpolicy require-resource-requests --type=merge -p '{"spec":{"validationActions":["Deny"]}}'</code>; the policy ships in Audit. The task uses <code>policy-test</code> because the tenant namespaces have LimitRanges, and LimitRanger mutates requests in before validation ever runs, so team-b literally cannot produce a rejection. Section 5.2 makes a whole lesson of it. Flip back to <code>["Audit"]</code>.</p></div></details>
 
-    <details class="quiz"><summary>14 · audit extraction</summary><div class="answer"><p><code>docker exec cnpe-control-plane cat /var/log/kubernetes/audit.log | jq -c 'select(.verb=="delete" and .responseStatus.code&lt;300 and (.user.username|test("admin")))' &gt; /tmp/mock-audit.json</code>. Section 5.4.</p></div></details>
+    <details class="quiz"><summary>14 · audit extraction</summary><div class="answer"><p><code>docker exec cnpe-control-plane sh -c 'cat /var/log/kubernetes/audit*.log' | jq -c --arg d "$(date -u +%F)" 'select(.verb=="delete" and .responseStatus.code&lt;300 and (.user.username|test("admin")) and (.requestReceivedTimestamp|startswith($d)))' &gt; /tmp/mock-audit.json</code>. Section 5.4. Read all of today's files, not just <code>audit.log</code>: the apiserver rotates at 100MB, which a full lab fills in about an hour, so a delete from early in the exam has usually rotated out of the current file by grading time (the <code>$d</code> filter is what keeps "today" honest across those rotations).</p></div></details>
 
-    <details class="quiz"><summary>15 · sign and verify</summary><div class="answer"><p>Section 5.6's exercise verbatim: <code>cosign generate-key-pair</code>, sign by digest with <code>--allow-http-registry -y</code>, verify with the pub key. If <code>demo:v1</code> doesn't exist, the 2.4 pipeline builds it (pushing as <code>kind-registry:5000/demo:v1</code>, which the host reads back as <code>localhost:5001/demo:v1</code>).</p></div></details>
+    <details class="quiz"><summary>15 · sign and verify</summary><div class="answer"><p>Section 5.6's exercise with the key at the graded path: <code>cosign generate-key-pair --output-key-prefix /tmp/mock-cosign</code>, sign by digest with <code>--allow-http-registry -y</code>, verify with the pub key. If <code>demo:v1</code> doesn't exist, the 2.4 pipeline builds it (pushing as <code>kind-registry:5000/demo:v1</code>, which the host reads back as <code>localhost:5001/demo:v1</code>).</p></div></details>
   </div>
 </section>
 
@@ -206,6 +206,31 @@ cosign verify --key cosign.pub --allow-http-registry localhost:5001/demo@$(skope
   <div class="phdr"><h2>After scoring</h2><span class="meta">the second attempt is the one that predicts</span></div>
   <div class="pbody">
     <p>Log the score <em>per domain</em>, not just the total; a domain at zero fails you in ways an average hides. Re-drill the weakest domain's sections, wait two days, then take <a href="mock-exam-2.html">mock exam 2</a> on a rebuilt lab (<code>make down &amp;&amp; make full</code> gives you a clean grader): fifteen fresh tasks you have not half-memorized, scored separately. The second paper under time is the one that predicts the real thing.</p>
+    <p>Then clean up, <em>parents first</em>: task 3's replica change lives in the git server, which survives <code>make down</code> (only <code>make nuke</code> clears it), so left unreverted it pre-passes that task on every future paper. The same logic applies to Flux and Crossplane: delete the Kustomization and the AppEnvironments, not the namespaces they manage.</p>
+    <div class="cb" data-lang="bash"><pre><code># task 3 lives in git: put staging back to 1 replica or every future paper inherits the answer
+tmp=$(mktemp -d) &amp;&amp; git clone -q http://lab:$GITEA_PASS@gitea.lab:3000/lab/platform.git "$tmp" &amp;&amp; \
+  sed -i 's/{ name: demo, count: 2 }/{ name: demo, count: 1 }/' "$tmp/demo-app/overlays/staging/kustomization.yaml" &amp;&amp; \
+  git -C "$tmp" commit -aqm "staging back to 1 replica" &amp;&amp; git -C "$tmp" push -q &amp;&amp; rm -rf "$tmp"
+# controllers first, or they rebuild what you are deleting
+flux delete kustomization mock-demo --silent               # prune takes the mock-flux deployment with it
+kubectl delete appenvironment team-y-dev --ignore-not-found   # Crossplane deletes team-y for you
+kubectl delete appenvironment drill-env --ignore-not-found    # if task 11 dealt you the apis drill
+kubectl -n team-a delete rollout demo --ignore-not-found
+kubectl -n team-a delete analysistemplate success-rate --ignore-not-found
+kubectl delete crd mockapps.mock.lab --ignore-not-found    # instances go with it
+# names below task text never fixed are yours; --ignore-not-found keeps the sweep going
+kubectl delete wf --all
+kubectl delete sa mock-wf --ignore-not-found; kubectl delete role,rolebinding mock-wf --ignore-not-found
+kubectl delete cm mock-result --ignore-not-found
+kubectl delete deploy,svc,servicemonitor mock-metrics --ignore-not-found
+kubectl delete prometheusrule mock-down --ignore-not-found
+kubectl -n team-b delete sa auditor --ignore-not-found; kubectl -n team-b delete role,rolebinding auditor --ignore-not-found
+kubectl patch validatingpolicy require-resource-requests --type=merge -p '{"spec":{"validationActions":["Audit"]}}'
+kubectl delete ns team-x mock-flux policy-test --ignore-not-found
+# the signature on demo:v1 stays: the lab registry refuses manifest deletes (cosign clean
+# reports UNSUPPORTED), and it is inert anyway: task 15 verifies against a fresh key
+rm -f /tmp/mock-cosign.key /tmp/mock-cosign.pub /tmp/mock-diagnosis.txt /tmp/mock-audit.json
+pkill -f 'port-forward.*1909[03]'                          # the two grading port-forwards, if you pasted by hand</code></pre></div>
   </div>
 </section>
 
