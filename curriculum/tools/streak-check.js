@@ -54,6 +54,8 @@ async function run() {
   }
   const store = page => page.evaluate(() => window.CNPE_PROGRESS.get());
   const streakVal = page => page.evaluate(() => document.querySelector('#stat-streak .val').textContent.replace(/\s+/g, ''));
+  // the record streak lives in the tile label ("Uptime · record N"), not the value
+  const streakLbl = page => page.evaluate(() => document.querySelector('#stat-streak .lbl').textContent.replace(/\s+/g, ''));
   const heatOn = page => page.evaluate(() => document.querySelectorAll('#stat-streak .heat i.on').length);
   const heatAll = page => page.evaluate(() => document.querySelectorAll('#stat-streak .heat i').length);
 
@@ -140,8 +142,10 @@ async function run() {
     const { ctx, page } = await fresh({ days });
     await page.goto(url('index.html'));
     const val = await streakVal(page);
-    assert(/^3days·record3$/.test(val), 'streak 3, record 3: ' + JSON.stringify(val));
-    assert((await heatAll(page)) === 56, '56 heat cells');
+    assert(/^3days$/.test(val), 'streak 3: ' + JSON.stringify(val));
+    const lbl = await streakLbl(page);
+    assert(/^Uptime·record3$/.test(lbl), 'record 3 in the label: ' + JSON.stringify(lbl));
+    assert((await heatAll(page)) === 30, '30 heat cells');
     assert((await heatOn(page)) === 5, '5 lit heat cells');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
@@ -154,7 +158,8 @@ async function run() {
     const { ctx, page } = await fresh({ days });
     await page.goto(url('index.html'));
     const val = await streakVal(page);
-    assert(/^0days·record1$/.test(val), 'streak 0, record 1: ' + JSON.stringify(val));
+    assert(/^0days$/.test(val), 'streak 0: ' + JSON.stringify(val));
+    assert(/^Uptime·record1$/.test(await streakLbl(page)), 'record 1 in the label');
     await ctx.close();
   }
 
@@ -164,7 +169,8 @@ async function run() {
     const { ctx, page } = await fresh({ drillmeta: { day: TODAY, n: 10, earned: TODAY, streak: 4, best: 6, t: Date.now() } });
     await page.goto(url('index.html'));
     const val = await streakVal(page);
-    assert(/^4days·record6$/.test(val), 'streak 4, record 6: ' + JSON.stringify(val));
+    assert(/^4days$/.test(val), 'streak 4: ' + JSON.stringify(val));
+    assert(/^Uptime·record6$/.test(await streakLbl(page)), 'record 6 in the label');
     assert((await heatOn(page)) === 4, '4 lit heat cells from the backfill');
     const btn = await page.evaluate(() => document.querySelector('#resume a[href*="drill"]').textContent);
     assert(/up 4 days/.test(btn), 'drill button carries the unified streak: ' + JSON.stringify(btn));
@@ -175,7 +181,7 @@ async function run() {
     const { ctx, page } = await fresh({ drillmeta: { day: YDAY, n: 10, earned: YDAY, streak: 2, best: 2, t: Date.now() } });
     await page.goto(url('index.html'));
     const val = await streakVal(page);
-    assert(/^2days·record2$/.test(val), 'streak 2 alive via yesterday: ' + JSON.stringify(val));
+    assert(/^2days$/.test(val), 'streak 2 alive via yesterday: ' + JSON.stringify(val));
     await ctx.close();
   }
   {
@@ -183,7 +189,8 @@ async function run() {
     const { ctx, page } = await fresh({ drillmeta: { day: daysAgo(5), n: 10, earned: daysAgo(5), streak: 7, best: 7, t: Date.now() } });
     await page.goto(url('index.html'));
     const val = await streakVal(page);
-    assert(/^0days·record7$/.test(val), 'streak 0, record 7: ' + JSON.stringify(val));
+    assert(/^0days$/.test(val), 'streak 0: ' + JSON.stringify(val));
+    assert(/^Uptime·record7$/.test(await streakLbl(page)), 'record 7 in the label');
     assert((await heatOn(page)) === 0, 'no backfilled cells for a dead streak');
     await ctx.close();
   }
@@ -210,7 +217,8 @@ async function run() {
     assert(s.days[TODAY].c === 9 && s.days[TODAY].x === 3, 'today merged per-counter max: ' + JSON.stringify(s.days[TODAY]));
     assert(s.days[daysAgo(1)] && s.days[daysAgo(1)].c === 3, 'imported day added');
     const val = await streakVal(page);
-    assert(/^2days·record2$/.test(val), 'streak 2 after import: ' + JSON.stringify(val));
+    assert(/^2days$/.test(val), 'streak 2 after import: ' + JSON.stringify(val));
+    assert(/^Uptime·record2$/.test(await streakLbl(page)), 'record 2 in the label after import');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   }
@@ -220,7 +228,7 @@ async function run() {
     console.log('bundle: streak works across #index and #DR hash routes');
     const { ctx, page } = await fresh();
     await page.goto(url('console.html'));
-    assert((await heatAll(page)) === 56, 'heat strip renders in the bundle');
+    assert((await heatAll(page)) === 30, 'heat strip renders in the bundle');
     await page.goto(url('console.html') + '#DR');
     await page.click('button.drill-start');
     await page.click('button:has-text("Show answer")');
@@ -230,7 +238,7 @@ async function run() {
     await page.goto(url('console.html') + '#index');
     await page.waitForFunction(() => document.querySelector('#stat-streak .heat i'));
     const val = await streakVal(page);
-    assert(/^1day(·record1)?$/.test(val), 'dashboard uptime 1 back on #index: ' + JSON.stringify(val));
+    assert(/^1day$/.test(val), 'dashboard uptime 1 back on #index: ' + JSON.stringify(val));
     // navigate back and forth once more: boot() re-runs must stay idempotent
     await page.goto(url('console.html') + '#DR');
     await page.goto(url('console.html') + '#index');
