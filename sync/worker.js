@@ -1,31 +1,26 @@
 /* CNPE study console: optional progress sync.
  *
- * The console is local-first. Everything here is opt-in: a browser that never
- * presses "Sign in to sync" never talks to this Worker, and a browser that
- * signs out goes back to exactly that. This service stores one JSON blob per
- * GitHub user and nothing else — no analytics, no logs of progress content.
+ *   GET    /auth/start?return=<url>   GitHub authorize, empty scope
+ *   GET    /auth/callback             token exchange, session cookie, back to <url>
+ *   POST   /auth/signout              clear the session cookie
+ *   GET    /v1/progress               { user, rev, progress, updated }
+ *   PUT    /v1/progress               { rev, progress }; 409 carries the current copy
+ *   DELETE /v1/progress               forget the stored copy
+ *   GET    /healthz                   ok
  *
- * Routes
- *   GET    /auth/start?return=<url>   → GitHub authorize (no scopes: identity only)
- *   GET    /auth/callback             → token exchange, session cookie, back to <url>
- *   POST   /auth/signout              → clear the session cookie
- *   GET    /v1/progress               → { user, rev, progress, updated }
- *   PUT    /v1/progress               → { rev, progress }; 409 carries the current copy
- *   DELETE /v1/progress               → forget the stored copy
- *   GET    /healthz                   → "ok"
- *
- * Bindings: DB (D1). Vars: GITHUB_CLIENT_ID, ALLOWED_ORIGINS.
- * Secrets: GITHUB_CLIENT_SECRET, SESSION_SECRET.
+ * Bindings: DB (D1). Vars: GITHUB_CLIENT_ID, ALLOWED_ORIGINS, ALLOWED_LOGINS.
+ * Secrets: GITHUB_CLIENT_SECRET, SESSION_SECRET. See ../docs/progress-sync.md.
  */
 "use strict";
 
-const SESSION_COOKIE = "cnpe_session";
-const STATE_COOKIE = "cnpe_oauth";
-const SESSION_TTL = 60 * 60 * 24 * 90;         // 90 days
-const STATE_TTL = 60 * 10;                     // the sign-in round trip
-const MAX_BLOB = 512 * 1024;                   // a completed store is ~21 KB
+// __Host- pins the cookie to this exact host: no subdomain can forge one.
+const SESSION_COOKIE = "__Host-cnpe_session";
+const STATE_COOKIE = "__Host-cnpe_oauth";
+const SESSION_TTL = 60 * 60 * 24 * 30;
+const STATE_TTL = 60 * 10;
+const MAX_BLOB = 64 * 1024;                    // a completed store is ~21 KB
 
-/* ── small helpers ──────────────────────────────────────────── */
+/* ── encoding ───────────────────────────────────────────────── */
 
 /** @param {ArrayBuffer|Uint8Array} buf */
 function b64url(buf) {
@@ -36,16 +31,19 @@ function b64url(buf) {
 }
 /** @param {string} s */
 function unb64url(s) {
+  if (!/^[A-Za-z0-9_-]*$/.test(s)) throw new Error("not base64url");
   const pad = s.replace(/-/g, "+").replace(/_/g, "/");
   return atob(pad + "===".slice((pad.length + 3) % 4));
 }
 /** @param {string} a @param {string} b */
-function timingSafeEqual(a, b) {
+function equalStrings(a, b) {
   if (a.length !== b.length) return false;
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
 }
+
+/* ── signed payloads ────────────────────────────────────────── */
 
 /** @param {string} secret @param {string} data */
 async function sign(secret, data) {
@@ -54,23 +52,25 @@ async function sign(secret, data) {
     { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return b64url(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data)));
 }
-/** Sign a JSON payload into "<body>.<mac>". @param {string} secret @param {*} obj */
+/** @param {string} secret @param {*} obj */
 async function seal(secret, obj) {
   const body = b64url(new TextEncoder().encode(JSON.stringify(obj)));
   return body + "." + await sign(secret, body);
 }
-/** Verify and decode a sealed payload, or null. @param {string} secret @param {string} token */
+/** @param {string} secret @param {string} token */
 async function unseal(secret, token) {
   const dot = (token || "").lastIndexOf(".");
   if (dot < 1) return null;
   const body = token.slice(0, dot);
-  if (!timingSafeEqual(token.slice(dot + 1), await sign(secret, body))) return null;
+  if (!equalStrings(token.slice(dot + 1), await sign(secret, body))) return null;
   let obj;
   try { obj = JSON.parse(unb64url(body)); } catch { return null; }
   if (!obj || typeof obj !== "object") return null;
   if (typeof obj.e !== "number" || obj.e < Math.floor(Date.now() / 1000)) return null;
   return obj;
 }
+
+/* ── cookies ────────────────────────────────────────────────── */
 
 /** @param {Request} req @param {string} name */
 function cookie(req, name) {
@@ -81,21 +81,19 @@ function cookie(req, name) {
   }
   return null;
 }
+// Host-only, Lax: the console reaches us because both names share a registrable domain.
 /** @param {string} name @param {string} value @param {number} maxAge */
 function setCookie(name, value, maxAge) {
-  // No Domain attribute: the cookie is host-only for this Worker. It still
-  // reaches us from the console because both names share a registrable domain,
-  // which makes the fetch same-site and lets SameSite=Lax through.
   return name + "=" + value + "; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=" + maxAge;
 }
 
-/* ── CORS ───────────────────────────────────────────────────── */
+/* ── responses ──────────────────────────────────────────────── */
 
 /** @param {Env} env */
 function origins(env) {
   return (env.ALLOWED_ORIGINS || "").split(",").map(s => s.trim()).filter(Boolean);
 }
-/** The request's Origin if we allow it. @param {Request} req @param {Env} env */
+/** @param {Request} req @param {Env} env */
 function allowedOrigin(req, env) {
   const o = req.headers.get("Origin");
   return o && origins(env).indexOf(o) >= 0 ? o : null;
@@ -112,8 +110,22 @@ function withCors(res, origin) {
 function json(obj, status) {
   return new Response(JSON.stringify(obj), {
     status: status || 200,
-    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
   });
+}
+/** @param {string} msg @param {number} status @param {string} [setCookieHeader] */
+function text(msg, status, setCookieHeader) {
+  const headers = new Headers({
+    "Content-Type": "text/plain; charset=utf-8",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+  });
+  if (setCookieHeader) headers.append("Set-Cookie", setCookieHeader);
+  return new Response(msg + "\n", { status, headers });
 }
 
 /* ── session ────────────────────────────────────────────────── */
@@ -128,8 +140,8 @@ async function session(req, env) {
 
 /* ── auth ───────────────────────────────────────────────────── */
 
-/** A return URL is only honoured if it sits on an allowed origin.
-    @param {string|null} target @param {Env} env */
+// An unlisted return URL is replaced, never followed: no open redirect behind a login.
+/** @param {string|null} target @param {Env} env */
 function safeReturn(target, env) {
   const allow = origins(env);
   if (!target) return allow[0] || null;
@@ -141,14 +153,15 @@ function safeReturn(target, env) {
 /** @param {Request} req @param {Env} env */
 async function authStart(req, env) {
   const back = safeReturn(new URL(req.url).searchParams.get("return"), env);
-  if (!back) return new Response("no allowed return origin configured", { status: 500 });
+  if (!back) return text("no allowed return origin configured", 500);
   const nonce = b64url(crypto.getRandomValues(new Uint8Array(16)));
-  const state = await seal(env.SESSION_SECRET, { n: nonce, r: back, e: Math.floor(Date.now() / 1000) + STATE_TTL });
+  const state = await seal(env.SESSION_SECRET,
+    { n: nonce, r: back, e: Math.floor(Date.now() / 1000) + STATE_TTL });
   const auth = new URL("https://github.com/login/oauth/authorize");
   auth.searchParams.set("client_id", env.GITHUB_CLIENT_ID);
   auth.searchParams.set("redirect_uri", new URL("/auth/callback", req.url).toString());
   auth.searchParams.set("state", state);
-  auth.searchParams.set("scope", "");          // identity only: no repo, no gist, nothing
+  auth.searchParams.set("scope", "");
   auth.searchParams.set("allow_signup", "false");
   return new Response(null, {
     status: 302,
@@ -162,15 +175,16 @@ async function authCallback(req, env) {
   const state = await unseal(env.SESSION_SECRET, q.get("state") || "");
   const nonce = cookie(req, STATE_COOKIE);
   const clear = setCookie(STATE_COOKIE, "", 0);
-  if (!state || !nonce || !timingSafeEqual(String(state.n), nonce)) {
-    return new Response("sign-in state did not check out; start again", { status: 400, headers: { "Set-Cookie": clear } });
+  if (!state || !nonce || !equalStrings(String(state.n), nonce)) {
+    return text("sign-in state did not check out; start again", 400, clear);
   }
   const back = safeReturn(String(state.r || ""), env);
-  // "Cancel" on GitHub's consent screen comes back here as an error. Send them
-  // to the console rather than to a dead end; it will drop the opt-in itself.
-  if (q.get("error")) return new Response(null, { status: 302, headers: { Location: back || "/", "Set-Cookie": clear } });
+  // "Cancel" arrives as an error; send them home and the console drops its own opt-in.
+  if (q.get("error")) {
+    return new Response(null, { status: 302, headers: { Location: back || "/", "Set-Cookie": clear } });
+  }
   const code = q.get("code");
-  if (!code) return new Response("no code in the callback", { status: 400, headers: { "Set-Cookie": clear } });
+  if (!code) return text("no code in the callback", 400, clear);
 
   const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
     method: "POST",
@@ -183,9 +197,7 @@ async function authCallback(req, env) {
     }),
   });
   const tok = /** @type {*} */ (await tokenRes.json().catch(() => ({})));
-  if (!tok || !tok.access_token) {
-    return new Response("GitHub declined the token exchange", { status: 502, headers: { "Set-Cookie": clear } });
-  }
+  if (!tok || !tok.access_token) return text("GitHub declined the token exchange", 502, clear);
 
   const userRes = await fetch("https://api.github.com/user", {
     headers: {
@@ -195,20 +207,17 @@ async function authCallback(req, env) {
     },
   });
   const user = /** @type {*} */ (await userRes.json().catch(() => ({})));
-  if (!user || !user.id) {
-    return new Response("could not read the GitHub account", { status: 502, headers: { "Set-Cookie": clear } });
-  }
-  // Optional guest list. Unset means anyone with a GitHub account may sign in.
-  const guests = (env.ALLOWED_LOGINS || "").split(",").map(x => x.trim().toLowerCase()).filter(Boolean);
-  if (guests.length && guests.indexOf(String(user.login).toLowerCase()) < 0) {
-    return new Response("this console does not sync for @" + user.login, { status: 403, headers: { "Set-Cookie": clear } });
-  }
-  // The GitHub token has served its only purpose. It is never stored, and with
-  // an empty scope it could not have read anything but the public profile.
+  if (!user || !user.id) return text("could not read the GitHub account", 502, clear);
+  // The token is never stored, and an empty scope reads nothing but the public profile.
 
-  const sess = await seal(env.SESSION_SECRET, {
-    u: user.id, l: user.login, e: Math.floor(Date.now() / 1000) + SESSION_TTL,
-  });
+  const login = String(user.login || "").slice(0, 39);
+  const guests = (env.ALLOWED_LOGINS || "").split(",").map(x => x.trim().toLowerCase()).filter(Boolean);
+  if (guests.length && guests.indexOf(login.toLowerCase()) < 0) {
+    return text("this console does not sync for that account", 403, clear);
+  }
+
+  const sess = await seal(env.SESSION_SECRET,
+    { u: user.id, l: login, e: Math.floor(Date.now() / 1000) + SESSION_TTL });
   const headers = new Headers({ Location: back || "/" });
   headers.append("Set-Cookie", setCookie(SESSION_COOKIE, sess, SESSION_TTL));
   headers.append("Set-Cookie", clear);
@@ -217,7 +226,7 @@ async function authCallback(req, env) {
 
 /* ── progress ───────────────────────────────────────────────── */
 
-/** The blob has to look like a cnpe:v2 store before it earns a row. @param {*} p */
+/** @param {*} p */
 function looksLikeProgress(p) {
   if (!p || typeof p !== "object" || Array.isArray(p)) return false;
   return ["ex", "done", "exam", "exam2", "drill", "drillmeta", "days"]
@@ -226,9 +235,12 @@ function looksLikeProgress(p) {
 
 /** @param {Env} env @param {string} uid */
 async function readRow(env, uid) {
-  return /** @type {*} */ (await env.DB
+  const row = /** @type {*} */ (await env.DB
     .prepare("SELECT rev, blob, updated_at FROM progress WHERE user_id = ?")
     .bind(uid).first());
+  if (!row) return null;
+  try { row.parsed = JSON.parse(row.blob); } catch { return null; }
+  return row;
 }
 
 /** @param {Request} req @param {Env} env @param {{uid: string, login: string}} who */
@@ -240,8 +252,9 @@ async function putProgress(req, env, who) {
   if (!body || typeof body !== "object" || !looksLikeProgress(body.progress)) {
     return json({ error: "not a progress payload" }, 400);
   }
-  const rev = Number(body.rev) || 0;
+  const rev = Number.isSafeInteger(body.rev) && body.rev >= 0 ? body.rev : 0;
   const blob = JSON.stringify(body.progress);
+  if (blob.length > MAX_BLOB) return json({ error: "too large" }, 413);
   const now = new Date().toISOString();
 
   if (rev > 0) {
@@ -256,14 +269,23 @@ async function putProgress(req, env, who) {
     if (ins.meta.changes === 1) return json({ rev: 1, updated: now });
   }
 
-  // Someone else got there first. Hand back what is stored; the client merges
-  // its own copy into it and comes back with the fresh rev.
   const row = await readRow(env, who.uid);
   if (!row) return json({ error: "write raced with a delete; retry" }, 409);
-  return json({ rev: row.rev, progress: JSON.parse(row.blob), updated: row.updated_at }, 409);
+  return json({ rev: row.rev, progress: row.parsed, updated: row.updated_at }, 409);
 }
 
 /* ── router ─────────────────────────────────────────────────── */
+
+/** A half-configured deploy must fail loudly, not sign cookies with "undefined".
+    @param {Env} env */
+function misconfigured(env) {
+  if (!env.SESSION_SECRET || env.SESSION_SECRET.length < 16) return "SESSION_SECRET";
+  if (!env.GITHUB_CLIENT_ID) return "GITHUB_CLIENT_ID";
+  if (!env.GITHUB_CLIENT_SECRET) return "GITHUB_CLIENT_SECRET";
+  if (!origins(env).length) return "ALLOWED_ORIGINS";
+  if (!env.DB) return "DB";
+  return null;
+}
 
 /** @type {ExportedHandler} */
 const handler = {
@@ -283,19 +305,23 @@ const handler = {
       }), origin);
     }
 
-    if (url.pathname === "/healthz") return new Response("ok\n");
+    if (url.pathname === "/healthz") return text("ok", 200);
+
+    const missing = misconfigured(env);
+    if (missing) return withCors(json({ error: "sync is not configured: " + missing }, 500), origin);
+
     if (url.pathname === "/auth/start" && req.method === "GET") return authStart(req, env);
     if (url.pathname === "/auth/callback" && req.method === "GET") return authCallback(req, env);
     if (url.pathname === "/auth/signout" && req.method === "POST") {
-      return withCors(new Response(null, { status: 204, headers: { "Set-Cookie": setCookie(SESSION_COOKIE, "", 0) } }), origin);
+      return withCors(new Response(null, {
+        status: 204, headers: { "Set-Cookie": setCookie(SESSION_COOKIE, "", 0) },
+      }), origin);
     }
 
     if (url.pathname === "/v1/progress") {
-      // Everything below is credentialed, so it must come from a known origin.
-      // Reads tolerate a missing Origin (curl, a health probe); writes never do.
-      if (req.headers.get("Origin") && !origin) return json({ error: "origin not allowed" }, 403);
-      if ((req.method === "PUT" || req.method === "DELETE") && !origin) {
-        return json({ error: "origin required" }, 403);
+      const writing = req.method === "PUT" || req.method === "DELETE";
+      if ((req.headers.get("Origin") || writing) && !origin) {
+        return json({ error: "origin not allowed" }, 403);
       }
       const who = await session(req, env);
       if (!who) return withCors(json({ error: "signed out" }, 401), origin);
@@ -305,7 +331,7 @@ const handler = {
         return withCors(json({
           user: { login: who.login, id: who.uid },
           rev: row ? row.rev : 0,
-          progress: row ? JSON.parse(row.blob) : null,
+          progress: row ? row.parsed : null,
           updated: row ? row.updated_at : null,
         }), origin);
       }
@@ -317,7 +343,7 @@ const handler = {
       return withCors(json({ error: "method not allowed" }, 405), origin);
     }
 
-    return new Response("not found\n", { status: 404 });
+    return text("not found", 404);
   },
 };
 

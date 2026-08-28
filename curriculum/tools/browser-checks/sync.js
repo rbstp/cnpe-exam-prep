@@ -97,6 +97,13 @@ module.exports = async function (h) {
   const realErrors = (/** @type {import('playwright').Page} */ p) =>
     p.errors.filter((/** @type {string} */ e) => !/Failed to load resource/.test(e));
 
+  /** Poll a node-side predicate; used to wait out the reload a growing merge triggers. */
+  async function settle(/** @type {() => boolean} */ done) {
+    for (let i = 0; i < 200 && !done(); i++) await new Promise(r => setTimeout(r, 25));
+    return done();
+  }
+  const gets = (/** @type {string[]} */ seen) => seen.filter(x => x === 'GET /v1/progress').length;
+
   const readStore = (/** @type {import('playwright').Page} */ p) =>
     p.evaluate(() => window.CNPE_PROGRESS.get());
   const noteOf = (/** @type {import('playwright').Page} */ p) =>
@@ -189,14 +196,14 @@ module.exports = async function (h) {
       },
     });
     await s.go();
-    await s.page.waitForFunction(() => {
-      const p = window.CNPE_PROGRESS && window.CNPE_PROGRESS.get();
-      return p && p.done['2.1'] === 1 && p.done['1.1'] === 1;
-    });
+    // the merge adds two sections, so the dashboard reloads once: wait it out
+    assert(await settle(() => gets(s.seen) >= 2), 'the merge reloaded the dashboard and pulled again');
+    await s.page.waitForFunction(() => window.CNPE_SYNC && window.CNPE_SYNC.state().rev === 8);
     const store = await readStore(s.page);
     assert(store.done['1.1'] === 1 && store.done['2.1'] === 1, 'both sections survive the merge');
     assert(store.ex['1.1#local-only'] === 1 && store.ex['2.1#remote-only'] === 1, 'both exercises survive the merge');
-    await s.page.waitForFunction(() => window.CNPE_SYNC.state().rev === 8);
+    const sections = await s.page.evaluate(() => document.querySelector('.stats .stat .val').textContent.replace(/\s+/g, ''));
+    assert(/^2\/29/.test(sections), 'and the dashboard repainted with the pulled work: ' + JSON.stringify(sections));
     assert(put && put.rev === 7, 'the push carries the rev the pull returned: ' + (put && put.rev));
     assert(put && put.progress.done['1.1'] === 1 && put.progress.done['2.1'] === 1,
       'the push carries the union, not just the local half');
@@ -360,9 +367,9 @@ module.exports = async function (h) {
     await s.ctx.close();
   }
 
-  /* 11. reset takes the saved copy with it, or it would just come back */
+  /* 11. reset asks about the saved copy separately, and honours either answer */
   {
-    group('reset while signed in deletes the saved copy too');
+    group('reset asks twice: the browser, then the saved copy');
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1, '2.1': 1 } },
@@ -375,17 +382,78 @@ module.exports = async function (h) {
     });
     await s.go();
     await s.page.waitForFunction(() => window.CNPE_SYNC.signedIn());
-    /** @type {string} */
-    let asked = '';
-    s.page.once('dialog', d => { asked = d.message(); d.accept(); });
-    const reloaded = s.page.waitForNavigation({ waitUntil: 'load' });
+
+    // cancelling the first confirm changes nothing at all
+    s.page.once('dialog', d => d.dismiss());
+    await s.page.click('#reset-progress');
+    assert((await readStore(s.page)).done['1.1'] === 1, 'cancelling the first confirm keeps everything');
+
+    // accepting the first and declining the second clears only the browser
+    /** @type {string[]} */
+    let asked = [];
+    const twice = (/** @type {import('playwright').Dialog} */ d) => {
+      asked.push(d.message());
+      return asked.length === 1 ? d.accept() : d.dismiss();
+    };
+    s.page.on('dialog', twice);
+    let reloaded = s.page.waitForNavigation({ waitUntil: 'load' });
     await s.page.click('#reset-progress');
     await reloaded;
-    assert(/delete the copy saved to your GitHub account/i.test(asked), 'the confirm says so: ' + JSON.stringify(asked));
-    assert(s.seen.indexOf('DELETE /v1/progress') >= 0, 'the saved copy goes with it: ' + JSON.stringify(s.seen));
+    s.page.off('dialog', twice);
+    assert(asked.length === 2, 'reset asks twice when signed in: ' + asked.length);
+    assert(/progress stored in this browser/i.test(asked[0]), 'first about the browser: ' + JSON.stringify(asked[0]));
+    assert(/delete the copy saved to your GitHub account/i.test(asked[1]), 'then about the saved copy: ' + JSON.stringify(asked[1]));
+    assert(/sync it back down/i.test(asked[1]), 'and it says what declining means');
+    assert(s.seen.indexOf('DELETE /v1/progress') < 0, 'declining keeps the saved copy: ' + JSON.stringify(s.seen));
+
+    // accepting both takes the saved copy with it
+    await s.page.waitForFunction(() => window.CNPE_SYNC && window.CNPE_SYNC.signedIn());
+    const both = (/** @type {import('playwright').Dialog} */ d) => d.accept();
+    s.page.on('dialog', both);
+    reloaded = s.page.waitForNavigation({ waitUntil: 'load' });
+    await s.page.click('#reset-progress');
+    await reloaded;
+    s.page.off('dialog', both);
+    assert(s.seen.indexOf('DELETE /v1/progress') >= 0, 'accepting both deletes it: ' + JSON.stringify(s.seen));
     await s.page.waitForFunction(() => window.CNPE_PROGRESS && document.querySelector('#stat-streak'));
     const store = await readStore(s.page);
     assert(Object.keys(store.done).length === 0, 'and the browser is cleared');
+    await s.ctx.close();
+  }
+
+  /* 12. remote content reaches the merge, so prototype keys must not */
+  {
+    group('a poisoned remote copy cannot reach the prototype');
+    const s = await site({
+      signedIn: true,
+      seed: { done: { '1.1': 1 } },
+      api: (route, url, method) => {
+        if (method === 'GET') {
+          return { status: 200, json: { user: { login: 'octocat', id: '1' }, rev: 1, updated: 'then',
+            progress: { done: { __proto__: 1, '2.1': 1 }, drill: { __proto__: { r: 1 }, q1: { r: 1, m: 0, t: 1 } } } } };
+        }
+        return { status: 200, json: { rev: 2, updated: 'now' } };
+      },
+    });
+    await s.go();
+    assert(await settle(() => gets(s.seen) >= 2), 'the merge reloaded the dashboard and pulled again');
+    await s.page.waitForFunction(() => {
+      const p = window.CNPE_PROGRESS && window.CNPE_PROGRESS.get();
+      return p && p.done['2.1'] === 1;
+    });
+    const clean = await s.page.evaluate(() => {
+      const p = window.CNPE_PROGRESS.get();
+      return {
+        objProto: Object.getPrototypeOf({}) === Object.prototype && !('r' in {}),
+        drillProto: Object.getPrototypeOf(p.drill) === Object.prototype,
+        doneProto: Object.getPrototypeOf(p.done) === Object.prototype,
+        real: p.done['2.1'] === 1 && !!p.drill.q1,
+      };
+    });
+    assert(clean.objProto, 'Object.prototype is untouched');
+    assert(clean.drillProto && clean.doneProto, 'and so are the store buckets own prototypes');
+    assert(clean.real, 'while the legitimate records still merged');
+    assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
   }
 };

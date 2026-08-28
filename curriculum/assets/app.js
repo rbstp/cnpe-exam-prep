@@ -108,11 +108,13 @@
     } catch (e) { return false; }
   }
   /* Union, never overwrite: an import can add or tick items, but never un-tick one. */
+  function ownKey(k) { return k !== "__proto__" && k !== "constructor" && k !== "prototype"; }
   function mergeProgress(src) {
     var n = { done: 0, ex: 0, exam: 0, drill: 0, days: 0 };
     function union(into, from, bucket) {
       if (!from || typeof from !== "object" || Array.isArray(from)) return;
       Object.keys(from).forEach(function (k) {
+        if (!ownKey(k)) return;
         var v = from[k] ? 1 : 0;
         if (!(k in into)) { into[k] = v; if (v) n[bucket]++; }
         else if (v && !into[k]) { into[k] = 1; n[bucket]++; }
@@ -131,7 +133,7 @@
       if (!store.drill || typeof store.drill !== "object") store.drill = {};
       Object.keys(src.drill).forEach(function (k) {
         var inc = src.drill[k], cur = store.drill[k];
-        if (!inc || typeof inc !== "object") return;
+        if (!ownKey(k) || !inc || typeof inc !== "object") return;
         if (!cur || (inc.t || 0) > (cur.t || 0)) { store.drill[k] = inc; n.drill++; }
       });
     }
@@ -940,18 +942,16 @@
     }
     var reset = document.getElementById("reset-progress");
     if (reset) reset.addEventListener("click", function () {
-      // Signed in, clearing only the browser would be a lie: the next pull would
-      // merge it all straight back. Take the saved copy with it.
-      var synced = !!(window.CNPE_SYNC && window.CNPE_SYNC.signedIn());
-      var msg = synced
-        ? "Clear all section, exercise, exam, drill and streak progress in this browser AND delete the copy saved to your GitHub account?"
-        : "Clear all section, exercise, exam, drill and streak progress stored in this browser?";
-      if (!confirm(msg)) return;
+      if (!confirm("Clear all section, exercise, exam, drill and streak progress stored in this browser?")) return;
       function wipe() {
         store = { ex: {}, done: {}, exam: {}, exam2: {}, drill: {}, drillmeta: {}, days: {}, last: null };
         save(); location.reload();
       }
-      if (synced) window.CNPE_SYNC.forget().then(wipe, wipe); else wipe();
+      if (!(window.CNPE_SYNC && window.CNPE_SYNC.signedIn())) { wipe(); return; }
+      // Keeping the saved copy is a real choice, but it does come back.
+      if (confirm("Also delete the copy saved to your GitHub account?\n\nCancel keeps it, and this browser will sync it back down on the next load.")) {
+        window.CNPE_SYNC.forget().then(wipe, wipe);
+      } else wipe();
     });
 
     var note = document.getElementById("io-note");

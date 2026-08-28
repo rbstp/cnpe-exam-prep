@@ -11,7 +11,7 @@ Concretely, the guarantees the code holds to, each asserted by a browser check i
 * On the hosted site, signed out, there is a button and still **no request**.
 * Signed in, a failing or unreachable Worker costs a status line and nothing else:
   local progress is already saved before sync hears about it.
-* Signing out stops the syncing and leaves both copies — local and saved — intact.
+* Signing out stops the syncing and leaves both copies, local and saved, intact.
 
 If you never press **Sign in to sync**, nothing below applies to you and the
 console behaves exactly as it did before.
@@ -26,7 +26,7 @@ cannot run code, and GitHub is no help here either:
   distinguish public from confidential clients. PKCE does not buy a browser-only
   flow the way it does with an OIDC provider that does.
 * `https://github.com/login/oauth/access_token` sends no CORS headers and does not
-  answer `OPTIONS`. A browser cannot complete the exchange at all — the device flow
+  answer `OPTIONS`. A browser cannot complete the exchange at all, the device flow
   included.
 
 So exactly one piece of compute is unavoidable. It is a single Cloudflare Worker,
@@ -35,24 +35,24 @@ and it changes nothing about how the site is hosted or deployed.
 ## What it stores
 
 One row per GitHub user: the numeric user id, the login, a revision counter and
-the `cnpe:v2` store as JSON. Nothing else. A **fully completed** store — all 29
-sections, all 123 exercises, all 148 drill cards, both mock exams and a year of
-study days — is about 21 KB.
+the `cnpe:v2` store as JSON. Nothing else. A **fully completed** store, meaning all
+29 sections, all 123 exercises, all 148 drill cards, both mock exams and a year of
+study days, is about 21 KB.
 
 Two things deliberately do not travel:
 
 * **The mock exam clock.** `startedAt`, `running` and `spent` are stripped before
   the push, so a running exam stays on the machine that started it. That matches
   what Import has always done.
-* **Any GitHub credential.** The OAuth scope is empty — identity only. The token
-  GitHub returns is used once, server-side, to read the account id, and is never
-  stored. The consent screen says "public data only"; this service can no more
+* **Any GitHub credential.** The OAuth scope is empty, so this is identity only.
+  The token GitHub returns is used once, server-side, to read the account id, and
+  is never stored. The consent screen says "public data only"; this service can no more
   read your repositories or gists than a stranger can.
 
 ## How conflicts resolve
 
-They do not, because the merge cannot conflict. `CNPE_PROGRESS.merge` — the same
-function Import has always used — is a union of ticks and a per-counter max of the
+They do not, because the merge cannot conflict. `CNPE_PROGRESS.merge`, the same
+function Import has always used, is a union of ticks and a per-counter max of the
 counters: commutative, idempotent, and monotone. It never lowers anything.
 
 The Worker holds a `rev` per row. A `PUT` carrying a stale `rev` is rejected with
@@ -71,7 +71,7 @@ ten minutes. Everything that is *code* is already in `sync/`.
 ## 1. A GitHub OAuth app
 
 github.com → Settings → Developer settings → **OAuth Apps** → **New OAuth App**.
-(Not "GitHub App" — a plain OAuth app is the right shape for identity-only login.)
+(Not "GitHub App": a plain OAuth app is the right shape for identity-only login.)
 
 | Field | Value |
 |---|---|
@@ -81,8 +81,8 @@ github.com → Settings → Developer settings → **OAuth Apps** → **New OAut
 | Enable Device Flow | leave unticked |
 
 Save. Copy the **Client ID** into `sync/wrangler.toml` under `[vars]`, then press
-**Generate a new client secret** and keep the value on screen for step 3 — GitHub
-will not show it again.
+**Generate a new client secret** and keep the value on screen for step 3, because
+GitHub will not show it again.
 
 The app needs no scopes and no permissions to request. `/auth/start` sends
 `scope=`, empty, on purpose.
@@ -112,7 +112,9 @@ npx wrangler secret put SESSION_SECRET                # openssl rand -base64 32
 ```
 
 `SESSION_SECRET` signs the session cookie and the OAuth state. Rotating it signs
-everyone out; it does not touch stored progress.
+everyone out; it does not touch stored progress. It must be at least 16 characters:
+the Worker refuses every route with a 500 naming the missing value rather than
+signing cookies with a guessable key, so a half-configured deploy fails loudly.
 
 ## 4. Deploy
 
@@ -136,7 +138,7 @@ cloud, and nothing in that document changes.
 
 `workers.dev` is on the Public Suffix List, so a Worker there would be a different
 **site** from `cnpe.rbstp.dev`, and the session cookie would be a third-party
-cookie — already blocked in Safari, going away in Chrome. `sync.rbstp.dev` shares
+cookie, already blocked in Safari and going away in Chrome. `sync.rbstp.dev` shares
 the registrable domain `rbstp.dev`, which makes the fetch same-site, which is what
 lets a plain `HttpOnly; Secure; SameSite=Lax` cookie through. The session token
 therefore never touches JavaScript at all.
@@ -178,7 +180,7 @@ the live site.
 `ALLOWED_ORIGINS` is doing real work: it is the allowlist for CORS **and** the
 allowlist for the post-sign-in redirect. An origin missing from it cannot sign in,
 and an unlisted `return` URL is replaced with the first allowed origin rather than
-followed — otherwise this would be an open redirect wearing a GitHub login.
+followed. Otherwise this would be an open redirect wearing a GitHub login.
 
 ## Running it locally
 
@@ -207,13 +209,13 @@ session is a few hundred requests. Fifty people using it daily would spend a few
 percent of the request budget and a rounding error of the storage.
 
 D1 rather than KV for two reasons: KV's free plan allows 1,000 writes/day against
-D1's 100,000, and KV is eventually consistent for up to a minute — which is
+D1's 100,000, and KV is eventually consistent for up to a minute, which is
 precisely wrong when the entire point is a laptop and a desktop agreeing.
 
 ## Keeping it to yourself
 
 As deployed above, anyone with a GitHub account can sign in and store *their own*
-progress — they never see yours. If you would rather it stayed a guest list, set
+progress, and they never see yours. If you would rather it stayed a guest list, set
 `ALLOWED_LOGINS` in `sync/wrangler.toml` to a comma-separated list of GitHub
 logins; everyone else gets a 403 at the callback and nothing is stored for them.
 Leave it unset and the door is open, which is fine: 5 GB at ~21 KB a head is
@@ -225,14 +227,36 @@ If anyone but you signs in, you are holding their study record. It is tick-boxes
 and dates, not personal data of consequence, but it is theirs:
 
 * **Delete saved copy** on the dashboard removes their row (`DELETE /v1/progress`).
-* **Reset progress**, while signed in, deletes the saved copy too — otherwise the
-  next pull would merge everything straight back, which would make the button a lie.
+* **Reset progress**, while signed in, asks a second time whether to delete the
+  saved copy. Decline and it stays, and this browser syncs it back down on the next
+  load; the confirm says so.
 * `[observability] enabled = false` in `wrangler.toml` keeps request bodies out of
   Cloudflare's logs.
 
 To shut the whole thing down: `npx wrangler delete` removes the Worker, and the
 console's sign-in button becomes a no-op that reports the Worker unreachable.
 Nobody loses any progress, because nobody ever had it only there.
+
+## Notes on the hardening
+
+Worth knowing if you change any of it:
+
+* The session and OAuth-state cookies carry the `__Host-` prefix, so no other host
+  under `rbstp.dev` can set one for the Worker. That prefix also forbids a `Domain`
+  attribute, which is why the cookie is host-only.
+* `PUT` and `DELETE` require an allowed `Origin` header outright, not merely the
+  absence of a disallowed one. `GET` tolerates a missing one so `curl` still works.
+* Bodies are capped at 64 KB, three times a completed store, before and after the
+  JSON round trip. Every query is parameterised through `bind()`.
+* `CNPE_PROGRESS.merge` skips `__proto__`, `constructor` and `prototype` keys. That
+  matters more now than it did for Import: the merge takes network input, and one
+  of its buckets assigns whole objects by key.
+* The session is a signed cookie with a 30-day expiry and no server-side
+  revocation list. Signing out clears the cookie; rotating `SESSION_SECRET`
+  invalidates every outstanding one.
+* There is no per-account rate limit. `ALLOWED_LOGINS` is the answer if that
+  matters to you; without it, a signed-in account could spend D1's daily write
+  budget.
 
 ## The protocol
 
