@@ -339,8 +339,12 @@ module.exports = async function (h) {
     });
     await s.go();
     await s.page.waitForFunction(() => window.CNPE_SYNC.signedIn());
+    // the panel button is a deliberate, fully labelled control: no confirm here
+    let dialogs = 0;
+    s.page.on('dialog', d => { dialogs++; d.accept(); });
     await s.page.click('#sync-btn');
     await s.page.waitForFunction(() => !window.CNPE_SYNC.signedIn());
+    assert(dialogs === 0, 'the panel button signs out without asking');
     assert(s.seen.indexOf('POST /auth/signout') >= 0, 'the session is dropped at the Worker: ' + JSON.stringify(s.seen));
     const b = await btnOf(s.page);
     assert(/Sign in to sync/.test(b.text), 'the button offers sign-in again');
@@ -585,9 +589,21 @@ module.exports = async function (h) {
     let b = await topOf(s.page);
     assert(b.on, 'signed in it carries the .on state');
     assert(/Synced .* to @octocat/.test(b.title), 'and names the account in its label: ' + JSON.stringify(b.title));
+    // one stray click from any page, so it asks first
+    /** @type {string} */
+    let asked = '';
+    s.page.once('dialog', d => { asked = d.message(); d.dismiss(); });
+    await s.page.click('.syncbtn');
+    assert(/Sign out of progress sync\?/.test(asked), 'it asks before signing out: ' + JSON.stringify(asked));
+    assert(/stays in this browser/.test(asked) && /left alone/.test(asked),
+      'and says what survives either way');
+    assert(await s.page.evaluate(() => window.CNPE_SYNC.signedIn()), 'cancelling keeps the session');
+    assert(s.seen.indexOf('POST /auth/signout') < 0, 'and tells the Worker nothing');
+
+    s.page.once('dialog', d => d.accept());
     await s.page.click('.syncbtn');
     await s.page.waitForFunction(() => !window.CNPE_SYNC.signedIn());
-    assert(s.seen.indexOf('POST /auth/signout') >= 0, 'clicking it signs out like the panel button does');
+    assert(s.seen.indexOf('POST /auth/signout') >= 0, 'accepting signs out');
     b = await topOf(s.page);
     assert(!b.on && /Sign in with GitHub/.test(b.title), 'and it flips back to offering sign-in');
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));

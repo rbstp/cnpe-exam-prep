@@ -237,6 +237,7 @@
     var title = S.on
       ? (S.note || "Syncing to your GitHub account.") + " Click to sign out."
       : "Sign in with GitHub to keep your progress across browsers.";
+
     b.title = title;
     b.setAttribute("aria-label", title);
   }
@@ -255,13 +256,19 @@
     if (del) del.hidden = !S.on;
     if (note) { note.textContent = S.note; note.hidden = !S.note; }
   }
-  function toggle() { if (S.on) signOut(); else signIn(); }
+  /** @param {boolean} ask confirm first; the masthead icon is one stray click from anywhere */
+  function toggle(ask) {
+    if (!S.on) { signIn(); return; }
+    if (ask && !confirm("Sign out of progress sync?\n\nYour progress stays in this browser, " +
+                        "and the copy saved to your GitHub account is left alone.")) return;
+    signOut();
+  }
   function mount() {
     // buildTopbar replaces this element on every boot, so it is always fresh.
     var top = document.querySelector(".syncbtn");
     if (top && !top.getAttribute("data-wired")) {
       top.setAttribute("data-wired", "1");
-      top.addEventListener("click", toggle);
+      top.addEventListener("click", function () { toggle(true); });
     }
     var btn = document.getElementById("sync-btn");
     if (!btn) { paint(); return; }
@@ -269,7 +276,7 @@
     if (btn.getAttribute("data-wired")) { paint(); return; }
     btn.setAttribute("data-wired", "1");
     var del = document.getElementById("sync-forget");
-    btn.addEventListener("click", toggle);
+    btn.addEventListener("click", function () { toggle(false); });
     if (del) del.addEventListener("click", function () {
       if (confirm("Delete the progress copy saved to your GitHub account? This browser keeps its own.")) forget();
     });
