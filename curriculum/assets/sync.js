@@ -21,7 +21,7 @@
         'stroke-width="1.6"/><circle cx="12.6" cy="12.4" r="1.9" fill="currentColor" stroke="none"/></svg>',
   };
 
-  var S = { on: false, login: "", rev: 0, note: "", busy: false, muted: false, sent: null };
+  var S = { on: false, login: "", uid: "", rev: 0, note: "", busy: false, muted: false, sent: null, noAvatar: false };
   var timer = null, booted = false;
 
   /* ── availability ────────────────────────────────────────── */
@@ -32,6 +32,12 @@
     return location.protocol === "http:" && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
   }
 
+  /** @param {*} v */
+  function numericId(v) {
+    var t = String(v == null ? "" : v);
+    return /^[0-9]{1,20}$/.test(t) ? t : "";
+  }
+
   /* ── the opt-in flag ─────────────────────────────────────── */
   function readFlag() {
     try {
@@ -39,8 +45,13 @@
       return f && typeof f === "object" && f.on ? f : null;
     } catch (e) { return null; }
   }
-  function writeFlag(login) {
-    try { localStorage.setItem(FLAG, JSON.stringify({ on: 1, login: String(login || "").slice(0, 39) })); } catch (e) {}
+  /** @param {string} login @param {string} [uid] */
+  function writeFlag(login, uid) {
+    try {
+      localStorage.setItem(FLAG, JSON.stringify({
+        on: 1, login: String(login || "").slice(0, 39), uid: numericId(uid),
+      }));
+    } catch (e) {}
   }
   function clearFlag() { try { localStorage.removeItem(FLAG); } catch (e) {} }
 
@@ -107,7 +118,11 @@
     }).then(function (body) {
       if (!body) return;
       S.rev = +body.rev || 0;
-      if (body.user && body.user.login) { S.login = String(body.user.login); writeFlag(S.login); }
+      if (body.user && body.user.login) {
+        S.login = String(body.user.login);
+        S.uid = numericId(body.user.id);
+        writeFlag(S.login, S.uid);
+      }
       var added = null;
       if (body.progress && window.CNPE_PROGRESS) {
         added = window.CNPE_PROGRESS.merge(body.progress);
@@ -192,14 +207,14 @@
              " to " + (S.login ? "@" + S.login : "your GitHub account") + ".";
   }
   function droppedOut() {
-    S.on = false; S.rev = 0; S.sent = null; clearFlag();
+    S.on = false; S.rev = 0; S.sent = null; S.uid = ""; clearFlag();
     say("Not signed in; your progress is still here in this browser.");
   }
 
   /* ── actions ─────────────────────────────────────────────── */
   function signIn() {
     // The flag records the intent before leaving; it is what makes the page pull on return.
-    writeFlag("");
+    writeFlag("", "");
     location.href = API + "/auth/start?return=" + encodeURIComponent(location.href);
   }
   function signOut() {
@@ -207,7 +222,7 @@
     say("Signing out…");
     // Anything ticked in the last few seconds still belongs in the saved copy.
     return flush().then(function () {
-      S.on = false; S.rev = 0; S.sent = null; clearFlag();
+      S.on = false; S.rev = 0; S.sent = null; S.uid = ""; clearFlag();
       say("Signed out. Your progress stays in this browser; the saved copy is untouched.");
       return call("/auth/signout", { method: "POST" }).catch(function () { return null; });
     }).then(function () {});
@@ -226,12 +241,34 @@
   }
 
   /* ── dashboard UI ────────────────────────────────────────── */
+  /* Derived from the id the Worker already returns, so nothing extra is stored
+     or fetched from the API. A blocked or broken image falls back to the glyph
+     once and stays there, rather than retrying on every repaint. */
+  function avatarSrc() {
+    if (!S.on || !S.uid || S.noAvatar) return null;
+    return "https://avatars.githubusercontent.com/u/" + S.uid + "?s=64&v=4";
+  }
   function paintTop() {
     var b = /** @type {HTMLButtonElement} */ (document.querySelector(".syncbtn"));
     if (!b) return;
     if (!usable()) { b.hidden = true; return; }
     b.hidden = false;
-    b.innerHTML = S.on ? ICON.on : ICON.out;
+    var src = avatarSrc();
+    var img = /** @type {HTMLImageElement} */ (b.querySelector("img.avt"));
+    if (src) {
+      if (!img || img.getAttribute("data-uid") !== S.uid) {   // keep it, or it refetches
+        b.innerHTML = "";
+        img = document.createElement("img");
+        img.className = "avt";
+        img.alt = "";
+        img.setAttribute("data-uid", S.uid);
+        img.addEventListener("error", function () { S.noAvatar = true; paintTop(); });
+        img.src = src;
+        b.appendChild(img);
+      }
+    } else {
+      b.innerHTML = S.on ? ICON.on : ICON.out;
+    }
     b.classList.toggle("on", S.on);
     b.classList.toggle("warn", !S.on && /unreachable/.test(S.note));
     var title = S.on
@@ -291,7 +328,7 @@
     if (window.CNPE_PROGRESS) window.CNPE_PROGRESS.onSave(schedule);
     var f = readFlag();
     if (!f) return;
-    S.on = true; S.login = f.login || "";
+    S.on = true; S.login = f.login || ""; S.uid = numericId(f.uid);
     addEventListener("pagehide", flush);
     document.addEventListener("visibilitychange", function () {
       if (document.visibilityState === "hidden") flush();

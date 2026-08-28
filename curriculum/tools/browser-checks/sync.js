@@ -17,6 +17,9 @@ const TYPES = {
   '.woff2': 'font/woff2', '.json': 'application/json',
 };
 
+const AVATAR = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#456"/></svg>');
+
 /** CORS headers the console's credentialed fetches need back. */
 const CORS = {
   'Access-Control-Allow-Origin': SITE_ORIGIN,
@@ -33,11 +36,14 @@ module.exports = async function (h) {
    * @param {*} [o.seed] cnpe:v2 to start from
    * @param {boolean} [o.signedIn] start with the sync opt-in flag set
    * @param {(req: import('playwright').Route, url: URL, method: string, body: string) => *} [o.api]
+   * @param {boolean} [o.avatar] false to make GitHub's avatar CDN fail
    */
   async function site(o) {
     const ctx = await browser.newContext();
     /** @type {string[]} */
     const seen = [];
+    /** @type {string[]} */
+    const avatarHits = [];
     const page = await ctx.newPage();
     page.errors = [];
     page.on('pageerror', e => page.errors.push('pageerror: ' + e.message));
@@ -62,6 +68,14 @@ module.exports = async function (h) {
         contentType: TYPES[path.extname(file)] || 'application/octet-stream',
         body: fs.readFileSync(file),
       });
+    });
+
+    // GitHub's avatar CDN, stubbed so no check ever reaches the network
+    await ctx.route('https://avatars.githubusercontent.com/**', route => {
+      avatarHits.push(route.request().url());
+      return o.avatar === false
+        ? route.abort()
+        : route.fulfill({ status: 200, contentType: 'image/svg+xml', body: AVATAR });
     });
 
     await ctx.route(API_ORIGIN + '/**', async route => {
@@ -89,7 +103,7 @@ module.exports = async function (h) {
       });
     });
 
-    return { ctx, page, seen, go: () => page.goto(SITE_ORIGIN + '/index.html') };
+    return { ctx, page, seen, avatarHits, go: () => page.goto(SITE_ORIGIN + '/index.html') };
   }
 
   /* Chromium logs every non-2xx response as a console error. 401, 409 and 500
@@ -621,6 +635,87 @@ module.exports = async function (h) {
     assert((await topOf(page)).hidden === true, 'and on a section page');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
+  }
+
+  /* 15d. the masthead wears the account's avatar, derived from the id alone */
+  {
+    group('the masthead shows the account avatar');
+    const s = await site({
+      signedIn: true,
+      seed: { done: { '1.1': 1 } },
+      api: (route, url, method) => {
+        if (method === 'GET') {
+          return { status: 200, json: { user: { login: 'octocat', id: '583231' }, rev: 1, progress: null, updated: null } };
+        }
+        if (method === 'PUT') return { status: 200, json: { rev: 2, updated: 'now' } };
+        return { status: 405, json: {} };
+      },
+    });
+    await s.go();
+    await s.page.waitForFunction(() => !!document.querySelector('.syncbtn img.avt'));
+    const src = await s.page.evaluate(() =>
+      /** @type {HTMLImageElement} */ (document.querySelector('.syncbtn img.avt')).getAttribute('src'));
+    assert(src === 'https://avatars.githubusercontent.com/u/583231?s=64&v=4',
+      'the URL is built from the id the Worker returned, with nothing stored: ' + src);
+    assert((await topOf(s.page)).on, 'the green synced ring stays behind it');
+    // a repaint must reuse the element, or every push refetches the image
+    const before = s.avatarHits.length;
+    await s.page.evaluate(() => { window.CNPE_SYNC.mount(); window.CNPE_PROGRESS.save(); });
+    assert(s.avatarHits.length === before, 'a repaint reuses it: ' + s.avatarHits.length + ' vs ' + before);
+    assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
+    await s.ctx.close();
+  }
+
+  /* 15e. a blocked avatar must not leave an empty button */
+  {
+    group('a blocked avatar falls back to the glyph and gives up');
+    const s = await site({
+      signedIn: true,
+      avatar: false,
+      seed: { done: { '1.1': 1 } },
+      api: (route, url, method) => {
+        if (method === 'GET') return { status: 200, json: { user: { login: 'octocat', id: '583231' }, rev: 1, progress: null, updated: null } };
+        if (method === 'PUT') return { status: 200, json: { rev: 2, updated: 'now' } };
+        return { status: 405, json: {} };
+      },
+    });
+    await s.go();
+    await s.page.waitForFunction(() => {
+      const b = document.querySelector('.syncbtn');
+      return !!b && !b.querySelector('img.avt') && !!b.querySelector('svg');
+    });
+    const b = await topOf(s.page);
+    assert(b.on && /Synced .* to @octocat/.test(b.title), 'the button still reports the account: ' + JSON.stringify(b.title));
+    const after = s.avatarHits.length;
+    await s.page.evaluate(() => { window.CNPE_SYNC.mount(); window.CNPE_PROGRESS.save(); });
+    assert(s.avatarHits.length === after, 'and stops asking: ' + s.avatarHits.length + ' vs ' + after);
+    assert(realErrors(s.page).length === 0, 'no console errors beyond the failed image: ' + realErrors(s.page).join(' | '));
+    await s.ctx.close();
+  }
+
+  /* 15f. an id that is not digits never reaches a URL */
+  {
+    group('a junk id is refused rather than interpolated');
+    const s = await site({
+      signedIn: true,
+      seed: { done: { '1.1': 1 } },
+      api: (route, url, method) => {
+        if (method === 'GET') {
+          return { status: 200, json: {
+            user: { login: 'octocat', id: '../../evil?x=' }, rev: 1, progress: null, updated: null } };
+        }
+        if (method === 'PUT') return { status: 200, json: { rev: 2, updated: 'now' } };
+        return { status: 405, json: {} };
+      },
+    });
+    await s.go();
+    await s.page.waitForFunction(() => window.CNPE_SYNC && window.CNPE_SYNC.state().rev === 2);
+    assert(await s.page.evaluate(() => !document.querySelector('.syncbtn img.avt')),
+      'no image is built from an id that is not digits');
+    assert(s.avatarHits.length === 0, 'and nothing was requested: ' + JSON.stringify(s.avatarHits));
+    assert((await topOf(s.page)).on, 'the glyph still reports signed in');
+    assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
+    await s.ctx.close();
   }
 
   /* 16. a store the server already has costs no write */
