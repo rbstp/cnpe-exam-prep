@@ -53,7 +53,7 @@ cat <<INFO
 
 Backstage portal (runs on the HOST, not in the cluster)
   Portal           http://localhost:3000     start: cd $LAB_HOME/portal && yarn start
-                   backend API on :7007      (needs Node 22; mise.toml pins it)
+                   backend API on :7007      (needs Node 24; mise.toml pins it)
   Golden path      Create -> "Golden path service" -> publishes to gitea org '${GITEA_ORG}'
                    Argo CD then generates an Application automatically
 
