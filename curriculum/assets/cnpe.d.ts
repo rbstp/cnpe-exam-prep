@@ -95,14 +95,28 @@ interface CnpeStore {
   last: string | null;
 }
 
-/** How much a merge added, per bucket. */
+/** How much a merge added, per bucket, plus how much it took away. */
 interface CnpeMergeCounts {
   done: number;
   ex: number;
   exam: number;
   drill: number;
   days: number;
+  /** ticks the merge cleared; always 0 without a base */
+  off: number;
 }
+
+/** The ticked keys of a store, per bucket: what `cnpe:sync-base` holds. */
+interface CnpeTickSets {
+  done: string[];
+  ex: string[];
+  /** exam.tasks, not exam */
+  exam: string[];
+  exam2: string[];
+}
+
+/** The same four buckets as lookup maps, which is the shape the merge reads. */
+type CnpeMergeBase = Record<"done" | "ex" | "exam" | "exam2", Record<string, 1>>;
 
 /** The seam between app.js and drill.js / sync.js (CNPE_PROGRESS). */
 interface CnpeProgressApi {
@@ -111,8 +125,11 @@ interface CnpeProgressApi {
   /** count one action toward today's study heartbeat */
   bump(kind: "c" | "x" | "s" | "e"): void;
   streak(): { streak: number; best: number };
-  /** union in another store: ticks are OR-ed, counters take the max, nothing is lowered */
-  merge(src: unknown): CnpeMergeCounts;
+  /** the store as it is on the disk, which is not always the one in memory */
+  saved(): unknown;
+  /** merge in another store: counters take the max, and ticks resolve against
+      base as (local === base) ? remote : local, so no base means a plain union */
+  merge(src: unknown, base?: CnpeMergeBase): CnpeMergeCounts;
   /** called after every save, so the optional sync can mirror it */
   onSave(fn: () => void): void;
 }
@@ -123,6 +140,8 @@ interface CnpeSyncApi {
   signedIn(): boolean;
   /** delete the copy held for this account; local progress is untouched */
   forget(): Promise<void>;
+  /** drop the merge base, so the next pull is a plain union */
+  forgetBase(): void;
   state(): { on: boolean; login: string; rev: number; note: string };
 }
 

@@ -1,14 +1,16 @@
 /* CNPE curriculum: optional progress sync.
 
    localStorage stays the source of truth. Signed out, and always over file://,
-   nothing here touches the network. Merging reuses the import merge, which is a
-   union of ticks and a per-counter max, so two browsers converge in any order. */
+   nothing here touches the network. Merging reuses the import merge, given the
+   base below so that an un-tick travels; counters still take the per-field max. */
 (function () {
   "use strict";
 
   var API = String(window.CNPE_SYNC_API || "https://sync.rbstp.dev").replace(/\/+$/, "");
   var FLAG = "cnpe:sync";
+  var BASE = "cnpe:sync-base";
   var RELOADED = "cnpe:sync-reloaded";
+  var BUCKETS = ["done", "ex", "exam", "exam2"];
   var DEBOUNCE = 2500;
   var MAX_RETRY = 3;
 
@@ -21,7 +23,8 @@
         'stroke-width="1.6"/><circle cx="12.6" cy="12.4" r="1.9" fill="currentColor" stroke="none"/></svg>',
   };
 
-  var S = { on: false, login: "", uid: "", rev: 0, note: "", busy: false, muted: false, sent: null, noAvatar: false };
+  var S = { on: false, login: "", uid: "", rev: 0, note: "", busy: false, muted: false, sent: null,
+            noAvatar: false, foreign: false };
   var timer = null, booted = false;
 
   /* ── availability ────────────────────────────────────────── */
@@ -54,6 +57,68 @@
     } catch (e) {}
   }
   function clearFlag() { try { localStorage.removeItem(FLAG); } catch (e) {} }
+
+  /* ── the base ────────────────────────────────────────────── */
+  /* The last state this browser and the server agreed on. mergeProgress reads it
+     to tell "I never had this" from "I removed this", which is the whole trick. */
+  /** @param {*} p @return {*} */
+  function ticks(p) {
+    var out = { done: [], ex: [], exam: [], exam2: [] };
+    if (!p || typeof p !== "object") return out;
+    BUCKETS.forEach(function (b) {
+      var m = b === "exam" || b === "exam2" ? p[b] && p[b].tasks : p[b];
+      if (!m || typeof m !== "object" || Array.isArray(m)) return;
+      out[b] = Object.keys(m).filter(function (k) { return m[k]; }).sort();
+    });
+    return out;
+  }
+  /** @param {*} b @return {*} */
+  function sets(b) {
+    var out = Object.create(null);
+    BUCKETS.forEach(function (k) {
+      var m = Object.create(null);
+      (b && b[k] || []).forEach(function (t) { m[t] = 1; });
+      out[k] = m;
+    });
+    return out;
+  }
+  /** @param {*} b @return {*} */
+  function only(b) {
+    return { done: b.done || [], ex: b.ex || [], exam: b.exam || [], exam2: b.exam2 || [] };
+  }
+  function readBase() {
+    try {
+      var b = JSON.parse(localStorage.getItem(BASE) || "null");
+      return b && typeof b === "object" && !Array.isArray(b) ? b : null;
+    } catch (e) { return null; }
+  }
+  function clearBase() { try { localStorage.removeItem(BASE); } catch (e) {} }
+  // A base is only an ancestor of a store that reached the disk, so a swallowed
+  // quota error breaks it. So does another tab, but only until that tab saves
+  // its own store over ours, which is what S.foreign below is for.
+  function settled() {
+    if (!window.CNPE_PROGRESS || !window.CNPE_PROGRESS.saved) return false;
+    return canon(ticks(window.CNPE_PROGRESS.saved())) === canon(ticks(window.CNPE_PROGRESS.get()));
+  }
+  /** @param {*} progress @param {number} rev */
+  function keepBase(progress, rev) {
+    if (S.foreign || !settled()) { clearBase(); return; }
+    var t = ticks(progress);
+    t.uid = S.uid;
+    t.rev = rev;
+    try { localStorage.setItem(BASE, JSON.stringify(t)); } catch (e) { clearBase(); }
+  }
+  /** @param {*} progress @param {number} rev @param {string} uid @return {*} */
+  function baseFor(progress, rev, uid) {
+    var b = readBase();
+    if (!b || S.foreign || !settled()) return null;
+    if (b.uid && uid && String(b.uid) !== uid) return null;
+    var was = +b.rev || 0;
+    if (rev < was) return null;                       // the row was deleted and remade
+    // One rev holds one blob, so a match that disagrees is a different row.
+    if (rev === was && canon(ticks(progress)) !== canon(only(b))) return null;
+    return sets(b);
+  }
 
   /* ── the payload ─────────────────────────────────────────── */
   // A running exam clock stays on the machine that started it, as import does.
@@ -124,17 +189,21 @@
         writeFlag(S.login, S.uid);
       }
       var added = null;
+      if (!body.progress) clearBase();          // no row, so nothing to be an ancestor of
       if (body.progress && window.CNPE_PROGRESS) {
-        added = window.CNPE_PROGRESS.merge(body.progress);
+        // Merge against the base in effect, then move it on. The other order
+        // makes base and remote agree on every key, and the pull a no-op.
+        added = window.CNPE_PROGRESS.merge(body.progress, baseFor(body.progress, S.rev, S.uid));
         muted(function () { window.CNPE_PROGRESS.save(); });
         S.sent = canon(body.progress);
+        keepBase(body.progress, S.rev);
       }
       S.busy = false;
       return push().then(function () {
         stamp();
-        // Panels paint from the store at load, so a merge that added something
+        // Panels paint from the store at load, so a merge that moved something
         // needs a repaint. Only on the dashboard, where the user just asked.
-        if (!grew(added)) { mark(RELOADED, null); return; }
+        if (!changed(added)) { mark(RELOADED, null); return; }
         if (document.getElementById("sync-btn") && !mark(RELOADED)) {
           mark(RELOADED, "1");            // a save that never sticks must not loop
           location.reload();
@@ -161,13 +230,18 @@
       return res.json().then(function (body) { return { status: res.status, body: body }; });
     }).then(function (r) {
       if (!r) return;
-      if (r.status === 200) { S.rev = +r.body.rev || 0; S.sent = body; stamp(); paint(); return; }
+      if (r.status === 200) {
+        S.rev = +r.body.rev || 0; S.sent = body;
+        keepBase(progress, S.rev);
+        stamp(); paint(); return;
+      }
       if (r.status === 409 && n < MAX_RETRY) {
         // Another browser wrote first: take its copy, merge ours in, retry.
         S.rev = +r.body.rev || 0;
         if (r.body.progress && window.CNPE_PROGRESS) {
-          window.CNPE_PROGRESS.merge(r.body.progress);
+          window.CNPE_PROGRESS.merge(r.body.progress, baseFor(r.body.progress, S.rev, S.uid));
           muted(function () { window.CNPE_PROGRESS.save(); });
+          keepBase(r.body.progress, S.rev);
         }
         return push(n + 1, unloading);
       }
@@ -177,8 +251,9 @@
 
   /* ── local hooks ─────────────────────────────────────────── */
   /** @param {*} added */
-  function grew(added) {
-    return !!added && !!(added.done || added.ex || added.exam || added.drill || added.days);
+  function changed(added) {
+    return !!added &&
+      !!(added.done || added.ex || added.exam || added.drill || added.days || added.off);
   }
   function muted(fn) { S.muted = true; try { fn(); } finally { S.muted = false; } }
   function schedule() {
@@ -207,7 +282,7 @@
              " to " + (S.login ? "@" + S.login : "your GitHub account") + ".";
   }
   function droppedOut() {
-    S.on = false; S.rev = 0; S.sent = null; S.uid = ""; clearFlag();
+    S.on = false; S.rev = 0; S.sent = null; S.uid = ""; clearFlag(); clearBase();
     say("Not signed in; your progress is still here in this browser.");
   }
 
@@ -222,7 +297,7 @@
     say("Signing out…");
     // Anything ticked in the last few seconds still belongs in the saved copy.
     return flush().then(function () {
-      S.on = false; S.rev = 0; S.sent = null; S.uid = ""; clearFlag();
+      S.on = false; S.rev = 0; S.sent = null; S.uid = ""; clearFlag(); clearBase();
       say("Signed out. Your progress stays in this browser; the saved copy is untouched.");
       return call("/auth/signout", { method: "POST" }).catch(function () { return null; });
     }).then(function () {});
@@ -233,7 +308,7 @@
     return call("/v1/progress", { method: "DELETE" }).then(function (res) {
       if (res.status === 401) { droppedOut(); return; }
       if (!res.ok) throw new Error("HTTP " + res.status);
-      S.rev = 0; S.sent = null;
+      S.rev = 0; S.sent = null; clearBase();
       say("Deleted the copy saved to your GitHub account. This browser still has everything.");
     }).catch(function () {
       say("Could not delete the saved copy; nothing was changed.");
@@ -326,6 +401,9 @@
     booted = true;
     if (!usable()) return;
     if (window.CNPE_PROGRESS) window.CNPE_PROGRESS.onSave(schedule);
+    // Fires only in the other tabs. Once one has written a store this one never
+    // saw, our memory has not incorporated the base and cannot again this life.
+    addEventListener("storage", function () { if (!settled()) S.foreign = true; });
     var f = readFlag();
     if (!f) return;
     S.on = true; S.login = f.login || ""; S.uid = numericId(f.uid);
@@ -340,6 +418,7 @@
     mount: mount,
     signedIn: function () { return S.on; },
     forget: forget,
+    forgetBase: clearBase,
     /** @return {{on: boolean, login: string, rev: number, note: string}} */
     state: function () { return { on: S.on, login: S.login, rev: S.rev, note: S.note }; },
   };
