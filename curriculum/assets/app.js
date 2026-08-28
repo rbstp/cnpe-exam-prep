@@ -88,7 +88,10 @@
   // Reset progress swaps the store object, so hand out getters, not the object.
   window.CNPE_PROGRESS = {
     get: function () { return store; }, save: save, bump: bumpDay, streak: studyStreak,
-    merge: function (src) { return mergeProgress(src); },
+    // What is actually on the disk, which is not always what is in memory.
+    saved: function () { try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { return null; } },
+    /** @param {*} src @param {CnpeMergeBase} [base] */
+    merge: function (src, base) { return mergeProgress(src, base); },
     onSave: function (fn) { if (typeof fn === "function") savers.push(fn); },
   };
 
@@ -107,26 +110,38 @@
       return true;
     } catch (e) { return false; }
   }
-  /* Union, never overwrite: an import can add or tick items, but never un-tick one. */
-  function ownKey(k) { return k !== "__proto__" && k !== "constructor" && k !== "prototype"; }
-  function mergeProgress(src) {
-    var n = { done: 0, ex: 0, exam: 0, drill: 0, days: 0 };
-    function union(into, from, bucket) {
+  /* Ticks merge three ways against the base, the last state this browser and the
+     server agreed on: (local === base) ? remote : local, so an un-tick travels.
+     No base makes every base value 0, which is the union Import has always had. */
+  function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+  // The base lookup uses hasOwnProperty, so "toString" is no longer inert.
+  function ownKey(k) { return k !== "prototype" && !(k in Object.prototype); }
+  /** @param {*} src @param {CnpeMergeBase} [base] */
+  function mergeProgress(src, base) {
+    var n = { done: 0, ex: 0, exam: 0, drill: 0, days: 0, off: 0 };
+    function union(into, from, was, bucket) {
+      // A bucket the payload leaves out is not a bucket the server emptied.
       if (!from || typeof from !== "object" || Array.isArray(from)) return;
-      Object.keys(from).forEach(function (k) {
+      var keys = Object.create(null);
+      Object.keys(from).forEach(function (k) { keys[k] = 1; });
+      if (was) Object.keys(was).forEach(function (k) { keys[k] = 1; });  // gone from the remote is a removal
+      Object.keys(keys).forEach(function (k) {
         if (!ownKey(k)) return;
-        var v = from[k] ? 1 : 0;
-        if (!(k in into)) { into[k] = v; if (v) n[bucket]++; }
-        else if (v && !into[k]) { into[k] = 1; n[bucket]++; }
+        var r = from[k] ? 1 : 0;
+        var l = own(into, k) && into[k] ? 1 : 0;
+        var b = was && own(was, k) && was[k] ? 1 : 0;
+        var v = l === b ? r : l;
+        if (!own(into, k)) { if (own(from, k)) { into[k] = v; if (v) n[bucket]++; } }
+        else if (v !== l) { into[k] = v; if (v) n[bucket]++; else n.off++; }
       });
     }
-    union(store.done, src.done, "done");
-    union(store.ex, src.ex, "ex");
+    union(store.done, src.done, base && base.done, "done");
+    union(store.ex, src.ex, base && base.ex, "ex");
     ["exam", "exam2"].forEach(function (k) {
       if (!src[k] || typeof src[k] !== "object") return;
       if (!store[k] || typeof store[k] !== "object") store[k] = {};
       if (!store[k].tasks || typeof store[k].tasks !== "object") store[k].tasks = {};
-      union(store[k].tasks, src[k].tasks, "exam");
+      union(store[k].tasks, src[k].tasks, base && base[k], "exam");
     });
     // r and m are lifetime counters, so they take the max; only the last-answer
     // fields follow the clock. Replacing the record wholesale would lower them.
@@ -979,6 +994,8 @@
       if (!confirm("Clear all section, exercise, exam, drill and streak progress stored in this browser?")) return;
       function wipe() {
         store = { ex: {}, done: {}, exam: {}, exam2: {}, drill: {}, drillmeta: {}, days: {}, last: null };
+        // Drop the base too, or the next pull reads this as un-ticking everything.
+        if (window.CNPE_SYNC && window.CNPE_SYNC.forgetBase) window.CNPE_SYNC.forgetBase();
         save(); location.reload();
       }
       if (!(window.CNPE_SYNC && window.CNPE_SYNC.signedIn())) { wipe(); return; }
@@ -1070,7 +1087,9 @@
       store[bucket] = st; save(); paintClock();
     });
     if (resetBtn) resetBtn.addEventListener("click", function () {
-      st.startedAt = 0; st.spent = 0; st.running = false; st.tasks = {};
+      st.startedAt = 0; st.spent = 0; st.running = false;
+      // Zero, not drop: a deleted key says nothing to the merge.
+      Object.keys(st.tasks).forEach(function (k) { st.tasks[k] = 0; });
       save();
       Array.prototype.forEach.call(document.querySelectorAll(".task"), function (t) { t.classList.remove("done"); });
       Array.prototype.forEach.call(document.querySelectorAll(".task .dot"), function (d) { d.setAttribute("aria-pressed", "false"); });

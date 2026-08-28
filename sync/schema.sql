@@ -4,8 +4,8 @@
 --
 -- rev is an optimistic-concurrency counter: a PUT carrying a stale rev is
 -- rejected with 409 and the current copy, and the client merges and retries.
--- The merge is a union of ticks and a per-field max of the counters, so no
--- order of writes can lose a completed exercise or a drill answer.
+-- Counters take a per-field max and ticks resolve against a base the client
+-- keeps, so no order of writes loses work a browser did not itself undo.
 CREATE TABLE IF NOT EXISTS progress (
   user_id    TEXT PRIMARY KEY,           -- GitHub numeric user id, stable across renames
   login      TEXT NOT NULL,              -- last-seen login, for the account line only

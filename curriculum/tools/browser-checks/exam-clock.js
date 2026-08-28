@@ -60,8 +60,10 @@ module.exports = async function (h) {
     assert(/Start 120:00/.test(await startLabel(page)), 'and offers a fresh start');
     assert((await page.evaluate(() => document.querySelectorAll('.task.done').length)) === 0, 'no task stays scored');
     const s = await store(page);
-    assert(s.exam.spent === 0 && s.exam.running === false && Object.keys(s.exam.tasks).length === 0,
-      'the stored exam state is empty again');
+    // Zeroed, not dropped: a deleted key says nothing to the sync merge.
+    const scored = Object.keys(s.exam.tasks).filter(k => s.exam.tasks[k]);
+    assert(s.exam.spent === 0 && s.exam.running === false && scored.length === 0,
+      'the stored exam state is cleared again: ' + JSON.stringify(s.exam.tasks));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   }

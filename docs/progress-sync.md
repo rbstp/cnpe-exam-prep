@@ -12,6 +12,8 @@ Concretely, the guarantees the code holds to, each asserted by a browser check i
 * Signed in, a failing or unreachable Worker costs a status line and nothing else:
   local progress is already saved before sync hears about it.
 * Signing out stops the syncing and leaves both copies, local and saved, intact.
+* A tick and an un-tick both reach the other browsers, and work this browser did
+  not itself undo survives every merge it takes part in.
 
 If you never press **Sign in to sync**, nothing below applies to you and the
 console behaves exactly as it did before.
@@ -51,29 +53,85 @@ Two things deliberately do not travel:
 
 ## How conflicts resolve
 
-They do not, because the merge cannot conflict. `CNPE_PROGRESS.merge`, the same
-function Import has always used, is a union of ticks and a per-field max of the
-counters: commutative, idempotent, and monotone. It never lowers anything. Drill
-records are the interesting case, because they are cumulative: `r` and `m` take
-the max independently, and only `ok` and `t` follow the clock, so two browsers
-that each answered the same card offline keep both answers.
+Counters cannot conflict, and ticks resolve against a base.
+
+The counters are a per-field max. `drill.r` and `m` take it independently, `days`
+counts the same way, and only `ok` and `t` follow the clock, so two browsers that
+each answered the same card offline keep both answers. Nothing lowers them.
+
+Ticks are a three-way merge, the shape `git merge` uses. Each browser keeps a
+**base** in `localStorage` under `cnpe:sync-base`: the ticked keys of the last
+state it and the server agreed on. Then, per key,
+
+```
+result = (local === base) ? remote : local
+```
+
+which reads as: I have not touched this since we last agreed, so take the
+server's; or I have, so mine wins, an un-tick included. Over booleans that cannot
+conflict, because if local and remote both differ from base then both are the
+opposite of base, so they agree. There is no conflict case and so no conflict UI.
+
+With no base every base value is 0 and the rule collapses to `local OR remote`,
+the plain union this used to be. That is the fallback wherever the base cannot be
+trusted, and it is also what Import gets: an imported file is somebody else's
+history, not a state this browser ever agreed on, so `merge` is called without a
+base and an import still cannot un-tick anything.
 
 The Worker holds a `rev` per row. A `PUT` carrying a stale `rev` is rejected with
-`409` **and the current copy**; the client merges that in and retries with the
-fresh `rev`. So two browsers that both worked offline converge on the union of
-their work whenever they next reach the network, in any order, with no locking and
-no conflict UI.
+`409` **and the current copy**; the client merges that in, against the base in
+effect, and retries with the fresh `rev`. So two browsers that both worked offline
+converge whenever they next reach the network, in any order, with no locking.
 
-Two consequences worth knowing, both following from "never lowers anything":
+### When the base is not trusted
 
-* **Un-ticking does not propagate.** A union cannot express a removal, so if you
-  un-tick an exercise on the laptop while the desktop's copy still has it ticked,
-  the next sync ticks it back. Un-tick on each synced browser, or use **Reset
-  progress**, which is a deletion rather than a merge.
+A base is only usable while it is genuinely an ancestor of this browser's store.
+Four checks, and failing any of them falls back to the union:
+
+* **The store must have reached the disk.** `save()` swallows storage errors, so a
+  quota failure would otherwise leave a base claiming a merge that never landed,
+  and the next load would push the missing work up as a removal. So the base is
+  written only after the store write is confirmed, and read only while the
+  persisted store still matches the one in memory.
+* **No other tab may have written the store.** The base and the store are shared
+  across tabs; the in-memory copy is not. A second tab that saves its own older
+  store re-aligns disk and memory, so the check above goes quiet just when it is
+  needed most, and that tab would read the first tab's work as a removal. The
+  `storage` event fires only in the *other* tabs, so a tab that sees the store
+  change under it stops trusting the base for the rest of its life.
+* **The row must be the one the base came from.** A `rev` below the base's means
+  the row was deleted and remade, and so does a `rev` equal to the base's with
+  different ticks, since one `rev` holds one blob. A pull that finds no row at all
+  drops the base outright. Between them these catch every remake this browser can
+  see; a row deleted and rebuilt past the old `rev` by a browser that never held
+  this one's work, without this browser pulling in between, is not visible to any
+  of them.
+* **The account must match.** Belt and braces, since signing out clears the base.
+
+**Reset progress** clears the base as well, which is what keeps it a local wipe
+rather than a mass un-tick: declining the second confirm still syncs the saved copy
+back down, exactly as that confirm says.
+
+### What still does not travel
+
+* **A browser running older JavaScript.** Until it loads the new bundle it merges
+  the old way and ticks things back. Pages caches assets for ten minutes.
+* **An un-tick that lost a race.** A browser that was offline with a pending
+  un-tick wins over a newer re-tick made elsewhere, because a base cannot see a
+  change that nets back to where it started. Telling those apart needs a per-key
+  clock, which is a larger thing than this is.
+* **A removal arriving on a `409`** is not repainted until the next load. The pull
+  repaints; the conflict retry does not.
 * **Two tabs of the same browser still diverge**, exactly as they did before sync
   existed: each tab holds its own in-memory store and `save()` writes the whole
-  blob. Sync heals that once both tabs' work reaches the server, which is why the
-  push on `pagehide` uses `keepalive`.
+  blob. Sync still heals that once both tabs' work reaches the server, which is why
+  the push on `pagehide` uses `keepalive`, and why both tabs fall back to the union
+  the moment they notice each other.
+
+One deliberate change of behaviour: the mock exam's own **Reset** button now clears
+that paper on every synced browser. It zeroes its task keys rather than deleting
+them, because a key that is simply gone says nothing to the merge.
+
 
 ---
 
@@ -291,8 +349,10 @@ Worth knowing if you change any of it:
   absence of a disallowed one. `GET` tolerates a missing one so `curl` still works.
 * Bodies are capped at 64 KB, three times a completed store, before and after the
   JSON round trip. Every query is parameterised through `bind()`.
-* `CNPE_PROGRESS.merge` skips `__proto__`, `constructor` and `prototype` keys. That
-  matters more now than it did for Import: the merge takes network input, and one
+* `CNPE_PROGRESS.merge` skips every `Object.prototype` name, not just `__proto__`,
+  `constructor` and `prototype`. The base lookup reads through `hasOwnProperty`,
+  which costs the accident that used to leave a key like `toString` inert. That
+  matters more here than it did for Import: the merge takes network input, and one
   of its buckets assigns whole objects by key.
 * The session is a signed cookie with a 30-day expiry and no server-side
   revocation list. Signing out clears the cookie; rotating `SESSION_SECRET`
@@ -321,3 +381,5 @@ Worth knowing if you change any of it:
 Sign-in intent is recorded in `localStorage` under `cnpe:sync` *before* the
 redirect, which is what tells the returning page to pull. There is no marker
 appended to your URL, and the Worker redirects back to the exact page you left.
+`cnpe:sync-base` sits beside it and holds the merge base described above; both are
+this browser's own bookkeeping and neither is ever sent anywhere.

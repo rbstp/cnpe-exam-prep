@@ -182,11 +182,10 @@ It answers each objection to (c) and (d) rather than accepting them:
   `sync.rbstp.dev`, a Custom Domain whose only origin is the Worker. `cnpe` stays
   grey and §2 above is unchanged. The record must share the registrable domain
   `rbstp.dev`, though, or the session cookie becomes a third-party cookie.
-* **"Both wrote while offline" has a real answer.** The import merge is a union of
-  ticks and a per-counter max: commutative, idempotent, never lowering anything.
-  The Worker rejects a stale write with `409` **and the current copy**, and the
-  client merges and retries. Two offline browsers converge on the union, in any
-  order.
+* **"Both wrote while offline" has a real answer.** Counters take a per-field max,
+  and ticks resolve three ways against the last state the browser and the server
+  agreed on, so an un-tick travels and work a browser did not itself undo survives. The Worker rejects a stale write with `409` **and the current copy**, and
+  the client merges and retries. See `docs/progress-sync.md`.
 * **No GitHub credential anywhere.** The OAuth scope is empty, so this is identity
   only. The token is used once server-side to read the account id and is never
   stored, so
