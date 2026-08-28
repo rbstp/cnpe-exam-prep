@@ -156,16 +156,24 @@ module.exports = async function (h) {
       api: (route, url) => {
         if (url.pathname === '/auth/start') {
           started = url.searchParams.get('return');
-          route.fulfill({ status: 302, headers: { Location: SITE_ORIGIN + '/index.html' } });
+          // The Worker answers with a 302, but a redirect from route.fulfill
+          // escapes interception in the headless shell CI runs, so send the
+          // browser back with a navigation instead. sync/test.mjs asserts the
+          // real 302; what matters here is the client's behaviour on return.
+          route.fulfill({
+            status: 200, contentType: 'text/html',
+            body: '<meta http-equiv="refresh" content="0;url=' + started + '">',
+          });
           return undefined;
         }
         return { status: 200, json: { user: { login: 'octocat', id: '1' }, rev: 0, progress: null, updated: null } };
       },
     });
     await s.go();
-    await Promise.all([s.page.waitForURL(SITE_ORIGIN + '/index.html'), s.page.click('#sync-btn')]);
-    // the round trip lands back on the console: wait for its scripts, not just the URL
-    await s.page.waitForFunction(() => !!window.CNPE_SYNC);
+    await s.page.click('#sync-btn');
+    // waitForURL would match the page we are already on, so wait for the trip
+    await s.page.waitForFunction(o =>
+      location.href === o && !!window.CNPE_SYNC, SITE_ORIGIN + '/index.html');
     assert(started === SITE_ORIGIN + '/index.html', 'the return URL is handed to the Worker: ' + JSON.stringify(started));
     const flag = await s.page.evaluate(() => localStorage.getItem('cnpe:sync'));
     assert(!!flag && JSON.parse(flag).on === 1, 'the opt-in is recorded before leaving: ' + JSON.stringify(flag));
