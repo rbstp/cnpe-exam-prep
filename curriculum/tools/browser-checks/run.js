@@ -1,15 +1,11 @@
 #!/usr/bin/env node
-/* Drive a staged copy of the study console in headless Chromium and assert its
-   behavior end to end. Each area lives in its own module beside this runner;
-   a module gets the shared harness (fresh contexts, seeded stores, the assert
-   counter) and adds its checks to the one tally.
+/* Drive a staged copy of the study console in headless Chromium and check its behavior.
 
        node tools/browser-checks/run.js <site-dir>    # site-dir from stage-site.sh
 
-   Needs the playwright package resolvable from here (CI installs it with
-   --no-save; the console itself stays dependency-free). CHROMIUM_BIN overrides
-   the browser binary; otherwise Playwright's own Chromium is used. Set
-   STREAK_SHOTS to a directory to also get theme screenshots for eyeballing. */
+   Env:
+     CHROMIUM_BIN    browser binary to use instead of Playwright's own Chromium
+     STREAK_SHOTS    directory to write theme screenshots into */
 'use strict';
 const { chromium } = require('playwright');
 const path = require('path');
@@ -27,8 +23,7 @@ async function run() {
 
   for (const name of AREAS) {
     console.log('\n═══ ' + name + ' ═══');
-    // one area blowing up (a timeout, an evaluate against a navigating
-    // document) must not discard every area after it: count it and move on
+    // one area blowing up must not discard the areas after it: count it and move on
     try { await require('./' + name)(h); }
     catch (e) { h.assert(false, name + ' aborted: ' + e.message.split('\n')[0]); }
   }

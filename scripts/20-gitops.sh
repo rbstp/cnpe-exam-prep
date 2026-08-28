@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Domain 2 (25%): Argo CD, Flux, Argo Rollouts, Argo Workflows.
-# The exam may hand you either Argo CD or Flux: install both, use both.
 source "$(dirname "$0")/lib.sh"
 need helm; need kubectl
 
@@ -34,7 +33,6 @@ else
   ok "flux-system already present"
 fi
 
-# Point Flux at the local Gitea repo so both controllers watch the same truth.
 if [ -f "$REPO_ROOT/.gitea-token" ]; then
   log "Wiring Flux to gitea.lab/platform"
   kubectl -n flux-system create secret generic gitea-auth \

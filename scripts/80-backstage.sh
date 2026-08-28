@@ -1,22 +1,11 @@
 #!/usr/bin/env bash
-# Backstage on the host + a working software template that scaffolds into the
-# local Gitea, plus the Argo CD ApplicationSet that picks the new repo up.
-# Runs on the host rather than in-cluster: far lighter on a 2019 chassis, and
-# templates are the part of Domain 3 you actually need reps on.
+# Backstage on the host, with a software template that scaffolds into the local Gitea.
 source "$(dirname "$0")/lib.sh"
 need node; need npx
-# NOT $LAB_HOME/backstage: that IS this repo's own backstage/ template source
-# directory (LAB_HOME == REPO_ROOT), so scaffolding there collides with the
-# files we copy FROM. Scaffold into portal/ instead.
 APP="${BACKSTAGE_APP:-$LAB_HOME/portal}"
 
 command -v yarn >/dev/null || { log "Installing yarn"; sudo npm i -g yarn; }
-# Backstage supports EVEN LTS releases only (20 / 22 / 24 at time of writing).
-# ">= 20" is the wrong test: Node 26 is too NEW and create-app fails on it.
-#
-# mise.toml in the repo root pins Node 22, but mise only rewrites PATH when it is
-# activated in your shell. Under 'make' (or any non-interactive shell) it is not, so
-# resolve the pinned version ourselves rather than failing on the global default.
+# Backstage only supports even LTS Node releases (20, 22, 24).
 node_major() { node -v 2>/dev/null | sed 's/v\([0-9]*\).*/\1/'; }
 NODE_MAJOR=$(node_major)
 if { [ $((NODE_MAJOR % 2)) -ne 0 ] || [ "$NODE_MAJOR" -gt 24 ]; } && command -v mise >/dev/null; then
@@ -46,14 +35,7 @@ fi
 if [ ! -d "$APP" ]; then
   log "Creating the Backstage app (~5-10 min, lots of npm)"
   mkdir -p "$LAB_HOME"
-  # create-app has no --name flag and ALWAYS prompts for the app name, so it hangs
-  # forever when run non-interactively. Feed the name on stdin.
-  # --skip-install: create-app writes .yarnrc.yml and THEN installs, and the
-  # generated config sets 'npmMinimalAgeGate: 3d' which rejects any dependency
-  # published in the last 3 days. Backstage's own scaffolder-backend depends on
-  # 'nunjitsu', which is often newer than that, so the bundled install dies with a
-  # misleading "All versions ... are quarantined". Scaffold first, fix the policy,
-  # then install ourselves.
+  # create-app always prompts for the app name, so feed it on stdin.
   ( cd "$LAB_HOME" && printf 'portal\n' | \
       npx --yes @backstage/create-app@latest --skip-install --path "$(basename "$APP")" )
 
@@ -109,7 +91,6 @@ mkdir -p "$APP/examples/golden-path"
 cp -r "$REPO_ROOT/backstage/template/." "$APP/examples/golden-path/"
 cp "$REPO_ROOT/backstage/app-config.local.yaml" "$APP/app-config.local.yaml"
 
-# Keep credentials in one place: rewrite the config from lab.env, not by hand.
 python3 - "$APP/app-config.local.yaml" "$GITEA_HOST" "$GITEA_USER" "$GITEA_PASS" <<'PY'
 import sys
 p, host, user, pw = sys.argv[1:5]

@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
-# Domain 5: secure service-to-service. Runs on the SECOND cluster so a broken
-# mesh never costs you your main lab state. Istio by default; MESH=linkerd works.
+# Domain 5: service mesh on the second cluster. Istio by default, MESH=linkerd works.
 source "$(dirname "$0")/lib.sh"
 need kind; need kubectl; need helm
 MESH="${MESH:-istio}"
 
 if ! cluster_exists "$MESH_CLUSTER"; then
   log "Creating '$MESH_CLUSTER' cluster"
-  # Pin the same node image as the main cluster, otherwise the mesh cluster runs
-  # whatever the installed kind defaults to and the two disagree on k8s version.
+  # Pin the same node image as the main cluster so both run the same k8s version.
   sed "s|__IMAGE__|$K8S_IMAGE|g" "$REPO_ROOT/kind/mesh.yaml" > /tmp/cnpe-lab/kind-$MESH_CLUSTER.yaml
   kind create cluster --config /tmp/cnpe-lab/kind-$MESH_CLUSTER.yaml --wait 90s
 fi

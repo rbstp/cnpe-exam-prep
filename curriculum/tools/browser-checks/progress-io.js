@@ -1,6 +1,4 @@
-/* Export, import and reset: the exported file carries the whole store in the
-   documented wrapper, import merges without ever lowering a count and rejects
-   what it cannot read, and reset clears everything behind its confirm. */
+/* Export, import and reset of the progress store. */
 'use strict';
 const fs = require('fs');
 
@@ -16,8 +14,7 @@ module.exports = async function (h) {
     const seeded = { days, done: { '1.1': 1 }, ex: { '1.1#some-exercise': 1 } };
     const { ctx, page } = await fresh(seeded);
     await page.goto(url('index.html'));
-    // some browsers refuse a scripted download from file://; the console then
-    // falls back to a copyable textarea, and either path must carry the JSON
+    // file:// may block a scripted download; the console falls back to a textarea
     const dl = page.waitForEvent('download', { timeout: 5000 }).catch(() => /** @type {import('playwright').Download | null} */ (null));
     await page.click('#export-progress');
     const download = await dl;
@@ -37,7 +34,7 @@ module.exports = async function (h) {
     await ctx.close();
   }
 
-  /* 2. export → import into a fresh profile; merge never lowers a count */
+  /* 2. export, then import into a fresh profile; merge never lowers a count */
   {
     group('export/import carries history, merge never lowers counts');
     /** @type {Record<string, CnpeDayCounts>} */

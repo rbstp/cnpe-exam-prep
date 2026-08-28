@@ -1,7 +1,4 @@
-/* The console-wide study streak, end to end: every action type heartbeats the
-   day, un-ticking never counts, history derives the right streak/record/heat
-   strip, the drillmeta migration seeds an alive legacy streak, and the
-   single-file bundle behaves across hash routes. */
+/* The console-wide study streak, end to end. */
 'use strict';
 const path = require('path');
 
@@ -42,10 +39,10 @@ module.exports = async function (h) {
     await page.click('.exercise .mark');
     let s = await store(page);
     assert(s.days[TODAY] && s.days[TODAY].x === 1, 'x === 1 after verify');
-    await page.click('.exercise .mark');            // un-tick
+    await page.click('.exercise .mark');
     s = await store(page);
     assert(s.days[TODAY].x === 1, 'x stays 1 after un-tick');
-    await page.click('.exercise .mark');            // re-tick
+    await page.click('.exercise .mark');
     s = await store(page);
     assert(s.days[TODAY].x === 2, 'x === 2 after re-tick');
     await page.goto(url('index.html'));
@@ -184,7 +181,7 @@ module.exports = async function (h) {
     await ctx.close();
   }
   {
-    // junk on purpose: a c of "x" must be tolerated, so this map stays untyped
+    // a c of "x" must be tolerated, so this map stays untyped
     /** @type {Record<string, *>} */
     const days = { 'not-a-date': { c: 3 } }; days[TODAY] = { c: 'x', x: 2 };
     const { ctx, page } = await fresh({ days });
@@ -208,7 +205,6 @@ module.exports = async function (h) {
       assert((await heatOn(page)) === 9, theme + ' theme renders the strip');
       assert(page.errors.length === 0, theme + ' theme, no console errors');
       if (SHOTS) {
-        // the eyeball aid must never fail the gate
         try {
           await page.screenshot({ path: path.join(SHOTS, 'heat-' + theme + '.png'), clip: await page.evaluate(() => {
             const r = document.querySelector('.stats').getBoundingClientRect();

@@ -1,38 +1,4 @@
-# A real operator doing real work: read its status conditions and events.
-#
-# HEADS UP: as written this will NOT come up in team-a, and that is deliberate.
-# team-a is a default-deny tenant namespace, so the Postgres pods cannot reach the
-# Kubernetes API server, and CloudNativePG's initdb job hangs forever:
-#
-#   kubectl -n team-a logs job/pg-1-initdb
-#   dial tcp 10.96.0.1:443: i/o timeout
-#
-# The cluster reports Initialized=True but Ready=False, phase "Setting up primary",
-# which is a realistic and genuinely confusing failure. Diagnose it before you fix
-# it. Two things make it interesting:
-#
-#  1. It is EGRESS from the pod that fails, not the operator's inbound probes. The
-#     instance manager needs the API server to find its own Cluster resource.
-#  2. A plain NetworkPolicy allowing egress to the API server ClusterIP does NOT
-#     work. 10.96.0.1:443 is DNAT'd to a node's :6443 before policy evaluation, so
-#     an ipBlock on the ClusterIP never matches. Verified: still blocked.
-#
-# With Cilium the correct fix is the kube-apiserver entity, which resolves to the
-# real endpoints whatever they are:
-#
-#   kubectl apply -f - <<'EOF'
-#   apiVersion: cilium.io/v2
-#   kind: CiliumNetworkPolicy
-#   metadata: { name: allow-apiserver, namespace: team-a }
-#   spec:
-#     endpointSelector: {}
-#     egress:
-#       - toEntities: [kube-apiserver]
-#   EOF
-#
-# On a cluster without Cilium, allow egress to the node CIDR on the apiserver port
-# (kubectl get endpoints kubernetes) instead. Either way, "which namespace may talk
-# to the control plane" is a real platform decision, not a detail.
+# Will not become Ready in team-a: default-deny blocks pod egress to the API server.
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata: { name: pg, namespace: team-a }

@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# A local Git server. GitOps without a git server is a demo, not a lab.
-# Runs on the kind docker network, resolvable inside the cluster as gitea.lab
-# via a CoreDNS hosts entry (which is itself a syllabus item worth reading).
+# A local Git server, resolvable inside the cluster as gitea.lab.
 source "$(dirname "$0")/lib.sh"
 need docker; need kubectl; need git
 
@@ -32,8 +30,6 @@ GITEA_IP=$(docker inspect -f '{{ (index .NetworkSettings.Networks "kind").IPAddr
 ok "Gitea at http://localhost:${GITEA_PORT} (in-cluster: http://${GITEA_HOST}:3000 → $GITEA_IP)"
 
 log "Creating admin user '$GITEA_USER'"
-# Only treat "already exists" as success. Any other failure is real and must be
-# shown -- a silent failure here leaves you with no admin and a useless git server.
 if docker exec -u git gitea gitea admin user list 2>/dev/null | awk '{print $2}' | grep -qx "$GITEA_USER"; then
   ok "user '$GITEA_USER' already exists"
 else
@@ -44,13 +40,6 @@ else
   ok "user '$GITEA_USER' created"
 fi
 
-# 'all' on purpose. The original 'write:repo' is not even a valid gitea scope,
-# and enumerating scopes turns into whack-a-mole: Argo CD's Gitea SCM provider
-# generator needs write:repository AND write:organization AND read:issue to list
-# org repos, and each missing one only shows up as a runtime ApplicationSet error.
-# This is a throwaway credential on a local git server, so grant everything.
-# outright. Do not hide stderr here: a tokenless run fails later in a way that
-# looks like "repo already exists", which is a lie that costs you an hour.
 if [ ! -s "$REPO_ROOT/.gitea-token" ]; then
   TOKEN=$(docker exec -u git gitea gitea admin user generate-access-token \
     -u "$GITEA_USER" -t "cnpe-lab-$(date +%s)" \
@@ -62,20 +51,15 @@ if [ ! -s "$REPO_ROOT/.gitea-token" ]; then
 fi
 TOKEN=$(cat "$REPO_ROOT/.gitea-token")
 [ -n "$TOKEN" ] || die "empty $REPO_ROOT/.gitea-token"
-# Prove the token actually works before relying on it.
 code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: token $TOKEN" \
   "http://localhost:${GITEA_PORT}/api/v1/user")
 [ "$code" = "200" ] || die "gitea token rejected (HTTP $code) - delete $REPO_ROOT/.gitea-token and re-run"
 ok "gitea API token works"
 
 log "Teaching the HOST about ${GITEA_HOST}"
-# On Linux, docker bridge IPs are routable from the host, so one hostname+port
-# works from your shell, from Backstage, and from inside the cluster.
 if grep -qE "^${GITEA_IP}[[:space:]]+${GITEA_HOST}\$" /etc/hosts; then
   ok "/etc/hosts already correct (no sudo needed)"
 elif ! sudo -n true 2>/dev/null && ! [ -t 0 ]; then
-  # Unattended run and sudo would prompt: warn and carry on. Everything
-  # in-cluster still works; only host-side ${GITEA_HOST} URLs are stale.
   warn "/etc/hosts needs updating but sudo cannot prompt here; run this yourself:"
   warn "  sudo sed -i -E 's|^[0-9.]+[[:space:]]+${GITEA_HOST}\$|${GITEA_IP} ${GITEA_HOST}|' /etc/hosts   # or append if missing"
 elif grep -qE "[[:space:]]${GITEA_HOST}\$" /etc/hosts; then
@@ -131,8 +115,8 @@ case "$org_code" in
   *)       die "creating org '$GITEA_ORG' failed (HTTP $org_code)" ;;
 esac
 
-mk_repo platform      # cluster-level GitOps: app-of-apps, policies, infra
-mk_repo demo-app      # the workload you'll deploy, roll out, and break
+mk_repo platform
+mk_repo demo-app
 
 log "Pushing example manifests into 'platform'"
 WORK=$(mktemp -d)

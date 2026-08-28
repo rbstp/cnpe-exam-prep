@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 # Stage the study console for static hosting (GitHub Pages).
 #
-# The source tree in curriculum/ stays exactly as it is: every page keeps its
-# relative links so file:// and 'make study' keep working. Everything that only
-# makes sense for the hosted copy (CNAME, .nojekyll, an absolute-path 404,
-# the single-file bundle) is produced here, in the publish step.
-#
 #     tools/stage-site.sh [outdir]        # default: ../_site
 #
 # Env:
@@ -21,8 +16,7 @@ SITE_DOMAIN="${SITE_DOMAIN:-cnpe.rbstp.dev}"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-# The site itself: every page and asset, minus the build tooling and repo docs
-# (the jsconfig and .d.ts only serve 'make typecheck'; no page loads them).
+# The site itself: every page and asset, minus the build tooling and repo docs.
 tar -cf - -C "$SRC" \
     --exclude=./tools \
     --exclude=./README.md \
@@ -31,15 +25,11 @@ tar -cf - -C "$SRC" \
     --exclude=./assets/cnpe.d.ts \
     . | tar -xf - -C "$OUT"
 
-# One-URL offline copy of the whole console.
 python3 "$SRC/tools/bundle.py" "$OUT/console.html" >/dev/null
 echo "console.html   $(du -h "$OUT/console.html" | cut -f1)"
 
-# Pages serves the artifact verbatim, but .nojekyll costs nothing and keeps the
-# behaviour identical if this is ever published from a branch instead.
 : > "$OUT/.nojekyll"
 
-# Carried in the artifact so a deploy can never silently drop the custom domain.
 printf '%s\n' "$SITE_DOMAIN" > "$OUT/CNAME"
 
 # Served for any missing path at any depth, so its links must be root-absolute.

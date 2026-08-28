@@ -4,9 +4,6 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# lab.env holds your local settings and is gitignored, so a fresh clone has none.
-# Fail with instructions rather than sourcing nothing and producing confusing
-# errors three scripts later.
 if [ ! -f "$REPO_ROOT/lab.env" ]; then
   printf '\033[31m ✗ \033[0m %s\n' "no lab.env found in $REPO_ROOT" >&2
   printf '     %s\n' "Create one from the template, then re-run:" >&2
@@ -27,7 +24,6 @@ need() { command -v "$1" >/dev/null 2>&1 || die "missing '$1'; run: make tools";
 
 kctx() { kubectl --context "kind-${1:-$CLUSTER}" "${@:2}"; }
 
-# helm upgrade --install, idempotent, waits
 helmi() {
   local release="$1" chart="$2" ns="$3"; shift 3
   helm --kube-context "kind-$CLUSTER" upgrade --install "$release" "$chart" \
@@ -41,9 +37,7 @@ wait_rollout() {
   kubectl --context "kind-$CLUSTER" -n "$ns" rollout status "$@" --timeout=10m
 }
 
-# poll <timeout-seconds> <what> <predicate...>: re-run the predicate until it
-# succeeds or the timeout passes. Returns 1 on timeout but only warns, because
-# the break drill keeps going either way and the learner can inspect by hand.
+# poll <timeout-seconds> <what> <predicate...>: retry until it succeeds or times out.
 poll() {
   local t="$1" what="$2"; shift 2
   local waited=0

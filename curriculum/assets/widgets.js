@@ -1,7 +1,4 @@
-/* CNPE curriculum: interactive figures.
-   No dependencies, no network: every widget draws its own SVG and reacts to input.
-   Mount points look like <div class="widget" data-widget="qos"></div>; app.js calls
-   CNPE_WIDGETS.mount() on every (re)boot. */
+/* CNPE curriculum: interactive figures. */
 (function () {
   "use strict";
 
@@ -426,7 +423,6 @@
                                transform: "rotate(-90 12 " + (top + base) / 2 + ")", "text-anchor": "middle" });
       ylab.textContent = "http_requests_total";
       g.appendChild(ylab);
-      // rate window shading, anchored at the right edge
       var t1 = 30, t0 = Math.max(0, 30 - st.win);
       var band = svg("rect", { x: x(t0), y: top, width: x(t1) - x(t0), height: base - top, style: "fill: var(--accent)", opacity: .10 });
       g.appendChild(band);
@@ -480,9 +476,9 @@
       });
     function draw() {
       rows.forEach(function (r) { r.update(); });
-      var detect = st.evalI;                                                  // first evaluation that sees it
+      var detect = st.evalI;
       var fires = Math.ceil((detect + st.forS) / st.evalI) * st.evalI;        // Pending → Firing, on an evaluation tick
-      var notified = fires + st.groupWait;                                    // Alertmanager sends
+      var notified = fires + st.groupWait;
       var everFires = st.blip >= fires;
       var total = Math.max(notified, st.blip) * 1.15;
       var pct = function (v) { return Math.max(0, Math.min(100, v / total * 100)); };

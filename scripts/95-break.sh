@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
-# "Diagnosing and Remediating Platform Issue and Incident Scenarios" is 1/3 of
-# domain 4 and the hardest thing to practise alone. This injects one fault at
-# random and starts a timer. Don't read the source before playing.
-#
-# The faults are grouped by exam domain. The workload group is classic broken-pod
-# Kubernetes; the rest break the platform tooling the exam actually weights: an
-# Argo CD sync, a Flux Kustomization, a Rollouts canary analysis, a Tekton
-# pipeline and trigger, a Crossplane provider and XR, a Kyverno policy, and PSS.
+# Injects one fault at random and starts a timer.
 #
 #   make break                     random fault from the whole library
 #   DOMAIN=gitops make break       random fault from one domain
@@ -14,9 +7,6 @@
 source "$(dirname "$0")/lib.sh"
 need kubectl
 
-# Pin the context: the mesh exercises tell you to switch kubectl to kind-mesh,
-# and a drill that lands on whatever cluster you happen to be pointed at is a
-# fault injector in the bad sense.
 K="kubectl --context kind-$CLUSTER"
 
 NS=team-a
@@ -65,25 +55,17 @@ D=$(domain_of "$F")
 $K get ns "$NS" >/dev/null 2>&1 || $K apply -f "$REPO_ROOT/examples/multitenancy/team-a.yaml" >/dev/null
 
 # ── reset ────────────────────────────────────────────────────────────────
-# Heal whatever the previous drill broke (break-fix is state-based, so this is
-# a no-op on a healthy lab), then remove the previous scenario's objects so
-# stale artifacts don't become red herrings in this one. QUICK=1 skips
-# break-fix's post-repair health waits; everything it repaired that we still
-# need gets deleted or re-created below anyway.
 log "Resetting the drill (heal previous fault, remove old scenario objects)"
 QUICK=1 "$REPO_ROOT/scripts/96-break-fix.sh" >/dev/null 2>&1 || true
 
 $K -n "$NS" delete deploy broken --ignore-not-found >/dev/null 2>&1 || true
 if $K -n argocd get application drill-app >/dev/null 2>&1; then
-  # The resources-finalizer makes deletion cascade to the deployed workload.
-  # Wait for it: a dying app that still self-heals would fight the next fault.
   $K -n argocd delete application drill-app --wait=false >/dev/null 2>&1 || true
   $K -n argocd wait --for=delete application/drill-app --timeout=120s >/dev/null 2>&1 \
     || die "the previous drill's Argo CD Application drill-app is still terminating; retry in a minute"
 fi
 if $K -n flux-system get kustomization drill-app >/dev/null 2>&1; then
-  # Never delete a suspended Kustomization: its prune finalizer only runs on
-  # reconcile, so the delete would hang until someone resumes it.
+  # Never delete a suspended Kustomization: its prune finalizer only runs on reconcile.
   $K -n flux-system patch kustomization drill-app --type merge -p '{"spec":{"suspend":false}}' >/dev/null 2>&1 || true
   $K -n flux-system delete kustomization drill-app --timeout=120s >/dev/null 2>&1 \
     || die "the previous drill's Flux Kustomization drill-app is still terminating; retry in a minute"
@@ -104,16 +86,11 @@ if $K -n default get appenvironment drill-env >/dev/null 2>&1; then
     || die "the previous drill's AppEnvironment drill-env is still terminating; retry in a minute"
 fi
 if $K -n default get appenvironment team-c-dev >/dev/null 2>&1; then
-  # Undo the xr-paused scenario's quota bump so the seeded XR matches git again.
+  # A cpuQuota of 4 is the value in git; the xr-paused fault bumps it.
   $K -n default patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"4"}}' >/dev/null 2>&1 || true
 fi
 
 # ── baseline workload ────────────────────────────────────────────────────
-# Create the baseline in ONE apply with a compliant securityContext already set.
-# Doing it as create -> set resources -> patch emits a PodSecurity warning on every
-# intermediate step (team-a warns at 'restricted'), and three walls of warnings hide
-# the fault you are meant to find. Only the faults whose victim is this deployment
-# create it; for the platform faults it would just be noise.
 baseline_workload() {
   $K -n "$NS" apply -f - >/dev/null <<'YAML'
 apiVersion: apps/v1
@@ -145,10 +122,6 @@ YAML
 }
 
 # ── shared scenario pieces ───────────────────────────────────────────────
-# The two GitOps faults deploy into their own namespace. The curriculum's
-# ApplicationSet exercise (examples/argocd-appset.yaml) owns the demo-app
-# overlays in team-a/team-b, and a self-healing app would silently resurrect
-# whatever this drill deletes.
 gitops_ns() { $K create ns "$GITOPS_NS" --dry-run=client -o yaml | $K apply -f - >/dev/null; }
 
 tekton_pipeline() {
@@ -187,8 +160,7 @@ el_ready()       { [ "$($K -n "$CI_NS" get eventlistener drill-listener -o jsonp
 el_broken()      { [ "$($K -n "$CI_NS" get eventlistener drill-listener -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)" = "False" ]; }
 xr_stuck()       { $K -n default get objects.kubernetes.m.crossplane.io -l crossplane.io/composite=drill-env -o jsonpath='{.items[*].status.conditions[?(@.type=="Synced")].status}' 2>/dev/null | grep -q False; }
 xr_paused()      { [ "$($K -n default get appenvironment team-c-dev -o jsonpath='{.status.conditions[?(@.type=="Synced")].reason}' 2>/dev/null)" = "ReconcilePaused" ]; }
-# Match the policy's own message, not just "pod creation fails": a lab where
-# the learner left PSS on restricted would otherwise satisfy this instantly.
+# Match the policy name, since a namespace left on restricted also denies the pod.
 deny_active()    { { $K -n "$NS" run drill-policy-check --image=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine --dry-run=server 2>&1 || true; } | grep -q drill-deny; }
 replica_failure(){ [ "$($K -n "$NS" get deploy broken -o jsonpath='{.status.conditions[?(@.type=="ReplicaFailure")].status}' 2>/dev/null)" = "True" ]; }
 
@@ -221,11 +193,7 @@ case "$F" in
     ANSWER="the namespace ResourceQuota was clamped to pods=1 while replicas went to 5. The 'exceeded quota' error is on the ReplicaSet, not the pods. Fix: raise the quota or drop the replicas." ;;
   netpol)
     baseline_workload
-    # NetworkPolicies are ADDITIVE allow-lists. Adding a narrower policy
-    # cannot revoke an allowance granted by another one, so the old version
-    # of this fault (adding an egress-to-pods-only policy) did nothing at
-    # all: allow-dns-and-same-namespace still permitted DNS. To actually
-    # break name resolution you have to remove the DNS rule itself.
+    # NetworkPolicies are additive allow-lists, so breaking DNS means removing the rule.
     $K -n "$NS" patch networkpolicy allow-dns-and-same-namespace \
       --type=json -p='[{"op":"remove","path":"/spec/egress/1"}]' >/dev/null
     ANSWER="the DNS egress rule was stripped from NetworkPolicy allow-dns-and-same-namespace. With default-deny in place the pod runs but resolves nothing; only an in-pod nslookup shows it. Fix: restore the rule (re-apply examples/multitenancy/team-a.yaml)." ;;
@@ -259,8 +227,7 @@ spec:
 YAML
     poll 180 "drill-app to become Healthy+Synced" argo_healthy || true
     $K -n argocd patch application drill-app --type merge -p '{"spec":{"source":{"targetRevision":"release-2.4"}}}' >/dev/null
-    # Without a forced refresh the app controller may not compare again for
-    # minutes, and the ticket would print before the symptom exists.
+    # Without a forced refresh the controller may not re-compare for minutes.
     $K -n argocd annotate application drill-app argocd.argoproj.io/refresh=normal --overwrite >/dev/null
     poll 120 "the symptom to surface" argo_broken || true
     TICKET="app team: our staging app in the $GITOPS_NS namespace is frozen. We merged to main twice this morning and nothing rolled out. Argo CD owns it."
@@ -307,9 +274,8 @@ spec:
     - name: canary-gate
       interval: 15s
       count: 2
-      # vector(1) always returns 1 when Prometheus is reachable, so the gate
-      # passes on a healthy lab and the only way to fail it is what this
-      # scenario does to it.
+      # vector(1) returns 1 whenever Prometheus is reachable, so this gate only
+      # fails once the scenario has broken the address.
       successCondition: len(result) == 1 && result[0] >= 1
       failureLimit: 0
       consecutiveErrorLimit: 1
@@ -351,8 +317,7 @@ YAML
     poll 180 "rollout drill-web to become Healthy" rollout_healthy || true
     $K -n "$NS" patch analysistemplate drill-analysis --type=json \
       -p='[{"op":"replace","path":"/spec/metrics/0/provider/prometheus/address","value":"http://prometheus.monitoring.svc:9090"}]' >/dev/null
-    # Any template change starts a new canary; the analysis step then runs
-    # against the broken address and aborts the rollout.
+    # Any template change starts a new canary, which runs the analysis step again.
     $K -n "$NS" patch rollout drill-web --type=json \
       -p='[{"op":"add","path":"/spec/template/spec/containers/0/env","value":[{"name":"DRILL_REVISION","value":"2"}]}]' >/dev/null
     poll 240 "the canary to degrade" rollout_degraded || true
@@ -366,7 +331,7 @@ YAML
     $K get crd pipelines.tekton.dev >/dev/null 2>&1 || die "Tekton is not installed (make cicd)"
     $K create ns "$CI_NS" --dry-run=client -o yaml | $K apply -f - >/dev/null
     tekton_pipeline
-    # No drill-lint Task on purpose: that is the fault.
+    # The missing drill-lint Task is the fault.
     $K apply -f - >/dev/null <<YAML
 apiVersion: tekton.dev/v1
 kind: PipelineRun
@@ -434,8 +399,7 @@ spec:
 YAML
     poll 180 "EventListener drill-listener to become Ready" el_ready || true
     $K -n "$CI_NS" delete rolebinding drill-trigger-el >/dev/null
-    # The running pod keeps its informer caches; only a fresh pod hits the
-    # missing RBAC, which is exactly how this bites in real clusters.
+    # The running pod keeps its informer caches; only a fresh pod hits the missing RBAC.
     $K -n "$CI_NS" delete pod -l eventlistener=drill-listener >/dev/null 2>&1 || true
     poll 180 "the listener to go unready" el_broken || true
     TICKET="platform channel: Gitea webhooks into drill-ci stopped landing and the event listener pod keeps restarting. It ran fine for weeks."
@@ -520,7 +484,6 @@ YAML
     ANSWER="the namespace was flipped to pod-security.kubernetes.io/enforce=restricted while the pod's securityContext was stripped at the same time. The PodSecurity admission controller rejects every new pod ('violates PodSecurity restricted:latest'). Fix: restore a restricted-compliant securityContext (runAsNonRoot, seccompProfile, allowPrivilegeEscalation=false, drop ALL); break-fix also puts the enforce label back to baseline." ;;
 esac
 
-# Workload faults share one ticket and the classic triage sequence.
 if [ "$D" = workload ]; then
   TICKET="team-a: our 'broken' deployment is not healthy and we cannot see why. It worked an hour ago."
   HINTS="kubectl -n $NS get pods
@@ -529,8 +492,6 @@ if [ "$D" = workload ]; then
        kubectl -n $NS logs <pod> --previous"
 fi
 
-# The classic workload drill keeps its 7-minute clock (the curriculum's exam
-# pace maths). The platform faults span more moving parts, so they get 10.
 TARGET=10; [ "$D" = workload ] && TARGET=7
 cat <<TXT
 

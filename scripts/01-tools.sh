@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Installs every CLI the CNPE exam tool list implies, into ~/.local/bin.
-# Official Arch packages where they exist; upstream release binaries otherwise.
 source "$(dirname "$0")/lib.sh"
 mkdir -p "$BIN_DIR"
 export PATH="$BIN_DIR:$PATH"
@@ -58,10 +57,6 @@ log "GitOps + delivery"
 gh_bin argoproj/argo-cd 'argocd-linux-amd64$' argocd
 gh_bin argoproj/argo-rollouts 'kubectl-argo-rollouts-linux-amd64$' kubectl-argo-rollouts
 gh_bin argoproj/argo-workflows 'argo-linux-amd64.gz$' argo
-# Flux via its release tarball into $BIN_DIR, like every other tool here. The
-# upstream one-liner is 'curl https://fluxcd.io/install.sh | sudo bash', which
-# needs root and installs to /usr/local/bin, contradicting "everything into
-# ~/.local/bin" and giving an unpinned script a root shell.
 gh_tar fluxcd/flux2 'flux_.*_linux_amd64.tar.gz$' flux flux
 gh_tar tektoncd/cli 'tkn_.*_Linux_x86_64.tar.gz$' tkn tkn
 
@@ -83,8 +78,6 @@ if ! command -v linkerd >/dev/null; then
 fi
 
 log "Secrets tooling"
-# kubeseal is the CLIENT half of Sealed Secrets -- the controller alone is
-# useless without it, and the chart does not ship it.
 gh_tar bitnami/sealed-secrets 'kubeseal-.*-linux-amd64.tar.gz$' kubeseal kubeseal
 
 log "Cost + policy"
@@ -109,9 +102,7 @@ export now='--force --grace-period=0'
 RC
 
 log "Installed versions"
-# NOTE: several of these ('istioctl version', 'linkerd version', 'argocd version')
-# contact the CLUSTER by default and hang for minutes when no cluster exists yet.
-# Always pass an explicit client-only flag, and cap it with timeout(1) regardless.
+# Some of these version commands contact the cluster and hang, so force client-only.
 ver() {
   local t="$1"
   command -v "$t" >/dev/null || { echo MISSING; return; }

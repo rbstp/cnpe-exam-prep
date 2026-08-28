@@ -1,14 +1,7 @@
 #!/usr/bin/env bash
-# Auto-remediate whatever 'make break' injected, and say WHY.
+# Auto-remediate whatever 'make break' injected, and say why.
 #
-# Detection is state-based, not "read /tmp/.last-fault", for two reasons: it still
-# works if that file is gone, and printing the evidence it matched on is the part
-# worth learning. Use it to reset the drill, or to check your own diagnosis after
-# you have had a go yourself.
-#
-# QUICK=1 (used by 95-break.sh's reset) applies every repair but skips the
-# post-repair health waits, because the reset deletes or re-creates those
-# objects immediately afterwards anyway.
+#   QUICK=1  apply every repair but skip the post-repair health waits
 source "$(dirname "$0")/lib.sh"
 need kubectl
 NS="${BREAK_NS:-team-a}"
@@ -27,8 +20,8 @@ $K get deploy broken >/dev/null 2>&1 && HAVE_DEPLOY=1
 
 log "Inspecting the lab for injected faults"
 
-# ── security (fix these FIRST: anything below that restarts pods in team-a
-#    would just get rejected again while these are still in place) ─────────
+# ── security ───────────────────────────────────────────────────────────────
+# Fix these first: pods restarted by the repairs below would be rejected again.
 
 # pss: the namespace was flipped to enforce=restricted mid-flight
 ENFORCE=$($KC get ns "$NS" -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}' 2>/dev/null || true)
@@ -121,7 +114,6 @@ if $K get networkpolicy allow-dns-and-same-namespace >/dev/null 2>&1; then
         "with default-deny in place and the DNS rule gone, the pod stays Running but cannot resolve anything. 'kubectl exec ... nslookup' is the only thing that shows it"
   fi
 fi
-# legacy no-op fault from an earlier version of the drill; remove it if present
 if $K get networkpolicy oops-deny-dns >/dev/null 2>&1; then
   $K delete networkpolicy oops-deny-dns >/dev/null
   fix "deleted leftover NetworkPolicy/oops-deny-dns" "additive policy that never blocked anything"
@@ -141,7 +133,7 @@ if $KC -n argocd get application drill-app >/dev/null 2>&1; then
   fi
 fi
 
-# flux: the drill Kustomization was suspended, so drift stopped being corrected
+# flux: the drill Kustomization was suspended
 if $KC -n flux-system get kustomization drill-app >/dev/null 2>&1; then
   if [ "$($KC -n flux-system get kustomization drill-app -o jsonpath='{.spec.suspend}' 2>/dev/null)" = "true" ]; then
     $KC -n flux-system patch kustomization drill-app --type merge -p '{"spec":{"suspend":false}}' >/dev/null
@@ -161,8 +153,7 @@ if $K get analysistemplate drill-analysis >/dev/null 2>&1; then
     fix "AnalysisTemplate drill-analysis address -> $PROM_GOOD" "pointed at '$ADDR', which resolves to nothing; every metric query errored, the AnalysisRun failed, and the rollout aborted itself"
   fi
   if [ "$($K get rollout drill-web -o jsonpath='{.status.abort}' 2>/dev/null)" = "true" ]; then
-    # Retrying is a separate act from fixing the template: an aborted rollout
-    # stays aborted until someone retries it, exactly like the real thing.
+    # An aborted rollout stays aborted until someone retries it.
     if command -v kubectl-argo-rollouts >/dev/null 2>&1; then
       kubectl-argo-rollouts --context "kind-$CLUSTER" retry rollout drill-web -n "$NS" >/dev/null
     else
@@ -242,7 +233,7 @@ if $KC get ns crossplane-system >/dev/null 2>&1; then
   fi
 fi
 
-# crossplane: the seeded XR was paused, so spec changes stopped propagating
+# crossplane: the seeded XR was paused
 if [ "$($KC -n default get appenvironment team-c-dev -o jsonpath='{.metadata.annotations.crossplane\.io/paused}' 2>/dev/null)" = "true" ]; then
   $KC -n default annotate appenvironment team-c-dev crossplane.io/paused- >/dev/null
   fix "removed crossplane.io/paused from XR team-c-dev" "a paused XR is skipped by the reconciler (Synced=False, reason ReconcilePaused), so the cpuQuota change in its spec never reached the tenant's ResourceQuota"

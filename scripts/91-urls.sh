@@ -1,13 +1,8 @@
 #!/usr/bin/env bash
-# Every UI in the lab, with credentials and a working way to reach it.
-# If cloud-provider-kind is running, LoadBalancer IPs are reachable directly.
-# If not, use the port-forward command shown for each service.
+# Every UI in the lab, with credentials and how to reach it.
 source "$(dirname "$0")/lib.sh"
 
 CPK_UP=no
-# NOT pgrep -x: the kernel truncates comm to 15 chars and this name is 19, so -x
-# silently never matches. And do NOT anchor with $ -- the process carries a
-# trailing --gateway-channel=disabled argument.
 pgrep -f 'cloud-provider-kind' >/dev/null 2>&1 && CPK_UP=yes
 
 kc() { kubectl --context "kind-$CLUSTER" "$@"; }

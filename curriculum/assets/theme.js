@@ -1,16 +1,4 @@
-/* CNPE curriculum: theme.
-   Loaded from <head>, before the body paints, so a pinned theme is on the root
-   element from the first frame and no page flashes the wrong ground.
-
-   Three states, cycled by the masthead button (or the "t" key):
-
-     system   nothing stored, no attribute; style.css follows
-              prefers-color-scheme, so this also works with scripting off
-     light    data-theme="light"
-     dark     data-theme="dark"
-
-   The choice is a property of this browser, not of your progress, so it lives
-   under its own key and stays out of the progress export. */
+/* CNPE curriculum: the theme switch. Three states: system, light and dark. */
 (function () {
   "use strict";
 
@@ -21,22 +9,19 @@
   var mq = window.matchMedia ? window.matchMedia("(prefers-color-scheme: light)") : null;
   var pref = (function () {
     var v = null;
-    try { v = localStorage.getItem(KEY); } catch (e) {}          // private mode, file:// quirks
+    try { v = localStorage.getItem(KEY); } catch (e) {}
     return MODES.indexOf(v) > 0 ? v : "system";
   })();
 
   function resolved() { return pref === "system" ? (mq && mq.matches ? "light" : "dark") : pref; }
 
-  // The two grounds, for the browser chrome (tab bar, address bar) via the
-  // theme-color metas. Values mirror --dk-ink / --lt-ink in style.css.
+  // Browser chrome backgrounds, kept in sync with --dk-ink and --lt-ink in the CSS.
   var CHROME = { dark: "#101010", light: "#F4F4F4" };
 
   function paint() {
     if (pref === "system") root.removeAttribute("data-theme");
     else root.setAttribute("data-theme", pref);
-    // A pinned theme should recolor the chrome too; the metas' media queries
-    // only ever follow the OS. Pinned: both metas get the pinned ground.
-    // System: each meta goes back to the ground its media query names.
+    // The metas' media queries only follow the OS, so a pinned theme sets both.
     var metas = document.querySelectorAll('meta[name="theme-color"]');
     for (var i = 0; i < metas.length; i++) {
       var scheme = (metas[i].getAttribute("media") || "").indexOf("light") >= 0 ? "light" : "dark";
@@ -61,8 +46,6 @@
     announce();
   }
 
-  // While following the system, the OS switching under us changes what the
-  // button is reporting, so listeners hear about it too.
   if (mq) {
     var onSystem = function () { if (pref === "system") announce(); };
     if (mq.addEventListener) mq.addEventListener("change", onSystem);

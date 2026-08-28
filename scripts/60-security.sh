@@ -12,18 +12,12 @@ helmi kyverno kyverno/kyverno kyverno \
   --set reportsController.replicas=1 \
   --set features.policyExceptions.enabled=true \
   --set features.registryClient.allowInsecure=true
-  # allowInsecure: the lab registry (kind-registry:5000) is plain http, and
-  # without this every ImageValidatingPolicy dies on "server gave HTTP response
-  # to HTTPS client" before it ever sees a signature.
 
 log "OPA Gatekeeper (the other engine on the exam list; know both)"
 repo_add gatekeeper https://open-policy-agent.github.io/gatekeeper/charts
 helmi gatekeeper gatekeeper/gatekeeper gatekeeper-system \
   --set replicas=1 --set audit.replicas=1
 
-# NOTE: the chart repo moved from bitnami-labs.github.io to bitnami.github.io
-# (the GitHub org renamed bitnami-labs/sealed-secrets -> bitnami/sealed-secrets).
-# The old URL now 404s, which the "|| warn optional" below used to hide.
 log "Sealed Secrets + External Secrets (secret delivery patterns)"
 repo_add sealed-secrets https://bitnami.github.io/sealed-secrets
 helmi sealed-secrets sealed-secrets/sealed-secrets kube-system || warn "sealed-secrets optional"

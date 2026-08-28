@@ -1,17 +1,5 @@
 #!/usr/bin/env bash
-# Bind control-plane component metrics to 0.0.0.0 on an ALREADY-RUNNING cluster.
-#
-# kubeadm binds kube-controller-manager and kube-scheduler to 127.0.0.1 and etcd's
-# metrics listener to 127.0.0.1:2381, so Prometheus (running as a pod) cannot reach
-# any of them: 3 targets DOWN and every control-plane Grafana dashboard empty.
-#
-# kind/cnpe.yaml.tpl already fixes this for NEW clusters via kubeadmConfigPatches.
-# This script retrofits a cluster that was created before that, by editing the
-# static pod manifests. kubelet notices the change and restarts each pod itself.
-#
-# Safe by construction: manifests are copied out, edited, YAML-validated, and
-# copied back one at a time, least-critical first, waiting for Ready in between.
-# Originals are kept under /tmp/cnpe-lab/cp-manifest-backup/.
+# Bind control-plane component metrics to 0.0.0.0 on an already-running cluster.
 source "$(dirname "$0")/lib.sh"
 need kubectl; need docker
 
@@ -35,7 +23,6 @@ apply_one() {
   if diff -q "$BK/$file.yaml" "$BK/work/$file.yaml" >/dev/null; then
     ok "$desc already bound to 0.0.0.0"; return
   fi
-  # Never push a manifest we just broke.
   python3 -c "import yaml,sys; yaml.safe_load(open('$BK/work/$file.yaml'))" 2>/dev/null \
     || die "edited $file.yaml is not valid YAML; original kept at $BK/$file.yaml"
 
@@ -71,7 +58,7 @@ log "Verifying the cluster still works"
 [ "$(kubectl --context "kind-$CLUSTER" get --raw='/readyz' 2>/dev/null)" = "ok" ] \
   && ok "/readyz ok" || warn "/readyz not ok; check 'kubectl get --raw=/readyz?verbose'"
 
-# kube-proxy reads a ConfigMap, not a static pod, so it is fixed through the API.
+# kube-proxy reads its config from a ConfigMap, not a static pod.
 log "kube-proxy metricsBindAddress"
 CM=$(kubectl --context "kind-$CLUSTER" -n kube-system get cm kube-proxy -o jsonpath='{.data.config\.conf}' 2>/dev/null)
 if printf '%s' "$CM" | grep -q 'metricsBindAddress: "0.0.0.0:10249"'; then

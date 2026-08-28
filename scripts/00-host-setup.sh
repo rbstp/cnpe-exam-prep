@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Host prep for Omarchy 4 / Arch on Intel MacBook Pro.
-# Idempotent. Run once (and after kernel upgrades if kind starts misbehaving).
+# Host prep for Omarchy 4 / Arch on Intel MacBook Pro. Idempotent, run once.
 source "$(dirname "$0")/lib.sh"
 
 log "Checking hardware headroom"
@@ -12,9 +11,6 @@ echo "    RAM: ${TOTAL_GB}G   cores: ${CORES}   free disk in \$HOME: ${FREE_GB}G
 [ "$FREE_GB" -ge 60 ] || warn "less than 60G free; container images alone need ~35G"
 
 log "Installing base packages (pacman)"
-# Deliberately NOT -Syu. You are on a T2-patched kernel; a full system upgrade
-# here can swap the kernel and cost you wifi/keyboard mid-lab. Update the system
-# on your own terms (omarchy-update / pacman -Syu) as a separate, deliberate act.
 PKGS=(docker docker-buildx git jq yq curl wget unzip tar make openssh
       bash-completion python-yaml)
 MISSING=()
@@ -56,8 +52,6 @@ sudo sysctl --system >/dev/null
 ok "sysctls applied"
 
 log "Raising systemd task/file limits for docker"
-# Restarting dockerd bounces EVERY container on the machine, including unrelated
-# work and existing kind clusters. Only do it when the override really changed.
 OVERRIDE=/etc/systemd/system/docker.service.d/override.conf
 WANT=$(cat <<'UNIT'
 [Service]
@@ -78,10 +72,6 @@ else
 fi
 
 log "Checking docker daemon config (log rotation; kind nodes fill the SSD otherwise)"
-# On Omarchy, /etc/docker/daemon.json is OWNED BY THE omarchy-settings PACKAGE and
-# deliberately sets dns=172.17.0.1 (systemd-resolved listens on the docker bridge)
-# plus bip. Overwriting it breaks container DNS and gets reverted by omarchy-update.
-# So: only create the file if it is absent, and only report if it already exists.
 if [ -f /etc/docker/daemon.json ]; then
   if pacman -Qo /etc/docker/daemon.json >/dev/null 2>&1; then
     ok "daemon.json is package-owned, leaving it untouched"
@@ -106,7 +96,6 @@ DAEMON
   ok "daemon.json created"
 fi
 
-# MacBook-specific: the 2019 Intel chassis throttles hard under sustained load.
 if grep -qi apple /sys/class/dmi/id/board_vendor 2>/dev/null; then
   log "Apple hardware detected: thermal advice"
   echo "    • Install 'mbpfan' (AUR) so fans ramp before the CPU throttles:"

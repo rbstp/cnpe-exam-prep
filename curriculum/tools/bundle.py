@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
 """Bundle the curriculum into one self-contained HTML file.
 
-Every page's <article> is inlined into a hash-routed single file, together with
-the stylesheet, the section manifest, the widgets and the page runtime. Useful
-for sharing the console as one file, or for previewing it somewhere that only
-takes a single document.
-
     python3 tools/bundle.py [out.html] [--fragment]
 
---fragment omits <!doctype>/<html>/<head>/<body> for hosts that supply their own
-document skeleton; the default output is a complete standalone page.
+--fragment omits the document skeleton for hosts that supply their own.
 """
 import base64, os, re, sys, json
 
@@ -65,8 +59,7 @@ def favicon_uri():
     with open(os.path.join(ROOT, "assets/favicon.svg"), "rb") as fh:
         return "data:image/svg+xml;base64," + base64.b64encode(fh.read()).decode("ascii")
 
-# The theme-color metas must precede the theme script: it recolors them for a
-# pinned theme, and only sees elements already parsed when it runs.
+# The theme-color metas must come before the theme script, which recolors them.
 HEAD = """<!doctype html>
 <html lang="en">
 <head>
@@ -175,9 +168,7 @@ window.CNPE_EXAM_KEYS = %s;
 )
 
 if not FRAGMENT:
-    # the title and the theme script belong in <head>: the theme has to be on the
-    # root element before anything paints. A fragment keeps them inline, where
-    # they still run before the rest of the document is parsed.
+    # the theme script has to run before anything paints, so it belongs in <head>
     head, rest = bundle.split("<!-- /head -->\n", 1)
     bundle = HEAD + head + "</head>\n<body>\n" + rest + "\n</body>\n</html>\n"
 else:

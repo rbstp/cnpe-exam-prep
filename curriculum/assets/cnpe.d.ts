@@ -1,21 +1,10 @@
-/* Ambient types for the study console. Nothing here exists at runtime: the
-   console stays plain JS with no build step, and `tsc --noEmit` (see
-   jsconfig.json beside assets/) checks the .js files against these shapes.
+/* Ambient types for the study console. Nothing here exists at runtime. */
 
-   This file documents the seams the scripts share:
-     - the section manifest nav.js publishes (CNPE_NAV / CNPE_DOMAINS)
-     - the question bank drill-data.js publishes (CNPE_DRILL)
-     - the cnpe:v2 localStorage store and the CNPE_PROGRESS API around it
-     - the theme, widgets and drill-UI globals
-
-   Change a shape here only together with the code (and stored data migration)
-   that produces it. */
-
-/** One section (or exam/drill page) in the manifest nav.js publishes. */
+/** One section (or exam/drill page) in the nav manifest. */
 interface CnpeNavEntry {
-  /** "1.1" … "5.6", or "EX" / "EX2" / "DR" for the domainless pages */
+  /** "1.1" through "5.6", or "EX" / "EX2" / "DR" for the domainless pages */
   id: string;
-  /** owning domain 1–5; 0 for the exams and the drill */
+  /** owning domain 1-5; 0 for the exams and the drill */
   d: number;
   /** page path relative to curriculum/ */
   path: string;
@@ -70,9 +59,7 @@ interface CnpeDrillRecord {
   t?: number;
 }
 
-/** The drill's own day counter and daily-goal marker (store.drillmeta).
-    streak/best are the legacy counters kept for exports read by older
-    consoles; the live streak derives from store.days. */
+/** The drill's own day counter and daily-goal marker (store.drillmeta). */
 interface CnpeDrillMeta {
   day?: string;
   n?: number;
@@ -82,8 +69,7 @@ interface CnpeDrillMeta {
   t?: number;
 }
 
-/** One mock exam's clock and scored tasks (store.exam / store.exam2).
-    A fresh store holds an empty object; buildExam fills in tasks. */
+/** One mock exam's clock and scored tasks (store.exam / store.exam2). */
 interface CnpeExamState {
   /** task index → 1 scored / 0 not */
   tasks?: Record<string, number>;
@@ -94,9 +80,7 @@ interface CnpeExamState {
   running?: boolean;
 }
 
-/** The whole cnpe:v2 localStorage store. Readers tolerate junk in any slot
-    (an import can feed anything), so treat these shapes as what well-formed
-    data looks like, not as a guarantee. */
+/** The whole cnpe:v2 localStorage store. Readers tolerate junk in any slot. */
 interface CnpeStore {
   /** exercise key ("id#slug") → 1 verified / 0 not */
   ex: Record<string, number>;
@@ -111,7 +95,7 @@ interface CnpeStore {
   last: string | null;
 }
 
-/** The one deliberate seam between app.js and drill.js (CNPE_PROGRESS). */
+/** The seam between app.js and drill.js (CNPE_PROGRESS). */
 interface CnpeProgressApi {
   get(): CnpeStore;
   save(): void;

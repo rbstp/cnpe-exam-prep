@@ -1,13 +1,5 @@
 name: CI
 
-# The deploy workflow runs these same site checks, but only on push to master,
-# by which point a broken PR has already merged. This runs the identical gate
-# at PR time (the assertions live in curriculum/tools/check-site.sh, shared by
-# both), a browser pass over the staged site (curriculum/tools/browser-checks/,
-# also shared with the deploy), a JSDoc type-check of the console's scripts
-# (tsc --noEmit against curriculum/assets/cnpe.d.ts; the site itself stays
-# plain JS with no build step), plus shellcheck over the lab scripts.
-
 on:
   pull_request:
   workflow_dispatch:
@@ -56,9 +48,6 @@ jobs:
           SITE_DOMAIN: cnpe.rbstp.dev
         run: tools/stage-site.sh "${{ runner.temp }}/_site"
 
-      # Playwright is a CI-only dependency, pinned so a release cannot turn
-      # this gate red on its own: no manifest or lockfile is written, only an
-      # untracked node_modules, and the console itself stays dependency-free.
       - name: Install Playwright Chromium
         run: |
           npm install --no-save --no-package-lock playwright@1.56.1
@@ -75,11 +64,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      # Same CI-only, pinned, --no-save arrangement as the browser job (one
-      # npm install: a second --no-save run prunes the first). tsc only reads
-      # the .js files against curriculum/assets/cnpe.d.ts; nothing is emitted
-      # and the console stays dependency-free. playwright is here purely for
-      # its type declarations, so its browsers are never installed.
       - name: Install TypeScript and the type sources
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -98,7 +82,5 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      # warning-and-up gates the merge; info/style stay advisory so the gate
-      # trips on real quoting and logic mistakes, not formatting taste.
       - name: shellcheck
         run: shellcheck -x --severity=warning scripts/*.sh curriculum/tools/*.sh

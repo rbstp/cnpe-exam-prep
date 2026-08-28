@@ -1,6 +1,4 @@
-/* CNPE curriculum: page runtime.
-   Builds the chrome from nav.js, wires copy buttons, progress, TOC, palette and keys.
-   Everything persists in localStorage; nothing here needs a server (file:// works). */
+/* CNPE curriculum: page runtime. */
 (function () {
   "use strict";
 
@@ -15,14 +13,7 @@
     entry = NAV.filter(function (n) { return n.id === PAGE_ID; })[0] || null;
   }
 
-  /* ── study days: the console-wide streak ─────────────────────
-     Every positive action (a drill answer, an exercise verified, a section
-     completed, a mock exam task scored) bumps a per-day counter under
-     store.days["YYYY-MM-DD"], local date, the same key the drill uses.
-     Un-ticking is not an action and never decrements. The streak and best
-     are derived from the map at render time, never stored as counters, so
-     imported or merged history recomputes instead of fighting a total.
-     Defined above the store initializer: seedDays runs during it. */
+  /* ── study days: the console-wide streak ───────────────────── */
   var DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
   function pad2(n) { return (n < 10 ? "0" : "") + n; }
   function dayKey(d) { return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
@@ -41,13 +32,10 @@
     if (!d || typeof d !== "object" || Array.isArray(d)) d = store.days[k] = {};
     d[kind] = (+d[kind] || 0) + 1;
   }
-  // The streak used to live in drillmeta as a running counter. An alive legacy
-  // streak of N ending on `earned` backfills the N days ending there, so nobody's
-  // streak resets the day this ships; a dead one only carries its best forward.
   function seedDays(s) {
     var dm = s.drillmeta;
     if (!dm || typeof dm !== "object" || Array.isArray(dm)) return;
-    var n = Math.min(+dm.streak || 0, 3660);     // tolerate a junk counter
+    var n = Math.min(+dm.streak || 0, 3660);
     var end = dm.earned;
     if (n < 1 || typeof end !== "string" || !DAY_RE.test(end)) return;
     var t = dayKey(new Date());
@@ -81,30 +69,21 @@
 
   /* ── storage ─────────────────────────────────────────────── */
   var store = (function () {
-    // starts skeletal on purpose (a pre-existing days map must win over the
-    // legacy-streak migration below); normalized to a full store just after
     var s = /** @type {CnpeStore} */ (/** @type {unknown} */ ({ ex: {}, done: {}, exam: {}, last: null }));
     try { var raw = localStorage.getItem(KEY); if (raw) s = Object.assign(s, JSON.parse(raw)); } catch (e) {}
     var hadDays = s.days && typeof s.days === "object" && !Array.isArray(s.days);
     ["ex", "done", "exam", "exam2", "drill", "drillmeta", "days"].forEach(function (k) {
-      if (!s[k] || typeof s[k] !== "object") s[k] = {};       // tolerate anything that is not a map
+      if (!s[k] || typeof s[k] !== "object") s[k] = {};
     });
     if (typeof s.last !== "string") s.last = null;
-    if (!hadDays) seedDays(s);   // one-time migration from the drill-only streak
+    if (!hadDays) seedDays(s);
     return s;
   })();
   function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} }
-  // The one deliberate seam: drill.js keeps its records in this same store so
-  // export/import and reset cover them. Functions, not the object, because
-  // "Reset progress" replaces the object. bump feeds the study streak from the
-  // drill's answer path; streak is the derived console-wide reading.
+  // Reset progress swaps the store object, so hand out getters, not the object.
   window.CNPE_PROGRESS = { get: function () { return store; }, save: save, bump: bumpDay, streak: studyStreak };
 
-  /* ── progress transfer ───────────────────────────────────────
-     localStorage is per-origin, so a file:// copy and a hosted copy keep
-     separate stores and no two browsers share one. Export writes the whole
-     store to a file, import merges it back: carrying progress between them
-     stays explicit and needs no network, account or server. */
+  /* ── progress transfer ─────────────────────────────────────── */
   function exportPayload() {
     return JSON.stringify({ cnpe: 2, exported: new Date().toISOString(), progress: store }, null, 2);
   }
@@ -119,10 +98,7 @@
       return true;
     } catch (e) { return false; }
   }
-  /* Union, never overwrite: an imported file can move an item from not-done to
-     done and can add items this browser has never seen, but it cannot un-tick
-     anything. Reset progress first if you want a plain restore. The mock exam's
-     clock is deliberately left alone; only its scored tasks merge. */
+  /* Union, never overwrite: an import can add or tick items, but never un-tick one. */
   function mergeProgress(src) {
     var n = { done: 0, ex: 0, exam: 0, drill: 0, days: 0 };
     function union(into, from, bucket) {
@@ -135,15 +111,13 @@
     }
     union(store.done, src.done, "done");
     union(store.ex, src.ex, "ex");
-    // Both mock exams keep the same shape under their own key.
     ["exam", "exam2"].forEach(function (k) {
       if (!src[k] || typeof src[k] !== "object") return;
       if (!store[k] || typeof store[k] !== "object") store[k] = {};
       if (!store[k].tasks || typeof store[k].tasks !== "object") store[k].tasks = {};
       union(store[k].tasks, src[k].tasks, "exam");
     });
-    // Drill records are counters, not ticks: per question, the record answered
-    // more recently wins outright rather than unioning.
+    // Drill records are counters, not ticks: the record answered more recently wins.
     if (src.drill && typeof src.drill === "object" && !Array.isArray(src.drill)) {
       if (!store.drill || typeof store.drill !== "object") store.drill = {};
       Object.keys(src.drill).forEach(function (k) {
@@ -158,8 +132,7 @@
       if ((src.drillmeta.t || 0) > (store.drillmeta.t || 0)) store.drillmeta = src.drillmeta;
       if (best) store.drillmeta.best = best;
     }
-    // Study days are counters too: union of days, per-counter max, so a merge
-    // can add history but never lower a count.
+    // Study days are counters too: per-counter max, so a merge never lowers a count.
     if (src.days && typeof src.days === "object" && !Array.isArray(src.days)) {
       if (!store.days || typeof store.days !== "object" || Array.isArray(store.days)) store.days = {};
       Object.keys(src.days).forEach(function (k) {
@@ -176,7 +149,7 @@
         if (grew) n.days++;
       });
     }
-    seedDays(store);   // an alive legacy streak in an imported drillmeta backfills too
+    seedDays(store);
     if (typeof src.last === "string" && NAV.filter(function (x) { return x.id === src.last; }).length) {
       store.last = src.last;
     }
@@ -195,7 +168,7 @@
       return "That file has no CNPE progress in it.";
     }
     var n = mergeProgress(src);
-    save();                                  // mergeProgress may have moved store.last on its own
+    save();
     if (!n.done && !n.ex && !n.exam && !n.drill && !n.days) return "Nothing new in that file; this browser is already up to date.";
     return { added: n };
   }
@@ -217,11 +190,7 @@
     return { done: done, total: secs.length, pct: secs.length ? Math.round(done / secs.length * 100) : 0 };
   }
 
-  /* The reconcile trace: one square wave along the masthead's bottom edge,
-     high where a section is done, low where it is not, in section order.
-     The section being read gets its own brighter overlay segment. style.css
-     reveals the wave left to right on load with a clip animation; dash tricks
-     misrender under vector-effect, so the SVG itself stays plain. */
+  /* The reconcile trace: one square wave, high where a section is done, low where not. */
   function tracePaths() {
     var secs = NAV.filter(function (n) { return n.d > 0; });
     var n = secs.length || 1, hi = 2, lo = 6.5;
@@ -241,8 +210,7 @@
       (p.cur ? '<path class="cur" d="' + p.cur + '"/>' : "") +
       "</svg>";
   }
-  /* rewrite the wave in place, so the reveal animation stays a load-time
-     event instead of replaying on every mark/unmark */
+  /* Rewrite the wave in place so the load reveal animation does not replay. */
   function traceRefresh() {
     var tr = document.querySelector(".topbar .trace");
     if (!tr) return;
@@ -277,9 +245,6 @@
     var bar = el("div", "topbar");
     var inner = el("div", "inner");
 
-    // Three stacked platform layers, the middle one in the ok green, echoing
-    // the certified badge. The gradient stops keep their s1/s2 classes so the
-    // theme rules in style.css recolor them; the green stroke via .sv.
     var logo = el("a", "logo",
       '<svg class="mark" viewBox="0 0 24 24" aria-hidden="true">' +
         '<defs><linearGradient id="cnpeMark" x1="0" y1="0" x2="1" y2="1">' +
@@ -308,9 +273,6 @@
     var prog = el("div", "prog" + (ov.done === ov.total ? " synced" : ""), progHtml(ov));
     inner.appendChild(prog);
 
-    // U+2315 is not in the bundled Plex Mono subset, so as a character it came
-    // from whatever the OS fell back to and drew at a different size on every
-    // platform. Inline SVG renders identically everywhere.
     var sb = el("button", "searchbtn",
       '<svg class="ic" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" ' +
         'stroke="currentColor" stroke-linecap="round">' +
@@ -328,8 +290,6 @@
     hb.addEventListener("click", function () { toggleOverlay(helpOverlay); });
     inner.appendChild(hb);
 
-    // Almost every section tells you to run a make target, so the lab has to be
-    // reachable from any page, since someone can land on a deep section from a link.
     var repo = el("a", "iconbtn",
       '<svg class="gh" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">' +
         '<path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 '
@@ -359,9 +319,7 @@
     if (art && !art.id) { art.id = "main"; art.setAttribute("tabindex", "-1"); }
   }
 
-  /* ── theme switch ────────────────────────────────────────────
-     theme.js owns the state and has already applied it from <head>; the button
-     only reports it and cycles system → light → dark. */
+  /* ── theme switch ──────────────────────────────────────────── */
   var THEME_ICON = {
     system:
       '<svg class="thm" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" ' +
@@ -383,7 +341,7 @@
   function themeButton() {
     var b = el("button", "iconbtn themebtn");
     b.type = "button";
-    if (!window.CNPE_THEME) {                      // theme.js missing: nothing to switch
+    if (!window.CNPE_THEME) {                      // theme.js is not loaded, nothing to switch
       b.style.display = "none";
       return b;
     }
@@ -507,7 +465,6 @@
       cb.insertBefore(bar, cb.firstChild);
       if (code) { try { highlight(code, lang); } catch (e) {} }
     });
-    // one-click copy for the "needs" chips
     Array.prototype.forEach.call(document.querySelectorAll(".needs code"), function (c) {
       if (c.getAttribute("data-built")) return;
       c.setAttribute("data-built", "1");
@@ -574,7 +531,7 @@
       mark.addEventListener("click", function (e) {
         e.stopPropagation();
         store.ex[k] = store.ex[k] ? 0 : 1;
-        if (store.ex[k]) bumpDay("x");   // verifying counts as study; un-ticking is not an action
+        if (store.ex[k]) bumpDay("x");   // un-ticking is not an action
         save(); paint(); refreshExTile();
       });
       disc.addEventListener("click", function () { ex.classList.toggle("collapsed"); paint(); });
@@ -638,8 +595,7 @@
     var idx = NAV.indexOf(entry);
     var prev = NAV[idx - 1], next = NAV[idx + 1];
 
-    // Only numbered sections get the completion strip; the exam scores itself
-    // and the drill tracks its own history.
+    // Only numbered sections get the completion strip.
     if (entry.d > 0) {
       var fin = el("div", "finish");
       var done = !!store.done[entry.id];
@@ -854,10 +810,8 @@
     });
   }
 
-  /* ── weak spots: drill accuracy split by domain ──────────────
-     Drill record keys embed the section ("2.3#…"), so the domain is derivable
-     from the store alone; the question bank (when its script is loaded, as it
-     is on the dashboard and in the bundle) only adds the seen/total counts. */
+  /* ── weak spots: drill accuracy split by domain ────────────── */
+  // Drill record keys embed the section ("2.3#..."), so the domain comes from the key.
   var WEAK_MIN = 5;   // answers a domain needs before the panel will call it weak
   function buildWeakSpots() {
     var host = document.getElementById("weak-domains");
@@ -928,8 +882,7 @@
     var totalEx = Object.keys(store.ex).length, doneEx = Object.keys(store.ex).filter(function (k) { return store.ex[k]; }).length;
     var stats = document.querySelector(".stats");
     if (stats) {
-      // The last 30 days as an uptime strip: one cell per day, column-major
-      // so today lands bottom right. Any heartbeat that day lights it.
+      // Last 30 days, one cell per day, column-major so today lands bottom right.
       var cells = "", now = new Date();
       for (var i = 29; i >= 0; i--) {
         var dk = dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i));
@@ -972,7 +925,6 @@
         html += '<a class="tbtn" style="text-decoration:none" href="' + href(target.path) + '">▶ ' +
           (last ? "Resume " : "Start ") + target.id + " · " + target.title + "</a> ";
       }
-      // the drill entry point, carrying the console-wide streak while it is up
       html += '<a class="tbtn ghost" style="text-decoration:none" href="' + href("drill.html") + '">Drill 10' +
         (sk.streak ? " · up " + sk.streak + (sk.streak === 1 ? " day" : " days") : "") + "</a>";
       resume.innerHTML = html;
@@ -991,7 +943,6 @@
       var text = exportPayload();
       var name = "cnpe-progress-" + new Date().toISOString().slice(0, 10) + ".json";
       if (saveFile(name, text)) { say("Wrote " + name + " to your downloads."); return; }
-      // some browsers refuse a scripted download from file://; hand over the text instead
       say("This browser blocked the download; copy the JSON below into " + name + ".");
       var box = document.getElementById("io-box") || el("div", "iobox");
       box.id = "io-box";
@@ -1035,8 +986,7 @@
     if (examTimer) { clearInterval(examTimer); examTimer = null; }
     if (!body.hasAttribute("data-exam")) return;
     var TOTAL = 120 * 60;
-    // Each exam page keeps its own clock and score under its own store key,
-    // so a run of paper 2 never disturbs paper 1's record.
+    // Each exam page keeps its own clock and score under its own store key.
     var bucket = PAGE_ID === "EX2" ? "exam2" : "exam";
     var st = store[bucket] && typeof store[bucket] === "object" ? store[bucket] : {};
     if (!st.tasks || typeof st.tasks !== "object") st.tasks = {};
@@ -1077,9 +1027,7 @@
     examTimer = setInterval(paintClock, 1000);
     paintClock();
 
-    // The clock should measure time you spent, not wall-clock while the tab was
-    // shut. Wired once: the bundled console re-runs boot() on every navigation,
-    // and these listen on the document, so a per-boot registration would stack.
+    // Wire these once: boot() re-runs on navigation and they listen on the document.
     if (!examLifecycleWired) {
       var stamp = function () {
         ["exam", "exam2"].forEach(function (k) {
@@ -1189,9 +1137,7 @@
     buildIndex();
     buildWeakSpots();
     buildExam();
-    // Last, after every innerHTML rebuild above: buildExercises and buildExam
-    // re-serialize their panels, which would strip the copy buttons' listeners
-    // while data-built keeps them from ever being wired again.
+    // Must run last: the builders above re-serialize their panels.
     buildCodeBlocks();
     if (!wired) { keys(); wired = true; }
   }
