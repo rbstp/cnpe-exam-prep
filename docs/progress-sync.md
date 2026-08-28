@@ -52,14 +52,28 @@ Two things deliberately do not travel:
 ## How conflicts resolve
 
 They do not, because the merge cannot conflict. `CNPE_PROGRESS.merge`, the same
-function Import has always used, is a union of ticks and a per-counter max of the
-counters: commutative, idempotent, and monotone. It never lowers anything.
+function Import has always used, is a union of ticks and a per-field max of the
+counters: commutative, idempotent, and monotone. It never lowers anything. Drill
+records are the interesting case, because they are cumulative: `r` and `m` take
+the max independently, and only `ok` and `t` follow the clock, so two browsers
+that each answered the same card offline keep both answers.
 
 The Worker holds a `rev` per row. A `PUT` carrying a stale `rev` is rejected with
 `409` **and the current copy**; the client merges that in and retries with the
 fresh `rev`. So two browsers that both worked offline converge on the union of
 their work whenever they next reach the network, in any order, with no locking and
 no conflict UI.
+
+Two consequences worth knowing, both following from "never lowers anything":
+
+* **Un-ticking does not propagate.** A union cannot express a removal, so if you
+  un-tick an exercise on the laptop while the desktop's copy still has it ticked,
+  the next sync ticks it back. Un-tick on each synced browser, or use **Reset
+  progress**, which is a deletion rather than a merge.
+* **Two tabs of the same browser still diverge**, exactly as they did before sync
+  existed: each tab holds its own in-memory store and `save()` writes the whole
+  blob. Sync heals that once both tabs' work reaches the server, which is why the
+  push on `pagehide` uses `keepalive`.
 
 ---
 
@@ -204,8 +218,9 @@ origin, `file://` included, gets no sync at all.
 Nothing, with a very large margin. The [Workers free plan](https://developers.cloudflare.com/workers/platform/pricing/)
 is 100,000 requests/day, and [D1's](https://developers.cloudflare.com/d1/platform/pricing/)
 is 5 GB with 5M row reads and 100,000 row writes per day. Pushes are debounced to
-one per 2.5 seconds of idle plus one when the tab is hidden, so a hard study
-session is a few hundred requests. Fifty people using it daily would spend a few
+one per 2.5 seconds of idle plus one when the tab is hidden, and a store that
+already matches what the server holds is not pushed at all, so a hard study
+session is a few hundred requests and an idle reload is none. Fifty people using it daily would spend a few
 percent of the request budget and a rounding error of the storage.
 
 D1 rather than KV for two reasons: KV's free plan allows 1,000 writes/day against
@@ -233,9 +248,11 @@ and dates, not personal data of consequence, but it is theirs:
 * `[observability] enabled = false` in `wrangler.toml` keeps request bodies out of
   Cloudflare's logs.
 
-To shut the whole thing down: `npx wrangler delete` removes the Worker, and the
-console's sign-in button becomes a no-op that reports the Worker unreachable.
-Nobody loses any progress, because nobody ever had it only there.
+To shut the whole thing down: `npx wrangler delete` removes the Worker. Browsers
+already signed in fall back to local-only on their next load, with a note saying
+the Worker is unreachable; a browser that presses **Sign in to sync** after that
+gets its own connection-error page, since sign-in is a navigation. Nobody loses
+any progress, because nobody ever had it only there.
 
 ## Notes on the hardening
 
@@ -257,6 +274,11 @@ Worth knowing if you change any of it:
 * There is no per-account rate limit. `ALLOWED_LOGINS` is the answer if that
   matters to you; without it, a signed-in account could spend D1's daily write
   budget.
+* `sync/test.mjs` drives the Worker directly with a stub D1: forged, tampered,
+  expired and wrong-key session cookies, the CORS gate on every credentialed
+  route, six open-redirect attempts on `return`, the state and nonce checks on
+  the callback, cross-account isolation, and the optimistic-concurrency SQL.
+  Plain `node sync/test.mjs`, no dependencies, and CI runs it on every PR.
 
 ## The protocol
 

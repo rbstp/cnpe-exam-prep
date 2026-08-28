@@ -421,17 +421,29 @@ module.exports = async function (h) {
     await s.ctx.close();
   }
 
-  /* 12. remote content reaches the merge, so prototype keys must not */
+  /* 12. remote content reaches the merge, so prototype keys must not.
+         A `{__proto__: 1}` literal sets the prototype and never serialises, so
+         the payload is built as raw JSON: the wire is what matters here. */
   {
     group('a poisoned remote copy cannot reach the prototype');
+    const POISON = '{"done":{"__proto__":{"pwned":1},"2.1":1},' +
+                   '"drill":{"__proto__":{"pwned":1},"q1":{"r":1,"m":0,"t":1}},' +
+                   '"days":{"__proto__":{"pwned":1}}}';
+    /** @type {string[]} */
+    const bodies = [];
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1 } },
       api: (route, url, method) => {
         if (method === 'GET') {
-          return { status: 200, json: { user: { login: 'octocat', id: '1' }, rev: 1, updated: 'then',
-            progress: { done: { __proto__: 1, '2.1': 1 }, drill: { __proto__: { r: 1 }, q1: { r: 1, m: 0, t: 1 } } } } };
+          route.fulfill({
+            status: 200,
+            headers: Object.assign({}, CORS, { 'Content-Type': 'application/json' }),
+            body: '{"user":{"login":"octocat","id":"1"},"rev":1,"updated":"then","progress":' + POISON + '}',
+          });
+          return undefined;
         }
+        bodies.push(route.request().postData() || '');
         return { status: 200, json: { rev: 2, updated: 'now' } };
       },
     });
@@ -448,11 +460,107 @@ module.exports = async function (h) {
         drillProto: Object.getPrototypeOf(p.drill) === Object.prototype,
         doneProto: Object.getPrototypeOf(p.done) === Object.prototype,
         real: p.done['2.1'] === 1 && !!p.drill.q1,
+        ownProto: Object.keys(p.done).concat(Object.keys(p.drill), Object.keys(p.days)).indexOf('__proto__') >= 0,
       };
     });
     assert(clean.objProto, 'Object.prototype is untouched');
     assert(clean.drillProto && clean.doneProto, 'and so are the store buckets own prototypes');
     assert(clean.real, 'while the legitimate records still merged');
+    assert(!clean.ownProto, 'and no __proto__ key was taken as data either');
+    // the guard is worthless if the poison never left the stub
+    assert(await settle(() => bodies.length > 0) && bodies.every(b => b.indexOf('__proto__') < 0),
+      'the poison reached the client and did not come back out: ' + JSON.stringify(bodies[0] || '').slice(0, 80));
+    assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
+    await s.ctx.close();
+  }
+
+  /* 13. drill records are lifetime counters: a merge must never lower one */
+  {
+    group('two browsers drilling offline keep both answers');
+    /** @type {*} */
+    let put = null;
+    const s = await site({
+      signedIn: true,
+      // this browser got q1 right at t=200; the other missed it at t=300
+      seed: { drill: { q1: { r: 11, m: 2, ok: true, t: 200 } }, drillmeta: { day: '2026-08-28', n: 9, best: 7, t: 200 } },
+      api: (route, url, method, body) => {
+        if (method === 'GET') {
+          return { status: 200, json: { user: { login: 'octocat', id: '1' }, rev: 1, updated: 'then',
+            progress: { drill: { q1: { r: 10, m: 3, ok: false, t: 300 } },
+                        drillmeta: { day: '2026-08-28', n: 4, best: 5, t: 300 } } } };
+        }
+        put = JSON.parse(body);
+        return { status: 200, json: { rev: 2, updated: 'now' } };
+      },
+    });
+    await s.go();
+    // the drill counters grow, so the dashboard reloads once: wait it out
+    assert(await settle(() => gets(s.seen) >= 2), 'the merge reloaded the dashboard and pulled again');
+    await s.page.waitForFunction(() => window.CNPE_SYNC && window.CNPE_SYNC.state().rev === 2);
+    const q = (await readStore(s.page)).drill.q1;
+    assert(q.r === 11, 'the right count kept the higher of the two: ' + q.r);
+    assert(q.m === 3, 'and so did the missed count: ' + q.m);
+    assert(q.ok === false && q.t === 300, 'the last answer is the later one: ' + JSON.stringify(q));
+    const dm = (await readStore(s.page)).drillmeta;
+    assert(dm.n === 9, "today's card count took the max, not the newer write: " + dm.n);
+    assert(dm.best === 7, 'and the record streak survived: ' + dm.best);
+    assert(put.progress.drill.q1.r === 11 && put.progress.drill.q1.m === 3, 'the union went back to the server');
+    assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
+    await s.ctx.close();
+  }
+
+  /* 14. the resume pointer is per-browser, and the clock never travels */
+  {
+    group('the payload carries progress only');
+    /** @type {*} */
+    let put = null;
+    const s = await site({
+      signedIn: true,
+      seed: { done: { '1.1': 1 }, last: '1.1' },
+      api: (route, url, method, body) => {
+        if (method === 'GET') return { status: 200, json: { user: { login: 'octocat', id: '1' }, rev: 1, progress: null, updated: null } };
+        put = JSON.parse(body);
+        return { status: 200, json: { rev: 2, updated: 'now' } };
+      },
+    });
+    await s.go();
+    await s.page.waitForFunction(() => window.CNPE_SYNC && window.CNPE_SYNC.state().rev === 2);
+    assert(put.progress.last === undefined, 'the resume pointer stays on this browser: ' + JSON.stringify(put.progress.last));
+    assert((await readStore(s.page)).last === '1.1', 'and is still set locally');
+    assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
+    await s.ctx.close();
+  }
+
+  /* 15. a store the server already has costs no write */
+  {
+    group('reloading with nothing new does not write again');
+    // The row the server holds is whatever a client last pushed, so let the
+    // first load produce it rather than guessing the normalised shape by hand.
+    /** @type {*} */
+    let stored = null;
+    let rev = 0;
+    const s = await site({
+      signedIn: true,
+      seed: { done: { '1.1': 1 } },
+      api: (route, url, method, body) => {
+        if (method === 'GET') {
+          return { status: 200, json: { user: { login: 'octocat', id: '1' }, rev, updated: 'then', progress: stored } };
+        }
+        stored = JSON.parse(body).progress;
+        rev += 1;
+        return { status: 200, json: { rev, updated: 'now' } };
+      },
+    });
+    const puts = () => s.seen.filter(x => x === 'PUT /v1/progress').length;
+    await s.go();
+    assert(await settle(() => stored !== null), 'the first load pushes the store the server did not have');
+    const after = puts();
+    await s.page.reload();
+    await s.page.waitForFunction(() => /Synced/.test(
+      (document.getElementById('sync-note') || { textContent: '' }).textContent));
+    assert(await settle(() => gets(s.seen) >= 2), 'the reload pulled again');
+    assert(puts() === after, 'and pushed nothing back: ' + JSON.stringify(s.seen));
+    assert(await s.page.evaluate(() => window.CNPE_SYNC.state().rev) === rev, 'the rev is the one the pull returned');
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
   }

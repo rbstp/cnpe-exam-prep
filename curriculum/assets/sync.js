@@ -8,10 +8,11 @@
 
   var API = String(window.CNPE_SYNC_API || "https://sync.rbstp.dev").replace(/\/+$/, "");
   var FLAG = "cnpe:sync";
+  var RELOADED = "cnpe:sync-reloaded";
   var DEBOUNCE = 2500;
   var MAX_RETRY = 3;
 
-  var S = { on: false, login: "", rev: 0, note: "", busy: false, muted: false };
+  var S = { on: false, login: "", rev: 0, note: "", busy: false, muted: false, sent: null };
   var timer = null, booted = false;
 
   /* ── availability ────────────────────────────────────────── */
@@ -41,11 +42,13 @@
     if (!p) return null;
     var copy;
     try { copy = JSON.parse(JSON.stringify(p)); } catch (e) { return null; }
+    // A stable wire shape, so an unchanged store canonicalises to what was sent.
     ["exam", "exam2"].forEach(function (k) {
-      if (copy[k] && typeof copy[k] === "object") {
-        delete copy[k].startedAt; delete copy[k].running; delete copy[k].spent;
-      }
+      var e = copy[k] && typeof copy[k] === "object" && !Array.isArray(copy[k]) ? copy[k] : (copy[k] = {});
+      delete e.startedAt; delete e.running; delete e.spent;
+      if (!e.tasks || typeof e.tasks !== "object") e.tasks = {};
     });
+    delete copy.last;
     return copy;
   }
   // An empty store never earns a remote row.
@@ -57,6 +60,15 @@
     return ["exam", "exam2"].some(function (k) {
       return p[k] && p[k].tasks && Object.keys(p[k].tasks).length > 0;
     });
+  }
+
+  /** @param {*} v */
+  function canon(v) {
+    if (!v || typeof v !== "object") return JSON.stringify(v === undefined ? null : v);
+    if (Array.isArray(v)) return "[" + v.map(canon).join(",") + "]";
+    return "{" + Object.keys(v).sort().map(function (k) {
+      return JSON.stringify(k) + ":" + canon(v[k]);
+    }).join(",") + "}";
   }
 
   /* ── transport ───────────────────────────────────────────── */
@@ -91,33 +103,41 @@
       if (body.progress && window.CNPE_PROGRESS) {
         added = window.CNPE_PROGRESS.merge(body.progress);
         muted(function () { window.CNPE_PROGRESS.save(); });
+        S.sent = canon(body.progress);
       }
       S.busy = false;
       return push().then(function () {
         stamp();
         // Panels paint from the store at load, so a merge that added something
         // needs a repaint. Only on the dashboard, where the user just asked.
-        if (grew(added) && document.getElementById("sync-btn")) location.reload();
+        if (!grew(added)) { mark(RELOADED, null); return; }
+        if (document.getElementById("sync-btn") && !mark(RELOADED)) {
+          mark(RELOADED, "1");            // a save that never sticks must not loop
+          location.reload();
+        }
       });
     }).catch(offline).then(function () { S.busy = false; paint(); });
   }
 
-  /** @param {number} [attempt] */
-  function push(attempt) {
+  /** @param {number} [attempt] @param {boolean} [unloading] */
+  function push(attempt, unloading) {
     if (!S.on) return Promise.resolve();
     var progress = snapshot();
     if (!hasAnything(progress)) { stamp(); return Promise.resolve(); }
+    var body = canon(progress);
+    if (body === S.sent) { stamp(); return Promise.resolve(); }
     var n = attempt || 0;
     return call("/v1/progress", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rev: S.rev, progress: progress }),
+      keepalive: !!unloading,             // a plain fetch is aborted on unload
     }).then(function (res) {
       if (res.status === 401) { droppedOut(); return null; }
       return res.json().then(function (body) { return { status: res.status, body: body }; });
     }).then(function (r) {
       if (!r) return;
-      if (r.status === 200) { S.rev = +r.body.rev || 0; stamp(); paint(); return; }
+      if (r.status === 200) { S.rev = +r.body.rev || 0; S.sent = body; stamp(); paint(); return; }
       if (r.status === 409 && n < MAX_RETRY) {
         // Another browser wrote first: take its copy, merge ours in, retry.
         S.rev = +r.body.rev || 0;
@@ -125,7 +145,7 @@
           window.CNPE_PROGRESS.merge(r.body.progress);
           muted(function () { window.CNPE_PROGRESS.save(); });
         }
-        return push(n + 1);
+        return push(n + 1, unloading);
       }
       throw new Error("HTTP " + r.status);
     }).catch(offline);
@@ -143,9 +163,17 @@
     timer = setTimeout(function () { timer = null; push(); }, DEBOUNCE);
   }
   function flush() {
-    if (!S.on || !timer) return;
+    if (!S.on || !timer) return Promise.resolve();
     clearTimeout(timer); timer = null;
-    push();
+    return push(0, true);
+  }
+  /** @param {string} k @param {string|null} [v] */
+  function mark(k, v) {
+    try {
+      if (v === undefined) return sessionStorage.getItem(k);
+      if (v === null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, v);
+    } catch (e) {}
+    return null;
   }
 
   /* ── status line ─────────────────────────────────────────── */
@@ -155,7 +183,7 @@
              " to " + (S.login ? "@" + S.login : "your GitHub account") + ".";
   }
   function droppedOut() {
-    S.on = false; S.rev = 0; clearFlag();
+    S.on = false; S.rev = 0; S.sent = null; clearFlag();
     say("Not signed in; your progress is still here in this browser.");
   }
 
@@ -166,12 +194,14 @@
     location.href = API + "/auth/start?return=" + encodeURIComponent(location.href);
   }
   function signOut() {
-    var was = S.on;
-    S.on = false; S.rev = 0; clearFlag();
-    if (timer) { clearTimeout(timer); timer = null; }
-    say("Signed out. Your progress stays in this browser; the saved copy is untouched.");
-    if (!was) return Promise.resolve();
-    return call("/auth/signout", { method: "POST" }).catch(function () { return null; }).then(function () {});
+    if (!S.on) return Promise.resolve();
+    say("Signing out…");
+    // Anything ticked in the last few seconds still belongs in the saved copy.
+    return flush().then(function () {
+      S.on = false; S.rev = 0; S.sent = null; clearFlag();
+      say("Signed out. Your progress stays in this browser; the saved copy is untouched.");
+      return call("/auth/signout", { method: "POST" }).catch(function () { return null; });
+    }).then(function () {});
   }
   // Deletes the copy held for this account. Local progress is not touched.
   function forget() {
@@ -179,7 +209,7 @@
     return call("/v1/progress", { method: "DELETE" }).then(function (res) {
       if (res.status === 401) { droppedOut(); return; }
       if (!res.ok) throw new Error("HTTP " + res.status);
-      S.rev = 0;
+      S.rev = 0; S.sent = null;
       say("Deleted the copy saved to your GitHub account. This browser still has everything.");
     }).catch(function () {
       say("Could not delete the saved copy; nothing was changed.");

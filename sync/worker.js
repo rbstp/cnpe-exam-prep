@@ -313,6 +313,8 @@ const handler = {
     if (url.pathname === "/auth/start" && req.method === "GET") return authStart(req, env);
     if (url.pathname === "/auth/callback" && req.method === "GET") return authCallback(req, env);
     if (url.pathname === "/auth/signout" && req.method === "POST") {
+      // A cross-site form post could otherwise sign someone out.
+      if (!origin) return json({ error: "origin not allowed" }, 403);
       return withCors(new Response(null, {
         status: 204, headers: { "Set-Cookie": setCookie(SESSION_COOKIE, "", 0) },
       }), origin);

@@ -128,20 +128,48 @@
       if (!store[k].tasks || typeof store[k].tasks !== "object") store[k].tasks = {};
       union(store[k].tasks, src[k].tasks, "exam");
     });
-    // Drill records are counters, not ticks: the record answered more recently wins.
+    // r and m are lifetime counters, so they take the max; only the last-answer
+    // fields follow the clock. Replacing the record wholesale would lower them.
     if (src.drill && typeof src.drill === "object" && !Array.isArray(src.drill)) {
       if (!store.drill || typeof store.drill !== "object") store.drill = {};
       Object.keys(src.drill).forEach(function (k) {
-        var inc = src.drill[k], cur = store.drill[k];
-        if (!ownKey(k) || !inc || typeof inc !== "object") return;
-        if (!cur || (inc.t || 0) > (cur.t || 0)) { store.drill[k] = inc; n.drill++; }
+        var inc = src.drill[k];
+        if (!ownKey(k) || !inc || typeof inc !== "object" || Array.isArray(inc)) return;
+        var cur = store.drill[k];
+        if (!cur || typeof cur !== "object" || Array.isArray(cur)) {
+          cur = store.drill[k] = { r: 0, m: 0 };
+        }
+        var grew = false;
+        ["r", "m"].forEach(function (f) {
+          var v = +inc[f] || 0;
+          if (v > (+cur[f] || 0)) { cur[f] = v; grew = true; }
+        });
+        var it = +inc.t || 0, ct = +cur.t || 0;
+        // On an exact tie the miss wins, so both sides land on the same record.
+        if (it > ct || (it === ct && it > 0 && !inc.ok && cur.ok)) {
+          cur.ok = !!inc.ok; cur.t = it; grew = true;
+        }
+        if (grew) n.drill++;
       });
     }
     if (src.drillmeta && typeof src.drillmeta === "object" && !Array.isArray(src.drillmeta)) {
       if (!store.drillmeta || typeof store.drillmeta !== "object") store.drillmeta = {};
-      var best = Math.max(store.drillmeta.best || 0, src.drillmeta.best || 0);
-      if ((src.drillmeta.t || 0) > (store.drillmeta.t || 0)) store.drillmeta = src.drillmeta;
-      if (best) store.drillmeta.best = best;
+      var cur = store.drillmeta, inc = src.drillmeta;
+      if (typeof inc.day === "string" && inc.day === cur.day) {
+        if ((+inc.n || 0) > (+cur.n || 0)) cur.n = +inc.n;
+      } else if (typeof inc.day === "string" && (typeof cur.day !== "string" || inc.day > cur.day)) {
+        cur.day = inc.day; cur.n = +inc.n || 0;
+      }
+      if (typeof inc.earned === "string" && (typeof cur.earned !== "string" || inc.earned > cur.earned)) {
+        cur.earned = inc.earned;
+      }
+      // Only write what is there: a merge that adds nothing must leave the store alone.
+      var streak = Math.max(+cur.streak || 0, +inc.streak || 0);
+      if (streak) cur.streak = streak;
+      var best = Math.max(+cur.best || 0, +inc.best || 0, streak);
+      if (best) cur.best = best;
+      var t = Math.max(+cur.t || 0, +inc.t || 0);
+      if (t) cur.t = t;
     }
     // Study days are counters too: per-counter max, so a merge never lowers a count.
     if (src.days && typeof src.days === "object" && !Array.isArray(src.days)) {
