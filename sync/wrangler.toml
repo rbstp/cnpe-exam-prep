@@ -1,0 +1,34 @@
+# Cloudflare Worker: optional progress sync for the CNPE study console.
+#
+#     wrangler d1 create cnpe-progress        # paste database_id below
+#     wrangler d1 execute cnpe-progress --remote --file=schema.sql
+#     wrangler deploy                          # must precede the secrets: they
+#     wrangler secret put GITHUB_CLIENT_SECRET # need the Worker to exist
+#     wrangler secret put SESSION_SECRET
+#
+# See ../docs/progress-sync.md for the GitHub OAuth app and the DNS record.
+name = "cnpe-progress-sync"
+main = "worker.js"
+compatibility_date = "2026-08-01"
+
+# The Worker must answer on the same registrable domain as the console, or the
+# session cookie becomes a third-party cookie. See docs/progress-sync.md §3.
+routes = [
+  { pattern = "sync.rbstp.dev", custom_domain = true },
+]
+
+[vars]
+GITHUB_CLIENT_ID = "Ov23li04r0tXa77uJz03"
+ALLOWED_ORIGINS = "https://cnpe.rbstp.dev"
+# Optional guest list. Leave empty and anyone with a GitHub account can sign in
+# and store their own progress; set it to keep the sync to yourself.
+# ALLOWED_LOGINS = "rbstp"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cnpe-progress"
+database_id = "9f77c97f-e4f6-4719-9075-0e0228c2eaee"
+
+# Progress blobs are the user's own study record: keep them out of the logs.
+[observability]
+enabled = false

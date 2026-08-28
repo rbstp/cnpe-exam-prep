@@ -24,6 +24,9 @@ it should say; the lab's tool versions float, so details may drift from what you
 Press `/` in any page to jump to a section by name, tool or concept, `g` for a drill session,
 `t` to switch the theme (system, light or dark; system by default) and `?` for the shortcuts.
 Progress (exercises verified, sections completed, drill history, the study streak) is stored in your browser's local storage.
+On the hosted site, **Sign in to sync** on the dashboard optionally mirrors it to your GitHub account so a laptop and a
+desktop agree; it is off by default, and signed out (or over `file://`) the console makes no network request at all.
+See [../docs/progress-sync.md](../docs/progress-sync.md).
 Thirteen interactive figures sit across twelve sections (QoS and eviction, node capacity, quota
 binding, right-sizing cost, the request path, the reconciliation loop, sync × health,
 canary weights, counters and `rate()`, alert timing, the admission pipeline, PSS profiles

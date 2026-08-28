@@ -5,14 +5,17 @@
 #
 # Env:
 #   SITE_DOMAIN   hostname expected in CNAME (default cnpe.rbstp.dev)
+#   SYNC_DOMAIN   sync Worker hostname expected in sync.js (default sync.rbstp.dev)
 set -euo pipefail
 
 SITE="${1:?usage: check-site.sh <site-dir>}"
 SITE_DOMAIN="${SITE_DOMAIN:-cnpe.rbstp.dev}"
+SYNC_DOMAIN="${SYNC_DOMAIN:-sync.rbstp.dev}"
 
 for f in index.html mock-exam.html mock-exam-2.html drill.html console.html 404.html CNAME \
          assets/style.css assets/app.js assets/nav.js assets/widgets.js \
-         assets/theme.js assets/favicon.svg assets/drill-data.js assets/drill.js; do
+         assets/theme.js assets/favicon.svg assets/drill-data.js assets/drill.js \
+         assets/sync.js; do
   test -s "$SITE/$f" || { echo "missing or empty: $f"; exit 1; }
 done
 test -f "$SITE/.nojekyll" || { echo "missing: .nojekyll"; exit 1; }
@@ -26,6 +29,13 @@ if grep -qE '<(link|script)[^>]+(href|src)="assets/' "$SITE/console.html"; then
   echo "console.html references sidecar assets"; exit 1
 fi
 grep -q "$SITE_DOMAIN" "$SITE/CNAME" || { echo "CNAME does not carry $SITE_DOMAIN"; exit 1; }
+
+# Optional sync must be opt-in and same-registrable-domain: assert the client
+# points at the configured Worker origin, in the assets and in the bundle.
+for f in assets/sync.js console.html; do
+  grep -q "https://$SYNC_DOMAIN" "$SITE/$f" ||
+    { echo "$f does not point at https://$SYNC_DOMAIN"; exit 1; }
+done
 
 # Every page's theme-color pair must carry the grounds the stylesheet paints.
 dk=$(grep -o -- '--dk-ink: *#[0-9A-Fa-f]*' "$SITE/assets/style.css" | grep -o '#[0-9A-Fa-f]*')

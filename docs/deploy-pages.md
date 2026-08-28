@@ -170,8 +170,30 @@ That was chosen over the alternatives:
 | **(c) Worker + KV, shared key** | a Worker, a KV namespace, a route, client sync + conflict handling | Free tier is ample (KV: 100k reads, 1k writes/day). But it puts the console on the network at runtime, and a *shared* key means anyone with the URL and key can read and overwrite your progress. Workers routes only run on **proxied** hostnames, so this forces the orange cloud and everything in §2 that comes with it. It also needs a real answer for "laptop and desktop both wrote while offline". |
 | **(d) Gist + fine-grained token in localStorage** | ~50 lines, no infra | Puts a real GitHub credential with gist-write scope in `localStorage` on a public origin. Any XSS on the site, any shared or borrowed browser, any extension reading storage, and the token leaks. Not worth it for tick-boxes. |
 
-If you outgrow (b), (c) is the right shape, but with a per-device key and last-write-wins
-per section rather than one shared key. Ask and I will build it.
+### (e) GitHub sign-in + Worker + D1: added, opt-in, alongside (b)
+
+(b) is still there and still the default. On top of it there is now an optional
+**Sign in to sync**, documented in full in [progress-sync.md](progress-sync.md).
+It answers each objection to (c) and (d) rather than accepting them:
+
+* **Not a shared key.** GitHub OAuth gives a per-account row. Nobody with the URL
+  reads anyone else's progress.
+* **The orange cloud is not forced onto `cnpe`.** The Worker answers on
+  `sync.rbstp.dev`, a Custom Domain whose only origin is the Worker. `cnpe` stays
+  grey and §2 above is unchanged. The record must share the registrable domain
+  `rbstp.dev`, though, or the session cookie becomes a third-party cookie.
+* **"Both wrote while offline" has a real answer.** The import merge is a union of
+  ticks and a per-counter max: commutative, idempotent, never lowering anything.
+  The Worker rejects a stale write with `409` **and the current copy**, and the
+  client merges and retries. Two offline browsers converge on the union, in any
+  order.
+* **No GitHub credential anywhere.** The OAuth scope is empty, so this is identity
+  only. The token is used once server-side to read the account id and is never
+  stored, so
+  unlike (d) nothing that could touch a repository or a gist exists client-side.
+  The session is an `HttpOnly` cookie that JavaScript cannot read.
+* **The runtime network dependency is opt-in.** Signed out, and over `file://`
+  always, not one request is made. Browser checks assert exactly that.
 
 ## 4. Verification
 

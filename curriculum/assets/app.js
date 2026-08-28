@@ -79,9 +79,18 @@
     if (!hadDays) seedDays(s);
     return s;
   })();
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} }
+  var savers = [];
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {}
+    // Optional sync listens here. A listener that throws must not cost a save.
+    for (var i = 0; i < savers.length; i++) { try { savers[i](); } catch (e) {} }
+  }
   // Reset progress swaps the store object, so hand out getters, not the object.
-  window.CNPE_PROGRESS = { get: function () { return store; }, save: save, bump: bumpDay, streak: studyStreak };
+  window.CNPE_PROGRESS = {
+    get: function () { return store; }, save: save, bump: bumpDay, streak: studyStreak,
+    merge: function (src) { return mergeProgress(src); },
+    onSave: function (fn) { if (typeof fn === "function") savers.push(fn); },
+  };
 
   /* ── progress transfer ─────────────────────────────────────── */
   function exportPayload() {
@@ -99,11 +108,13 @@
     } catch (e) { return false; }
   }
   /* Union, never overwrite: an import can add or tick items, but never un-tick one. */
+  function ownKey(k) { return k !== "__proto__" && k !== "constructor" && k !== "prototype"; }
   function mergeProgress(src) {
     var n = { done: 0, ex: 0, exam: 0, drill: 0, days: 0 };
     function union(into, from, bucket) {
       if (!from || typeof from !== "object" || Array.isArray(from)) return;
       Object.keys(from).forEach(function (k) {
+        if (!ownKey(k)) return;
         var v = from[k] ? 1 : 0;
         if (!(k in into)) { into[k] = v; if (v) n[bucket]++; }
         else if (v && !into[k]) { into[k] = 1; n[bucket]++; }
@@ -117,20 +128,48 @@
       if (!store[k].tasks || typeof store[k].tasks !== "object") store[k].tasks = {};
       union(store[k].tasks, src[k].tasks, "exam");
     });
-    // Drill records are counters, not ticks: the record answered more recently wins.
+    // r and m are lifetime counters, so they take the max; only the last-answer
+    // fields follow the clock. Replacing the record wholesale would lower them.
     if (src.drill && typeof src.drill === "object" && !Array.isArray(src.drill)) {
       if (!store.drill || typeof store.drill !== "object") store.drill = {};
       Object.keys(src.drill).forEach(function (k) {
-        var inc = src.drill[k], cur = store.drill[k];
-        if (!inc || typeof inc !== "object") return;
-        if (!cur || (inc.t || 0) > (cur.t || 0)) { store.drill[k] = inc; n.drill++; }
+        var inc = src.drill[k];
+        if (!ownKey(k) || !inc || typeof inc !== "object" || Array.isArray(inc)) return;
+        var cur = store.drill[k];
+        if (!cur || typeof cur !== "object" || Array.isArray(cur)) {
+          cur = store.drill[k] = { r: 0, m: 0 };
+        }
+        var grew = false;
+        ["r", "m"].forEach(function (f) {
+          var v = +inc[f] || 0;
+          if (v > (+cur[f] || 0)) { cur[f] = v; grew = true; }
+        });
+        var it = +inc.t || 0, ct = +cur.t || 0;
+        // On an exact tie the miss wins, so both sides land on the same record.
+        if (it > ct || (it === ct && it > 0 && !inc.ok && cur.ok)) {
+          cur.ok = !!inc.ok; cur.t = it; grew = true;
+        }
+        if (grew) n.drill++;
       });
     }
     if (src.drillmeta && typeof src.drillmeta === "object" && !Array.isArray(src.drillmeta)) {
       if (!store.drillmeta || typeof store.drillmeta !== "object") store.drillmeta = {};
-      var best = Math.max(store.drillmeta.best || 0, src.drillmeta.best || 0);
-      if ((src.drillmeta.t || 0) > (store.drillmeta.t || 0)) store.drillmeta = src.drillmeta;
-      if (best) store.drillmeta.best = best;
+      var cur = store.drillmeta, inc = src.drillmeta;
+      if (typeof inc.day === "string" && inc.day === cur.day) {
+        if ((+inc.n || 0) > (+cur.n || 0)) cur.n = +inc.n;
+      } else if (typeof inc.day === "string" && (typeof cur.day !== "string" || inc.day > cur.day)) {
+        cur.day = inc.day; cur.n = +inc.n || 0;
+      }
+      if (typeof inc.earned === "string" && (typeof cur.earned !== "string" || inc.earned > cur.earned)) {
+        cur.earned = inc.earned;
+      }
+      // Only write what is there: a merge that adds nothing must leave the store alone.
+      var streak = Math.max(+cur.streak || 0, +inc.streak || 0);
+      if (streak) cur.streak = streak;
+      var best = Math.max(+cur.best || 0, +inc.best || 0, streak);
+      if (best) cur.best = best;
+      var t = Math.max(+cur.t || 0, +inc.t || 0);
+      if (t) cur.t = t;
     }
     // Study days are counters too: per-counter max, so a merge never lowers a count.
     if (src.days && typeof src.days === "object" && !Array.isArray(src.days)) {
@@ -931,9 +970,16 @@
     }
     var reset = document.getElementById("reset-progress");
     if (reset) reset.addEventListener("click", function () {
-      if (confirm("Clear all section, exercise, exam, drill and streak progress stored in this browser?")) {
-        store = { ex: {}, done: {}, exam: {}, exam2: {}, drill: {}, drillmeta: {}, days: {}, last: null }; save(); location.reload();
+      if (!confirm("Clear all section, exercise, exam, drill and streak progress stored in this browser?")) return;
+      function wipe() {
+        store = { ex: {}, done: {}, exam: {}, exam2: {}, drill: {}, drillmeta: {}, days: {}, last: null };
+        save(); location.reload();
       }
+      if (!(window.CNPE_SYNC && window.CNPE_SYNC.signedIn())) { wipe(); return; }
+      // Keeping the saved copy is a real choice, but it does come back.
+      if (confirm("Also delete the copy saved to your GitHub account?\n\nCancel keeps it, and this browser will sync it back down on the next load.")) {
+        window.CNPE_SYNC.forget().then(wipe, wipe);
+      } else wipe();
     });
 
     var note = document.getElementById("io-note");
@@ -1135,6 +1181,7 @@
     buildPalette();
     buildHelp();
     buildIndex();
+    if (window.CNPE_SYNC) window.CNPE_SYNC.mount();
     buildWeakSpots();
     buildExam();
     // Must run last: the builders above re-serialize their panels.

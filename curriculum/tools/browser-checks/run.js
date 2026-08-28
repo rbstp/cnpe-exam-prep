@@ -13,7 +13,7 @@ const { makeHarness } = require('./lib');
 
 const SITE = path.resolve(process.argv[2] || path.join(__dirname, '..', '..', '..', '_site'));
 
-const AREAS = ['streak', 'palette', 'exam-clock', 'drill-deck', 'progress-io', 'section', 'weak-spots', 'trace'];
+const AREAS = ['streak', 'palette', 'exam-clock', 'drill-deck', 'progress-io', 'sync', 'section', 'weak-spots', 'trace'];
 
 async function run() {
   const browser = await chromium.launch(
