@@ -21,12 +21,12 @@ fi
 if [ "$NODE_MAJOR" -lt 20 ]; then
   die "Backstage needs Node 20+ (you have $(node -v))"
 elif [ $((NODE_MAJOR % 2)) -ne 0 ] || [ "$NODE_MAJOR" -gt 24 ]; then
-  warn "Node $(node -v) is not a version Backstage supports (it wants an even LTS: 20/22/24)."
+  warn "Node $(node -v) is not a version Backstage supports (it wants an even LTS: 22 or 24)."
   if command -v mise >/dev/null; then
     warn "You have mise. Pin a supported Node just for this directory:"
-    warn "    cd $LAB_HOME && mise use node@22 && exec \$SHELL"
+    warn "    cd $LAB_HOME && mise use node@24 && exec \$SHELL"
   else
-    warn "Install Node 22 (nvm/mise/fnm) and re-run 'make portal'."
+    warn "Install Node 24 (nvm/mise/fnm) and re-run 'make portal'."
   fi
   die "refusing to scaffold Backstage on an unsupported Node; see above"
 fi

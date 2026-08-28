@@ -8,11 +8,13 @@ Every layer installs on its own. That matters on a laptop, because running all o
 
 ## Curriculum
 
-The lab is the machinery; [curriculum/](curriculum/index.html) is the study plan that drives it. It covers all five domains and every competency in the official curriculum PDF, split into 29 evening-sized sections, each one concepts plus exercises against this lab, each exercise ending with a command that proves the thing worked.
+The lab is the machinery; [curriculum/](curriculum/index.html) is the study plan that drives it. It covers every competency in the official curriculum PDF across 29 evening-sized sections. Each section pairs concepts with exercises against this lab, and each exercise ends with a command that proves the thing worked.
 
-It is published at **[cnpe.rbstp.dev](https://cnpe.rbstp.dev)**, and it is a small self-contained site rather than a pile of markdown, so it also runs straight off disk: open `curriculum/index.html` in a browser (no server, no build step; `file://` is fine), or run `make study`. Every code block has a copy button, `/` jumps to any section by name, tool or concept, exercises tick off as you verify them, the sections carry thirteen interactive figures you can drive, a drill mode replays all 148 self-check questions as flashcards weighted toward what you miss, and the dashboard tracks how far through the plan you are. It follows your system's light or dark setting; the masthead button (or `t`) pins one. Progress lives in that browser's local storage; **Export** and **Import** on the dashboard move it between browsers, machines, or a local copy and a hosted one.
+It is published at **[cnpe.rbstp.dev](https://cnpe.rbstp.dev)**. It is a self-contained site rather than a pile of markdown, so it also runs off disk: open `curriculum/index.html` in a browser (no server, no build step, `file://` is fine) or run `make study`.
 
-The [dashboard](curriculum/index.html) maps every official competency to a section and to the `make validate` check or exercise that demonstrates it, and there are two 15-task mock exams ([paper 1](curriculum/mock-exam.html) and [paper 2](curriculum/mock-exam-2.html); no task shape shared between them, scored separately) with grading commands and a built-in 120-minute clock. The dashboard also carries a weak-spots panel that splits your drill accuracy by domain and names the one to spend evenings on.
+Code blocks have copy buttons, `/` jumps to any section by name, tool or concept, and exercises tick off as you verify them. Thirteen interactive figures can be driven directly, and drill mode replays all 148 self-check questions as flashcards weighted toward what you miss. Progress lives in that browser's local storage, and **Export** and **Import** on the dashboard move it between browsers or machines. The site follows your system's light or dark setting; the masthead button (or `t`) pins one.
+
+The [dashboard](curriculum/index.html) maps every official competency to a section and to the `make validate` check or exercise that demonstrates it. Two 15-task mock exams ([paper 1](curriculum/mock-exam.html), [paper 2](curriculum/mock-exam-2.html)) share no task shapes, score separately, and come with grading commands and a 120-minute clock. A weak-spots panel splits your drill accuracy by domain and names the one to spend evenings on.
 
 `make site` stages the same directory exactly as it is published to GitHub Pages, including a single-file console at **[cnpe.rbstp.dev/console.html](https://cnpe.rbstp.dev/console.html)** with the fonts inlined: one URL to hand over, or to save and read offline. See [docs/deploy-pages.md](docs/deploy-pages.md) for the deploy, the DNS and the settings it needs.
 
@@ -41,7 +43,7 @@ The [dashboard](curriculum/index.html) maps every official competency to a secti
 
 Versions as tested: Kubernetes 1.36.1, kind 0.32.0, Helm 4.2.2, Cilium 1.20.1, Argo CD 10.4.0 (chart), Crossplane 2.4.0 (chart), kube-prometheus-stack 88.5.3, Istio 1.30.3, Flux 2.9.4.
 
-Only the Kubernetes node image is pinned, by digest, in `lab.env`. Helm charts and the Tekton release manifests intentionally float, so a fresh install gets whatever is current and the list above will drift. That is the right trade for exam prep, because chart values and API versions moving under you is the thing the exam actually tests. If something breaks, `kubectl api-resources | grep <tool>` and `kubectl explain <kind>` are the fix, and pinning `--version` in `scripts/lib.sh`'s `helmi` is a one-line change if you want reproducibility instead.
+Only the Kubernetes node image is pinned, by digest, in `lab.env`. Helm charts and the Tekton manifests float on purpose, so a fresh install gets whatever is current and the versions above will drift. That is the right trade for exam prep, because chart values and API versions moving under you is the thing the exam actually tests. When something breaks, `kubectl api-resources | grep <tool>` and `kubectl explain <kind>` are the fix. If you want reproducibility instead, pinning `--version` in `helmi` (`scripts/lib.sh`) is a one-line change.
 
 ## Tools
 
@@ -108,7 +110,7 @@ Shell tooling installed by `make tools`:
 [k9s](https://k9scli.io/) ·
 [stern](https://github.com/stern/stern) ·
 [kubectx](https://github.com/ahmetb/kubectx) ·
-[mise](https://mise.jdx.dev/) (pins Node 22 for Backstage)
+[mise](https://mise.jdx.dev/) (pins Node 24 for Backstage)
 
 ## Hardware and build time
 
@@ -207,23 +209,15 @@ The part I care about most. It checks behaviour, not pod status.
 
 ```
 ── Domain 3: Platform APIs & self-service
-  ✓ crossplane providers unhealthy                 0
-  ✓ crossplane functions unhealthy                 0
   ✓ XRD established                                True
   ✓ example XR reconciled (Ready)                  True
   ✓ XR actually created its namespace              team-c
-  ✓ cloudnative-pg operator ready                  1
-  ✓ kro ready                                      1
 
 ── NetworkPolicy enforcement (the thing kindnet fakes)
   ✓ egress blocked by NetworkPolicy                curl exit=28 (denied, correct)
 
 ── Portal: Backstage golden path
-  ✓ backstage app scaffolded                       /path/to/clone/portal
-  ✓ gitea scaffolder module registered
   ✓ golden-path template installed
-  ✓ backstage serving on :3000                     running
-  ✓ golden-path ApplicationSet healthy             False
   ✓ Applications auto-generated from git           1
 
 ──────────────────────────────────────────────
@@ -235,53 +229,44 @@ Lab is fully functional.
 
 ## make urls
 
-The Argo CD and Gitea passwords are redacted here; the real ones print locally.
-Grafana is genuinely `admin` / `admin`, set by `scripts/50-observability.sh`.
+A trimmed sample. The real output also prints the port-forward command for
+each service, the generated passwords, and the second cluster.
 
 ```
-──────────────────────────────────────────────────────────────────────────────
- ok  cloud-provider-kind is running; LoadBalancer IPs below are reachable directly
-──────────────────────────────────────────────────────────────────────────────
-
 SERVICE           URL                      ACCESS
 ───────────────── ──────────────────────── ──────
-Argo CD           http://172.18.0.10:80    admin / see below
+Argo CD           http://172.18.0.10:80    admin / generated, printed locally
 Argo Rollouts     http://172.18.0.12:3100  no auth
 Argo Workflows    http://172.18.0.16:2746  no auth (server authMode)
 Tekton Dashboard  http://172.18.0.11:9097  no auth
-Grafana           http://172.18.0.9:80     admin / admin  (3000 is Backstage)
+Grafana           http://172.18.0.9:80     admin / admin (3000 is Backstage)
 Prometheus        http://172.18.0.13:9090  no auth
-Alertmanager      http://localhost:9093    no auth
-                    kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-alertmanager 9093:9093
 Jaeger            http://172.18.0.14:16686 no auth
 OpenCost          http://172.18.0.15:9090  UI on /
-Hubble UI         http://localhost:12000   Cilium network flows
-                    kubectl -n kube-system port-forward svc/hubble-ui 12000:80
+Alertmanager      http://localhost:9093    needs a port-forward
+Hubble UI         http://localhost:12000   needs a port-forward
 
 Backstage portal (runs on the HOST, not in the cluster)
   Portal           http://localhost:3000     start: cd <clone>/portal && yarn start
-                   backend API on :7007      (needs Node 22; mise.toml pins it)
+                   backend API on :7007      (needs Node 24; mise.toml pins it)
   Golden path      Create -> "Golden path service" -> publishes to gitea org 'services'
                    Argo CD then generates an Application automatically
 
 Always-on (no port-forward needed)
   Gitea            http://gitea.lab:3000   (also http://localhost:3001)
-                   lab / <redacted>
   OCI registry     localhost:5001   (push: docker push localhost:5001/demo:v1)
+```
 
-Credentials
-  Argo CD    admin / <redacted>
-  Grafana    admin / admin
+Grafana really is `admin` / `admin`, set by `scripts/50-observability.sh`. The
+things with no UI are worth knowing about:
 
-No-UI things worth knowing
-  API audit log    docker exec -it cnpe-control-plane tail -f /var/log/kubernetes/audit.log | jq .
-  Rollouts TUI     kubectl argo rollouts dashboard
-  Hubble CLI       cilium hubble port-forward &  then: hubble observe
-  Cost CLI         kubectl cost namespace --opencost --show-all-resources
-  Compliance       kubectl get clustercompliancereports,vulnerabilityreports,sbomreports -A
-  SPIRE identities kubectl -n spire exec sts/spire-server -c spire-server -- \
-                     /opt/spire/bin/spire-server entry show
-  Golden path apps kubectl -n argocd get applicationset,applications
+```
+API audit log    docker exec -it cnpe-control-plane tail -f /var/log/kubernetes/audit.log | jq .
+Hubble CLI       cilium hubble port-forward &  then: hubble observe
+Cost CLI         kubectl cost namespace --opencost --show-all-resources
+Compliance       kubectl get clustercompliancereports,vulnerabilityreports,sbomreports -A
+SPIRE identities kubectl -n spire exec sts/spire-server -c spire-server -- \
+                   /opt/spire/bin/spire-server entry show
 ```
 
 Real LoadBalancer IPs need `cloud-provider-kind`, which wants root to bind ports 80 and 443. Skip it and use `make forward` instead if you would rather not run a root process.
@@ -290,9 +275,16 @@ Real LoadBalancer IPs need `cloud-provider-kind`, which wants root to bind ports
 
 Incident response is a third of the observability domain and the hardest thing to practise alone. `make break` injects one fault at random from a scenario library, prints the kind of ticket a platform team actually receives, and starts you on a clock. Target is 7 minutes for the workload group and 10 for the platform ones, which is roughly exam pace.
 
-The library spans the exam domains. The `workload` group is the classic broken-pod drill in `team-a`: image, probe, resources, rbac, quota, netpol and config. Each fails differently, and some are invisible in `kubectl get pods`. The rbac one only shows up under `kubectl auth can-i --as=...`, and the netpol one strips the DNS egress rule off the tenant policy, leaving a Running pod that cannot resolve anything. That last one is worth understanding: NetworkPolicies are additive allow-lists, so you cannot break DNS by *adding* a restrictive policy. You have to remove the rule that allowed it.
+The `workload` group is the classic broken-pod drill in `team-a`: image, probe, resources, rbac, quota, netpol and config. Each fails differently, and some are invisible in `kubectl get pods`. The rbac one only shows up under `kubectl auth can-i --as=...`, and the netpol one strips the DNS egress rule off the tenant policy, leaving a Running pod that cannot resolve anything. That last one is worth understanding: NetworkPolicies are additive allow-lists, so you cannot break DNS by *adding* a restrictive policy. You have to remove the rule that allowed it.
 
-The other four groups break the platform tooling itself, which is where the exam puts most of its weight. `gitops` points an Argo CD Application at a git ref that does not exist, suspends a Flux Kustomization and then deletes the workload it manages, or aims a Rollouts canary analysis at a Prometheus address that resolves to nothing. `cicd` removes the Task a Tekton Pipeline references, or revokes the RBAC that keeps an EventListener alive. `apis` revokes a Crossplane provider's ClusterRoleBinding under a fresh XR, or pauses an XR so spec changes stop propagating. `security` ships a Kyverno Deny policy nobody asked for, or flips the namespace to PSS `restricted` while stripping the pod's securityContext. Wherever a healthy starting state is what makes the symptom realistic, the scenario is built healthy first, then broken. The GitOps scenarios deploy into their own `drill-gitops` namespace so they never fight the ApplicationSet exercise over the same objects.
+The other four groups break the platform tooling itself, which is where the exam puts most of its weight:
+
+- `gitops` points an Argo CD Application at a git ref that does not exist, suspends a Flux Kustomization and then deletes the workload it manages, or aims a Rollouts canary analysis at a Prometheus address that resolves to nothing.
+- `cicd` removes the Task a Tekton Pipeline references, or revokes the RBAC that keeps an EventListener alive.
+- `apis` revokes a Crossplane provider's ClusterRoleBinding under a fresh XR, or pauses an XR so spec changes stop propagating.
+- `security` ships a Kyverno Deny policy nobody asked for, or flips the namespace to PSS `restricted` while stripping the pod's securityContext.
+
+Where a healthy starting state is what makes the symptom realistic, the scenario is built healthy first, then broken. The GitOps scenarios deploy into their own `drill-gitops` namespace so they never fight the ApplicationSet exercise over the same objects.
 
 ```bash
 make break                     # random fault from the whole library
@@ -341,11 +333,11 @@ These cost me real time, and none of them are obvious from the upstream docs.
 
 **Gateway API v1.5 and later blocks older CRDs.** It ships a ValidatingAdmissionPolicy that rejects any Gateway API CRD before v1.5.0. cloud-provider-kind embeds an older bundle and installs it at startup, so it gets denied and its service controller dies, and no LoadBalancer ever gets an IP. Start it with `--gateway-channel=disabled`.
 
-**Backstage wants an even LTS Node.** It supports 20, 22 and 24. Arch ships 26, and `create-app` fails on it. `mise.toml` pins 22 for this directory. `create-app` also has no `--name` flag and always prompts, so it hangs when scripted, and the `.yarnrc.yml` it generates sets `npmMinimalAgeGate: 3d` which can reject one of Backstage's own fresh dependencies.
+**Backstage wants an even LTS Node.** It supports 22 and 24. Arch ships 26, and `create-app` fails on it, so `mise.toml` pins 24 for this directory. `create-app` also has no `--name` flag and always prompts, so it hangs when scripted, and the `.yarnrc.yml` it generates sets `npmMinimalAgeGate: 3d`, which can reject one of Backstage's own fresh dependencies.
 
 **Trivy's node-collector needs a toleration.** It is pinned to each node by nodeSelector but does not tolerate the control-plane taint, so that node silently produces no compliance report. `nodeCollector.tolerations` and `trivyOperator.scanJobTolerations` are separate chart keys and you need both.
 
-**The local registry needs two names and a CoreDNS entry.** Pods pull `localhost:5001/...` through a containerd mirror, but anything that runs *inside* a pod and talks to the registry itself (kaniko pushing, Kyverno fetching signatures) needs `kind-registry:5000`, and pods cannot resolve that name until CoreDNS is taught it. The cluster script now wires both names into containerd and the registry IP into CoreDNS. Kyverno additionally needs `features.registryClient.allowInsecure=true` or every image verification dies on `server gave HTTP response to HTTPS client`.
+**The local registry needs two names and a CoreDNS entry.** Pods pull `localhost:5001/...` through a containerd mirror, but anything that runs *inside* a pod and talks to the registry itself (kaniko pushing, Kyverno fetching signatures) needs `kind-registry:5000`, and pods cannot resolve that name until CoreDNS is taught it. The cluster script wires both names into containerd and the registry IP into CoreDNS. Kyverno also needs `features.registryClient.allowInsecure=true`, or every image verification dies on `server gave HTTP response to HTTPS client`.
 
 **cosign v3 signs in a format Kyverno does not read yet.** Its default is the new bundle format (a `sha256-<digest>` tag); Kyverno's ImageValidatingPolicy looks for the legacy `sha256-<digest>.sig`. Sign with `--use-signing-config=false --new-bundle-format=false --tlog-upload=false` and verification works. "no signatures found" on an image you definitely signed is a format-skew symptom, not a key problem.
 
