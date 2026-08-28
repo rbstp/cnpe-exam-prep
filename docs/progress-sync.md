@@ -118,19 +118,11 @@ npx wrangler d1 execute cnpe-progress --remote --file=schema.sql
 `--remote` matters: without it you write to a local emulator and the deployed
 Worker sees an empty database.
 
-## 3. The two secrets
+## 3. Deploy
 
-```bash
-npx wrangler secret put GITHUB_CLIENT_SECRET          # paste from step 1
-npx wrangler secret put SESSION_SECRET                # openssl rand -base64 32
-```
-
-`SESSION_SECRET` signs the session cookie and the OAuth state. Rotating it signs
-everyone out; it does not touch stored progress. It must be at least 16 characters:
-the Worker refuses every route with a 500 naming the missing value rather than
-signing cookies with a guessable key, so a half-configured deploy fails loudly.
-
-## 4. Deploy
+The deploy comes before the secrets: `wrangler secret put` needs the Worker to
+exist, and offers to create an empty one if it does not. Let the real deploy
+create it instead.
 
 ```bash
 npx wrangler deploy
@@ -140,6 +132,26 @@ curl https://sync.rbstp.dev/healthz                   # → ok
 `wrangler.toml` declares `sync.rbstp.dev` as a **Custom Domain**, so the deploy
 creates the proxied DNS record and its certificate for you. You do not add a
 record by hand.
+
+## 4. The two secrets
+
+```bash
+npx wrangler secret put GITHUB_CLIENT_SECRET          # paste from step 1
+npx wrangler secret put SESSION_SECRET                # openssl rand -base64 32
+```
+
+They take effect immediately; there is no second deploy. Between step 3 and here
+the Worker is live but unconfigured, which is the guard doing its job:
+
+```bash
+curl https://sync.rbstp.dev/v1/progress
+# {"error":"sync is not configured: SESSION_SECRET"}
+```
+
+`SESSION_SECRET` signs the session cookie and the OAuth state. Rotating it signs
+everyone out; it does not touch stored progress. It must be at least 16 characters:
+the Worker refuses every route with a 500 naming the missing value rather than
+signing cookies with a guessable key, so a half-configured deploy fails loudly.
 
 ### This does not touch the Pages hostname
 
@@ -161,6 +173,14 @@ This is a hard constraint, not a preference: **the Worker must answer on the sam
 registrable domain as the console.**
 
 ## 5. Verify
+
+The same call that named the missing secret should now say you are merely signed
+out, which means everything is configured:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://sync.rbstp.dev/v1/progress
+# 401   configured. A 500 still names whatever is missing.
+```
 
 Open <https://cnpe.rbstp.dev>, press **Sign in to sync**, approve, and the button
 should come back reading `Sign out (@you)` with a `Synced HH:MM` line under it.
