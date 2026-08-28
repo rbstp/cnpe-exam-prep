@@ -1,6 +1,4 @@
-/* The mock exam's 120-minute clock, driven on Playwright's fake clock so two
-   hours pass in milliseconds: start/pause/resume arithmetic, the low and out
-   states, reset, and the two papers keeping separate scores and clocks. */
+/* The mock exam's 120-minute clock, driven on Playwright's fake clock. */
 'use strict';
 
 /** @param {import('./lib').Harness} h */
@@ -27,12 +25,12 @@ module.exports = async function (h) {
     await page.clock.fastForward(5 * 60000);
     assert((await clockText(page)) === '115:00', '5 minutes in, 115:00 remain');
 
-    await page.click('#t-start');   // pause
+    await page.click('#t-start');
     assert(/Resume/.test(await startLabel(page)), 'pausing offers a resume');
     await page.clock.fastForward(10 * 60000);
     assert((await clockText(page)) === '115:00', 'paused time does not count');
 
-    await page.click('#t-start');   // resume
+    await page.click('#t-start');
     await page.clock.fastForward(101 * 60000);
     assert((await clockText(page)) === '14:00', 'resumed, 14:00 remain after 101 more minutes');
     assert(/\blow\b/.test(await clockClass(page)), 'under 15 minutes the clock turns low');

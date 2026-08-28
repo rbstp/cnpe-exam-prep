@@ -14,9 +14,7 @@ nodes:
     kubeadmConfigPatches:
       - |
         kind: ClusterConfiguration
-        # Bind control-plane component metrics to 0.0.0.0. kubeadm defaults them to
-        # 127.0.0.1, so Prometheus cannot scrape kube-controller-manager, kube-scheduler
-        # or etcd and Grafana's control-plane dashboards stay empty. 6 targets DOWN.
+        # kubeadm binds these metrics to 127.0.0.1, where Prometheus cannot scrape them.
         controllerManager:
           extraArgs:
             bind-address: 0.0.0.0

@@ -92,9 +92,7 @@ spec:
         metrics: { receivers: [otlp], processors: [batch], exporters: [otlphttp/prom] }
         logs:    { receivers: [otlp], processors: [batch], exporters: [debug] }
 YAML
-# helmi's --wait above covers the operator Deployment, not its webhook: the
-# serving cert and endpoint lag pod-Ready by a few seconds, and the first CR
-# apply can land in that gap ("connection refused" from the mutating webhook).
+# The operator's admission webhook lags pod readiness by a few seconds.
 applied=no err=
 for _ in $(seq 1 24); do
   err=$(kubectl -n tracing apply -f /tmp/cnpe-lab/otel-collector.yaml 2>&1) && { applied=yes; break; }
@@ -132,8 +130,6 @@ helmi loki grafana/loki monitoring \
   --set lokiCanary.enabled=false --set test.enabled=false \
   || warn "Loki install failed; optional, skip it if tight on CPU"
 
-# Loki without a shipper is a database with no writers. Alloy tails every pod
-# through the kubelet API (one replica is enough for a lab) and pushes to Loki.
 log "Alloy (ships pod logs into Loki)"
 cat > /tmp/cnpe-lab/alloy-values.yaml <<'VALUES'
 controller:

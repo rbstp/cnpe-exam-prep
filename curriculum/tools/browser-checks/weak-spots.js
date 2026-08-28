@@ -1,5 +1,4 @@
-/* The dashboard's weak-spots panel: no history, too little history, and a
-   called weak spot whose link hands the domain over to the drill. */
+/* The dashboard's weak-spots panel. */
 'use strict';
 
 /** @param {import('./lib').Harness} h */

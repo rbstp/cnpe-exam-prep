@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# SPIFFE/SPIRE: workload identity. On the official CNPE tool list under
-# "Identity and secret services", and the foundation under "Configuring Secure
-# Service-to-Service Communication": every workload gets a cryptographic
-# identity (an SVID) derived from its k8s attributes, with no shared secret.
+# SPIFFE/SPIRE: workload identity, every workload gets its own SVID.
 source "$(dirname "$0")/lib.sh"
 need helm; need kubectl
 
@@ -11,8 +8,6 @@ TRUST_DOMAIN="${TRUST_DOMAIN:-lab.local}"
 
 log "Namespace $NS (privileged PSS: the agent needs hostPath + hostPID)"
 kubectl create ns "$NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-# The SPIRE agent mounts the kubelet socket and shares the host PID namespace to
-# attest workloads. Under a 'restricted' PSS label it cannot start at all.
 kubectl label ns "$NS" \
   pod-security.kubernetes.io/enforce=privileged \
   pod-security.kubernetes.io/audit=privileged \
@@ -23,8 +18,6 @@ repo_add spiffe https://spiffe.github.io/helm-charts-hardened
 helmi spire-crds spiffe/spire-crds "$NS"
 
 log "SPIRE server + agent + workload API CSI driver (trust domain: $TRUST_DOMAIN)"
-# oidc-discovery-provider is left off: it only matters for federating JWT-SVIDs to
-# an external OIDC consumer, and it is one more pod to babysit on a laptop.
 helmi spire spiffe/spire "$NS" \
   --set global.spire.clusterName="$CLUSTER" \
   --set global.spire.trustDomain="$TRUST_DOMAIN" \

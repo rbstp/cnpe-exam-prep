@@ -1,16 +1,10 @@
 #!/usr/bin/env bash
-# Grade a mock exam against the live cluster by running the grading block
-# straight from the exam page. The page is the single source of truth: this
-# extracts the <code> block from its Grading section and executes it with
-# 'bash -v', so each command (and its expected-value comment) prints right
-# before its output, exactly as if you had pasted the block yourself.
+# Grade a mock exam by running the grading block straight from the exam page.
 #
 #     tools/grade.sh [1|2]        # default 1;  or: make grade EXAM=2
 #
-# Grading is meant to run ONCE against finished work: a few lines are not
-# idempotent (task namespaces get created), and the two observability checks
-# start port-forwards, which this wrapper reaps on the way out.
-set -uo pipefail   # no -e: a failing grading line is a lost point, not a crash
+# Run this once, against finished work: a few grading lines are not idempotent.
+set -uo pipefail   # no -e: a failing grading line is a lost point, not a crash.
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$(dirname "$HERE")"
@@ -30,8 +24,7 @@ print(html.unescape(m.group(1)))
 PY
 )" || exit 1
 
-# A real file, not a here-string: a grading line reading stdin (kubectl apply
-# -f -) must not be able to swallow the rest of the block.
+# A real file, not a here-string: a line reading stdin must not swallow the rest.
 TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
 printf '%s\n' "$BLOCK" > "$TMP"

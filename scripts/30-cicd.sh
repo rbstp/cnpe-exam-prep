@@ -25,10 +25,6 @@ kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/ka
 
 log "Trivy Operator (continuous image + config + RBAC scanning, SBOMs)"
 repo_add aqua https://aquasecurity.github.io/helm-charts/
-# scanJobTolerations: without this the node-collector pod (which gathers node
-# config for CIS/compliance reports) is scheduled onto the control-plane node by
-# affinity but cannot tolerate its NoSchedule taint, so it sits Pending forever.
-# 'operator: Exists' tolerates every taint, which is what you want in a lab.
 helmi trivy-operator aqua/trivy-operator trivy-system \
   --set="trivy.ignoreUnfixed=true" \
   --set="operator.scannerReportTTL=24h" \

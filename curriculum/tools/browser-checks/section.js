@@ -1,7 +1,4 @@
-/* A section page's working parts: the code-block copy button, the one-click
-   "needs" chip, and the exercises tile keeping itself and the toc counter in
-   step with every tick. The clipboard is stubbed, so what was copied is
-   asserted byte for byte. */
+/* A section page's working parts: the copy button, the needs chip, the exercises tile. */
 'use strict';
 
 /** @param {import('./lib').Harness} h */
@@ -25,8 +22,7 @@ module.exports = async function (h) {
     group('the code-block copy button copies the block');
     const { ctx, page } = await freshWithClipboard();
     await page.goto(url('01-architecture/01-networking.html'));
-    // the first block sits inside an exercise: the panel is rebuilt via
-    // innerHTML at boot, which once silently disarmed these very buttons
+    // the first block sits inside an exercise, whose panel is rebuilt via innerHTML at boot
     assert(await page.evaluate(() => !!document.querySelector('.cb').closest('.exercise')),
       'the block under test lives inside an exercise panel');
     const expected = await page.evaluate(() => document.querySelector('.cb code').textContent);

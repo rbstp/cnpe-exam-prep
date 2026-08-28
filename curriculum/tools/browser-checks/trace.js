@@ -1,9 +1,4 @@
-/* The reconcile trace and the sync readout: the masthead draws course progress
-   as a square wave (high where a section is done), overlays the section being
-   read, follows the mark-complete button live, and the readout chip's LED
-   turns green only when all 29 sections report done. Also pins the browser
-   chrome: the theme-color metas must carry the same ground the stylesheet
-   paints, or a palette change has silently missed theme.js. */
+/* The masthead's reconcile trace, the sync readout chip, and the theme-color metas. */
 'use strict';
 
 /** @param {import('./lib').Harness} h */

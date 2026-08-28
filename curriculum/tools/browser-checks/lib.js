@@ -1,8 +1,4 @@
-/* Shared harness for the browser checks: one Chromium, fresh contexts with an
-   optional seeded store, and the assert counter every area module reports
-   through. Needs the playwright package resolvable from here (CI installs it
-   with --no-save; the console itself stays dependency-free). CHROMIUM_BIN
-   overrides the browser binary; otherwise Playwright's own Chromium is used. */
+/* Shared harness for the browser checks: fresh contexts, seeded stores, assert counting. */
 'use strict';
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -35,10 +31,7 @@ function makeHarness(browser, siteDir) {
   /** @param {string} p */
   const url = p => pathToFileURL(path.join(siteDir, p)).href;
 
-  /* A fresh context and page. seedStore becomes the cnpe:v2 store before the
-     page under test loads; opts.theme seeds cnpe:theme, opts.clockAt installs
-     Playwright's fake clock (Date.now + timers) at that epoch before any
-     script runs. Every page collects console/page errors on page.errors. */
+  /* seedStore lands in cnpe:v2 before the page under test loads. */
   /**
    * @param {*} [seedStore] anything goes: the junk-tolerance checks seed garbage on purpose
    * @param {{ theme?: string, clockAt?: Date }} [opts]
@@ -51,9 +44,7 @@ function makeHarness(browser, siteDir) {
     page.on('pageerror', e => page.errors.push('pageerror: ' + e.message));
     page.on('console', m => { if (m.type() === 'error') page.errors.push('console: ' + m.text()); });
     if (opts.clockAt) {
-      // install starts a ticking fake clock; pausing it a minute later makes
-      // every remaining-time computation exact, immune to wall-clock drift
-      // between the checks' own steps (fastForward still advances it)
+      // pausing the fake clock keeps every remaining-time computation exact
       await page.clock.install({ time: opts.clockAt });
       await page.clock.pauseAt(new Date(opts.clockAt.getTime() + 60000));
     }
@@ -71,9 +62,7 @@ function makeHarness(browser, siteDir) {
   /** @param {Page} page */
   const store = page => page.evaluate(() => window.CNPE_PROGRESS.get());
 
-  // the dashboard uptime tile, shared between the streak and progress-io checks:
-  // the day count lives in .val, the record streak in the label, the 30-day
-  // heartbeat strip beside the count
+  // the dashboard uptime tile: day count in .val, record streak in the label
   /** @param {Page} page */
   const streakVal = page => page.evaluate(() => document.querySelector('#stat-streak .val').textContent.replace(/\s+/g, ''));
   /** @param {Page} page */

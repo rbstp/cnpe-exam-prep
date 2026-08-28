@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Functional validation of the whole lab: does each piece actually WORK, not just
-# "is a pod Running". Exits non-zero if anything essential is broken.
-# Usage: make validate            (add FAST=1 to skip the in-cluster probe pods)
+# Functional validation of the whole lab. Exits non-zero if anything essential is broken.
+# Usage: make validate   (add FAST=1 to skip the in-cluster probe pods)
 source "$(dirname "$0")/lib.sh"
-set +e   # we report failures, we do not abort on them
+set +e   # a failed check is reported, not fatal: we want the whole picture.
 
 PASS=0; FAIL=0; SKIP=0
 K="kubectl --context kind-$CLUSTER"
@@ -13,7 +12,7 @@ bad_()  { printf '  \033[31m✗\033[0m %-46s %s\n' "$1" "${2:-}"; FAIL=$((FAIL+1
 skip_() { printf '  \033[33m-\033[0m %-46s %s\n' "$1" "${2:-}"; SKIP=$((SKIP+1)); }
 head_() { printf '\n\033[36m── %s\033[0m\n' "$1"; }
 
-# check <label> <expected> <actual>
+# eq <label> <expected> <actual>
 eq() { [ "$3" = "$2" ] && ok_ "$1" "$3" || bad_ "$1" "got '$3', want '$2'"; }
 # ge <label> <min> <actual>
 ge() { [ "${3:-0}" -ge "$2" ] 2>/dev/null && ok_ "$1" "$3" || bad_ "$1" "got '${3:-0}', want >= $2"; }
@@ -21,16 +20,11 @@ ge() { [ "${3:-0}" -ge "$2" ] 2>/dev/null && ok_ "$1" "$3" || bad_ "$1" "got '${
 head_ "Domain 1: Platform architecture & infrastructure"
 NODES_READY=$($K get nodes -o json 2>/dev/null | jq '[.items[]|select(.status.conditions[]|select(.type=="Ready" and .status=="True"))]|length')
 eq "nodes Ready" 3 "$NODES_READY"
-# Derive the expected version from K8S_IMAGE so overriding it does not produce a
-# false FAIL. Strip the @sha256 digest FIRST, then take the tag: a greedy '.*:'
-# on the whole string returns the digest, not the version.
+# Strip the @sha256 digest first, otherwise the tag match picks up the digest.
 EXPECT_K8S=$(printf '%s' "$K8S_IMAGE" | sed -e 's|@.*||' -e 's|.*:||')
 eq "kubelet version" "$EXPECT_K8S" "$($K get nodes -o jsonpath='{.items[0].status.nodeInfo.kubeletVersion}' 2>/dev/null)"
 ZONES=$($K get nodes -o jsonpath='{range .items[*]}{.metadata.labels.topology\.kubernetes\.io/zone}{"\n"}{end}' 2>/dev/null | sort -u | grep -c .)
 ge "topology zones labelled" 2 "$ZONES"
-# Trivy scan jobs and probe pods churn constantly; a pod caught Pending
-# mid-schedule is not a broken lab. Give transients up to 60s to clear
-# before calling the failure real.
 BAD_PODS=$($K get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded --no-headers 2>/dev/null | wc -l)
 for _ in $(seq 1 6); do
   [ "$BAD_PODS" -eq 0 ] && break
@@ -113,7 +107,6 @@ HINT
 else
   skip_ "prometheus target health" "FAST=1"
 fi
-# Loki actually HOLDS streams; a running Loki with no shipper stays empty
 if [ "${FAST:-0}" != "1" ]; then
   $K -n monitoring port-forward svc/loki 13100:3100 >/dev/null 2>&1 &
   LPID=$!; sleep 4
@@ -147,11 +140,10 @@ ge "per-node infra reports (all 3 nodes)" 3 "$NODE_REPORTS"
 ge "tenant namespaces w/ quota" 2 "$($K get resourcequota -A --no-headers 2>/dev/null | grep -c 'team-')"
 ge "tenant NetworkPolicies" 2 "$($K get networkpolicy -A --no-headers 2>/dev/null | grep -c 'team-')"
 
-# Does NetworkPolicy actually ENFORCE? kindnet silently does not; cilium does.
 if [ "${FAST:-0}" != "1" ]; then
   head_ "NetworkPolicy enforcement (the thing kindnet fakes)"
   $K -n team-a delete pod np-probe --ignore-not-found >/dev/null 2>&1
-  # team-a has a default-deny egress+ingress policy; egress to the internet must FAIL
+  # team-a has default-deny ingress and egress, so this curl is expected to fail.
   $K -n team-a run np-probe --image=curlimages/curl:8.11.1 --restart=Never \
      --labels=app=np-probe --command -- curl -s -m 8 -o /dev/null -w '%{http_code}' http://example.com >/dev/null 2>&1
   $K -n team-a wait --for=jsonpath='{.status.phase}' pod/np-probe --timeout=90s >/dev/null 2>&1

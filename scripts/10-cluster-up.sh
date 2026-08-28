@@ -1,24 +1,14 @@
 #!/usr/bin/env bash
-# Creates the main practice cluster: kind + CNI + LoadBalancer + storage +
-# metrics + a local registry. Everything else layers on top of this.
+# Creates the main practice cluster: kind, CNI, LoadBalancer, storage, metrics, registry.
 source "$(dirname "$0")/lib.sh"
 need kind; need kubectl; need helm; need docker
 
-# Having the docker CLI is not the same as being able to use it: the socket is
-# root:docker, and a system update can recreate the 'docker' group empty, silently
-# kicking you out of it. Catch that here with instructions instead of a raw
-# "permission denied on /var/run/docker.sock" from whichever command hits it first.
 docker info >/dev/null 2>&1 || die "cannot talk to the docker daemon.
      If dockerd is running, you are probably not in the 'docker' group
      (check: id -nG | grep -w docker). Fix, then log out and back in:
        sudo usermod -aG docker \$USER      # or re-run: make host"
 
-# The apiserver is started with --audit-policy-file=/etc/kubernetes/audit/policy.yaml,
-# so the mounted directory must contain a file called exactly policy.yaml. Stage it
-# here rather than mounting the whole kind/ dir (whose file is named
-# audit-policy.yaml -- that mismatch stops kube-apiserver from starting at all).
-# Persistent path on purpose: /tmp is wiped on reboot and the apiserver would then
-# fail to come back up.
+# The apiserver needs this directory to hold a file named exactly policy.yaml.
 AUDIT_DIR="$REPO_ROOT/.audit"
 mkdir -p "$AUDIT_DIR" /tmp/cnpe-lab
 install -m644 "$REPO_ROOT/kind/audit-policy.yaml" "$AUDIT_DIR/policy.yaml"
@@ -46,8 +36,7 @@ if cluster_exists "$CLUSTER"; then
 else
   log "Creating kind cluster '$CLUSTER' (3 nodes)"
   if [ "$CNI" = "cilium" ]; then
-    # No --wait: without a CNI the nodes stay NotReady by design, so waiting for
-    # the Ready condition here would always fail. We wait after Cilium instead.
+    # No --wait: the nodes stay NotReady until Cilium is installed further down.
     kind create cluster --config /tmp/cnpe-lab/kind-$CLUSTER.yaml
   else
     kind create cluster --config /tmp/cnpe-lab/kind-$CLUSTER.yaml --wait 180s
@@ -58,9 +47,7 @@ kubectl config use-context "kind-$CLUSTER" >/dev/null
 # ── tell every node where the local registry lives ───────────────────────
 log "Wiring nodes to the local registry"
 for node in $(kind get nodes --name "$CLUSTER"); do
-  # Two names for one registry: localhost:$REGISTRY_PORT for host-side muscle
-  # memory, $REGISTRY_NAME:5000 so in-cluster pushers (kaniko) and verifiers
-  # (Kyverno) can reach the same store. Both map to plain http.
+  # Two names for one registry: one for host commands, one for in-cluster clients.
   for reg in "localhost:$REGISTRY_PORT" "$REGISTRY_NAME:5000"; do
     docker exec "$node" mkdir -p "/etc/containerd/certs.d/$reg"
     docker exec -i "$node" sh -c "cat > '/etc/containerd/certs.d/$reg/hosts.toml'" <<TOML
@@ -96,10 +83,7 @@ if [ "$CNI" = "cilium" ]; then
   kubectl wait --for=condition=Ready nodes --all --timeout=5m || warn "some nodes still NotReady"
 fi
 
-# ── make the registry resolvable from PODS, not just from containerd ─────
-# containerd resolves $REGISTRY_NAME through docker's DNS, but pods ask
-# CoreDNS, which has never heard of it. Without this entry, kaniko cannot
-# push and Kyverno cannot verify signatures against the local registry.
+# ── make the registry resolvable from pods, not just from containerd ─────
 REGISTRY_IP=$(docker inspect -f '{{(index .NetworkSettings.Networks "kind").IPAddress}}' "$REGISTRY_NAME" 2>/dev/null || true)
 if [ -n "$REGISTRY_IP" ]; then
   log "Teaching CoreDNS about $REGISTRY_NAME ($REGISTRY_IP)"
@@ -129,24 +113,12 @@ fi
 if ! pgrep -f cloud-provider-kind >/dev/null 2>&1; then
   if command -v cloud-provider-kind >/dev/null; then
     log "Starting cloud-provider-kind (gives Services type=LoadBalancer real IPs)"
-    # Needs root to bind :80/:443 for LoadBalancer Services. If sudo wants a
-    # password and none is cached, do NOT abort the whole cluster build over an
-    # optional component; everything else here works without it.
-    # MUST be an absolute path: sudo replaces PATH with secure_path, which does
-    # not include ~/.local/bin, so a bare name fails with "No such file".
-    # --gateway-channel=disabled is REQUIRED: cloud-provider-kind embeds an older
-    # Gateway API bundle and installs it at startup, but Gateway API v1.5+ ships a
-    # ValidatingAdmissionPolicy (safe-upgrades.gateway.networking.k8s.io) that
-    # rejects CRDs older than v1.5.0. The denial kills its service controller, so
-    # no LoadBalancer ever gets an IP. We install Gateway API ourselves anyway.
+    # sudo resets PATH, so cloud-provider-kind has to be called by absolute path.
     CPK="$(command -v cloud-provider-kind)"
     if sudo -n true 2>/dev/null; then
-      # shellcheck disable=SC2024  # the log belongs to the user, not root: the
-      # redirect running unprivileged is the point, /tmp/cnpe-lab is user-owned
+      # shellcheck disable=SC2024
       sudo -b nohup "$CPK" --gateway-channel=disabled > /tmp/cnpe-lab/cpk.log 2>&1
       sleep 2
-      # Record the PID so 'make down' can stop exactly this process instead of
-      # pkill-ing every process whose argv happens to contain the name.
       pgrep -f "$CPK --gateway-channel=disabled" | head -1 > /tmp/cnpe-lab/cpk.pid 2>/dev/null || true
       sleep 5
       if pgrep -f "$CPK" >/dev/null; then ok "cloud-provider-kind running"

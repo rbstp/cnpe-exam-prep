@@ -6,9 +6,6 @@ case "$MODE" in
     log "Deleting kind clusters"
     kind delete cluster --name "$CLUSTER" 2>/dev/null || true
     kind delete cluster --name "$MESH_CLUSTER" 2>/dev/null || true
-    # Kill by recorded PID. 'sudo pkill -f cloud-provider-kind' would kill ANY
-    # process whose command line merely contains that string (an editor with a
-    # file of that name open, for instance) and it runs as root.
     if [ -f /tmp/cnpe-lab/cpk.pid ]; then
       CPK_PID=$(cat /tmp/cnpe-lab/cpk.pid 2>/dev/null || true)
       if [ -n "${CPK_PID:-}" ] && kill -0 "$CPK_PID" 2>/dev/null; then

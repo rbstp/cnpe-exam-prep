@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 # Assert a staged copy of the study console is complete and self-contained.
-# Shared by CI (pull requests) and the Pages deploy so the two cannot drift:
-# whatever gate protects master is the same gate that protects the deploy.
 #
 #     tools/check-site.sh <site-dir>
 #
@@ -30,9 +28,6 @@ fi
 grep -q "$SITE_DOMAIN" "$SITE/CNAME" || { echo "CNAME does not carry $SITE_DOMAIN"; exit 1; }
 
 # Every page's theme-color pair must carry the grounds the stylesheet paints.
-# theme.js rewrites these metas at runtime, so the browser gate can never see
-# a stale hex; this static check is what keeps the page heads, bundle.py's
-# template and the 404 heredoc moving together with --dk-ink / --lt-ink.
 dk=$(grep -o -- '--dk-ink: *#[0-9A-Fa-f]*' "$SITE/assets/style.css" | grep -o '#[0-9A-Fa-f]*')
 lt=$(grep -o -- '--lt-ink: *#[0-9A-Fa-f]*' "$SITE/assets/style.css" | grep -o '#[0-9A-Fa-f]*')
 { test -n "$dk" && test -n "$lt"; } || { echo "could not read --dk-ink/--lt-ink from style.css"; exit 1; }
@@ -41,7 +36,7 @@ while IFS= read -r f; do
     grep -q "name=\"theme-color\" content=\"$lt\" media=\"(prefers-color-scheme: light)\"" "$f"; } ||
     { echo "theme-color metas out of sync with style.css grounds: ${f#"$SITE"/}"; exit 1; }
 done < <(find "$SITE" -name '*.html')
-# theme.js repaints the metas for a pinned theme from its own pair; it must match too
+# theme.js keeps its own copy of the pair, which must match too
 grep -q "dark: \"$dk\", light: \"$lt\"" "$SITE/assets/theme.js" ||
   { echo "theme.js CHROME pair out of sync with style.css grounds"; exit 1; }
 

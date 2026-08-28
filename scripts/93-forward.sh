@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 # Start (or stop) a port-forward for every UI in the lab, in the background.
-# Useful when cloud-provider-kind is not running, or when you just want stable
-# localhost ports that do not change.
 #   make forward        start them all
 #   make forward-stop   kill them all
 source "$(dirname "$0")/lib.sh"
@@ -32,7 +30,6 @@ stop() {
     done < "$PIDFILE"
     rm -f "$PIDFILE"
   fi
-  # Belt and braces: anything left over from a previous shell.
   pkill -f "kubectl --context kind-$CLUSTER -n .* port-forward" 2>/dev/null || true
   ok "stopped $n port-forward(s)"
 }
@@ -43,7 +40,6 @@ case "${1:-start}" in
   *) die "usage: 93-forward.sh [start|stop]" ;;
 esac
 
-# Never stack duplicates on the same ports.
 [ -f "$PIDFILE" ] && { warn "forwards already running; restarting them"; stop; }
 
 log "Starting port-forwards (logs in /tmp/cnpe-lab/pf-<name>.log)"

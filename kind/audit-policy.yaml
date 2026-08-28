@@ -1,16 +1,11 @@
-# Mounted into the control-plane node. "Generating Audit Trails" is an explicit
-# CNPE competency: practise reading real audit events, not slides about them.
+# Audit policy mounted into the control-plane node.
 apiVersion: audit.k8s.io/v1
 kind: Policy
 omitStages: ["RequestReceived"]
 rules:
-  # Noise: don't log read-only traffic from the system itself.
   - level: None
     users: ["system:kube-proxy", "system:apiserver"]
     verbs: ["watch", "list", "get"]
-  # Leases live in coordination.k8s.io and Events exist in BOTH core v1 and
-  # events.k8s.io. Listing them only under group "" means the rule never matches
-  # kubelet/controller lease renewals, and they flood through at level: Request.
   - level: None
     resources:
       - group: ""
@@ -19,17 +14,14 @@ rules:
         resources: ["events"]
       - group: "coordination.k8s.io"
         resources: ["leases"]
-  # Secrets/configmaps: metadata only, never bodies.
   - level: Metadata
     resources:
       - group: ""
         resources: ["secrets", "configmaps"]
       - group: "authentication.k8s.io"
-  # RBAC changes: full request+response. This is what an auditor asks for.
   - level: RequestResponse
     resources:
       - group: "rbac.authorization.k8s.io"
-  # Everything else that mutates: full request body.
   - level: Request
     verbs: ["create", "update", "patch", "delete", "deletecollection"]
   - level: Metadata

@@ -1,15 +1,11 @@
-/* The drill's deck building and scoring: the domain chips filter the pool, the
-   size chips set the deck, the weighting leans toward missed questions, the
-   dashboard hand-off pre-selects a domain, and a session's misses feed the
-   records, the summary and the redrill. */
+/* The drill's deck building and scoring. */
 'use strict';
 
 /** @param {import('./lib').Harness} h */
 module.exports = async function (h) {
   const { url, fresh, store, assert, group } = h;
 
-  // answer through n cards with the drill's own keys (space reveals, then
-  // 1 missed / 2 got it), collecting each card's section and question text
+  // answer through n cards with the drill's own keys: space reveals, 1 missed, 2 got it
   /**
    * @param {import('playwright').Page} page
    * @param {number} n
@@ -71,8 +67,7 @@ module.exports = async function (h) {
       Math.random = function () { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
     });
     await page.goto(url('drill.html'));
-    // every question answered correctly just now (rested, weight 0.25) except
-    // five repeat offenders (missed more than got, weight 5): a 20x ratio
+    // all the questions were answered right just now; five repeat offenders weigh 20x more
     const missedQs = await page.evaluate(() => {
       const st = window.CNPE_PROGRESS.get(), bank = window.CNPE_DRILL, now = Date.now();
       st.drill = {};
@@ -91,8 +86,6 @@ module.exports = async function (h) {
     await page.click('button.drill-start');
     const { qs } = await walk(page, 40);
     const hit = missedQs.filter(q => qs.indexOf(q) >= 0).length;
-    // each offender carries ~8% of the initial pool weight, so 40 draws all
-    // but guarantee them; >= 2 keeps the check safe across bank regenerations
     assert(hit >= 2, hit + ' of the 5 missed questions made the 40-card deck');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();

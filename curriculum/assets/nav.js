@@ -1,5 +1,4 @@
-/* Section manifest. Every page loads this; the header, pager, palette and index
-   dashboard are all built from it, so adding a section means editing one array. */
+/* Section manifest: every page builds its header, pager and palette from this. */
 window.CNPE_DOMAINS = [
   { n: 1, key: "01-architecture",  name: "Platform architecture & infrastructure", weight: "15%", layers: "up" },
   { n: 2, key: "02-gitops",        name: "GitOps & continuous delivery",           weight: "25%", layers: "core cicd" },

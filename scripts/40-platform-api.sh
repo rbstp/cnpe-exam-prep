@@ -40,9 +40,7 @@ spec:
   package: xpkg.crossplane.io/crossplane-contrib/function-auto-ready:v0.7.0
 YAML
 
-# Fully-qualified resource names on purpose: Gatekeeper installs
-# providers.externaldata.gatekeeper.sh, which makes the short name "provider"
-# ambiguous and makes kubectl resolve it to the wrong API group.
+# Use fully-qualified names here: Gatekeeper also serves a "providers" resource.
 log "Waiting for providers and functions to become healthy (pulls packages, ~2-4 min)"
 kubectl wait --for=condition=Healthy providers.pkg.crossplane.io/provider-kubernetes --timeout=8m || warn "provider-kubernetes slow"
 kubectl wait --for=condition=Healthy providers.pkg.crossplane.io/provider-helm --timeout=8m || warn "provider-helm slow"
@@ -56,12 +54,7 @@ for sa in "$SA_K8S" "$SA_HELM"; do
     --clusterrole=cluster-admin --serviceaccount="crossplane-system:$sa" \
     --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 done
-# Crossplane v2 serves BOTH flavours of every managed resource:
-#   kubernetes.crossplane.io    -> cluster-scoped Object   (legacy)
-#   kubernetes.m.crossplane.io  -> NAMESPACED Object       (the '.m.' variant)
-# A namespaced XR (scope: Namespaced) may ONLY compose namespaced resources, and
-# namespaced MRs need a ClusterProviderConfig (or a per-namespace ProviderConfig).
-# Create all of them so either style of Composition works.
+# Both the cluster-scoped and the namespaced (.m.) API groups need their own config.
 kubectl apply -f - >/dev/null <<'YAML'
 apiVersion: kubernetes.crossplane.io/v1alpha1
 kind: ProviderConfig
@@ -97,16 +90,12 @@ helm --kube-context "kind-$CLUSTER" upgrade --install kro \
   oci://ghcr.io/kro-run/kro/kro --namespace kro --create-namespace --wait --timeout 8m \
   2>/dev/null || warn "kro install skipped (optional)"
 
-# Apply the seeded golden-path example so the self-service loop is demonstrable the
-# moment this layer finishes, instead of being an exercise the reader may skip.
-# 'make validate' checks these, so leaving them unapplied made validation fail on a
-# fresh build even though nothing was actually broken.
 log "Applying the seeded XRD / Composition / XR (self-service golden path)"
 kubectl apply -f "$REPO_ROOT/examples/crossplane/xrd.yaml" >/dev/null
 kubectl wait --for=condition=Established xrd/appenvironments.platform.lab.local --timeout=3m >/dev/null \
   || warn "XRD not established yet"
 kubectl apply -f "$REPO_ROOT/examples/crossplane/composition.yaml" >/dev/null
-# The XRD needs a moment to register its CRD before an XR of that kind will admit.
+# The XRD needs a moment to register its CRD before an XR of that kind is accepted.
 for _ in $(seq 1 30); do
   kubectl apply -f "$REPO_ROOT/examples/crossplane/xr.yaml" >/dev/null 2>&1 && break
   sleep 4
