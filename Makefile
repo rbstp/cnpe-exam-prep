@@ -63,6 +63,7 @@ browser: ## Browser-check the staged console like CI does (needs the playwright 
 typecheck: ## Type-check the console's JS via JSDoc (needs typescript, @types/node, playwright resolvable)
 	@npx tsc -p curriculum/jsconfig.json
 	@npx tsc -p curriculum/tools/browser-checks/tsconfig.json
+	@npx tsc -p sync/jsconfig.json
 	@echo "typecheck clean"
 urls:    ## Every UI, its URL/port-forward, and credentials
 	@$(S)/91-urls.sh

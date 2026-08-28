@@ -73,6 +73,8 @@ function makeHarness(browser, siteDir) {
   const heatAll = page => page.evaluate(() => document.querySelectorAll('#stat-streak .heat i').length);
 
   return {
+    // the sync checks serve the staged site over a real https origin of their own
+    browser, siteDir,
     url, fresh, store, assert, group,
     streakVal, streakLbl, heatOn, heatAll,
     dayKey, daysAgo,

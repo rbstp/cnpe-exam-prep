@@ -95,13 +95,35 @@ interface CnpeStore {
   last: string | null;
 }
 
-/** The seam between app.js and drill.js (CNPE_PROGRESS). */
+/** How much a merge added, per bucket. */
+interface CnpeMergeCounts {
+  done: number;
+  ex: number;
+  exam: number;
+  drill: number;
+  days: number;
+}
+
+/** The seam between app.js and drill.js / sync.js (CNPE_PROGRESS). */
 interface CnpeProgressApi {
   get(): CnpeStore;
   save(): void;
   /** count one action toward today's study heartbeat */
   bump(kind: "c" | "x" | "s" | "e"): void;
   streak(): { streak: number; best: number };
+  /** union in another store: ticks are OR-ed, counters take the max, nothing is lowered */
+  merge(src: unknown): CnpeMergeCounts;
+  /** called after every save, so the optional sync can mirror it */
+  onSave(fn: () => void): void;
+}
+
+/** Optional remote progress sync (CNPE_SYNC). Absent over file://. */
+interface CnpeSyncApi {
+  mount(): void;
+  signedIn(): boolean;
+  /** delete the copy held for this account; local progress is untouched */
+  forget(): Promise<void>;
+  state(): { on: boolean; login: string; rev: number; note: string };
 }
 
 /** theme.js's three-state switch (CNPE_THEME). */
@@ -119,6 +141,9 @@ interface Window {
   CNPE_DOMAINS?: CnpeDomain[];
   CNPE_DRILL?: CnpeDrillQuestion[];
   CNPE_PROGRESS?: CnpeProgressApi;
+  CNPE_SYNC?: CnpeSyncApi;
+  /** origin of the sync Worker; defaults to https://sync.rbstp.dev */
+  CNPE_SYNC_API?: string;
   CNPE_THEME?: CnpeThemeApi;
   CNPE_WIDGETS?: { mount(): void };
   CNPE_DRILL_UI?: { mount(): void };

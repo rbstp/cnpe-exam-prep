@@ -108,6 +108,9 @@ window.CNPE_EXAM_KEYS = %s;
 %s
 </script>
 <script>
+%s
+</script>
+<script>
 (function () {
   var view = document.getElementById("view");
   function keyFromHash() {
@@ -164,6 +167,7 @@ window.CNPE_EXAM_KEYS = %s;
     json.dumps(sorted(k for k, (_, ex) in seen.items() if ex)),
     read("assets/widgets.js") if os.path.exists(os.path.join(ROOT, "assets/widgets.js")) else "",
     read("assets/app.js"),
+    read("assets/sync.js"),
     read("assets/drill.js"),
 )
 

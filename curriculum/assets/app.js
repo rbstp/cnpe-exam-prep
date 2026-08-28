@@ -79,9 +79,18 @@
     if (!hadDays) seedDays(s);
     return s;
   })();
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} }
+  var savers = [];
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {}
+    // Optional sync listens here. A listener that throws must not cost a save.
+    for (var i = 0; i < savers.length; i++) { try { savers[i](); } catch (e) {} }
+  }
   // Reset progress swaps the store object, so hand out getters, not the object.
-  window.CNPE_PROGRESS = { get: function () { return store; }, save: save, bump: bumpDay, streak: studyStreak };
+  window.CNPE_PROGRESS = {
+    get: function () { return store; }, save: save, bump: bumpDay, streak: studyStreak,
+    merge: function (src) { return mergeProgress(src); },
+    onSave: function (fn) { if (typeof fn === "function") savers.push(fn); },
+  };
 
   /* ── progress transfer ─────────────────────────────────────── */
   function exportPayload() {
@@ -931,9 +940,18 @@
     }
     var reset = document.getElementById("reset-progress");
     if (reset) reset.addEventListener("click", function () {
-      if (confirm("Clear all section, exercise, exam, drill and streak progress stored in this browser?")) {
-        store = { ex: {}, done: {}, exam: {}, exam2: {}, drill: {}, drillmeta: {}, days: {}, last: null }; save(); location.reload();
+      // Signed in, clearing only the browser would be a lie: the next pull would
+      // merge it all straight back. Take the saved copy with it.
+      var synced = !!(window.CNPE_SYNC && window.CNPE_SYNC.signedIn());
+      var msg = synced
+        ? "Clear all section, exercise, exam, drill and streak progress in this browser AND delete the copy saved to your GitHub account?"
+        : "Clear all section, exercise, exam, drill and streak progress stored in this browser?";
+      if (!confirm(msg)) return;
+      function wipe() {
+        store = { ex: {}, done: {}, exam: {}, exam2: {}, drill: {}, drillmeta: {}, days: {}, last: null };
+        save(); location.reload();
       }
+      if (synced) window.CNPE_SYNC.forget().then(wipe, wipe); else wipe();
     });
 
     var note = document.getElementById("io-note");
@@ -1135,6 +1153,7 @@
     buildPalette();
     buildHelp();
     buildIndex();
+    if (window.CNPE_SYNC) window.CNPE_SYNC.mount();
     buildWeakSpots();
     buildExam();
     // Must run last: the builders above re-serialize their panels.
