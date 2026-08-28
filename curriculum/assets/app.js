@@ -322,6 +322,12 @@
     sb.addEventListener("click", openPalette);
     inner.appendChild(sb);
 
+    // Painted and wired by sync.js, which hides it where sync cannot work.
+    var syncb = el("button", "iconbtn syncbtn");
+    syncb.type = "button";
+    syncb.hidden = true;
+    inner.appendChild(syncb);
+
     inner.appendChild(themeButton());
 
     var hb = el("button", "iconbtn", "?");

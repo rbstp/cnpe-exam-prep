@@ -12,6 +12,15 @@
   var DEBOUNCE = 2500;
   var MAX_RETRY = 3;
 
+  var HEAD = '<svg class="acct" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" ' +
+    'fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">' +
+    '<circle cx="8" cy="5.6" r="2.5"/><path d="M3.3 13.4a4.7 4.7 0 0 1 9.4 0"/>';
+  var ICON = {
+    out: HEAD + "</svg>",
+    on: HEAD + '<circle cx="12.6" cy="12.4" r="2.9" fill="var(--surface)" stroke="var(--surface)" ' +
+        'stroke-width="1.6"/><circle cx="12.6" cy="12.4" r="1.9" fill="currentColor" stroke="none"/></svg>',
+  };
+
   var S = { on: false, login: "", rev: 0, note: "", busy: false, muted: false, sent: null };
   var timer = null, booted = false;
 
@@ -217,7 +226,22 @@
   }
 
   /* ── dashboard UI ────────────────────────────────────────── */
+  function paintTop() {
+    var b = /** @type {HTMLButtonElement} */ (document.querySelector(".syncbtn"));
+    if (!b) return;
+    if (!usable()) { b.hidden = true; return; }
+    b.hidden = false;
+    b.innerHTML = S.on ? ICON.on : ICON.out;
+    b.classList.toggle("on", S.on);
+    b.classList.toggle("warn", !S.on && /unreachable/.test(S.note));
+    var title = S.on
+      ? (S.note || "Syncing to your GitHub account.") + " Click to sign out."
+      : "Sign in with GitHub to keep your progress across browsers.";
+    b.title = title;
+    b.setAttribute("aria-label", title);
+  }
   function paint() {
+    paintTop();
     var btn = /** @type {HTMLButtonElement} */ (document.getElementById("sync-btn"));
     var del = /** @type {HTMLButtonElement} */ (document.getElementById("sync-forget"));
     var note = document.getElementById("sync-note");
@@ -231,14 +255,21 @@
     if (del) del.hidden = !S.on;
     if (note) { note.textContent = S.note; note.hidden = !S.note; }
   }
+  function toggle() { if (S.on) signOut(); else signIn(); }
   function mount() {
+    // buildTopbar replaces this element on every boot, so it is always fresh.
+    var top = document.querySelector(".syncbtn");
+    if (top && !top.getAttribute("data-wired")) {
+      top.setAttribute("data-wired", "1");
+      top.addEventListener("click", toggle);
+    }
     var btn = document.getElementById("sync-btn");
-    if (!btn) return;
+    if (!btn) { paint(); return; }
     // The bundle re-runs every builder per navigation; wire each button once.
     if (btn.getAttribute("data-wired")) { paint(); return; }
     btn.setAttribute("data-wired", "1");
     var del = document.getElementById("sync-forget");
-    btn.addEventListener("click", function () { if (S.on) signOut(); else signIn(); });
+    btn.addEventListener("click", toggle);
     if (del) del.addEventListener("click", function () {
       if (confirm("Delete the progress copy saved to your GitHub account? This browser keeps its own.")) forget();
     });

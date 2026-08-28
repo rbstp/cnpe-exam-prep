@@ -104,6 +104,13 @@ module.exports = async function (h) {
   }
   const gets = (/** @type {string[]} */ seen) => seen.filter(x => x === 'GET /v1/progress').length;
 
+  /** @param {import('playwright').Page} p */
+  const topOf = p => p.evaluate(() => {
+    const b = /** @type {HTMLButtonElement} */ (document.querySelector('.syncbtn'));
+    if (!b) return { hidden: null, title: '', on: false };
+    return { hidden: b.hidden, title: b.title, on: b.classList.contains('on') };
+  });
+
   const readStore = (/** @type {import('playwright').Page} */ p) =>
     p.evaluate(() => window.CNPE_PROGRESS.get());
   const noteOf = (/** @type {import('playwright').Page} */ p) =>
@@ -539,7 +546,68 @@ module.exports = async function (h) {
     await s.ctx.close();
   }
 
-  /* 15. a store the server already has costs no write */
+  /* 15. the masthead control is the one reachable from every page */
+  {
+    group('the masthead carries the sync control on every page');
+    const s = await site({ seed: { done: { '1.1': 1 } } });
+    await s.go();
+    let b = await topOf(s.page);
+    assert(b.hidden === false, 'the dashboard masthead shows it');
+    assert(/Sign in with GitHub/.test(b.title), 'signed out it offers sign-in: ' + JSON.stringify(b.title));
+    assert(!b.on, 'and is not in the signed-in state');
+
+    // a section page has no dashboard panel at all, so this is the only control there
+    await s.page.goto(SITE_ORIGIN + '/01-architecture/01-networking.html');
+    await s.page.waitForFunction(() => !!window.CNPE_SYNC);
+    b = await topOf(s.page);
+    assert(b.hidden === false, 'and so does a section page, which has no panel');
+    assert(await s.page.evaluate(() => !document.getElementById('sync-btn')),
+      'confirming the panel button is genuinely absent there');
+    assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
+    await s.ctx.close();
+  }
+
+  /* 15b. signed in it reports the account, and it is the same toggle */
+  {
+    group('the masthead control reports state and signs out');
+    const s = await site({
+      signedIn: true,
+      seed: { done: { '1.1': 1 } },
+      api: (route, url, method) => {
+        if (method === 'GET') return { status: 200, json: { user: { login: 'octocat', id: '1' }, rev: 1, progress: null, updated: null } };
+        if (method === 'PUT') return { status: 200, json: { rev: 2, updated: 'now' } };
+        if (method === 'POST') return { status: 204, json: {} };
+        return { status: 405, json: {} };
+      },
+    });
+    await s.go();
+    await s.page.waitForFunction(() => window.CNPE_SYNC && window.CNPE_SYNC.signedIn());
+    let b = await topOf(s.page);
+    assert(b.on, 'signed in it carries the .on state');
+    assert(/Synced .* to @octocat/.test(b.title), 'and names the account in its label: ' + JSON.stringify(b.title));
+    await s.page.click('.syncbtn');
+    await s.page.waitForFunction(() => !window.CNPE_SYNC.signedIn());
+    assert(s.seen.indexOf('POST /auth/signout') >= 0, 'clicking it signs out like the panel button does');
+    b = await topOf(s.page);
+    assert(!b.on && /Sign in with GitHub/.test(b.title), 'and it flips back to offering sign-in');
+    assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
+    await s.ctx.close();
+  }
+
+  /* 15c. over file:// it must not appear at all */
+  {
+    group('the masthead control stays away from file://');
+    const { ctx, page } = await h.fresh({ done: { '1.1': 1 } });
+    await page.goto(h.url('index.html'));
+    const b = await topOf(page);
+    assert(b.hidden === true, 'hidden on the dashboard');
+    await page.goto(h.url('01-architecture/01-networking.html'));
+    assert((await topOf(page)).hidden === true, 'and on a section page');
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  }
+
+  /* 16. a store the server already has costs no write */
   {
     group('reloading with nothing new does not write again');
     // The row the server holds is whatever a client last pushed, so let the
