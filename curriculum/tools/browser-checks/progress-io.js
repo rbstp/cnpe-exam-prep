@@ -4,24 +4,26 @@
 'use strict';
 const fs = require('fs');
 
+/** @param {import('./lib').Harness} h */
 module.exports = async function (h) {
   const { url, fresh, store, assert, group, streakVal, streakLbl, daysAgo, TODAY } = h;
 
   /* 1. export writes the wrapper with the whole store */
   {
     group('export writes the documented wrapper');
+    /** @type {Record<string, CnpeDayCounts>} */
     const days = {}; days[TODAY] = { c: 4, x: 1 }; days[daysAgo(1)] = { c: 10 };
     const seeded = { days, done: { '1.1': 1 }, ex: { '1.1#some-exercise': 1 } };
     const { ctx, page } = await fresh(seeded);
     await page.goto(url('index.html'));
     // some browsers refuse a scripted download from file://; the console then
     // falls back to a copyable textarea, and either path must carry the JSON
-    const dl = page.waitForEvent('download', { timeout: 5000 }).catch(() => null);
+    const dl = page.waitForEvent('download', { timeout: 5000 }).catch(() => /** @type {import('playwright').Download | null} */ (null));
     await page.click('#export-progress');
     const download = await dl;
     let text;
     if (download) text = fs.readFileSync(await download.path(), 'utf8');
-    else text = await page.evaluate(() => document.querySelector('#io-box textarea').value);
+    else text = await page.evaluate(() => /** @type {HTMLTextAreaElement} */ (document.querySelector('#io-box textarea')).value);
     assert(!!text, 'the export handed over JSON (' + (download ? 'download' : 'textarea fallback') + ')');
     const obj = JSON.parse(text);
     assert(obj.cnpe === 2, 'the wrapper declares cnpe: 2');
@@ -38,12 +40,14 @@ module.exports = async function (h) {
   /* 2. export → import into a fresh profile; merge never lowers a count */
   {
     group('export/import carries history, merge never lowers counts');
+    /** @type {Record<string, CnpeDayCounts>} */
     const days = {}; days[TODAY] = { c: 2, x: 3 }; days[daysAgo(1)] = { c: 3 };
     const payload = JSON.stringify({ cnpe: 2, exported: new Date().toISOString(), progress: { ex: {}, done: {}, exam: {}, drill: {}, drillmeta: {}, days, last: null } });
+    /** @type {{ days: Record<string, CnpeDayCounts> }} */
     const seeded = { days: {} }; seeded.days[TODAY] = { c: 9 };
     const { ctx, page } = await fresh(seeded);
     await page.goto(url('index.html'));
-    const onDialog = d => d.accept();
+    const onDialog = (/** @type {import('playwright').Dialog} */ d) => d.accept();
     page.on('dialog', onDialog);
     const chooser = page.waitForEvent('filechooser');
     // the import handler reloads the page, so arm the wait before feeding it
@@ -66,9 +70,11 @@ module.exports = async function (h) {
   /* 3. import rejects what it cannot read, without touching the store */
   {
     group('import rejects junk and empty files');
+    /** @type {Record<string, CnpeDayCounts>} */
     const days = {}; days[TODAY] = { c: 2 };
     const { ctx, page } = await fresh({ days });
     await page.goto(url('index.html'));
+    /** @param {string} name @param {string} body */
     async function feed(name, body) {
       await page.evaluate(() => { const n = document.getElementById('io-note'); n.hidden = true; n.textContent = ''; });
       const chooser = page.waitForEvent('filechooser');
@@ -90,6 +96,7 @@ module.exports = async function (h) {
   /* 4. reset clears everything, but only past its confirm */
   {
     group('reset clears the store behind its confirm');
+    /** @type {Record<string, CnpeDayCounts>} */
     const days = {}; days[TODAY] = { c: 5 }; days[daysAgo(1)] = { c: 5 };
     const { ctx, page } = await fresh({ days, done: { '1.1': 1, '2.1': 1 } });
     await page.goto(url('index.html'));

@@ -4,13 +4,16 @@
    that must never fire while the palette owns the keyboard. */
 'use strict';
 
+/** @param {import('./lib').Harness} h */
 module.exports = async function (h) {
   const { url, fresh, store, assert, group } = h;
 
+  /** @param {import('playwright').Page} page */
   const paletteOpen = page => page.evaluate(() => {
     const o = document.querySelector('.overlay.open .palette');
     return !!o;
   });
+  /** @param {import('playwright').Page} page */
   const selIndex = page => page.evaluate(() => {
     const lis = document.querySelectorAll('#palette-list li');
     for (let i = 0; i < lis.length; i++) if (lis[i].classList.contains('sel')) return i;
@@ -65,11 +68,11 @@ module.exports = async function (h) {
     assert(!(await paletteOpen(page)), 'Escape closes the palette');
     await page.keyboard.press('Control+k');
     assert(await paletteOpen(page), 'ctrl-K reopens it, empty again');
-    assert(await page.evaluate(() => document.querySelector('.palette input').value) === '', 'reopen clears the query');
+    assert(await page.evaluate(() => /** @type {HTMLInputElement} */ (document.querySelector('.palette input')).value) === '', 'reopen clears the query');
     // g is a navigation shortcut everywhere else; inside the input it is just a letter
     await page.keyboard.press('g');
     assert(/index\.html/.test(page.url()), 'g inside the palette does not navigate');
-    assert(await page.evaluate(() => document.querySelector('.palette input').value) === 'g', 'g landed in the query');
+    assert(await page.evaluate(() => /** @type {HTMLInputElement} */ (document.querySelector('.palette input')).value) === 'g', 'g landed in the query');
     await page.keyboard.press('Escape');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();

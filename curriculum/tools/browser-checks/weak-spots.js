@@ -2,12 +2,15 @@
    called weak spot whose link hands the domain over to the drill. */
 'use strict';
 
+/** @param {import('./lib').Harness} h */
 module.exports = async function (h) {
   const { url, fresh, assert, group } = h;
 
-  const verdict = page => page.evaluate(() =>
+  /** @typedef {import('playwright').Page} Page */
+
+  const verdict = (/** @type {Page} */ page) => page.evaluate(() =>
     document.querySelector('#weak-domains .wcell.wspan .wv').textContent.replace(/\s+/g, ' ').trim());
-  const cellFor = (page, n) => page.evaluate(d =>
+  const cellFor = (/** @type {Page} */ page, /** @type {number} */ n) => page.evaluate(d =>
     Array.from(document.querySelectorAll('#weak-domains .wcell'))
       .map(c => c.textContent.replace(/\s+/g, ' ').trim())
       .filter(t => t.indexOf('domain ' + d + ' ') === 0)[0] || '(missing)', n);

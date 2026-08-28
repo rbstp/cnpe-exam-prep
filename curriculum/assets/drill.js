@@ -306,8 +306,9 @@
     // shortcuts in app.js see them.
     document.addEventListener("keydown", function (e) {
       if (!session || !host || !document.body.contains(host)) return;
-      var tag = (e.target.tagName || "").toLowerCase();
-      if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
+      var target = /** @type {HTMLElement} */ (e.target);
+      var tag = (target.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || target.isContentEditable) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (document.querySelector(".overlay.open")) return;
       var handled = true;

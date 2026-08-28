@@ -4,6 +4,7 @@
    asserted byte for byte. */
 'use strict';
 
+/** @param {import('./lib').Harness} h */
 module.exports = async function (h) {
   const { url, fresh, assert, group } = h;
 
@@ -13,7 +14,7 @@ module.exports = async function (h) {
       window.__copied = [];
       Object.defineProperty(navigator, 'clipboard', {
         configurable: true,
-        value: { writeText: function (t) { window.__copied.push(t); return Promise.resolve(); } },
+        value: { writeText: /** @param {string} t */ function (t) { window.__copied.push(t); return Promise.resolve(); } },
       });
     });
     return { ctx, page };
@@ -73,7 +74,7 @@ module.exports = async function (h) {
       total: document.querySelectorAll('.exercise').length,
       tile: document.querySelector('#stat-ex .val').textContent.replace(/\s+/g, ''),
       toc: document.getElementById('toc-ex-count').textContent.replace(/\s+/g, ''),
-      bar: document.querySelector('#stat-ex .spark i').style.width,
+      bar: /** @type {HTMLElement} */ (document.querySelector('#stat-ex .spark i')).style.width,
     }));
     let s = await state();
     assert(s.total > 0 && s.tile === '0/' + s.total, 'the tile starts at 0/' + s.total + ': ' + JSON.stringify(s.tile));

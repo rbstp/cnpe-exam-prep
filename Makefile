@@ -60,6 +60,10 @@ site:    ## Stage the study console exactly as Pages publishes it, into ./_site
 browser: ## Browser-check the staged console like CI does (needs the playwright npm package)
 	@curriculum/tools/stage-site.sh "$(CURDIR)/_site" >/dev/null
 	@node curriculum/tools/browser-checks/run.js "$(CURDIR)/_site"
+typecheck: ## Type-check the console's JS via JSDoc (needs typescript, @types/node, playwright resolvable)
+	@npx tsc -p curriculum/jsconfig.json
+	@npx tsc -p curriculum/tools/browser-checks/tsconfig.json
+	@echo "typecheck clean"
 urls:    ## Every UI, its URL/port-forward, and credentials
 	@$(S)/91-urls.sh
 status:  ## Clusters, endpoints, unhealthy pods, host load
@@ -73,7 +77,7 @@ down:    ## Delete both clusters (keeps git history + registry)
 nuke:    ## Delete everything including Gitea data
 	@$(S)/99-down.sh all
 
-.PHONY: help host tools up gitea gitops cicd api obs sec mesh portal core full spire validate fix-cp-metrics study site browser urls forward forward-stop status break break-fix down nuke
+.PHONY: help host tools up gitea gitops cicd api obs sec mesh portal core full spire validate fix-cp-metrics study site browser typecheck urls forward forward-stop status break break-fix down nuke
 
 break-answer: ## Reveal the last injected fault
 	@cat /tmp/cnpe-lab/.last-fault 2>/dev/null || echo "none injected yet"
