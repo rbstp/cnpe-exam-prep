@@ -95,8 +95,14 @@ github.com → Settings → Developer settings → **OAuth Apps** → **New OAut
 | Enable Device Flow | leave unticked |
 
 Save. Copy the **Client ID** into `sync/wrangler.toml` under `[vars]`, then press
-**Generate a new client secret** and keep the value on screen for step 3, because
+**Generate a new client secret** and keep the value on screen for step 4, because
 GitHub will not show it again.
+
+**Upload a logo** while you are there: `sync/oauth-app-logo.png` is the console's
+own stack mark on its dark ground, 512x512, which is what people see on the
+authorize screen. It is rendered from `curriculum/assets/favicon.svg`, so the two
+cannot drift into different marks; GitHub masks it to a circle, and the padding
+is set so nothing clips.
 
 The app needs no scopes and no permissions to request. `/auth/start` sends
 `scope=`, empty, on purpose.
