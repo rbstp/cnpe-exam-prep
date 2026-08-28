@@ -25,6 +25,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
       - name: Check the drill data is in sync with the self-check panels
         working-directory: curriculum
         run: python3 tools/extract-drill.py --check
@@ -39,6 +44,16 @@ jobs:
         env:
           SITE_DOMAIN: cnpe.rbstp.dev
         run: curriculum/tools/check-site.sh "${{ runner.temp }}/_site"
+
+      - name: Read the pinned Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('./package.json').devDependencies.playwright")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the Playwright browsers
+        uses: actions/cache@v6
+        with:
+          key: ${{ runner.os }}-playwright-${{ steps.playwright.outputs.version }}
+          path: ~/.cache/ms-playwright
 
       - name: Install Playwright Chromium
         run: |
