@@ -6,16 +6,19 @@
    paints, or a palette change has silently missed theme.js. */
 'use strict';
 
+/** @param {import('./lib').Harness} h */
 module.exports = async function (h) {
   const { url, fresh, assert, group } = h;
 
+  /** @typedef {import('playwright').Page} Page */
+
   // points sitting at the wave's high level (y=2); each done section carries two
-  const hiPoints = page => page.evaluate(() => {
+  const hiPoints = (/** @type {Page} */ page) => page.evaluate(() => {
     const p = document.querySelector('.topbar .trace path.tr');
     return p ? (p.getAttribute('d').match(/ 2(?=L|$)/g) || []).length : -1;
   });
-  const hasCur = page => page.evaluate(() => !!document.querySelector('.topbar .trace path.cur'));
-  const synced = page => page.evaluate(() => document.querySelector('.topbar .prog').classList.contains('synced'));
+  const hasCur = (/** @type {Page} */ page) => page.evaluate(() => !!document.querySelector('.topbar .trace path.cur'));
+  const synced = (/** @type {Page} */ page) => page.evaluate(() => document.querySelector('.topbar .prog').classList.contains('synced'));
 
   /* 1. the wave exists, encodes progress, and the dashboard has no reading overlay */
   {
@@ -52,6 +55,7 @@ module.exports = async function (h) {
     const { ctx, page } = await fresh();
     await page.goto(url('index.html'));
     await page.evaluate(() => {
+      /** @type {Record<string, number>} */
       const done = {};
       window.CNPE_NAV.filter(n => n.d > 0).forEach(n => { done[n.id] = 1; });
       localStorage.setItem('cnpe:v2', JSON.stringify({ done }));

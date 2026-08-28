@@ -21,11 +21,14 @@ SITE_DOMAIN="${SITE_DOMAIN:-cnpe.rbstp.dev}"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-# The site itself: every page and asset, minus the build tooling and repo docs.
+# The site itself: every page and asset, minus the build tooling and repo docs
+# (the jsconfig and .d.ts only serve 'make typecheck'; no page loads them).
 tar -cf - -C "$SRC" \
     --exclude=./tools \
     --exclude=./README.md \
     --exclude=./cnpe-console.html \
+    --exclude=./jsconfig.json \
+    --exclude=./assets/cnpe.d.ts \
     . | tar -xf - -C "$OUT"
 
 # One-URL offline copy of the whole console.

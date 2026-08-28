@@ -188,6 +188,7 @@ make validate        Functionally verify every layer (FAST=1 to skip probes)
 make grade           Run a mock exam's grading block from its page (EXAM=1|2)
 make study           Open the CNPE study console (curriculum) in a browser
 make site            Stage the study console exactly as Pages publishes it, into ./_site
+make typecheck       Type-check the console's JS via JSDoc (tsc --noEmit, nothing compiled)
 make fix-cp-metrics  Expose control-plane metrics on an existing cluster
 make urls            Every UI, its URL/port-forward, and credentials
 make forward         Start a background port-forward for every UI

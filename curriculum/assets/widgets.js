@@ -140,16 +140,17 @@
     var st = { alloc: 3800, req: 3600, use: 1100 };
     var ctls = h("div", { "class": "wctls" });
     var out = announce(h("div", { "class": "wout" }));
+    var rows = [];
     [["req", "sum of requests", 0, 3800], ["use", "actual usage", 0, 3800]].forEach(function (d) {
       var val = h("span", { "class": "wval" });
       var s = slider(d[2], d[3], 50, st[d[0]]);
       s.addEventListener("input", function () { st[d[0]] = +s.value; draw(); });
       var row = control(d[1], s, val);
       row.update = function () { val.textContent = st[d[0]] + "m"; };
-      ctls.appendChild(row); (draw.rows = draw.rows || []).push(row);
+      ctls.appendChild(row); rows.push(row);
     });
     function draw() {
-      (draw.rows || []).forEach(function (r) { r.update(); });
+      rows.forEach(function (r) { r.update(); });
       var cap = 4000, free = st.alloc - st.req, eff = st.req ? Math.round(st.use / st.req * 100) : 0;
       out.innerHTML =
         '<div class="wstack">' +
@@ -193,7 +194,7 @@
       var row = control(label, s, val);
       row.update = function () { val.textContent = st[key] + unit; s.disabled = (key !== "replicas" && !st.explicit); };
       row.el = s;
-      ctls.appendChild(row); (mk.rows = mk.rows || []).push(row);
+      ctls.appendChild(row);
       return row;
     }
     var rowsHost = [mk("replicas", "replicas", 1, 40, 1, ""), mk("cpuReq", "cpu request each", 10, 500, 10, "m"), mk("cpuLim", "cpu limit each", 50, 1000, 50, "m")];
@@ -238,6 +239,7 @@
     var st = { req: 500, use: 90, replicas: 6, mem: 512, memUse: 192 };
     var ctls = h("div", { "class": "wctls" });
     var out = announce(h("div", { "class": "wout" }));
+    var rows = [];
     [["req", "cpu request each", 25, 1000, 25, "m"], ["use", "cpu actually used", 10, 1000, 10, "m"],
      ["mem", "memory request each", 64, 1024, 64, "Mi"], ["memUse", "memory actually used", 32, 1024, 32, "Mi"],
      ["replicas", "replicas", 1, 20, 1, ""]].forEach(function (d) {
@@ -246,10 +248,10 @@
       s.addEventListener("input", function () { st[d[0]] = +s.value; draw(); });
       var row = control(d[1], s, val);
       row.update = function () { val.textContent = st[d[0]] + d[5]; };
-      ctls.appendChild(row); (draw.rows = draw.rows || []).push(row);
+      ctls.appendChild(row); rows.push(row);
     });
     function draw() {
-      (draw.rows || []).forEach(function (r) { r.update(); });
+      rows.forEach(function (r) { r.update(); });
       var cpuCost = st.replicas * (Math.max(st.req, st.use) / 1000) * 28;
       var memCost = st.replicas * (Math.max(st.mem, st.memUse) / 1024) * 3.5;
       var billed = cpuCost + memCost;
@@ -412,7 +414,7 @@
         var gy = y(maxV * q);
         g.appendChild(svg("line", { x1: padL, x2: W - padR, y1: gy, y2: gy, style: "stroke: var(--rule)", "stroke-width": 1 }));
         var tl = svg("text", { x: padL - 8, y: gy + 3.5, style: LBL, "font-size": 10, "text-anchor": "end" });
-        tl.textContent = Math.round(maxV * q);
+        tl.textContent = String(Math.round(maxV * q));
         g.appendChild(tl);
       });
       [0, 10, 20, 30].forEach(function (t) {
@@ -465,6 +467,7 @@
     var st = { evalI: 30, forS: 120, groupWait: 30, blip: 45 };
     var ctls = h("div", { "class": "wctls" });
     var out = announce(h("div", { "class": "wout" }));
+    var rows = [];
     [["evalI", "evaluation interval", 15, 120, 15, "s"], ["forS", "for:", 0, 600, 30, "s"],
      ["groupWait", "group_wait", 0, 300, 15, "s"], ["blip", "how long the condition actually holds", 15, 900, 15, "s"]]
       .forEach(function (d) {
@@ -473,10 +476,10 @@
         s.addEventListener("input", function () { st[d[0]] = +s.value; draw(); });
         var row = control(d[1], s, val);
         row.update = function () { val.textContent = st[d[0]] + d[5]; };
-        ctls.appendChild(row); (draw.rows = draw.rows || []).push(row);
+        ctls.appendChild(row); rows.push(row);
       });
     function draw() {
-      (draw.rows || []).forEach(function (r) { r.update(); });
+      rows.forEach(function (r) { r.update(); });
       var detect = st.evalI;                                                  // first evaluation that sees it
       var fires = Math.ceil((detect + st.forS) / st.evalI) * st.evalI;        // Pending → Firing, on an evaluation tick
       var notified = fires + st.groupWait;                                    // Alertmanager sends

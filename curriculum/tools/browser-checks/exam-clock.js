@@ -3,11 +3,15 @@
    states, reset, and the two papers keeping separate scores and clocks. */
 'use strict';
 
+/** @param {import('./lib').Harness} h */
 module.exports = async function (h) {
   const { url, fresh, store, assert, group } = h;
 
+  /** @param {import('playwright').Page} page */
   const clockText = page => page.evaluate(() => document.getElementById('clock').textContent.replace(/\s+/g, ''));
+  /** @param {import('playwright').Page} page */
   const clockClass = page => page.evaluate(() => document.getElementById('clock').className);
+  /** @param {import('playwright').Page} page */
   const startLabel = page => page.evaluate(() => document.getElementById('t-start').textContent);
 
   /* 1. start, pause, resume, run out */

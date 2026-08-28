@@ -4,11 +4,17 @@
    records, the summary and the redrill. */
 'use strict';
 
+/** @param {import('./lib').Harness} h */
 module.exports = async function (h) {
   const { url, fresh, store, assert, group } = h;
 
   // answer through n cards with the drill's own keys (space reveals, then
   // 1 missed / 2 got it), collecting each card's section and question text
+  /**
+   * @param {import('playwright').Page} page
+   * @param {number} n
+   * @param {(i: number) => string} [keyFor]
+   */
   async function walk(page, n, keyFor) {
     const secs = [], qs = [];
     for (let i = 0; i < n; i++) {

@@ -5,6 +5,7 @@
 'use strict';
 const path = require('path');
 
+/** @param {import('./lib').Harness} h */
 module.exports = async function (h) {
   const { url, fresh, store, assert, group, streakVal, streakLbl, heatOn, heatAll, daysAgo, TODAY, YDAY } = h;
   const SHOTS = process.env.STREAK_SHOTS || '';
@@ -86,6 +87,7 @@ module.exports = async function (h) {
   /* 5. seeded multi-day history: streak, record, heat strip */
   {
     group('seeded multi-day history renders streak, record, heat strip');
+    /** @type {Record<string, CnpeDayCounts>} */
     const days = {};
     days[daysAgo(1)] = { c: 1 }; days[daysAgo(2)] = { x: 1 }; days[daysAgo(3)] = { s: 2 };
     days[daysAgo(6)] = { e: 1 }; days[daysAgo(7)] = { c: 5 };
@@ -104,6 +106,7 @@ module.exports = async function (h) {
   /* 6. a gap day breaks the streak */
   {
     group('a gap day breaks the streak');
+    /** @type {Record<string, CnpeDayCounts>} */
     const days = {}; days[daysAgo(2)] = { c: 3 };
     const { ctx, page } = await fresh({ days });
     await page.goto(url('index.html'));
@@ -181,6 +184,8 @@ module.exports = async function (h) {
     await ctx.close();
   }
   {
+    // junk on purpose: a c of "x" must be tolerated, so this map stays untyped
+    /** @type {Record<string, *>} */
     const days = { 'not-a-date': { c: 3 } }; days[TODAY] = { c: 'x', x: 2 };
     const { ctx, page } = await fresh({ days });
     await page.goto(url('index.html'));
@@ -193,6 +198,7 @@ module.exports = async function (h) {
   /* 10. themes: the strip must boot clean in light and dark */
   {
     group('themes' + (SHOTS ? ' (screenshots in ' + SHOTS + ')' : ''));
+    /** @type {Record<string, CnpeDayCounts>} */
     const days = {};
     for (let i = 0; i < 12; i++) if (i % 4 !== 3) days[daysAgo(i)] = { c: 10 };
     for (const theme of ['light', 'dark']) {

@@ -81,7 +81,9 @@
 
   /* ── storage ─────────────────────────────────────────────── */
   var store = (function () {
-    var s = { ex: {}, done: {}, exam: {}, last: null };
+    // starts skeletal on purpose (a pre-existing days map must win over the
+    // legacy-streak migration below); normalized to a full store just after
+    var s = /** @type {CnpeStore} */ (/** @type {unknown} */ ({ ex: {}, done: {}, exam: {}, last: null }));
     try { var raw = localStorage.getItem(KEY); if (raw) s = Object.assign(s, JSON.parse(raw)); } catch (e) {}
     var hadDays = s.days && typeof s.days === "object" && !Array.isArray(s.days);
     ["ex", "done", "exam", "exam2", "drill", "drillmeta", "days"].forEach(function (k) {
@@ -441,7 +443,7 @@
     var c = sectionCounts(entry.id);
     var pct = c.total ? Math.round(c.done / c.total * 100) : 0;
     t.querySelector(".val").innerHTML = c.done + '<span class="u">/ ' + c.total + "</span>";
-    t.querySelector(".spark i").style.width = pct + "%";
+    /** @type {HTMLElement} */ (t.querySelector(".spark i")).style.width = pct + "%";
     var cnt = document.getElementById("toc-ex-count"), barEl = document.getElementById("toc-ex-bar");
     if (cnt) cnt.textContent = c.done + "/" + c.total;
     if (barEl) barEl.style.width = pct + "%";
@@ -817,8 +819,9 @@
   /* ── keyboard ────────────────────────────────────────────── */
   function keys() {
     document.addEventListener("keydown", function (e) {
-      var tag = (e.target.tagName || "").toLowerCase();
-      var typing = tag === "input" || tag === "textarea" || e.target.isContentEditable;
+      var target = /** @type {HTMLElement} */ (e.target);
+      var tag = (target.tagName || "").toLowerCase();
+      var typing = tag === "input" || tag === "textarea" || target.isContentEditable;
       if (e.key === "Escape") { closeOverlays(); return; }
       if ((e.key === "k" || e.key === "K") && (e.metaKey || e.ctrlKey)) { e.preventDefault(); openPalette(); return; }
       if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -841,7 +844,7 @@
           });
           break;
         case "m":
-          var btn = entry ? document.querySelector(".finish button.tbtn") : null;
+          var btn = /** @type {HTMLElement} */ (entry ? document.querySelector(".finish button.tbtn") : null);
           if (btn) { btn.click(); btn.scrollIntoView({ block: "center" }); }
           break;
         case "t":
@@ -873,6 +876,7 @@
       d.seen++; d.r += rec.r || 0; d.m += rec.m || 0;
     });
 
+    /** @type {{ dom: CnpeDomain, pct: number, n: number } | null} */
     var weakest = null;
     var cells = DOMAINS.map(function (dom) {
       var p = per[dom.n], n = p.r + p.m;
@@ -1146,7 +1150,7 @@
         if (st.tasks[i]) { got += pts; byDomain[d].got += pts; }
       });
       scoreVal.innerHTML = got + '<span class="u">/ ' + maxPts + "</span>";
-      var sp = document.querySelector("#stat-score .spark i");
+      var sp = /** @type {HTMLElement} */ (document.querySelector("#stat-score .spark i"));
       if (sp) sp.style.width = (maxPts ? got / maxPts * 100 : 0) + "%";
 
       var host = document.getElementById("score-domains");

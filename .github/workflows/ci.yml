@@ -4,7 +4,9 @@ name: CI
 # by which point a broken PR has already merged. This runs the identical gate
 # at PR time (the assertions live in curriculum/tools/check-site.sh, shared by
 # both), a browser pass over the staged site (curriculum/tools/browser-checks/,
-# also shared with the deploy), plus shellcheck over the lab scripts.
+# also shared with the deploy), a JSDoc type-check of the console's scripts
+# (tsc --noEmit against curriculum/assets/cnpe.d.ts; the site itself stays
+# plain JS with no build step), plus shellcheck over the lab scripts.
 
 on:
   pull_request:
@@ -64,6 +66,30 @@ jobs:
 
       - name: Drive the staged site
         run: node curriculum/tools/browser-checks/run.js "${{ runner.temp }}/_site"
+
+  typecheck:
+    name: Study console type-checks via JSDoc
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # Same CI-only, pinned, --no-save arrangement as the browser job (one
+      # npm install: a second --no-save run prunes the first). tsc only reads
+      # the .js files against curriculum/assets/cnpe.d.ts; nothing is emitted
+      # and the console stays dependency-free. playwright is here purely for
+      # its type declarations, so its browsers are never installed.
+      - name: Install TypeScript and the type sources
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: npm install --no-save --no-package-lock typescript@5.9.3 @types/node@24 playwright@1.56.1
+
+      - name: Type-check the console assets
+        run: npx tsc -p curriculum/jsconfig.json
+
+      - name: Type-check the browser checks
+        run: npx tsc -p curriculum/tools/browser-checks/tsconfig.json
 
   shellcheck:
     name: ShellCheck the lab scripts

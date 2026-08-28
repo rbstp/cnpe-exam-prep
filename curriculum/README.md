@@ -13,6 +13,7 @@ GitHub will not render it in place; clone the repo (or use raw + a local browser
 - `tools/bundle.py`: bundles the whole console into one hash-routed HTML file (`python3 tools/bundle.py`, or `--fragment` for a host that supplies its own `<head>`), handy for sharing or reading it somewhere that takes a single document
 - `tools/extract-drill.py`: regenerates `assets/drill-data.js` from the section pages' self-check panels; run it after editing any self-check question (CI fails the deploy if the file is stale)
 - `tools/browser-checks/`: drives a staged copy of the site in headless Chromium (Playwright) and asserts its behaviour end to end — the study streak, the command palette and keyboard shortcuts, the mock-exam clock, the drill's weighted deck, export/import/reset, the section-page controls and the weak-spots panel (`node tools/browser-checks/run.js <site-dir>`); CI runs it on every PR
+- `assets/cnpe.d.ts` + `jsconfig.json` (+ `tools/browser-checks/tsconfig.json`): JSDoc-based type checking for all of the above JS via `tsc --noEmit` (`make typecheck` from the repo root); the `.d.ts` documents the shapes the scripts share — the section manifest, the drill bank, the `cnpe:v2` progress store and the `CNPE_*` window globals — and CI runs the check on every PR. It is a check only: the browser still loads the plain `.js` files and nothing is compiled
 
 Most command blocks carry a collapsed **output** drawer underneath: the real result of that
 command, so the sections read self-contained even away from a running cluster. Every command block
