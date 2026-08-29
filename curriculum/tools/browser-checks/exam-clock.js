@@ -13,8 +13,7 @@ module.exports = async function (h) {
   const startLabel = page => page.evaluate(() => document.getElementById('t-start').textContent);
 
   /* 1. start, pause, resume, run out */
-  {
-    group('the clock counts spent time only, and runs out at zero');
+  await group('the clock counts spent time only, and runs out at zero', async () => {
     const { ctx, page } = await fresh(null, { clockAt: new Date('2026-03-03T09:00:00') });
     await page.goto(url('mock-exam.html'));
     assert((await clockText(page)) === '120:00', 'a fresh paper shows 120:00');
@@ -44,11 +43,10 @@ module.exports = async function (h) {
     assert((await clockText(page)) === '0:00', 'and stays at 0:00');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 2. reset clears clock and scored tasks */
-  {
-    group('reset clears the clock and the scored tasks');
+  await group('reset clears the clock and the scored tasks', async () => {
     const { ctx, page } = await fresh(null, { clockAt: new Date('2026-03-03T09:00:00') });
     await page.goto(url('mock-exam.html'));
     await page.click('#t-start');
@@ -66,11 +64,10 @@ module.exports = async function (h) {
       'the stored exam state is cleared again: ' + JSON.stringify(s.exam.tasks));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 3. the two papers keep separate scores and clocks */
-  {
-    group('paper 2 never disturbs paper 1');
+  await group('paper 2 never disturbs paper 1', async () => {
     const { ctx, page } = await fresh(null, { clockAt: new Date('2026-03-03T09:00:00') });
     await page.goto(url('mock-exam.html'));
     const pts = await page.evaluate(() => +document.querySelector('.task').getAttribute('data-pts'));
@@ -93,5 +90,5 @@ module.exports = async function (h) {
       'the store keeps the papers under separate keys');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 };

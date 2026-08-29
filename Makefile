@@ -59,7 +59,7 @@ fonts:   ## Re-cut assets/fonts from tools/fonts-src to the console's charset (n
 site:    ## Stage the study console exactly as Pages publishes it, into ./_site
 	@curriculum/tools/stage-site.sh "$(CURDIR)/_site"
 	@echo "serve it: python3 -m http.server -d _site 8080"
-browser: ## Browser-check the staged console like CI does (needs the playwright npm package)
+browser: ## Browser-check the staged console like CI does (AREAS=sync,theme runs a subset)
 	@curriculum/tools/stage-site.sh "$(CURDIR)/_site" >/dev/null
 	@node curriculum/tools/browser-checks/run.js "$(CURDIR)/_site"
 worker:  ## Test the progress-sync Worker against a stub D1 (plain node, no deps)

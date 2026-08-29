@@ -193,8 +193,7 @@ module.exports = async function (h) {
   }
 
   /* 1. the whole point: a save inside the window still goes up on the way out */
-  {
-    group('a save still inside the debounce window is pushed when the page is left');
+  await group('a save still inside the debounce window is pushed when the page is left', async () => {
     const r = await delivered(() => leave({}, async (page, srv) => {
       await tick(page, '2.2');
       await tick(page, '3.3');
@@ -212,12 +211,11 @@ module.exports = async function (h) {
     assert(/"2\.2"/.test(r.last) && /"3\.3"/.test(r.last),
       'it carries both saves, not a stale body: ' + r.last.slice(0, 120));
     assert(r.errors.length === 0, 'no console errors: ' + r.errors.join(' | '));
-  }
+  });
 
   /* 2. leaving fires visibilitychange as well as pagehide, and either listener
         alone carries it. Pin visibility so only pagehide is left to do it. */
-  {
-    group('pagehide alone carries the save, with the visibility path held open');
+  await group('pagehide alone carries the save, with the visibility path held open', async () => {
     const r = await delivered(() => leave({}, async (page, srv) => {
       await tick(page, '2.2');
       await page.evaluate(() => {
@@ -229,11 +227,10 @@ module.exports = async function (h) {
     assert(r.puts === 1, 'pagehide pushes on its own: ' + r.puts);
     assert(/"2\.2"/.test(r.last), 'carrying the save: ' + r.last.slice(0, 120));
     assert(r.errors.length === 0, 'no console errors: ' + r.errors.join(' | '));
-  }
+  });
 
   /* 3. and it stays quiet when there is nothing to say */
-  {
-    group('leaving with nothing pending pushes nothing');
+  await group('leaving with nothing pending pushes nothing', async () => {
     const r = await leave({}, async (page, srv) => {
       await page.goto(srv.origin + LEAVING);
       await wait(700);
@@ -241,12 +238,11 @@ module.exports = async function (h) {
     assert(r.booted, 'the boot push landed before the check began');
     assert(r.puts === 0, 'no push with no pending save: ' + r.puts);
     assert(r.errors.length === 0, 'no console errors: ' + r.errors.join(' | '));
-  }
+  });
 
   /* 4. the mobile path: backgrounding the tab, not navigating away. The page
         stays alive here, so this one has nothing to drop. */
-  {
-    group('backgrounding the tab flushes the same way');
+  await group('backgrounding the tab flushes the same way', async () => {
     const r = await leave({}, async (page, srv) => {
       await tick(page, '4.4');
       // Headless Chromium will not give a page a real hidden state, so the state
@@ -260,13 +256,12 @@ module.exports = async function (h) {
     assert(r.puts === 1, 'hiding the tab pushes: ' + r.puts);
     assert(/"4\.4"/.test(r.last), 'carrying the save: ' + r.last.slice(0, 120));
     assert(r.errors.length === 0, 'no console errors: ' + r.errors.join(' | '));
-  }
+  });
 
   /* 5. a save landing while a push is already open reschedules its own timer, so
         the flush still finds one and the later save is not stranded. The window
         is wide here only so the second push can be told from that timer. */
-  {
-    group('a save made while a push is in flight still goes out on the way out');
+  await group('a save made while a push is in flight still goes out on the way out', async () => {
     const WIN = 1500;
     const r = await delivered(() => leave({ hang: true, debounce: WIN }, async (page, srv) => {
       await tick(page, '2.2');
@@ -284,12 +279,11 @@ module.exports = async function (h) {
       'and it is the flush that sent it, ' + r.after + 'ms after the save against a ' + WIN + 'ms window');
     assert(/"3\.3"/.test(r.last), 'the later save is in it: ' + r.last.slice(0, 120));
     assert(r.errors.length === 0, 'no console errors: ' + r.errors.join(' | '));
-  }
+  });
 
   /* 6. the listeners stay wired for the life of the page, so leaving after the
         session was dropped must stay silent. */
-  {
-    group('leaving after a 401 dropped the session pushes nothing more');
+  await group('leaving after a 401 dropped the session pushes nothing more', async () => {
     const r = await leave({ debounce: 250 }, async (page, srv) => {
       srv.deny();
       await tick(page, '2.2');
@@ -307,5 +301,5 @@ module.exports = async function (h) {
     assert(r.gone, 'the 401 drops the session');
     assert(r.puts === 1, 'and leaving sends nothing further: ' + r.puts);
     assert(r.errors.length === 0, 'no console errors beyond the refused request: ' + r.errors.join(' | '));
-  }
+  });
 };

@@ -18,8 +18,7 @@ module.exports = async function (h) {
   }
 
   /* 1. the copy button copies the block, whole */
-  {
-    group('the code-block copy button copies the block');
+  await group('the code-block copy button copies the block', async () => {
     const { ctx, page } = await freshWithClipboard();
     await page.goto(url('01-architecture/01-networking.html'));
     // the first block sits inside an exercise, whose panel is rebuilt via innerHTML at boot
@@ -45,11 +44,10 @@ module.exports = async function (h) {
     assert(b.text === 'copy' && !b.ok, 'and settles back to copy');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 2. the needs chip copies its make command on click and on Enter */
-  {
-    group('the needs chip copies its make command');
+  await group('the needs chip copies its make command', async () => {
     const { ctx, page } = await freshWithClipboard();
     await page.goto(url('01-architecture/01-networking.html'));
     const cmd = await page.evaluate(() => document.querySelector('.needs code').textContent);
@@ -64,11 +62,10 @@ module.exports = async function (h) {
     assert(copied.length === 2 && copied.every(c => c === cmd), 'click and Enter both copied the command');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 3. the exercises tile and the toc counter follow every tick */
-  {
-    group('the exercises tile and toc counter follow the ticks');
+  await group('the exercises tile and toc counter follow the ticks', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('01-architecture/01-networking.html'));
     const state = () => page.evaluate(() => ({
@@ -90,11 +87,10 @@ module.exports = async function (h) {
     assert(s.tile === '0/' + s.total && s.toc === '0/' + s.total, 'un-ticking walks both back to zero');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* the scroll spy across the 1180px breakpoint, where the column comes and goes */
-  {
-    group('the toc mark is right after the column comes back');
+  await group('the toc mark is right after the column comes back', async () => {
     const { ctx, page } = await fresh();
     await page.setViewportSize({ width: 1400, height: 900 });
     await page.goto(url('02-gitops/04-tekton.html'));
@@ -120,5 +116,5 @@ module.exports = async function (h) {
       'back at the top and wide again, the first panel is marked: ' + JSON.stringify(await marked()));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 };

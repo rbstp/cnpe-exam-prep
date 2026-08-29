@@ -8,8 +8,7 @@ module.exports = async function (h) {
   const SHOTS = process.env.STREAK_SHOTS || '';
 
   /* 1. drill answers count, once per day; a full session shows the summary */
-  {
-    group('drill answers feed the streak');
+  await group('drill answers feed the streak', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('drill.html'));
     let tile = await page.evaluate(() => document.getElementById('drill-streak').textContent);
@@ -29,11 +28,10 @@ module.exports = async function (h) {
     assert(dayCount(s.days[TODAY], 'c') === 10, 'days[today].c === 10: ' + JSON.stringify(s.days));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 1b. a day another browser already worked on is one day, and the goal knows it */
-  {
-    group('the daily goal counts what every browser answered');
+  await group('the daily goal counts what every browser answered', async () => {
     /** @type {Record<string, *>} */
     const days = {}; days[TODAY] = { c: { otherbox: 6 } };
     const { ctx, page } = await fresh({ days });
@@ -57,11 +55,10 @@ module.exports = async function (h) {
     assert(/today's 10 are in the bank/.test(line), 'and the goal says so: ' + JSON.stringify(line));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 1c. the slot is this browser's, minted when it first acts and not before */
-  {
-    group('the browser id is minted on the first action, not on a read');
+  await group('the browser id is minted on the first action, not on a read', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('index.html'));
     const before = await page.evaluate(() => localStorage.getItem('cnpe:dev'));
@@ -78,11 +75,10 @@ module.exports = async function (h) {
       'and every action since went to the same slot: ' + JSON.stringify(s.days[TODAY]));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 1d. a store only carries the window the heat strip shows */
-  {
-    group('days past the window are dropped, and the run they held is carried');
+  await group('days past the window are dropped, and the run they held is carried', async () => {
     /** @type {Record<string, *>} */
     const days = {};
     for (let i = 0; i < 40; i++) days[daysAgo(i)] = { c: 1 };
@@ -101,11 +97,10 @@ module.exports = async function (h) {
     assert(run && run.n === 10 && run.d === daysAgo(30), 'carried below the window: ' + JSON.stringify(run));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 2. exercise verify counts; un-tick does not */
-  {
-    group('exercise verify counts, un-tick does not');
+  await group('exercise verify counts, un-tick does not', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('01-architecture/01-networking.html'));
     await page.click('.exercise .mark');
@@ -121,11 +116,10 @@ module.exports = async function (h) {
     assert(/^1day/.test(await streakVal(page)), 'dashboard uptime is 1 day');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 3. section complete counts; un-tick does not */
-  {
-    group('section complete counts, un-tick does not');
+  await group('section complete counts, un-tick does not', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('01-architecture/01-networking.html'));
     await page.click('.finish button.tbtn');
@@ -136,11 +130,10 @@ module.exports = async function (h) {
     assert(dayCount(s.days[TODAY], 's') === 1, 's stays 1 after un-tick');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 4. exam task scored counts; un-tick does not */
-  {
-    group('exam task scored counts, un-tick does not');
+  await group('exam task scored counts, un-tick does not', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('mock-exam.html'));
     await page.click('.task .dot');
@@ -151,11 +144,10 @@ module.exports = async function (h) {
     assert(dayCount(s.days[TODAY], 'e') === 1, 'e stays 1 after un-tick');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 5. seeded multi-day history: streak, record, heat strip */
-  {
-    group('seeded multi-day history renders streak, record, heat strip');
+  await group('seeded multi-day history renders streak, record, heat strip', async () => {
     /** @type {Record<string, CnpeDayCounts>} */
     const days = {};
     days[daysAgo(1)] = { c: 1 }; days[daysAgo(2)] = { x: 1 }; days[daysAgo(3)] = { s: 2 };
@@ -170,11 +162,10 @@ module.exports = async function (h) {
     assert((await heatOn(page)) === 5, '5 lit heat cells');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 6. a gap day breaks the streak */
-  {
-    group('a gap day breaks the streak');
+  await group('a gap day breaks the streak', async () => {
     /** @type {Record<string, CnpeDayCounts>} */
     const days = {}; days[daysAgo(2)] = { c: 3 };
     const { ctx, page } = await fresh({ days });
@@ -183,11 +174,10 @@ module.exports = async function (h) {
     assert(/^0days$/.test(val), 'streak 0: ' + JSON.stringify(val));
     assert(/^Uptime·record1$/.test(await streakLbl(page)), 'record 1 in the label');
     await ctx.close();
-  }
+  });
 
   /* 7. drillmeta seeding preserves an alive legacy streak */
-  {
-    group('drillmeta seeding preserves an alive legacy streak (earned today)');
+  await group('drillmeta seeding preserves an alive legacy streak (earned today)', async () => {
     const { ctx, page } = await fresh({ drillmeta: { day: TODAY, n: 10, earned: TODAY, streak: 4, best: 6, t: Date.now() } });
     await page.goto(url('index.html'));
     const val = await streakVal(page);
@@ -197,17 +187,15 @@ module.exports = async function (h) {
     const btn = await page.evaluate(() => document.querySelector('#resume a[href*="drill"]').textContent);
     assert(/up 4 days/.test(btn), 'drill button carries the unified streak: ' + JSON.stringify(btn));
     await ctx.close();
-  }
-  {
-    group('drillmeta seeding, streak ending yesterday');
+  });
+  await group('drillmeta seeding, streak ending yesterday', async () => {
     const { ctx, page } = await fresh({ drillmeta: { day: YDAY, n: 10, earned: YDAY, streak: 2, best: 2, t: Date.now() } });
     await page.goto(url('index.html'));
     const val = await streakVal(page);
     assert(/^2days$/.test(val), 'streak 2 alive via yesterday: ' + JSON.stringify(val));
     await ctx.close();
-  }
-  {
-    group('a dead legacy streak only carries its record');
+  });
+  await group('a dead legacy streak only carries its record', async () => {
     const { ctx, page } = await fresh({ drillmeta: { day: daysAgo(5), n: 10, earned: daysAgo(5), streak: 7, best: 7, t: Date.now() } });
     await page.goto(url('index.html'));
     const val = await streakVal(page);
@@ -215,11 +203,10 @@ module.exports = async function (h) {
     assert(/^Uptime·record7$/.test(await streakLbl(page)), 'record 7 in the label');
     assert((await heatOn(page)) === 0, 'no backfilled cells for a dead streak');
     await ctx.close();
-  }
+  });
 
   /* 8. the bundled console: #index and #DR routes, repeated boot() */
-  {
-    group('bundle: streak works across #index and #DR hash routes');
+  await group('bundle: streak works across #index and #DR hash routes', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('console.html'));
     assert((await heatAll(page)) === 30, 'heat strip renders in the bundle');
@@ -240,18 +227,17 @@ module.exports = async function (h) {
     assert((await heatOn(page)) === 1, 'one lit cell after re-navigation');
     assert(page.errors.length === 0, 'no console errors in the bundle: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 9. junk in the store does not break boot */
-  {
-    group('junk tolerance');
+  await group('junk tolerance', async () => {
     const { ctx, page } = await fresh({ days: 'garbage', drillmeta: [1, 2], ex: 7 });
     await page.goto(url('index.html'));
     const val = await streakVal(page);
     assert(/^0days/.test(val), 'junk store renders 0 days: ' + JSON.stringify(val));
     assert(page.errors.length === 0, 'no console errors on junk: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
   {
     // a c of "x" must be tolerated, so this map stays untyped
     /** @type {Record<string, *>} */
@@ -265,8 +251,7 @@ module.exports = async function (h) {
   }
 
   /* 10. themes: the strip must boot clean in light and dark */
-  {
-    group('themes' + (SHOTS ? ' (screenshots in ' + SHOTS + ')' : ''));
+  await group('themes' + (SHOTS ? ' (screenshots in ' + SHOTS + ')' : ''), async () => {
     /** @type {Record<string, CnpeDayCounts>} */
     const days = {};
     for (let i = 0; i < 12; i++) if (i % 4 !== 3) days[daysAgo(i)] = { c: 10 };
@@ -286,5 +271,5 @@ module.exports = async function (h) {
       }
       await ctx.close();
     }
-  }
+  });
 };
