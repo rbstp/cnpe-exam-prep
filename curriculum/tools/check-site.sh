@@ -15,7 +15,7 @@ SYNC_DOMAIN="${SYNC_DOMAIN:-sync.rbstp.dev}"
 for f in index.html mock-exam.html mock-exam-2.html drill.html console.html 404.html CNAME \
          assets/style.css assets/app.js assets/nav.js assets/widgets.js \
          assets/theme.js assets/favicon.svg assets/drill-data.js assets/drill-index.js \
-         assets/drill.js assets/merge.js assets/sync.js; do
+         assets/drill.js assets/merge.js assets/syntax.js assets/sync.js; do
   test -s "$SITE/$f" || { echo "missing or empty: $f"; exit 1; }
 done
 test -f "$SITE/.nojekyll" || { echo "missing: .nojekyll"; exit 1; }

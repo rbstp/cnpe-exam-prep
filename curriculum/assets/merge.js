@@ -23,6 +23,38 @@
     if (!rec || typeof rec !== "object") return 0;
     return (+rec.c || 0) + (+rec.x || 0) + (+rec.s || 0) + (+rec.e || 0);
   }
+  // Consecutive days with a heartbeat, alive if today or yesterday has one.
+  // today is an argument so this stays a function of what it is given.
+  /** @param {*} store @param {string} [today] */
+  function streak(store, today) {
+    var s = store && typeof store === "object" ? store : {};
+    var days = s.days && typeof s.days === "object" && !Array.isArray(s.days) ? s.days : {};
+    var q = {};
+    Object.keys(days).forEach(function (k) {
+      if (DAY_RE.test(k) && dayActs(days[k]) > 0) q[k] = 1;
+    });
+    var cur = today && DAY_RE.test(today) ? today : dayKey(new Date());
+    if (!q[cur]) cur = shiftKey(cur, -1);        // yesterday still counts as alive
+    // A day the zone skipped is its own yesterday, so the walk must watch the
+    // key move, not just the day qualify: Apia's 2011-12-31 and Kiritimati's
+    // 1995-01-01 are fixed points of shiftKey and would spin here forever.
+    var run = 0;
+    while (q[cur]) {
+      run++;
+      var back = shiftKey(cur, -1);
+      if (back >= cur) break;
+      cur = back;
+    }
+    var best = 0, streakRun = 0, prev = null;
+    Object.keys(q).sort().forEach(function (k) {
+      streakRun = prev && shiftKey(prev, 1) === k ? streakRun + 1 : 1;
+      prev = k;
+      if (streakRun > best) best = streakRun;
+    });
+    var dm = s.drillmeta && typeof s.drillmeta === "object" ? s.drillmeta : {};
+    return { streak: run, best: Math.max(best, +dm.best || 0) };
+  }
+
   function seedDays(s) {
     var dm = s.drillmeta;
     if (!dm || typeof dm !== "object" || Array.isArray(dm)) return;
@@ -281,7 +313,7 @@
   root.CNPE_MERGE = {
     merge: mergeProgress, ticks: ticks, sets: sets, shared: shared,
     canon: canon, pickBase: pickBase, wire: wire, hasAnything: hasAnything,
-    dueIn: dueIn, seedDays: seedDays,
+    dueIn: dueIn, seedDays: seedDays, streak: streak,
     dayKey: dayKey, shiftKey: shiftKey, dayActs: dayActs, DAY_RE: DAY_RE,
   };
 })(typeof window !== "undefined" ? window : globalThis);

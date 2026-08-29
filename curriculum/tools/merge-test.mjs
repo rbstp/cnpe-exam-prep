@@ -7,8 +7,11 @@
  * base/local/remote combinations across all four tick buckets, the guards that
  * decide when a base may be read at all, and the counters that take the max. */
 import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-createRequire(import.meta.url)("../assets/merge.js");   // a browser script; it finds globalThis
+const MERGE = fileURLToPath(new URL("../assets/merge.js", import.meta.url));
+createRequire(import.meta.url)(MERGE);                  // a browser script; it finds globalThis
 const M = globalThis.CNPE_MERGE;
 globalThis.CNPE_NAV = [{ id: "1.1" }, { id: "2.3" }];   // only the ids matter to the merge
 
@@ -24,8 +27,11 @@ const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const store = over => Object.assign(
   { ex: {}, done: {}, exam: {}, exam2: {}, drill: {}, drillmeta: {}, days: {}, last: null }, over);
 const pad = n => (n < 10 ? "0" : "") + n;
+// One clock read for the whole run: calling new Date() per day would disagree
+// with TODAY for anything started in the last milliseconds before midnight.
+const NOW = new Date();
 const day = n => {
-  const t = new Date(), d = new Date(t.getFullYear(), t.getMonth(), t.getDate() - n);
+  const d = new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate() - n);
   return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
 };
 const TODAY = day(0);
@@ -400,6 +406,77 @@ group("the counts the callers paint from");
   }, M.sets({ done: ["1.1"] }));
   ok(eq(n, { done: 1, ex: 1, exam: 2, drill: 1, days: 1, off: 1 }),
     "one of each, and the tick the base says was removed: " + JSON.stringify(n));
+}
+
+/* ── the study streak ────────────────────────────────────────── */
+group("\nthe streak counts back from today");
+{
+  const heat = (...ns) => Object.fromEntries(ns.map(n => [day(n), { c: 1 }]));
+  const run = (days, over) => M.streak(store({ days, ...over }), TODAY);
+
+  ok(run({}).streak === 0, "an empty store is not a streak");
+  ok(run(heat(0)).streak === 1, "today alone is one day");
+  ok(run(heat(0, 1, 2)).streak === 3, "three days running");
+  ok(run(heat(0, 1, 3)).streak === 2, "and it stops at the gap, not through it");
+
+  // The day is not over: a streak stays alive until yesterday falls off too.
+  ok(run(heat(1, 2)).streak === 2, "yesterday still counts as alive");
+  ok(run(heat(2, 3)).streak === 0, "the day before that does not");
+  ok(run(heat(1, 2)).best === 2, "and the run is still the best on record");
+}
+
+group("what counts as a heartbeat");
+{
+  const one = k => M.streak(store({ days: { [TODAY]: k } }), TODAY).streak;
+  ok(one({ c: 1 }) === 1, "a card answered");
+  ok(one({ x: 1 }) === 1, "an exercise verified");
+  ok(one({ s: 1 }) === 1, "a section completed");
+  ok(one({ e: 1 }) === 1, "an exam task scored");
+  ok(one({ c: 0, x: 0, s: 0, e: 0 }) === 0, "a day of all zeroes is not a heartbeat");
+  ok(one({}) === 0, "nor is an empty record");
+  ok(one("junk") === 0, "nor is a record that is not an object");
+  // best, not streak: the walk back from today stops after one day either way,
+  // so only the longest-run scan can see whether the junk key was counted.
+  ok(M.streak(store({ days: { "not-a-day": { c: 9 } } }), TODAY).best === 0,
+    "a key that is not a date is ignored rather than counted");
+}
+
+group("the lifetime best");
+{
+  const days = { ...Object.fromEntries([5, 6, 7, 8].map(n => [day(n), { c: 1 }])), [TODAY]: { c: 1 } };
+  const r = M.streak(store({ days }), TODAY);
+  ok(r.streak === 1, "the live streak is just today: " + r.streak);
+  ok(r.best === 4, "but the best is the longest run anywhere in the record: " + r.best);
+  ok(M.streak(store({ days, drillmeta: { best: 9 } }), TODAY).best === 9,
+    "a higher best already recorded by the drill is a floor, never lowered");
+  ok(M.streak(store({ days, drillmeta: { best: 2 } }), TODAY).best === 4,
+    "and a lower one does not pull the computed best down");
+}
+
+group("the streak's guards");
+{
+  const z = { streak: 0, best: 0 };
+  ok(eq(M.streak(null, TODAY), z), "no store at all");
+  ok(eq(M.streak({}, TODAY), z), "a store with no days");
+  ok(eq(M.streak({ days: "junk" }, TODAY), z), "days that is not an object");
+  ok(eq(M.streak({ days: [] }, TODAY), z), "days that is an array");
+  ok(M.streak({ days: { [TODAY]: { c: 1 } }, drillmeta: "junk" }, TODAY).best === 1,
+    "drillmeta that is not an object");
+  // No reference day, so it reads the clock: today is seeded, so this is 1.
+  ok(M.streak(store({ days: { [TODAY]: { c: 1 } } })).streak === 1, "and with no today passed, it asks the clock");
+  ok(M.streak(store({ days: { [TODAY]: { c: 1 } } }), "nonsense").streak === 1, "a junk today falls back to the clock");
+
+  // Apia skipped 2011-12-30 and Kiritimati 1994-12-31, so in those zones the day
+  // after is its own yesterday and the walk back would spin. shiftKey reads the
+  // process TZ, so this only means anything in a child that sets it.
+  for (const [tz, fixed] of [["Pacific/Apia", "2011-12-31"], ["Pacific/Kiritimati", "1995-01-01"]]) {
+    const r = spawnSync(process.execPath, ["-e", `
+      require(${JSON.stringify(MERGE)});
+      globalThis.CNPE_MERGE.streak({ days: { ${JSON.stringify(fixed)}: { c: 1 } } }, ${JSON.stringify(fixed)});
+    `], { env: { ...process.env, TZ: tz }, timeout: 5000 });
+    ok(r.status === 0 && r.signal === null,
+      "the walk back terminates on a day " + tz + " skipped (" + fixed + ")");
+  }
 }
 
 console.log("\n" + checks + " checks, " + failures + " failures");

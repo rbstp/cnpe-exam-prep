@@ -66,6 +66,8 @@ worker:  ## Test the progress-sync Worker against a stub D1 (plain node, no deps
 	@node sync/test.mjs
 merge:   ## Test the progress merge over plain objects (plain node, no deps)
 	@node curriculum/tools/merge-test.mjs
+syntax:  ## Test the command-block highlighting over plain strings (plain node, no deps)
+	@node curriculum/tools/syntax-test.mjs
 typecheck: ## Type-check the console's JS via JSDoc (needs typescript, @types/node, playwright resolvable)
 	@npx tsc -p curriculum/jsconfig.json
 	@npx tsc -p curriculum/tools/browser-checks/tsconfig.json
@@ -84,7 +86,7 @@ down:    ## Delete both clusters (keeps git history + registry)
 nuke:    ## Delete everything including Gitea data
 	@$(S)/99-down.sh all
 
-.PHONY: help host tools up gitea gitops cicd api obs sec mesh portal core full spire validate fix-cp-metrics study fonts site browser worker merge typecheck urls forward forward-stop status break break-fix down nuke
+.PHONY: help host tools up gitea gitops cicd api obs sec mesh portal core full spire validate fix-cp-metrics study fonts site browser worker merge syntax typecheck urls forward forward-stop status break break-fix down nuke
 
 break-answer: ## Reveal the last injected fault
 	@cat /tmp/cnpe-lab/.last-fault 2>/dev/null || echo "none injected yet"
