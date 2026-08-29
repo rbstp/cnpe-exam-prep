@@ -97,6 +97,8 @@ interface CnpeStore {
   days: Record<string, CnpeDayCounts>;
   /** section id last read, for the resume button */
   last: string | null;
+  /** epoch ms that pointer was set, so the newest read wins across browsers */
+  lastAt?: number;
 }
 
 /** How much a merge added, per bucket, plus how much it took away. */
@@ -106,6 +108,8 @@ interface CnpeMergeCounts {
   exam: number;
   drill: number;
   days: number;
+  /** 1 when the merge moved the resume pointer */
+  last: number;
   /** ticks the merge cleared; always 0 without a base */
   off: number;
 }
@@ -147,7 +151,7 @@ interface CnpeMergeApi {
   /** the base a browser may hold against the copy that arrived, or null when the
       row it came from is not the row that arrived; the caller owns the rest */
   pickBase(b: unknown, progress: unknown, rev: number, uid: string): CnpeMergeBase | null;
-  /** a store as it goes over the wire: no exam clock, no resume pointer */
+  /** a store as it goes over the wire: no exam clock */
   wire(p: unknown): unknown;
   /** whether a store holds anything worth a remote row */
   hasAnything(p: unknown): boolean;

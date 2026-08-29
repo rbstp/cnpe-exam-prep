@@ -202,7 +202,7 @@
   /** @param {*} added */
   function changed(added) {
     return !!added &&
-      !!(added.done || added.ex || added.exam || added.drill || added.days || added.off);
+      !!(added.done || added.ex || added.exam || added.drill || added.days || added.last || added.off);
   }
   function muted(fn) { S.muted = true; try { fn(); } finally { S.muted = false; } }
   function schedule() {

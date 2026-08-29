@@ -98,8 +98,11 @@
       return d && typeof d === "object" && !Array.isArray(d) ? d : null;
     } catch (e) { return null; }
   }
-  // The merge counts ticks, drill records and days; drillmeta and the resume
-  // pointer have no counter, so a merge that moved only those rides the next save.
+  // Ticks, drill records and days; drillmeta rides the next save. The resume
+  // pointer has a count of its own, which the sync reads, but a tab must not act
+  // on it: boot() would restamp it from the page this tab is on, so two tabs on
+  // two sections would write at each other, and a tab on a section page would
+  // write its whole store back over a Reset another tab just ran.
   /** @param {CnpeMergeCounts} n */
   function moved(n) { return !!(n.done || n.ex || n.exam || n.drill || n.days || n.off); }
   /* The exam clock is the one thing that never merges: it belongs to the tab the
@@ -660,7 +663,11 @@
 
     // The mock exam is not "where you were reading", and neither is a reread:
     // a save serializes the whole store and wakes every other tab to merge it.
-    if (entry.d > 0 && store.last !== entry.id) { store.last = entry.id; save(); }
+    if (entry.d > 0 && store.last !== entry.id) {
+      store.last = entry.id;
+      store.lastAt = Date.now();          // the stamp is how the other browsers order it
+      save();
+    }
   }
 
   /* ── command palette ─────────────────────────────────────── */
