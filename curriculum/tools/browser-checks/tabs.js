@@ -81,8 +81,10 @@ module.exports = async function (h) {
     await two.evaluate(() => localStorage.setItem('cnpe:v2', JSON.stringify({ done: { '2.1': 1 } })));
     assert(await within(page, () => window.CNPE_PROGRESS.get().done['1.1'] === 1),
       'the tick that store never mentions survives in memory');
-    assert(await within(page, () => JSON.parse(localStorage.getItem('cnpe:v2')).done['1.1'] === 1),
-      'and is written back, so the disk holds the work of both');
+    await tick(page, '4.1', 1);
+    const both = await page.evaluate(() => JSON.parse(localStorage.getItem('cnpe:v2')).done);
+    assert(both['1.1'] === 1 && both['2.1'] === 1 && both['4.1'] === 1,
+      'and its next save puts it back on the disk: ' + JSON.stringify(both));
     const errs = page.errors.concat(two.errors);
     assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
     await ctx.close();
@@ -114,7 +116,28 @@ module.exports = async function (h) {
     await ctx.close();
   }
 
-  /* 5. converging must not mean answering each other forever */
+  /* 5. a wipe in one tab is not undone by the other holding a copy */
+  {
+    group('Reset in one tab is not written back by the other');
+    const { ctx, page } = await fresh({ done: { '1.1': 1, '2.1': 1 } });
+    await page.goto(url('index.html'));
+    const two = await tab(ctx, 'index.html');
+    await two.evaluate(() => {
+      // what Reset progress does, minus the reload that follows it
+      const s = window.CNPE_PROGRESS.get();
+      s.ex = {}; s.done = {}; s.exam = {}; s.exam2 = {};
+      s.drill = {}; s.drillmeta = {}; s.days = {}; s.last = null;
+      window.CNPE_PROGRESS.save();
+    });
+    await page.waitForTimeout(400);
+    const left = await page.evaluate(() => JSON.parse(localStorage.getItem('cnpe:v2')).done);
+    assert(Object.keys(left).length === 0, 'the store on the disk is still empty: ' + JSON.stringify(left));
+    const errs = page.errors.concat(two.errors);
+    assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
+    await ctx.close();
+  }
+
+  /* 6. converging must not mean answering each other forever */
   {
     group('the tabs settle instead of writing at each other');
     const { ctx, page } = await fresh({ done: { '2.1': 1 } });

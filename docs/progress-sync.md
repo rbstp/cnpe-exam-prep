@@ -126,17 +126,30 @@ down, and it takes the same merge.
 Each tab keeps `seen`, the ticked keys of the store as it last left it on the disk,
 in memory and nowhere else. When the `storage` event says another tab wrote,
 app.js re-reads the store and merges it in with `seen` as the base: what this tab
-changed since wins, and everything else follows the disk, an un-tick included. If
-the disk is then still missing something of this tab's, it saves, which is one more
-`storage` event in the other tab and, since the merge is the same on both sides,
-the end of it. Then the panels repaint, because they paint from the store at load.
+changed since wins, and everything else follows the disk, an un-tick included. Then
+the panels repaint, because they paint from the store at load. Two tabs that both
+run this end up holding the same store, whichever of them wrote.
 
-The base is narrowed once more before it is used. A tick that is *missing* from the
-other tab's store, rather than sitting in it as `0`, is one that store never had:
-the console writes `0` to un-tick and never drops a key. So the base speaks only
-for the keys the other store mentions, and a tab that saved an older copy of
+The base is narrowed before that merge. A tick that is *missing* from the other
+tab's store, rather than sitting in it as `0`, is one that store never had: the
+console writes `0` to un-tick and never drops a key. So the base speaks only for
+the keys the other store mentions, and a tab that saved an older copy of
 everything, one running the previous bundle included, reads as the stale tab it is
-rather than as a mass removal. Its own next merge picks up what it was missing.
+rather than as a mass removal.
+
+The other direction, whether this tab owes the disk anything, is a different
+question and takes the unnarrowed base: what has this tab changed since the two
+last agreed? Normally nothing, because every change saves as it is made, and then
+there is nothing to write and no answering write for the other tab to answer. It is
+not nothing after a save that threw, which is exactly the work that would otherwise
+be lost. Asking the wider question instead, whether the disk lacks anything this tab
+holds, would put a whole store back over a **Reset progress** that another tab had
+just run.
+
+So a reset still only clears the tabs that hear about it, which for now means the
+one it was run in: the others keep what they have in memory, and the first of them
+to save writes it back, exactly as before any of this. Closing them first, or
+reloading them after, is the whole of the workaround.
 
 ### What still does not travel
 

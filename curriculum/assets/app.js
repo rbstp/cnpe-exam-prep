@@ -94,13 +94,17 @@
   function reconcile() {
     var disk = onDisk();
     if (!disk) return;
-    var base = M.shared(seen, disk);
-    var took = M.merge(store, disk, base);
-    seen = M.ticks(store);
-    // Whether the disk is still missing anything of ours is a question for the
-    // merge, asked on a copy of it. Comparing the two stores any other way makes
-    // a difference neither merge can resolve into two tabs writing forever.
-    if (moved(M.merge(JSON.parse(JSON.stringify(disk)), store, base))) save();
+    // Taking their write, a tick that is missing from it rather than sitting in
+    // it as 0 is one that store never had, so the base speaks only for the keys
+    // it mentions and a tab that saved an older copy of everything reads as the
+    // stale tab it is. Giving ours back is a different question, asked of the
+    // merge on a copy: what has this tab changed since the two last agreed? Only
+    // that is ours to write. Anything wider would put a store back over a Reset
+    // that another tab just ran, and could have two tabs writing forever.
+    var took = M.merge(store, disk, M.shared(seen, disk));
+    var ours = M.merge(JSON.parse(JSON.stringify(disk)), store, M.sets(seen));
+    if (moved(ours)) save();               // which moves seen on to what it wrote
+    else seen = M.ticks(disk);             // otherwise the disk is what we agree on
     // Panels paint from the store at load, so a merge that moved something needs
     // a repaint; boot() is re-runnable, but not out from under an open overlay.
     if (moved(took) && !document.querySelector(".overlay.open")) boot();
