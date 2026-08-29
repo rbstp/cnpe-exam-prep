@@ -93,6 +93,9 @@ bundle = """<title>CNPE study console</title>
 %s
 </script>
 <script>
+%s
+</script>
+<script>
 window.CNPE_PAGES = {
 %s
 };
@@ -163,6 +166,7 @@ window.CNPE_EXAM_KEYS = %s;
     inline_fonts(read("assets/style.css")),
     read("assets/nav.js"),
     read("assets/drill-data.js"),
+    read("assets/merge.js"),
     "\n".join(parts),
     json.dumps(sorted(k for k, (_, ex) in seen.items() if ex)),
     read("assets/widgets.js") if os.path.exists(os.path.join(ROOT, "assets/widgets.js")) else "",

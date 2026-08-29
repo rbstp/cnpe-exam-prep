@@ -30,9 +30,10 @@ the publish step, so `file://` and `make study` keep working exactly as before:
 * `.nojekyll`: a no-op for Actions-published artifacts, kept so nothing changes if this is ever published from a branch instead
 * `CNAME` containing `cnpe.rbstp.dev` (override with `SITE_DOMAIN=`)
 * `404.html`: served for any missing path at any depth, so its links are **root-absolute** (`/assets/style.css`, `/`); that is exactly why it is generated here and not checked into the tree, where absolute paths would break `file://`
+* a content stamp on every asset reference: `assets/app.js?v=a703192080`, the first ten hex digits of the file's SHA-256. Pages sends `Cache-Control: max-age=600` on everything it serves, so without a stamp each file expires on its own clock and a browser can hold the new HTML against the bundle it cached ten minutes ago. The stamp changes when the bytes change and not otherwise, so a page and its assets are always one version of the console, and an asset nobody touched stays cached across the deploy. `check-site.sh` fails on any reference that is missing one
 
 The staged artifact is asserted by `curriculum/tools/check-site.sh` (required files,
-35 pages, self-contained bundle, `CNAME` content). The same script gates pull requests
+35 pages, self-contained bundle, stamped asset references, `CNAME` content). The same script gates pull requests
 via `.github/workflows/ci.yml`, so the merge gate and the deploy gate cannot drift.
 
 Run the identical staging locally with `make site`, then:

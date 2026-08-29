@@ -13,39 +13,18 @@
     entry = NAV.filter(function (n) { return n.id === PAGE_ID; })[0] || null;
   }
 
+  // The merge and the day maths live in merge.js, which knows nothing of the DOM.
+  var M = window.CNPE_MERGE;
+  var DAY_RE = M.DAY_RE, dayKey = M.dayKey, shiftKey = M.shiftKey, dayActs = M.dayActs;
+  var seedDays = M.seedDays;
+
   /* ── study days: the console-wide streak ───────────────────── */
-  var DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
-  function pad2(n) { return (n < 10 ? "0" : "") + n; }
-  function dayKey(d) { return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
-  function shiftKey(k, by) {                     // k ± n days, in local time
-    var p = k.split("-");
-    return dayKey(new Date(+p[0], +p[1] - 1, +p[2] + by));
-  }
-  function dayActs(rec) {
-    if (!rec || typeof rec !== "object") return 0;
-    return (+rec.c || 0) + (+rec.x || 0) + (+rec.s || 0) + (+rec.e || 0);
-  }
   function bumpDay(kind) {                       // kind: c cards, x exercises, s sections, e exam tasks
     if (!store.days || typeof store.days !== "object" || Array.isArray(store.days)) store.days = {};
     var k = dayKey(new Date());
     var d = store.days[k];
     if (!d || typeof d !== "object" || Array.isArray(d)) d = store.days[k] = {};
     d[kind] = (+d[kind] || 0) + 1;
-  }
-  function seedDays(s) {
-    var dm = s.drillmeta;
-    if (!dm || typeof dm !== "object" || Array.isArray(dm)) return;
-    var n = Math.min(+dm.streak || 0, 3660);
-    var end = dm.earned;
-    if (n < 1 || typeof end !== "string" || !DAY_RE.test(end)) return;
-    var t = dayKey(new Date());
-    if (end !== t && end !== shiftKey(t, -1)) return;
-    for (var i = 0; i < n; i++) {
-      var k = shiftKey(end, -i);
-      var d = s.days[k];
-      if (!d || typeof d !== "object" || Array.isArray(d)) d = s.days[k] = {};
-      if (!dayActs(d)) d.c = 10;                 // the ten cards that earned that day
-    }
   }
   function studyStreak() {
     var days = store.days && typeof store.days === "object" && !Array.isArray(store.days) ? store.days : {};
@@ -80,8 +59,11 @@
     return s;
   })();
   var savers = [];
+  // The ticks of the store as this tab last left them on the disk. A save that
+  // throws never happened, so it must not move this on either.
+  var seen = M.ticks(store);
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {}
+    try { localStorage.setItem(KEY, JSON.stringify(store)); seen = M.ticks(store); } catch (e) {}
     // Optional sync listens here. A listener that throws must not cost a save.
     for (var i = 0; i < savers.length; i++) { try { savers[i](); } catch (e) {} }
   }
@@ -94,6 +76,44 @@
     merge: function (src, base) { return mergeProgress(src, base); },
     onSave: function (fn) { if (typeof fn === "function") savers.push(fn); },
   };
+
+  /* ── the other tabs ──────────────────────────────────────── */
+  /* Tabs share the disk and nothing else, so a save used to be a clobber: the
+     last one to write won, and whatever the other held only in memory was gone.
+     With seen as the base, another tab's write becomes the same three-way merge
+     the sync runs: what this tab changed since wins, and everything else follows
+     the disk, an un-tick included. Both tabs end up holding the same store. */
+  function onDisk() {
+    try {
+      var d = JSON.parse(localStorage.getItem(KEY) || "null");
+      return d && typeof d === "object" && !Array.isArray(d) ? d : null;
+    } catch (e) { return null; }
+  }
+  /** @param {CnpeMergeCounts} n */
+  function moved(n) { return !!(n.done || n.ex || n.exam || n.drill || n.days || n.off); }
+  function reconcile() {
+    var disk = onDisk();
+    if (!disk) return;
+    var base = M.shared(seen, disk);
+    var took = M.merge(store, disk, base);
+    seen = M.ticks(store);
+    // Whether the disk is still missing anything of ours is a question for the
+    // merge, asked on a copy of it. Comparing the two stores any other way makes
+    // a difference neither merge can resolve into two tabs writing forever.
+    if (moved(M.merge(JSON.parse(JSON.stringify(disk)), store, base))) save();
+    // Panels paint from the store at load, so a merge that moved something needs
+    // a repaint; boot() is re-runnable, but not out from under an open overlay.
+    if (moved(took) && !document.querySelector(".overlay.open")) boot();
+  }
+  // Fires only in the other tabs, and only for a key this origin actually wrote.
+  addEventListener("storage", function (e) {
+    if (e.key !== null && e.key !== KEY) return;
+    reconcile();
+  });
+  // A tab that was frozen or came back from the cache was not there for the event.
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible") reconcile();
+  });
 
   /* ── progress transfer ─────────────────────────────────────── */
   function exportPayload() {
@@ -110,105 +130,8 @@
       return true;
     } catch (e) { return false; }
   }
-  /* Ticks merge three ways against the base, the last state this browser and the
-     server agreed on: (local === base) ? remote : local, so an un-tick travels.
-     No base makes every base value 0, which is the union Import has always had. */
-  function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
-  // The base lookup uses hasOwnProperty, so "toString" is no longer inert.
-  function ownKey(k) { return k !== "prototype" && !(k in Object.prototype); }
   /** @param {*} src @param {CnpeMergeBase} [base] */
-  function mergeProgress(src, base) {
-    var n = { done: 0, ex: 0, exam: 0, drill: 0, days: 0, off: 0 };
-    function union(into, from, was, bucket) {
-      // A bucket the payload leaves out is not a bucket the server emptied.
-      if (!from || typeof from !== "object" || Array.isArray(from)) return;
-      var keys = Object.create(null);
-      Object.keys(from).forEach(function (k) { keys[k] = 1; });
-      if (was) Object.keys(was).forEach(function (k) { keys[k] = 1; });  // gone from the remote is a removal
-      Object.keys(keys).forEach(function (k) {
-        if (!ownKey(k)) return;
-        var r = from[k] ? 1 : 0;
-        var l = own(into, k) && into[k] ? 1 : 0;
-        var b = was && own(was, k) && was[k] ? 1 : 0;
-        var v = l === b ? r : l;
-        if (!own(into, k)) { if (own(from, k)) { into[k] = v; if (v) n[bucket]++; } }
-        else if (v !== l) { into[k] = v; if (v) n[bucket]++; else n.off++; }
-      });
-    }
-    union(store.done, src.done, base && base.done, "done");
-    union(store.ex, src.ex, base && base.ex, "ex");
-    ["exam", "exam2"].forEach(function (k) {
-      if (!src[k] || typeof src[k] !== "object") return;
-      if (!store[k] || typeof store[k] !== "object") store[k] = {};
-      if (!store[k].tasks || typeof store[k].tasks !== "object") store[k].tasks = {};
-      union(store[k].tasks, src[k].tasks, base && base[k], "exam");
-    });
-    // r and m are lifetime counters, so they take the max; only the last-answer
-    // fields follow the clock. Replacing the record wholesale would lower them.
-    if (src.drill && typeof src.drill === "object" && !Array.isArray(src.drill)) {
-      if (!store.drill || typeof store.drill !== "object") store.drill = {};
-      Object.keys(src.drill).forEach(function (k) {
-        var inc = src.drill[k];
-        if (!ownKey(k) || !inc || typeof inc !== "object" || Array.isArray(inc)) return;
-        var cur = store.drill[k];
-        if (!cur || typeof cur !== "object" || Array.isArray(cur)) {
-          cur = store.drill[k] = { r: 0, m: 0 };
-        }
-        var grew = false;
-        ["r", "m"].forEach(function (f) {
-          var v = +inc[f] || 0;
-          if (v > (+cur[f] || 0)) { cur[f] = v; grew = true; }
-        });
-        var it = +inc.t || 0, ct = +cur.t || 0;
-        // On an exact tie the miss wins, so both sides land on the same record.
-        if (it > ct || (it === ct && it > 0 && !inc.ok && cur.ok)) {
-          cur.ok = !!inc.ok; cur.t = it; grew = true;
-        }
-        if (grew) n.drill++;
-      });
-    }
-    if (src.drillmeta && typeof src.drillmeta === "object" && !Array.isArray(src.drillmeta)) {
-      if (!store.drillmeta || typeof store.drillmeta !== "object") store.drillmeta = {};
-      var cur = store.drillmeta, inc = src.drillmeta;
-      if (typeof inc.day === "string" && inc.day === cur.day) {
-        if ((+inc.n || 0) > (+cur.n || 0)) cur.n = +inc.n;
-      } else if (typeof inc.day === "string" && (typeof cur.day !== "string" || inc.day > cur.day)) {
-        cur.day = inc.day; cur.n = +inc.n || 0;
-      }
-      if (typeof inc.earned === "string" && (typeof cur.earned !== "string" || inc.earned > cur.earned)) {
-        cur.earned = inc.earned;
-      }
-      // Only write what is there: a merge that adds nothing must leave the store alone.
-      var streak = Math.max(+cur.streak || 0, +inc.streak || 0);
-      if (streak) cur.streak = streak;
-      var best = Math.max(+cur.best || 0, +inc.best || 0, streak);
-      if (best) cur.best = best;
-      var t = Math.max(+cur.t || 0, +inc.t || 0);
-      if (t) cur.t = t;
-    }
-    // Study days are counters too: per-counter max, so a merge never lowers a count.
-    if (src.days && typeof src.days === "object" && !Array.isArray(src.days)) {
-      if (!store.days || typeof store.days !== "object" || Array.isArray(store.days)) store.days = {};
-      Object.keys(src.days).forEach(function (k) {
-        if (!DAY_RE.test(k)) return;
-        var inc = src.days[k];
-        if (!inc || typeof inc !== "object" || Array.isArray(inc)) return;
-        var cur = store.days[k];
-        if (!cur || typeof cur !== "object" || Array.isArray(cur)) cur = store.days[k] = {};
-        var grew = false;
-        ["c", "x", "s", "e"].forEach(function (f) {
-          var v = +inc[f] || 0;
-          if (v > (+cur[f] || 0)) { cur[f] = v; grew = true; }
-        });
-        if (grew) n.days++;
-      });
-    }
-    seedDays(store);
-    if (typeof src.last === "string" && NAV.filter(function (x) { return x.id === src.last; }).length) {
-      store.last = src.last;
-    }
-    return n;
-  }
+  function mergeProgress(src, base) { return M.merge(store, src, base); }
   function importPayload(text) {
     var obj;
     try { obj = JSON.parse(text); } catch (e) { return "That file is not valid JSON."; }

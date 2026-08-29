@@ -115,8 +115,38 @@ interface CnpeTickSets {
   exam2: string[];
 }
 
+/** What `cnpe:sync-base` holds: those ticks, plus the row they came from. */
+interface CnpeSyncBase extends CnpeTickSets {
+  /** the GitHub account id the row belongs to */
+  uid?: string;
+  /** the revision that held exactly these ticks */
+  rev?: number;
+}
+
 /** The same four buckets as lookup maps, which is the shape the merge reads. */
 type CnpeMergeBase = Record<"done" | "ex" | "exam" | "exam2", Record<string, 1>>;
+
+/** The DOM-free merge, shared by app.js, sync.js and tools/merge-test.mjs. */
+interface CnpeMergeApi {
+  /** merge src into store: counters take the max, and ticks resolve against
+      base as (local === base) ? remote : local, so no base means a plain union */
+  merge(store: unknown, src: unknown, base?: CnpeMergeBase): CnpeMergeCounts;
+  /** the ticked keys of a store, per bucket */
+  ticks(p: unknown): CnpeTickSets;
+  /** those four lists as the lookup maps the merge reads */
+  sets(b: unknown): CnpeMergeBase;
+  /** the same, narrowed to the keys another store mentions: what one tab may
+      hold as a base against another tab's copy */
+  shared(seen: CnpeTickSets, p: unknown): CnpeMergeBase;
+  /** backfill days for a streak earned before the console counted them */
+  seedDays(s: unknown): void;
+  dayKey(d: Date): string;
+  /** k plus or minus n days, in local time */
+  shiftKey(k: string, by: number): string;
+  /** how many study actions one day record holds */
+  dayActs(rec: unknown): number;
+  DAY_RE: RegExp;
+}
 
 /** The seam between app.js and drill.js / sync.js (CNPE_PROGRESS). */
 interface CnpeProgressApi {
@@ -159,6 +189,7 @@ interface Window {
   CNPE_NAV?: CnpeNavEntry[];
   CNPE_DOMAINS?: CnpeDomain[];
   CNPE_DRILL?: CnpeDrillQuestion[];
+  CNPE_MERGE?: CnpeMergeApi;
   CNPE_PROGRESS?: CnpeProgressApi;
   CNPE_SYNC?: CnpeSyncApi;
   /** origin of the sync Worker; defaults to https://sync.rbstp.dev */
@@ -172,4 +203,6 @@ interface Window {
   CNPE_BUNDLE?: boolean;
   /** clipboard stub installed by the browser checks */
   __copied?: string[];
+  /** store-write counter installed by the browser checks */
+  __writes?: number;
 }

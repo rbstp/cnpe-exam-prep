@@ -67,5 +67,21 @@ cat > "$OUT/404.html" <<'HTML'
 </html>
 HTML
 
+# Pages serves every file with a ten-minute max-age, so without this a deploy
+# arrives in pieces: the new HTML against a bundle the browser cached before it,
+# for as long as that cache holds. Stamping each reference with a hash of the
+# file's bytes changes the URL exactly when the file changes, and not otherwise,
+# so a page and the assets it pulls are always the same version of the console.
+sha() {
+  if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -c1-10
+}
+script=""
+for a in "$OUT"/assets/*.css "$OUT"/assets/*.js "$OUT"/assets/*.svg; do
+  name="$(basename "$a")"
+  # href="assets/x", href="../assets/x" and 404.html's root-absolute href="/assets/x"
+  script+="s#(href|src)=\"((\.\./)*|/)assets/${name//./\\.}\"#\1=\"\2assets/$name?v=$(sha "$a")\"#g;"
+done
+find "$OUT" -name '*.html' -print0 | xargs -0 sed -E -i "$script"
+
 echo "staged         $OUT"
 echo "pages          $(find "$OUT" -name '*.html' | wc -l | tr -d ' ') html files, CNAME=$SITE_DOMAIN"

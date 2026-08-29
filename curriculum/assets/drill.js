@@ -2,8 +2,8 @@
 (function () {
   "use strict";
 
-  var FRESH_MS = 20 * 3600 * 1000;   // a correct answer rests a card this long
   var GOAL = 10;                     // cards per day that fill the drill's daily goal
+  var DAY = 864e5;
 
   var session = null;                // { deck, i, right[], missed[], revealed }
   var size = 10, domain = 0;         // deck size, and 0 means all domains
@@ -44,13 +44,46 @@
     return api().streak ? api().streak() : { streak: 0, best: 0 };
   }
 
+  /* ── the schedule ────────────────────────────────────────── */
+  /* SM-2's shape over the counters the drill has always kept. A card you keep
+     getting right waits longer each time, stretched by an ease its own miss rate
+     sets; a miss puts it back at the bottom, due again now. Nothing new is
+     stored: r, m, ok and t are the whole of it. */
+  var STEP = [1, 4];                 // days to the first review, then to the second
+  var CAP = 21;                      // the exam is weeks away, so nothing rests longer
+  var EASE_HI = 2.5, EASE_LO = 1.3;  // SM-2's own range, off the lifetime miss rate
+
+  function easeOf(rec) {
+    var n = (+rec.r || 0) + (+rec.m || 0);
+    return n ? Math.max(EASE_LO, EASE_HI - 1.2 * ((+rec.m || 0) / n)) : EASE_HI;
+  }
+  // Days a card rests after the answer it last got. Zero means it is due now.
+  function restOf(rec) {
+    if (!rec || !rec.t || !rec.ok) return 0;              // never answered, or missed
+    var reps = (+rec.r || 0) - (+rec.m || 0);             // right, net of the misses
+    if (reps < 1) return 0;
+    if (reps <= STEP.length) return STEP[reps - 1];
+    var days = STEP[STEP.length - 1], ease = easeOf(rec);
+    for (var i = STEP.length; i < reps; i++) days *= ease;
+    return Math.min(days, CAP);
+  }
+  // Milliseconds until a card comes round again; zero or less means it is due.
+  function dueIn(rec, now) { return ((rec && +rec.t) || 0) + restOf(rec) * DAY - now; }
+  function dueCount(now) {
+    var r = recs(), n = 0;
+    bank().forEach(function (q) { if (dueIn(r[q.id], now) <= 0) n++; });
+    return n;
+  }
+
   /* ── the deck ────────────────────────────────────────────── */
   function weightOf(q, now) {
     var rec = recs()[q.id];
     var w = 1;
     if (!rec) w *= 1.6;                                   // never seen
     else {
-      if (rec.ok && now - (rec.t || 0) < FRESH_MS) w *= 0.25;  // fresh and correct: rest it
+      var wait = dueIn(rec, now);
+      if (wait > 0) w *= 0.15;                            // resting until its review
+      else w *= 1 + Math.min(-wait / DAY, 4) * 0.4;       // and louder the longer it is late
       if (!rec.ok) w *= 2;                                // missed last time
       if ((rec.m || 0) > (rec.r || 0)) w *= 2.5;          // missed more than got
       else if (rec.m) w *= 1.4;                           // missed at least once
@@ -111,7 +144,8 @@
       var e = document.getElementById(id);
       if (e) e.innerHTML = html;
     };
-    set("drill-bank", all.length + '<span class="u">questions</span>');
+    var due = dueCount(Date.now());
+    set("drill-due", due + '<span class="u">of ' + all.length + "</span>");
     set("drill-seen", seen + '<span class="u">/ ' + all.length + "</span>");
     set("drill-acc", right + wrong ? Math.round(right / (right + wrong) * 100) + '<span class="u">%</span>' : '<span class="u">no answers yet</span>');
     var sk = streak();
@@ -162,10 +196,14 @@
     actions.appendChild(start);
     host.appendChild(actions);
 
+    var due = dueCount(Date.now());
     host.appendChild(el("div", "drill-note",
       "Answer out loud before revealing, then grade yourself honestly; nobody else is watching. " +
-      "The deck leans toward questions you missed, questions you have not seen, and sections you have not " +
-      "marked complete. A correct answer rests its card for a day. " +
+      (due ? due === 1 ? "One card is due for review and the deck starts there. "
+                       : due + " cards are due for review, and the deck starts there. "
+           : "Nothing is due right now, so this is a session ahead of schedule. ") +
+      "Getting a card right puts it away for longer each time; missing it brings it back now. " +
+      "The deck also leans toward questions you have not seen and sections you have not marked complete. " +
       "<span class='k'>space</span> reveals, <span class='k'>1</span> missed, <span class='k'>2</span> got it."));
   }
 

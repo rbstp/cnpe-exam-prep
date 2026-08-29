@@ -15,7 +15,7 @@ SYNC_DOMAIN="${SYNC_DOMAIN:-sync.rbstp.dev}"
 for f in index.html mock-exam.html mock-exam-2.html drill.html console.html 404.html CNAME \
          assets/style.css assets/app.js assets/nav.js assets/widgets.js \
          assets/theme.js assets/favicon.svg assets/drill-data.js assets/drill.js \
-         assets/sync.js; do
+         assets/merge.js assets/sync.js; do
   test -s "$SITE/$f" || { echo "missing or empty: $f"; exit 1; }
 done
 test -f "$SITE/.nojekyll" || { echo "missing: .nojekyll"; exit 1; }
@@ -36,6 +36,15 @@ for f in assets/sync.js console.html; do
   grep -q "https://$SYNC_DOMAIN" "$SITE/$f" ||
     { echo "$f does not point at https://$SYNC_DOMAIN"; exit 1; }
 done
+
+# Every asset a page pulls must carry its content stamp. Without one, Pages'
+# ten-minute cache decides when a deploy takes effect, per file: a browser can
+# hold the new HTML and the old bundle at the same time.
+while IFS= read -r f; do
+  unstamped=$(grep -oE '(href|src)="[^"]*assets/[^"]+"' "$f" | grep -v '?v=' || true)
+  test -z "$unstamped" ||
+    { echo "unstamped asset reference in ${f#"$SITE"/}: $unstamped"; exit 1; }
+done < <(find "$SITE" -name '*.html')
 
 # Every page's theme-color pair must carry the grounds the stylesheet paints.
 dk=$(grep -o -- '--dk-ink: *#[0-9A-Fa-f]*' "$SITE/assets/style.css" | grep -o '#[0-9A-Fa-f]*')

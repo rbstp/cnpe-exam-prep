@@ -5,7 +5,7 @@ of truth; this is a mirror bolted on top of it, off by default, and everything i
 the console works identically without it.
 
 Concretely, the guarantees the code holds to, each asserted by a browser check in
-`curriculum/tools/browser-checks/sync.js`:
+`curriculum/tools/browser-checks/sync.js`, or in `tabs.js` for the last one:
 
 * Over `file://` there is no sync UI and **no request is ever made**.
 * On the hosted site, signed out, there is a button and still **no request**.
@@ -14,6 +14,8 @@ Concretely, the guarantees the code holds to, each asserted by a browser check i
 * Signing out stops the syncing and leaves both copies, local and saved, intact.
 * A tick and an un-tick both reach the other browsers, and work this browser did
   not itself undo survives every merge it takes part in.
+* Two tabs of one browser converge on the same store instead of overwriting each
+  other, signed in or not; that one is local-first machinery, not sync.
 
 If you never press **Sign in to sync**, nothing below applies to you and the
 console behaves exactly as it did before.
@@ -93,12 +95,14 @@ Four checks, and failing any of them falls back to the union:
   and the next load would push the missing work up as a removal. So the base is
   written only after the store write is confirmed, and read only while the
   persisted store still matches the one in memory.
-* **No other tab may have written the store.** The base and the store are shared
-  across tabs; the in-memory copy is not. A second tab that saves its own older
-  store re-aligns disk and memory, so the check above goes quiet just when it is
-  needed most, and that tab would read the first tab's work as a removal. The
-  `storage` event fires only in the *other* tabs, so a tab that sees the store
-  change under it stops trusting the base for the rest of its life.
+* **No other tab may have written the store**, unless this one took that write
+  in. The base and the store are shared across tabs; the in-memory copy is not.
+  A second tab that saves its own older store re-aligns disk and memory, so the
+  check above goes quiet just when it is needed most, and that tab would read the
+  first tab's work as a removal. The `storage` event fires only in the *other*
+  tabs, and app.js answers it first by merging that store into memory (below);
+  sync looks after it, so a store and a disk that still disagree mean the merge
+  could not fix it, and that tab stops trusting the base for the rest of its life.
 * **The row must be the one the base came from.** A `rev` below the base's means
   the row was deleted and remade, and so does a `rev` equal to the base's with
   different ticks, since one `rev` holds one blob. A pull that finds no row at all
@@ -112,21 +116,45 @@ Four checks, and failing any of them falls back to the union:
 rather than a mass un-tick: declining the second confirm still syncs the saved copy
 back down, exactly as that confirm says.
 
+### Two tabs, one disk
+
+Tabs share the store on the disk and nothing else, so `save()` used to be a
+clobber: the last tab to write won, and whatever the other one held only in memory
+was gone until it saved again. That is the same problem the sync solves, one level
+down, and it takes the same merge.
+
+Each tab keeps `seen`, the ticked keys of the store as it last left it on the disk,
+in memory and nowhere else. When the `storage` event says another tab wrote,
+app.js re-reads the store and merges it in with `seen` as the base: what this tab
+changed since wins, and everything else follows the disk, an un-tick included. If
+the disk is then still missing something of this tab's, it saves, which is one more
+`storage` event in the other tab and, since the merge is the same on both sides,
+the end of it. Then the panels repaint, because they paint from the store at load.
+
+The base is narrowed once more before it is used. A tick that is *missing* from the
+other tab's store, rather than sitting in it as `0`, is one that store never had:
+the console writes `0` to un-tick and never drops a key. So the base speaks only
+for the keys the other store mentions, and a tab that saved an older copy of
+everything, one running the previous bundle included, reads as the stale tab it is
+rather than as a mass removal. Its own next merge picks up what it was missing.
+
 ### What still does not travel
 
 * **A browser running older JavaScript.** Until it loads the new bundle it merges
-  the old way and ticks things back. Pages caches assets for ten minutes.
+  the old way and ticks things back. Every asset reference carries a hash of the
+  file, so a deploy takes effect on the next load rather than whenever Pages'
+  ten-minute cache happens to expire, but a tab that is already open keeps the
+  code it started with until it is reloaded.
 * **An un-tick that lost a race.** A browser that was offline with a pending
   un-tick wins over a newer re-tick made elsewhere, because a base cannot see a
   change that nets back to where it started. Telling those apart needs a per-key
   clock, which is a larger thing than this is.
 * **A removal arriving on a `409`** is not repainted until the next load. The pull
   repaints; the conflict retry does not.
-* **Two tabs of the same browser still diverge**, exactly as they did before sync
-  existed: each tab holds its own in-memory store and `save()` writes the whole
-  blob. Sync still heals that once both tabs' work reaches the server, which is why
-  the push on `pagehide` uses `keepalive`, and why both tabs fall back to the union
-  the moment they notice each other.
+* **A tab that never sees the write.** The `storage` event does not queue, so a
+  frozen or discarded tab can miss one; it re-reads the store when it becomes
+  visible again, which covers coming back to it, but not a save made from a tab
+  that is still in the background.
 
 One deliberate change of behaviour: the mock exam's own **Reset** button now clears
 that paper on every synced browser. It zeroes its task keys rather than deleting
@@ -360,6 +388,11 @@ Worth knowing if you change any of it:
 * There is no per-account rate limit. `ALLOWED_LOGINS` is the answer if that
   matters to you; without it, a signed-in account could spend D1's daily write
   budget.
+* `curriculum/tools/merge-test.mjs` drives the merge itself over plain objects:
+  all 27 base/local/remote combinations in each of the four tick buckets, the
+  counter maxima, the prototype guards on a payload that arrives over the network,
+  and the narrowed base one tab holds against another. Plain `node`, no
+  dependencies, and CI runs it on every PR.
 * `sync/test.mjs` drives the Worker directly with a stub D1: forged, tampered,
   expired and wrong-key session cookies, the CORS gate on every credentialed
   route, six open-redirect attempts on `return`, the state and nonce checks on

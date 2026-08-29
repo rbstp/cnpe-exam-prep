@@ -113,7 +113,49 @@ module.exports = async function (h) {
     await ctx.close();
   }
 
-  /* 5. a handed-over domain pre-selects its chip, once */
+  /* 5. the schedule rests what is not due and deals what is */
+  {
+    group('the schedule rests a fresh card and brings a missed one back');
+    const { ctx, page } = await fresh();
+    await page.addInitScript(() => {
+      let s = 42 >>> 0;
+      Math.random = function () { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    });
+    await page.goto(url('drill.html'));
+    const dueQs = await page.evaluate(() => {
+      const st = window.CNPE_PROGRESS.get(), bank = window.CNPE_DRILL, now = Date.now();
+      st.drill = {};
+      // five got right a month ago, so long past due; the rest answered just now
+      bank.forEach(function (q, i) {
+        st.drill[q.id] = i < 5 ? { r: 2, m: 0, ok: true, t: now - 30 * 864e5 }
+                               : { r: 3, m: 0, ok: true, t: now };
+      });
+      window.CNPE_PROGRESS.save();
+      return bank.slice(0, 5).map(function (q) {
+        const d = document.createElement('div'); d.innerHTML = q.q;
+        return d.textContent.replace(/\s+/g, ' ').trim();
+      });
+    });
+    await page.reload();
+    const due = () => page.evaluate(() => +document.getElementById('drill-due').firstChild.textContent);
+    assert((await due()) === 5, 'the tile counts the five that are due: ' + await due());
+    await page.click('button.wchip:text-is("20")');
+    await page.click('button.drill-start');
+    const { qs } = await walk(page, 20, i => (i === 0 ? '1' : '2'));
+    const hit = dueQs.filter(q => qs.indexOf(q) >= 0).length;
+    assert(hit >= 3, hit + ' of the 5 due cards made the 20-card deck');
+    // the 19 got right went away for a day or more; the one missed is due again now
+    assert((await due()) === 1, 'the session left exactly the missed card due: ' + await due());
+    const missed = await page.evaluate(() => {
+      const st = window.CNPE_PROGRESS.get();
+      return Object.keys(st.drill).filter(function (k) { return st.drill[k].ok === false; }).length;
+    });
+    assert(missed === 1, 'and that is the one card the store has as missed: ' + missed);
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  }
+
+  /* 6. a handed-over domain pre-selects its chip, once */
   {
     group('the dashboard hand-off pre-selects a domain chip');
     const { ctx, page } = await fresh();
