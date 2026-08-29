@@ -35,6 +35,9 @@ the publish step, so `file://` and `make study` keep working exactly as before:
 The staged artifact is asserted by `curriculum/tools/check-site.sh` (required files,
 35 pages, self-contained bundle, stamped asset references, `CNAME` content). The same script gates pull requests
 via `.github/workflows/ci.yml`, so the merge gate and the deploy gate cannot drift.
+`tools/subset-fonts.py --check` runs alongside it: the shipped faces carry only the
+characters the console writes, and the check fails when new prose reaches for one the cut
+removed, rather than letting it fall back to a system font in a deployed page.
 
 Run the identical staging locally with `make site`, then:
 
@@ -242,7 +245,7 @@ curl -sS -o /dev/null -w 'apex %{http_code}\n' https://rbstp.dev/
 ### Browser pass
 
 1. **Fonts.** Open `https://cnpe.rbstp.dev/`, DevTools → Network → filter `Font`, reload.
-   Six `woff2` at `200`: plex-sans 400/600, plex-cond 600/700, plex-mono 400/500.
+   Six `woff2` at `200`: plex-sans (variable), plex-cond 600/700, plex-mono 400/500/600.
    Headings should be narrow and condensed, code monospaced; a serif or the system UI
    font means they did not load.
 2. **Palette.** Press <kbd>/</kbd> → the overlay opens. Type `crossplane` → one hit

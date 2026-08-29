@@ -54,6 +54,8 @@ study:   ## Open the CNPE study console (curriculum) in a browser
 	 if command -v xdg-open >/dev/null; then xdg-open "$$f" >/dev/null 2>&1 & \
 	 elif command -v open >/dev/null; then open "$$f"; \
 	 else echo "open file://$$f"; fi
+fonts:   ## Re-cut assets/fonts from tools/fonts-src to the console's charset (needs fonttools, brotli)
+	@python3 curriculum/tools/subset-fonts.py
 site:    ## Stage the study console exactly as Pages publishes it, into ./_site
 	@curriculum/tools/stage-site.sh "$(CURDIR)/_site"
 	@echo "serve it: python3 -m http.server -d _site 8080"
@@ -82,7 +84,7 @@ down:    ## Delete both clusters (keeps git history + registry)
 nuke:    ## Delete everything including Gitea data
 	@$(S)/99-down.sh all
 
-.PHONY: help host tools up gitea gitops cicd api obs sec mesh portal core full spire validate fix-cp-metrics study site browser worker merge typecheck urls forward forward-stop status break break-fix down nuke
+.PHONY: help host tools up gitea gitops cicd api obs sec mesh portal core full spire validate fix-cp-metrics study fonts site browser worker merge typecheck urls forward forward-stop status break break-fix down nuke
 
 break-answer: ## Reveal the last injected fault
 	@cat /tmp/cnpe-lab/.last-fault 2>/dev/null || echo "none injected yet"
