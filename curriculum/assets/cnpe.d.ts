@@ -156,6 +156,9 @@ interface CnpeMergeApi {
   dueIn(rec: unknown, now: number): number;
   /** backfill days for a streak earned before the console counted them */
   seedDays(s: unknown): void;
+  /** consecutive days with a heartbeat, counted back from today ("YYYY-MM-DD",
+      defaulting to the clock), plus a best that drillmeta.best can only raise */
+  streak(store: unknown, today?: string): { streak: number; best: number };
   dayKey(d: Date): string;
   /** k plus or minus n days, in local time */
   shiftKey(k: string, by: number): string;
@@ -178,6 +181,14 @@ interface CnpeProgressApi {
   merge(src: unknown, base?: CnpeMergeBase): CnpeMergeCounts;
   /** called after every save, so the optional sync can mirror it */
   onSave(fn: () => void): void;
+}
+
+/** The command-block colouring (CNPE_SYNTAX). Escaped HTML in, escaped out. */
+interface CnpeSyntaxApi {
+  /** shield strings and comments, then run the language's passes */
+  highlight(html: string, lang: string): string;
+  /** one language's passes, over a run holding no string */
+  paint(s: string, lang: string): string;
 }
 
 /** Optional remote progress sync (CNPE_SYNC). Absent over file://. */
@@ -208,6 +219,7 @@ interface Window {
   /** the same deck without the prose; the dashboard loads this instead */
   CNPE_DRILL_INDEX?: CnpeDrillCard[];
   CNPE_MERGE?: CnpeMergeApi;
+  CNPE_SYNTAX?: CnpeSyntaxApi;
   CNPE_PROGRESS?: CnpeProgressApi;
   CNPE_SYNC?: CnpeSyncApi;
   /** origin of the sync Worker; defaults to https://sync.rbstp.dev */

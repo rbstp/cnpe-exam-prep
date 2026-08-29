@@ -17,9 +17,11 @@
   // Every page loads it first, but a browser holding a cached copy of a page from
   // before it existed can still fetch this file, so leave that page as the static
   // HTML it already is rather than throwing across it. It rights itself on reload.
+  // Name what this file needs, not just the object: a cache can hold an older
+  // merge.js as easily as none, and a missing member throws mid-boot instead.
   var M = window.CNPE_MERGE;
-  if (!M) return;
-  var DAY_RE = M.DAY_RE, dayKey = M.dayKey, shiftKey = M.shiftKey, dayActs = M.dayActs;
+  if (!M || !M.streak) return;
+  var dayKey = M.dayKey, dayActs = M.dayActs;
   var seedDays = M.seedDays;
 
   /* ── study days: the console-wide streak ───────────────────── */
@@ -30,25 +32,7 @@
     if (!d || typeof d !== "object" || Array.isArray(d)) d = store.days[k] = {};
     d[kind] = (+d[kind] || 0) + 1;
   }
-  function studyStreak() {
-    var days = store.days && typeof store.days === "object" && !Array.isArray(store.days) ? store.days : {};
-    var q = {};
-    Object.keys(days).forEach(function (k) {
-      if (DAY_RE.test(k) && dayActs(days[k]) > 0) q[k] = 1;
-    });
-    var cur = dayKey(new Date());                // alive if today or yesterday qualifies
-    if (!q[cur]) cur = shiftKey(cur, -1);
-    var streak = 0;
-    while (q[cur]) { streak++; cur = shiftKey(cur, -1); }
-    var best = 0, run = 0, prev = null;
-    Object.keys(q).sort().forEach(function (k) {
-      run = prev && shiftKey(prev, 1) === k ? run + 1 : 1;
-      prev = k;
-      if (run > best) best = run;
-    });
-    var dm = store.drillmeta && typeof store.drillmeta === "object" ? store.drillmeta : {};
-    return { streak: streak, best: Math.max(best, +dm.best || 0) };
-  }
+  function studyStreak() { return M.streak(store); }   // the maths is merge.js's
 
   /* ── storage ─────────────────────────────────────────────── */
   // Seeding a pre-days store is a migration, not a repaint: boot saves it once.
@@ -447,39 +431,7 @@
   }
 
   /* ── code blocks: language bar, copy, light highlighting ─── */
-  var KWS = /\b(kubectl|helm|flux|argocd|argo|tkn|kubeseal|cosign|skopeo|trivy|docker|git|curl|jq|kustomize|istioctl|linkerd|hubble|cilium|crossplane|stern|kubectx|make|yq|base64|sudo|watch|source|echo|sleep|grep|awk|sed|sort|head|tail|wc|seq|for|do|done|while|if|then|fi|export)\b/g;
-  function highlight(code, lang) {
-    var html = code.innerHTML; // already entity-escaped in source
-    // strings and comments first; later passes only touch what is left over
-    var protectedRe = /(^|\n)([ \t]*#[^\n]*)|('[^'\n]*')|("[^"\n]*")/g;
-    var out = "", last = 0, m;
-    while ((m = protectedRe.exec(html)) !== null) {
-      out += paint(html.slice(last, m.index), lang);
-      if (m[2] != null) out += m[1] + '<span class="t-cm">' + m[2] + "</span>";
-      else out += '<span class="t-str">' + m[0] + "</span>";
-      last = m.index + m[0].length;
-    }
-    out += paint(html.slice(last), lang);
-    code.innerHTML = out;
-  }
-  function paint(s, lang) {
-    if (!s) return s;
-    if (lang === "yaml" || lang === "json") {
-      s = s.replace(/(^|\n)([ \t-]*)([A-Za-z_][\w.\/-]*)(:)/g, '$1$2<span class="t-key">$3</span>$4');
-      s = s.replace(/\b(true|false|null)\b/g, '<span class="t-kw">$1</span>');
-      return s;
-    }
-    if (lang === "promql" || lang === "logql") {
-      s = s.replace(/\b(sum|rate|increase|avg|count|max|min|by|without|histogram_quantile|absent|vector|topk|irate|delta|group_left|or|unless|and)\b/g, '<span class="t-kw">$1</span>');
-      s = s.replace(/\b(\d+(\.\d+)?[smhdw]?)\b/g, '<span class="t-num">$1</span>');
-      return s;
-    }
-    s = s.replace(KWS, function (m) { return '<span class="t-cmd">' + m + "</span>"; });
-    s = s.replace(/(\s)(--?[A-Za-z][\w-]*)/g, '$1<span class="t-flag">$2</span>');
-    s = s.replace(/(\$\{?[A-Za-z_][\w]*\}?)/g, '<span class="t-var">$1</span>');
-    return s;
-  }
-
+  // The colouring is syntax.js; this file owns the block and does the write.
   function buildCodeBlocks() {
     Array.prototype.forEach.call(document.querySelectorAll(".cb"), function (cb) {
       if (cb.getAttribute("data-built")) return;
@@ -502,7 +454,10 @@
       });
       bar.appendChild(btn);
       cb.insertBefore(bar, cb.firstChild);
-      if (code) { try { highlight(code, lang); } catch (e) {} }
+      // A page cached from before syntax.js keeps its block plain.
+      if (code && window.CNPE_SYNTAX) {
+        try { code.innerHTML = window.CNPE_SYNTAX.highlight(code.innerHTML, lang); } catch (e) {}
+      }
     });
     Array.prototype.forEach.call(document.querySelectorAll(".needs code"), function (c) {
       if (c.getAttribute("data-built")) return;

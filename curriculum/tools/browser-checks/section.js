@@ -25,6 +25,11 @@ module.exports = async function (h) {
     // the first block sits inside an exercise, whose panel is rebuilt via innerHTML at boot
     assert(await page.evaluate(() => !!document.querySelector('.cb').closest('.exercise')),
       'the block under test lives inside an exercise panel');
+    // syntax-test.mjs proves the colouring; this proves it reaches the page at
+    // all, which the copy button cannot see (it reads textContent) and neither
+    // does check-site.sh. Without it a highlighter that throws deploys green.
+    assert(await page.evaluate(() => !!document.querySelector('.cb code span.t-cmd')),
+      'the block came out coloured, so syntax.js loaded and app.js called it');
     const expected = await page.evaluate(() => document.querySelector('.cb code').textContent);
     await page.click('.cb .copy-btn');
     const copied = await page.evaluate(() => window.__copied);
