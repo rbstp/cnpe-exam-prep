@@ -17,6 +17,15 @@ SRC = os.path.join(HERE, "fonts-src")
 OUT = os.path.join(ROOT, "assets", "fonts")
 CUT = os.path.join(SRC, "cut.txt")
 
+# The OFL reserves the name "Plex" for IBM's own builds, so a cut of one may not
+# present itself under it. Only the records that name the font are rewritten: the
+# copyright, version, trademark, vendor and licence records are attribution, and
+# stay exactly as they arrived.
+BRAND = "CNPE"
+ATTRIBUTION = {0, 5, 7, 8, 9, 11, 12, 13, 14}
+ORIGIN = ("A subset of IBM Plex, cut to the characters the CNPE study console writes. "
+          "IBM Plex is a trademark of IBM Corp.")
+
 # Text the site puts on screen without spelling it anywhere this scan can read:
 # sync.js formats a time in the visitor's locale, and some locales separate with
 # these rather than a plain space.
@@ -44,6 +53,19 @@ def used():
         chars |= set(html.unescape(open(path, encoding="utf-8").read()))
     # Cc/Cf carry no glyph, and a stray NUL would not survive the argv below.
     return {c for c in chars if unicodedata.category(c)[0] != "C"}
+
+
+def rebrand(path):
+    font = TTFont(path)
+    for rec in font["name"].names:
+        if rec.nameID in ATTRIBUTION:
+            continue
+        renamed = rec.toUnicode().replace("IBM Plex", BRAND).replace("IBMPlex", BRAND)
+        if renamed != rec.toUnicode():
+            rec.string = renamed
+    for rec in [r for r in font["name"].names if r.nameID == 1]:
+        font["name"].setName(ORIGIN, 10, rec.platformID, rec.platEncID, rec.langID)
+    font.save(path)
 
 
 def faces():
@@ -114,6 +136,7 @@ for src in sorted(glob.glob(os.path.join(SRC, "*.woff2"))):
                     "--text=" + keep, "--layout-features=*",
                     "--flavor=woff2", "--output-file=" + dst],
                    check=True, stdout=subprocess.DEVNULL)
+    rebrand(dst)
     kept |= set(TTFont(dst).getBestCmap())
     before += os.path.getsize(src)
     after += os.path.getsize(dst)
