@@ -14,7 +14,11 @@
   var FLAG = "cnpe:sync";
   var BASE = "cnpe:sync-base";
   var RELOADED = "cnpe:sync-reloaded";
-  var DEBOUNCE = 2500;
+  // 30s so a drill session pushes once, not once a card; the checks override it.
+  var _d = typeof window.CNPE_SYNC_DEBOUNCE === "number" ? window.CNPE_SYNC_DEBOUNCE : 0;
+  var DEBOUNCE = _d >= 100 && _d <= 300000 ? _d : 30000;
+  // Every save pushes the deadline out, so without this one never lands.
+  var MAXWAIT = 4 * DEBOUNCE;
   var MAX_RETRY = 3;
 
   var HEAD = '<svg class="acct" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" ' +
@@ -28,7 +32,7 @@
 
   var S = { on: false, login: "", uid: "", rev: 0, note: "", busy: false, muted: false, sent: null,
             noAvatar: false, foreign: false };
-  var timer = null, booted = false;
+  var timer = null, oldest = 0, booted = false;
 
   /* ── availability ────────────────────────────────────────── */
   // The OAuth round trip cannot return to file://, and a null origin holds no cookie.
@@ -203,8 +207,9 @@
   function muted(fn) { S.muted = true; try { fn(); } finally { S.muted = false; } }
   function schedule() {
     if (!S.on || S.muted) return;
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(function () { timer = null; push(); }, DEBOUNCE);
+    if (timer) clearTimeout(timer); else oldest = Date.now();
+    timer = setTimeout(function () { timer = null; push(); },
+                       Math.min(DEBOUNCE, Math.max(0, oldest + MAXWAIT - Date.now())));
   }
   function flush() {
     if (!S.on || !timer) return Promise.resolve();

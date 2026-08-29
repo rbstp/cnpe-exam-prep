@@ -224,6 +224,8 @@ interface Window {
   CNPE_SYNC?: CnpeSyncApi;
   /** origin of the sync Worker; defaults to https://sync.rbstp.dev */
   CNPE_SYNC_API?: string;
+  /** ms the sync waits after the last save before pushing; defaults to 30000 */
+  CNPE_SYNC_DEBOUNCE?: number;
   CNPE_THEME?: CnpeThemeApi;
   CNPE_WIDGETS?: { mount(): void };
   CNPE_DRILL_UI?: { mount(): void };
