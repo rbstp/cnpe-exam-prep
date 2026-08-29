@@ -403,11 +403,15 @@ Worth knowing if you change any of it:
 * There is no per-account rate limit. `ALLOWED_LOGINS` is the answer if that
   matters to you; without it, a signed-in account could spend D1's daily write
   budget.
-* `curriculum/tools/merge-test.mjs` drives the merge itself over plain objects:
-  all 27 base/local/remote combinations in each of the four tick buckets, the
-  counter maxima, the prototype guards on a payload that arrives over the network,
-  and the narrowed base one tab holds against another. Plain `node`, no
-  dependencies, and CI runs it on every PR.
+* `curriculum/tools/merge-test.mjs` drives the merge and the rules around it over
+  plain objects: all 27 base/local/remote combinations in each of the four tick
+  buckets, the counter maxima, the prototype guards on a payload that arrives over
+  the network, the narrowed base one tab holds against another, and the base rules
+  above, meaning the rev and account checks, the wire shape the exam clock is
+  stripped from, and what counts as having anything to save. Whether this browser
+  may hold a base at all stays in `sync.js`, since that is a question about the
+  disk and the other tabs rather than a rule. Plain `node`, no dependencies, and
+  CI runs it on every PR.
 * `sync/test.mjs` drives the Worker directly with a stub D1: forged, tampered,
   expired and wrong-key session cookies, the CORS gate on every credentialed
   route, six open-redirect attempts on `return`, the state and nonce checks on

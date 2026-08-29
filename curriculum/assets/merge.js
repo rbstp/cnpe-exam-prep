@@ -1,8 +1,9 @@
-/* CNPE curriculum: the progress merge, and the study-day helpers that go with it.
+/* CNPE curriculum: the progress merge, and the decisions that go with it.
 
-   Nothing in here touches the DOM, storage or the network: it is a pure function
+   Nothing in here touches the DOM, storage or the network: it is plain functions
    over plain objects, which is what lets tools/merge-test.mjs drive every branch
-   of it in bare node. app.js and sync.js load it and hold the state. */
+   of them in bare node. app.js and sync.js load this and hold the state, so the
+   parts that read localStorage or the account live there and the rules live here. */
 (function (root) {
   "use strict";
 
@@ -82,6 +83,66 @@
       out[b] = keep;
     });
     return out;
+  }
+
+  /* ── the sync's own decisions ─────────────────────────────── */
+  /* Key order in a store means nothing, so comparing two of them means ordering
+     the keys first. Used to tell a store that reached the disk from one that did
+     not, and a payload worth sending from one already sent. */
+  /** @param {*} v @return {string} */
+  function canon(v) {
+    if (!v || typeof v !== "object") return JSON.stringify(v === undefined ? null : v);
+    if (Array.isArray(v)) return "[" + v.map(canon).join(",") + "]";
+    return "{" + Object.keys(v).sort().map(function (k) {
+      return JSON.stringify(k) + ":" + canon(v[k]);
+    }).join(",") + "}";
+  }
+
+  /* Whether the base this browser kept is usable against the copy that arrived.
+     The caller owns the parts that are not a rule: reading it off the disk,
+     whether another tab wrote, and whether this browser's own store landed. */
+  /** @param {*} b the stored base @param {*} progress the remote copy
+      @param {number} rev its revision @param {string} uid the account it came for
+      @return {CnpeMergeBase|null} */
+  function pickBase(b, progress, rev, uid) {
+    if (!b || typeof b !== "object" || Array.isArray(b)) return null;
+    if (b.uid && uid && String(b.uid) !== uid) return null;
+    var was = +b.rev || 0;
+    if (rev < was) return null;                       // the row was deleted and remade
+    // One rev holds one blob, so a match that disagrees is a different row.
+    var only = { done: b.done || [], ex: b.ex || [], exam: b.exam || [], exam2: b.exam2 || [] };
+    if (rev === was && canon(ticks(progress)) !== canon(only)) return null;
+    return sets(b);
+  }
+
+  /* A store as it goes over the wire. A running exam clock stays on the machine
+     that started it, as import has always left it, and the resume pointer is this
+     browser's own business. The shape is stable so an unchanged store
+     canonicalises to exactly what was sent last time. */
+  /** @param {*} p @return {*} */
+  function wire(p) {
+    if (!p || typeof p !== "object") return null;
+    var copy;
+    try { copy = JSON.parse(JSON.stringify(p)); } catch (e) { return null; }
+    ["exam", "exam2"].forEach(function (k) {
+      var e = copy[k] && typeof copy[k] === "object" && !Array.isArray(copy[k]) ? copy[k] : (copy[k] = {});
+      delete e.startedAt; delete e.running; delete e.spent;
+      if (!e.tasks || typeof e.tasks !== "object") e.tasks = {};
+    });
+    delete copy.last;
+    return copy;
+  }
+
+  // An empty store never earns a remote row.
+  /** @param {*} p @return {boolean} */
+  function hasAnything(p) {
+    if (!p) return false;
+    if (["ex", "done", "drill", "days"].some(function (k) {
+      return p[k] && typeof p[k] === "object" && Object.keys(p[k]).length > 0;
+    })) return true;
+    return ["exam", "exam2"].some(function (k) {
+      return p[k] && p[k].tasks && Object.keys(p[k].tasks).length > 0;
+    });
   }
 
   /* ── the merge ────────────────────────────────────────────── */
@@ -186,7 +247,8 @@
   }
 
   root.CNPE_MERGE = {
-    merge: mergeProgress, ticks: ticks, sets: sets, shared: shared, seedDays: seedDays,
+    merge: mergeProgress, ticks: ticks, sets: sets, shared: shared,
+    canon: canon, pickBase: pickBase, wire: wire, hasAnything: hasAnything, seedDays: seedDays,
     dayKey: dayKey, shiftKey: shiftKey, dayActs: dayActs, DAY_RE: DAY_RE,
   };
 })(typeof window !== "undefined" ? window : globalThis);

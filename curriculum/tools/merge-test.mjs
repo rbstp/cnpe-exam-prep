@@ -286,6 +286,80 @@ group("the base one tab holds against another tab's store");
   ok(untick.done["2.1"] === 0, "and a tick it did take back comes down as the removal it is");
 }
 
+group("the base a browser may hold against the copy that arrived");
+{
+  const base = { uid: "42", rev: 4, done: ["1.1"], ex: [], exam: [], exam2: [] };
+  const same = { done: { "1.1": 1 } };
+  ok(M.pickBase(base, same, 5, "42").done["1.1"] === 1, "a rev past the base's is a row that moved on, so the base stands");
+  ok(M.pickBase(base, same, 4, "42").done["1.1"] === 1, "the base's own rev, carrying the base's own ticks, stands too");
+  ok(M.pickBase(base, same, 3, "42") === null, "a rev below the base's means the row was deleted and remade");
+  ok(M.pickBase(base, { done: { "2.1": 1 } }, 4, "42") === null,
+    "one rev holds one blob, so the same rev with different ticks is a different row");
+  ok(M.pickBase(base, same, 4, "99") === null, "a base kept for another account is not this account's");
+  ok(M.pickBase({ rev: 4, done: ["1.1"] }, same, 4, "42").done["1.1"] === 1,
+    "a base from before the account was recorded is still usable");
+  ok(M.pickBase(base, same, 4, "").done["1.1"] === 1, "and so is one checked before the account is known");
+  ok(M.pickBase(null, same, 4, "42") === null, "no base is no base");
+  ["", "a string", 42, [], ["1.1"]].forEach(function (junk) {
+    ok(M.pickBase(junk, same, 4, "42") === null, "a base that is " + JSON.stringify(junk) + " is refused");
+  });
+  ok(M.pickBase({ done: ["1.1"] }, same, 0, "42").done["1.1"] === 1, "a base with no rev reads as rev 0");
+  // the exam's ticks live under tasks on the wire and flat in the base
+  const exam = { uid: "42", rev: 2, done: [], ex: [], exam: ["3"], exam2: [] };
+  ok(M.pickBase(exam, { exam: { tasks: { 3: 1 } } }, 2, "42").exam["3"] === 1,
+    "the base's exam list is compared against the payload's exam tasks");
+  ok(M.pickBase(exam, { exam: { tasks: { 4: 1 } } }, 2, "42") === null, "and a different task is a different row");
+}
+
+group("the shape a store goes over the wire in");
+{
+  const store = {
+    done: { "1.1": 1 }, ex: {}, drill: {}, drillmeta: {}, days: {},
+    exam: { tasks: { 0: 1 }, startedAt: 999, running: true, spent: 12 },
+    exam2: "junk", last: "2.3",
+  };
+  const w = M.wire(store);
+  ok(w.exam.startedAt === undefined && w.exam.running === undefined && w.exam.spent === undefined,
+    "a running exam clock stays on the machine that started it");
+  ok(w.exam.tasks[0] === 1, "the tasks it scored travel");
+  ok(eq(w.exam2, { tasks: {} }), "an exam bucket that is junk goes out as an empty one");
+  ok(w.last === undefined, "the resume pointer is this browser's own business");
+  ok(store.exam.startedAt === 999 && store.last === "2.3", "and the store itself is not touched");
+  w.done["9.9"] = 1;
+  ok(store.done["9.9"] === undefined, "the copy is deep, so the caller cannot write through it");
+  ok(M.wire(null) === null && M.wire("nope") === null, "there is no wire shape for nothing");
+  ok(M.canon(M.wire(store)) === M.canon(M.wire(JSON.parse(JSON.stringify(store)))),
+    "the shape is stable, so an unchanged store canonicalises to what was sent");
+}
+
+group("what counts as having anything to save");
+{
+  ok(!M.hasAnything(null) && !M.hasAnything({}), "nothing is nothing");
+  ok(!M.hasAnything(store()), "and so is a store that has only its empty buckets");
+  ["ex", "done", "drill", "days"].forEach(function (k) {
+    const s = store();
+    s[k] = { x: 1 };
+    ok(M.hasAnything(s), "a store with something in " + k + " earns a row");
+  });
+  const e = store();
+  e.exam = { startedAt: 5, running: true, tasks: {} };
+  ok(!M.hasAnything(e), "a running clock with nothing scored does not");
+  e.exam.tasks[0] = 1;
+  ok(M.hasAnything(e), "a scored task does");
+  const e2 = store();
+  e2.exam2 = { tasks: { 1: 1 } };
+  ok(M.hasAnything(e2), "and so does one on the second paper");
+}
+
+group("comparing two stores ignores the order their keys came in");
+{
+  ok(M.canon({ a: 1, b: 2 }) === M.canon({ b: 2, a: 1 }), "key order does not change a store");
+  ok(M.canon({ a: { y: 1, x: 2 } }) === M.canon({ a: { x: 2, y: 1 } }), "nor does it nested");
+  ok(M.canon([1, 2]) !== M.canon([2, 1]), "but array order is order");
+  ok(M.canon(undefined) === M.canon(null), "undefined and null read the same");
+  ok(M.canon({ a: 1 }) !== M.canon({ a: "1" }), "and a number is not its string");
+}
+
 group("the counts the callers paint from");
 {
   const s = store({ done: { "1.1": 1 } });
