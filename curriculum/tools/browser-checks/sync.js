@@ -1011,6 +1011,10 @@ module.exports = async function (h) {
       },
     });
     await s.page.addInitScript(() => {
+      // The pull moves something, so the dashboard would reload under this check
+      // and tear down the context it is reading from. That repaint has its own
+      // check; claim its once-per-session marker so this one can read in peace.
+      sessionStorage.setItem('cnpe:sync-reloaded', '1');
       const real = Storage.prototype.setItem;
       Storage.prototype.setItem = function (k, v) {
         if (k === 'cnpe:v2') throw new Error('QuotaExceededError');
