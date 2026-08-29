@@ -37,14 +37,17 @@ for f in assets/sync.js console.html; do
     { echo "$f does not point at https://$SYNC_DOMAIN"; exit 1; }
 done
 
-# Every asset a page pulls must carry its content stamp. Without one, Pages'
-# ten-minute cache decides when a deploy takes effect, per file: a browser can
-# hold the new HTML and the old bundle at the same time.
+# Every asset a page pulls must carry its content stamp, and so must every font
+# the stylesheet pulls. Without one, Pages' ten-minute cache decides when a deploy
+# takes effect, per file: a browser can hold the new HTML and the old bundle at
+# the same time.
 while IFS= read -r f; do
   unstamped=$(grep -oE '(href|src)="[^"]*assets/[^"]+"' "$f" | grep -v '?v=' || true)
   test -z "$unstamped" ||
     { echo "unstamped asset reference in ${f#"$SITE"/}: $unstamped"; exit 1; }
 done < <(find "$SITE" -name '*.html')
+unstamped=$(grep -oE 'url\("fonts/[^"]+"\)' "$SITE/assets/style.css" | grep -v '?v=' || true)
+test -z "$unstamped" || { echo "unstamped font reference in style.css: $unstamped"; exit 1; }
 
 # Every page's theme-color pair must carry the grounds the stylesheet paints.
 dk=$(grep -o -- '--dk-ink: *#[0-9A-Fa-f]*' "$SITE/assets/style.css" | grep -o '#[0-9A-Fa-f]*')
