@@ -5,7 +5,7 @@ of truth; this is a mirror bolted on top of it, off by default, and everything i
 the console works identically without it.
 
 Concretely, the guarantees the code holds to, each asserted by a browser check in
-`curriculum/tools/browser-checks/sync.js`, or in `tabs.js` for the last one:
+`curriculum/tools/browser-checks/`, under `sync.js`, `streak.js` or `tabs.js`:
 
 * Over `file://` there is no sync UI and **no request is ever made**.
 * On the hosted site, signed out, there is a button and still **no request**.
@@ -16,6 +16,9 @@ Concretely, the guarantees the code holds to, each asserted by a browser check i
   not itself undo survives every merge it takes part in.
 * The section you last read follows you, so **Resume** offers the same one on
   every browser, ticked or not.
+* A day's work adds up across browsers rather than the larger side hiding the
+  smaller: six cards here and six there is a day of twelve, and the drill's goal
+  of ten is earned by it.
 * Two tabs of one browser converge on the same store instead of overwriting each
   other, signed in or not; that one is local-first machinery, not sync.
 
@@ -42,14 +45,29 @@ and it changes nothing about how the site is hosted or deployed.
 
 One row per GitHub user: the numeric user id, the login, a revision counter and
 the `cnpe:v2` store as JSON. Nothing else. A **fully completed** store, meaning all
-29 sections, all 123 exercises, all 148 drill cards, both mock exams and a year of
-study days, is about 21 KB.
+29 sections, all 123 exercises, all 148 drill cards, both mock exams and a full
+window of study days, is about 19 KB against a 64 KB ceiling.
 
-Two things deliberately do not travel:
+The window is 30 days, the same span the dashboard's heat strip draws, and `KEEP`
+in `merge.js` is the one number that says so. Days older than that are dropped as
+the store is written, and a day that arrives from anywhere older is not taken in
+at all.
+
+A streak outlives them. Before dropping anything, `pruneDays` writes down how
+long the run below the window was and the day it ended on, and the walk back from
+today picks that up where the stored days run out. So 60 days running still reads
+as 60 with 30 days on disk, and the record with it. The carry travels, because
+the days that would otherwise prove it do not.
+
+Three things deliberately do not travel:
 
 * **The mock exam clock.** `startedAt`, `running` and `spent` are stripped before
   the push, so a running exam stays on the machine that started it. That matches
   what Import has always done.
+* **The theme.** System, light or dark is a property of the screen you are
+  looking at, not of the account: dark on the phone and light on the laptop is a
+  setting, not a bug. It lives in `cnpe:theme`, outside the store, and no merge
+  has ever touched it.
 * **Any GitHub credential.** The OAuth scope is empty, so this is identity only.
   The token GitHub returns is used once, server-side, to read the account id, and
   is never stored. The consent screen says "public data only"; this service can no more
@@ -82,6 +100,31 @@ the plain union this used to be. That is the fallback wherever the base cannot b
 trusted, and it is also what Import gets: an imported file is somebody else's
 history, not a state this browser ever agreed on, so `merge` is called without a
 base and an import still cannot un-tick anything.
+
+### Counters, and why a day is a map
+
+A day's counters are the one thing a max cannot answer. Six cards on the laptop
+and six on the phone is twelve answered, but a single `days[today].c` merging by
+max can only say six: it has no way to tell one browser's six from the other's,
+and adding them would count them twice the next time the same copy merged.
+
+So each counter is a map of browser id to that browser's own count, read as their
+sum. Every slot still takes the max, so merging the same payload twice is still a
+no-op, and the day adds up across browsers. The id names a slot and is not
+progress: it lives in `cnpe:dev`, is minted on a browser's first action rather
+than at load, and never travels, because two browsers sharing a slot would hide
+each other's work exactly as before.
+
+A plain number is a store written before this, or one written by a browser still
+on the old script. It reads as a single unnamed slot and merges by max the way it
+always did, so nothing is lost and nothing is claimed: a browser adding to such a
+day puts its own count beside the number rather than taking it over, which would
+count the same answers twice on two browsers that both held it.
+
+Today's card count against the drill's goal of ten is read from that counter, so
+a session split across two browsers earns the day. `drillmeta.day` and `n`, which
+used to keep the same number where only one browser could see it, are no longer
+written or merged.
 
 The resume pointer is neither a counter nor a tick: there is one of it, and the
 answer wanted is the section read most recently anywhere, not the one whichever
@@ -379,7 +422,7 @@ As deployed above, anyone with a GitHub account can sign in and store *their own
 progress, and they never see yours. If you would rather it stayed a guest list, set
 `ALLOWED_LOGINS` in `sync/wrangler.toml` to a comma-separated list of GitHub
 logins; everyone else gets a 403 at the callback and nothing is stored for them.
-Leave it unset and the door is open, which is fine: 5 GB at ~21 KB a head is
+Leave it unset and the door is open, which is fine: 5 GB at ~19 KB a head is
 around a quarter of a million completed study records.
 
 ## What you are taking on

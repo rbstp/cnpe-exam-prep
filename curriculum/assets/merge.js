@@ -11,18 +11,48 @@
   var DAY = 864e5;
   function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
   function stampOf(v) { var n = +v; return isFinite(n) && n > 0 ? n : 0; }
+  // Keys off a file or the wire land in lookup maps, so the ones Object.prototype
+  // already answers for are not ours to take: "toString" is not inert here.
+  function ownKey(k) { return k !== "prototype" && !(k in Object.prototype); }
 
   /* ── study days ──────────────────────────────────────────── */
   var DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+  var KEEP = 30;                                 // days of history a store carries
+  var MAXRUN = 3660;                             // and the longest run it will believe in
   function pad2(n) { return (n < 10 ? "0" : "") + n; }
   function dayKey(d) { return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); }
   function shiftKey(k, by) {                     // k ± n days, in local time
     var p = k.split("-");
     return dayKey(new Date(+p[0], +p[1] - 1, +p[2] + by));
   }
+  /* One day's counter is a map of browser id to that browser's own count, read
+     as their sum. Two browsers drilling the same day add up, which one number
+     cannot do under a merge that has to be safe to run twice: the most it can
+     say is the larger of the two, which is the smaller of the answers. A plain
+     number is a store written before this, or by a browser still on the old
+     script, and reads as one unnamed slot that merges the way it always did. */
+  var PRE = "";
+  var SLOT_RE = /^[a-z0-9]{1,16}$/;              // as devId writes them, and no longer
+  var MAXSLOTS = 16;                             // browsers on one day, which is already absurd
+  function slots(v) {
+    var out = {};
+    if (typeof v === "number") { if (v > 0) out[PRE] = v; return out; }
+    if (v && typeof v === "object" && !Array.isArray(v)) {
+      Object.keys(v).forEach(function (k) {
+        var x = +v[k];
+        if (x > 0 && ownKey(k) && (k === PRE || SLOT_RE.test(k))) out[k] = x;
+      });
+    }
+    return out;
+  }
+  function countOf(v) {
+    var m = slots(v), n = 0;
+    Object.keys(m).forEach(function (k) { n += m[k]; });
+    return n;
+  }
   function dayActs(rec) {
     if (!rec || typeof rec !== "object") return 0;
-    return (+rec.c || 0) + (+rec.x || 0) + (+rec.s || 0) + (+rec.e || 0);
+    return countOf(rec.c) + countOf(rec.x) + countOf(rec.s) + countOf(rec.e);
   }
   // Consecutive days with a heartbeat, alive if today or yesterday has one.
   // today is an argument so this stays a function of what it is given.
@@ -46,6 +76,11 @@
       if (back >= cur) break;
       cur = back;
     }
+    // The walk stops at the first day with no heartbeat, which for a store that
+    // has been pruned is the day after the oldest it still carries. A run that
+    // reached there went on below it, and pruneDays wrote down how far.
+    var carry = s.run && typeof s.run === "object" && !Array.isArray(s.run) ? s.run : null;
+    if (run && carry && carry.d === cur) run += Math.max(0, Math.floor(+carry.n) || 0);
     var best = 0, streakRun = 0, prev = null;
     Object.keys(q).sort().forEach(function (k) {
       streakRun = prev && shiftKey(prev, 1) === k ? streakRun + 1 : 1;
@@ -53,24 +88,86 @@
       if (streakRun > best) best = streakRun;
     });
     var dm = s.drillmeta && typeof s.drillmeta === "object" ? s.drillmeta : {};
-    return { streak: run, best: Math.max(best, +dm.best || 0) };
+    // The live run is a run, so it is a floor under the record as well: past the
+    // window the days that prove it are gone and only this can still see it.
+    return { streak: run, best: Math.max(best, +dm.best || 0, run) };
+  }
+
+  /* The run below the days a store keeps: how long it was, and the day it ended
+     on. It only ever moves forward, because it is the sole record of a streak
+     whose days are gone: a later day wins, and for the same day, the longer run.
+     The same rule serves the prune that writes it, the seed that truncates one,
+     and the copy that arrives from another browser. */
+  /** @param {*} s @param {string} d @param {*} n @param {string} [edge] oldest day kept */
+  function carryRun(s, d, n, edge) {
+    var run = Math.min(Math.max(0, Math.floor(+n) || 0), MAXRUN);
+    if (!run || !DAY_RE.test(d)) return;
+    // Anchored inside the window it is unreachable, the walk having the days
+    // themselves to read, and it would sit there refusing the next real one.
+    if (edge && d >= edge) return;
+    var cur = s.run && typeof s.run === "object" && !Array.isArray(s.run) ? s.run : null;
+    if (cur && DAY_RE.test(cur.d) && (cur.d > d || (cur.d === d && (+cur.n || 0) >= run))) return;
+    s.run = { d: d, n: run };
   }
 
   function seedDays(s) {
     var dm = s.drillmeta;
     if (!dm || typeof dm !== "object" || Array.isArray(dm)) return;
-    var n = Math.min(+dm.streak || 0, 3660);
+    var n = Math.min(+dm.streak || 0, MAXRUN);
     var end = dm.earned;
     if (n < 1 || typeof end !== "string" || !DAY_RE.test(end)) return;
     var t = dayKey(new Date());
     if (end !== t && end !== shiftKey(t, -1)) return;
     if (!s.days || typeof s.days !== "object" || Array.isArray(s.days)) s.days = {};
-    for (var i = 0; i < n; i++) {
+    var edge = shiftKey(t, -(KEEP - 1));
+    var i = 0;
+    for (; i < n; i++) {
       var k = shiftKey(end, -i);
+      if (k < edge) break;                       // days live inside the window, and only there
       var d = s.days[k];
       if (!d || typeof d !== "object" || Array.isArray(d)) d = s.days[k] = {};
       if (!dayActs(d)) d.c = 10;                 // the ten cards that earned that day
     }
+    if (i < n) carryRun(s, shiftKey(end, -i), n - i, edge);   // the rest of it ran below the window
+  }
+
+  /* A store carries KEEP days and no more. Nothing reads a count older than the
+     heat strip, and a year of them is most of what a store weighs once every
+     count is a map. The longest run inside what goes is folded into
+     drillmeta.best first, which streak() already takes as a floor, so the record
+     outlives the days that earned it. Dropping a day is local and never travels
+     as a removal: days merge by key, so a browser that still has one puts it
+     back, and it goes again on that browser's own next prune. */
+  /** @param {*} s @param {string} [today] @return {number} days dropped */
+  function pruneDays(s, today) {
+    if (!s || typeof s !== "object") return 0;
+    var days = s.days;
+    if (!days || typeof days !== "object" || Array.isArray(days)) return 0;
+    var t = today && DAY_RE.test(today) ? today : dayKey(new Date());
+    var edge = shiftKey(t, -(KEEP - 1)), ahead = shiftKey(t, 1);
+    // A day beyond tomorrow is a clock, not a day: tomorrow itself is only a
+    // browser a timezone or two east, and its work is as real as any.
+    var old = Object.keys(days).filter(function (k) {
+      return DAY_RE.test(k) && (k < edge || k > ahead);
+    });
+    if (!old.length) return 0;
+    var best = streak(s, t).best;                // while the days are still here
+    var dm = s.drillmeta;
+    if (!dm || typeof dm !== "object" || Array.isArray(dm)) dm = s.drillmeta = {};
+    if (best > (+dm.best || 0)) dm.best = best;
+    // How long the run below the window is, so streak() can go on counting it.
+    var last = shiftKey(edge, -1), cur = last, run = 0;
+    while (dayActs(days[cur]) > 0) {
+      run++;
+      var back = shiftKey(cur, -1);
+      if (back >= cur) break;
+      cur = back;
+    }
+    var carry = s.run && typeof s.run === "object" && !Array.isArray(s.run) ? s.run : null;
+    if (run && carry && carry.d === cur) run += Math.max(0, Math.floor(+carry.n) || 0);
+    carryRun(s, last, run, edge);
+    old.forEach(function (k) { delete days[k]; });
+    return old.length;
   }
 
   /* ── the drill's schedule ─────────────────────────────────── */
@@ -194,6 +291,11 @@
       delete e.startedAt; delete e.running; delete e.spent;
       if (!e.tasks || typeof e.tasks !== "object") e.tasks = {};
     });
+    // Today's card count is days[today].c now. What the drill used to keep here
+    // is not merged any more, so it must not be sent either: two browsers would
+    // never agree on it, and each would answer the other's push with its own.
+    var dm = copy.drillmeta;
+    if (dm && typeof dm === "object" && !Array.isArray(dm)) { delete dm.day; delete dm.n; }
     return copy;
   }
 
@@ -214,8 +316,6 @@
   /* Ticks merge three ways against the base, the last state this browser and the
      server agreed on: (local === base) ? remote : local, so an un-tick travels.
      No base makes every base value 0, which is the union Import has always had. */
-  // The base lookup uses hasOwnProperty, so "toString" is no longer inert.
-  function ownKey(k) { return k !== "prototype" && !(k in Object.prototype); }
   /** @param {*} store @param {*} src @param {CnpeMergeBase} [base] @return {CnpeMergeCounts} */
   function mergeProgress(store, src, base) {
     var n = { done: 0, ex: 0, exam: 0, drill: 0, days: 0, last: 0, off: 0 };
@@ -269,12 +369,9 @@
     }
     if (src.drillmeta && typeof src.drillmeta === "object" && !Array.isArray(src.drillmeta)) {
       if (!store.drillmeta || typeof store.drillmeta !== "object") store.drillmeta = {};
+      // day and n are not here: today's card count is days[today].c, which adds
+      // up across browsers where a single drillmeta.n could only take the max.
       var cur = store.drillmeta, inc = src.drillmeta;
-      if (typeof inc.day === "string" && inc.day === cur.day) {
-        if ((+inc.n || 0) > (+cur.n || 0)) cur.n = +inc.n;
-      } else if (typeof inc.day === "string" && (typeof cur.day !== "string" || inc.day > cur.day)) {
-        cur.day = inc.day; cur.n = +inc.n || 0;
-      }
       if (typeof inc.earned === "string" && (typeof cur.earned !== "string" || inc.earned > cur.earned)) {
         cur.earned = inc.earned;
       }
@@ -286,7 +383,16 @@
       var t = Math.max(+cur.t || 0, +inc.t || 0);
       if (t) cur.t = t;
     }
-    // Study days are counters too: per-counter max, so a merge never lowers a count.
+    /* Study days are counters too, per slot: each browser's own count takes the
+       max, and the day is what they add up to.
+
+       This browser's own history is trimmed first, so the carry it keeps is
+       already anchored where the walk will look for it. Any carry that arrives
+       after, from another browser or from what the drill claims, is anchored on
+       the same day at the latest, and the same-day rule then takes the longer of
+       the two rather than whichever landed last. */
+    pruneDays(store);
+    var edge = shiftKey(dayKey(new Date()), -(KEEP - 1));
     if (src.days && typeof src.days === "object" && !Array.isArray(src.days)) {
       if (!store.days || typeof store.days !== "object" || Array.isArray(store.days)) store.days = {};
       Object.keys(src.days).forEach(function (k) {
@@ -297,13 +403,29 @@
         if (!cur || typeof cur !== "object" || Array.isArray(cur)) cur = store.days[k] = {};
         var grew = false;
         ["c", "x", "s", "e"].forEach(function (f) {
-          var v = +inc[f] || 0;
-          if (v > (+cur[f] || 0)) { cur[f] = v; grew = true; }
+          var mine = slots(cur[f]), theirs = slots(inc[f]), moved = false;
+          Object.keys(theirs).forEach(function (id) {
+            // A slot already here always takes the max. A new one only lands
+            // while there is room: a payload naming thousands of browsers would
+            // otherwise be stored, and push the blob past what the Worker takes.
+            if (theirs[id] <= (mine[id] || 0)) return;
+            if (!own(mine, id) && Object.keys(mine).length >= MAXSLOTS) return;
+            mine[id] = theirs[id]; moved = true;
+          });
+          if (moved) { cur[f] = mine; grew = true; }
         });
-        if (grew) n.days++;
+        // A day from below the window is taken so the run it is part of is not
+        // lost with it, and the prune below folds it into the carry and drops
+        // it. It is not counted as added, because it is not history kept: a copy
+        // of a year of days must not tell Import it added a year.
+        if (grew && k >= edge) n.days++;
       });
     }
+    if (src.run && typeof src.run === "object" && !Array.isArray(src.run)) {
+      carryRun(store, src.run.d, src.run.n, edge);
+    }
     seedDays(store);
+    pruneDays(store);
     /* The pointer carries the moment it was set, so the section read most recently
        wins rather than whichever browser pushed last. A file with no stamp in it,
        and a store that never carried one, both read as 0 and still merge. */
@@ -322,6 +444,7 @@
     merge: mergeProgress, ticks: ticks, sets: sets, shared: shared,
     canon: canon, pickBase: pickBase, wire: wire, hasAnything: hasAnything,
     dueIn: dueIn, seedDays: seedDays, streak: streak,
+    countOf: countOf, pruneDays: pruneDays, KEEP: KEEP,
     dayKey: dayKey, shiftKey: shiftKey, dayActs: dayActs, DAY_RE: DAY_RE,
   };
 })(typeof window !== "undefined" ? window : globalThis);

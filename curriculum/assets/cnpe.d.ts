@@ -42,13 +42,18 @@ interface CnpeDrillQuestion extends CnpeDrillCard {
   a: string;
 }
 
+/** One day's counter: browser id to that browser's own count, read as the sum,
+    so two browsers on one day add up. A plain number is a store written before
+    the counters were per browser, and reads as one unnamed slot. */
+type CnpeDayCount = Record<string, number> | number;
+
 /** Per-day action counters under store.days["YYYY-MM-DD"]:
     cards answered, exercises verified, sections completed, exam tasks scored. */
 interface CnpeDayCounts {
-  c?: number;
-  x?: number;
-  s?: number;
-  e?: number;
+  c?: CnpeDayCount;
+  x?: CnpeDayCount;
+  s?: CnpeDayCount;
+  e?: CnpeDayCount;
 }
 
 /** Per-question drill record under store.drill[question id]. */
@@ -65,6 +70,7 @@ interface CnpeDrillRecord {
 
 /** The drill's own day counter and daily-goal marker (store.drillmeta). */
 interface CnpeDrillMeta {
+  /** legacy: today's card count is days[today].c, and neither is written now */
   day?: string;
   n?: number;
   earned?: string;
@@ -99,6 +105,10 @@ interface CnpeStore {
   last: string | null;
   /** epoch ms that pointer was set, so the newest read wins across browsers */
   lastAt?: number;
+  /** the study run that ran on below the days the store still carries: how long
+      it was (n) and the day it ended on (d), which is the day before the oldest
+      kept. Written by pruneDays, read by streak. */
+  run?: { d: string; n: number };
 }
 
 /** How much a merge added, per bucket, plus how much it took away. */
@@ -160,6 +170,13 @@ interface CnpeMergeApi {
   dueIn(rec: unknown, now: number): number;
   /** backfill days for a streak earned before the console counted them */
   seedDays(s: unknown): void;
+  /** one day counter as a number, summing the browsers that contributed to it */
+  countOf(v: unknown): number;
+  /** drop days older than the window, folding the record they hold into
+      drillmeta.best first; returns how many were dropped */
+  pruneDays(s: unknown, today?: string): number;
+  /** days of history a store carries */
+  KEEP: number;
   /** consecutive days with a heartbeat, counted back from today ("YYYY-MM-DD",
       defaulting to the clock), plus a best that drillmeta.best can only raise */
   streak(store: unknown, today?: string): { streak: number; best: number };

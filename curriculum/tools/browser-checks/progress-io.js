@@ -4,7 +4,7 @@ const fs = require('fs');
 
 /** @param {import('./lib').Harness} h */
 module.exports = async function (h) {
-  const { url, fresh, store, assert, group, streakVal, streakLbl, daysAgo, TODAY } = h;
+  const { url, fresh, store, assert, group, streakVal, streakLbl, daysAgo, dayCount, TODAY } = h;
 
   /* 1. export writes the wrapper with the whole store */
   {
@@ -55,8 +55,9 @@ module.exports = async function (h) {
     await page.waitForFunction(() => window.CNPE_PROGRESS && document.querySelector('#stat-streak'));
     page.off('dialog', onDialog);
     const s = await store(page);
-    assert(s.days[TODAY].c === 9 && s.days[TODAY].x === 3, 'today merged per-counter max: ' + JSON.stringify(s.days[TODAY]));
-    assert(s.days[daysAgo(1)] && s.days[daysAgo(1)].c === 3, 'imported day added');
+    assert(dayCount(s.days[TODAY], 'c') === 9 && dayCount(s.days[TODAY], 'x') === 3,
+      'today merged per-slot max: ' + JSON.stringify(s.days[TODAY]));
+    assert(dayCount(s.days[daysAgo(1)], 'c') === 3, 'imported day added');
     const val = await streakVal(page);
     assert(/^2days$/.test(val), 'streak 2 after import: ' + JSON.stringify(val));
     assert(/^Uptime·record2$/.test(await streakLbl(page)), 'record 2 in the label after import');

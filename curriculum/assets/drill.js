@@ -4,7 +4,12 @@
 
   var GOAL = 10;                     // cards per day that fill the drill's daily goal
   var DAY = 864e5;
-  var dueIn = window.CNPE_MERGE.dueIn;   // the card's own schedule; merge.js holds it
+  // As in app.js: a cache can hold an older merge.js as easily as none, so name
+  // what this file needs. app.js mounts the drill only if this ran.
+  var M = window.CNPE_MERGE;
+  if (!M || !M.countOf) return;
+  var dueIn = M.dueIn;                   // the card's own schedule; merge.js holds it
+  var countOf = M.countOf;
 
   var session = null;                // { deck, i, right[], missed[], revealed }
   var size = 10, domain = 0;         // deck size, and 0 means all domains
@@ -88,6 +93,14 @@
   }
 
   /* ── scoring ─────────────────────────────────────────────── */
+  /* Cards answered today, across every browser this account syncs. bump() writes
+     the same number the goal used to keep for itself, one per answer, so the
+     goal reads it there rather than in a field only this browser could see. */
+  function todayCards() {
+    var days = store().days;
+    var d = days && days[today()];
+    return d ? countOf(d.c) : 0;
+  }
   function record(q, ok) {
     var r = recs();
     var rec = r[q.id] || { r: 0, m: 0 };
@@ -96,16 +109,16 @@
     rec.t = Date.now();
     r[q.id] = rec;
 
+    if (api().bump) api().bump("c");                      // every answer counts toward the study streak
     var m = meta();
-    if (m.day !== today()) { m.day = today(); m.n = 0; }
-    m.n++;
-    if (m.n === GOAL && m.earned !== today()) {           // today earns the daily goal
+    // At least ten, not exactly ten: a merge can carry the count past the goal
+    // in one step, and the day is earned all the same.
+    if (todayCards() >= GOAL && m.earned !== today()) {    // today earns the daily goal
       m.streak = m.earned === yesterday() ? (m.streak || 0) + 1 : 1;
       m.earned = today();
       m.best = Math.max(m.best || 0, m.streak);
     }
     m.t = Date.now();
-    if (api().bump) api().bump("c");                      // every answer counts toward the study streak
     save();
   }
 
@@ -153,7 +166,7 @@
     session = null;
     host.innerHTML = "";
     var m = meta();
-    var todayN = m.day === today() ? m.n || 0 : 0;
+    var todayN = todayCards();
     metaLine(m.earned === today()
       ? "today's " + GOAL + " are in the bank"
       : todayN + " of " + GOAL + " answered today");
@@ -248,7 +261,7 @@
   function renderSummary() {
     var missed = session.missed, right = session.right;
     var m = meta();
-    var todayN = m.day === today() ? m.n || 0 : 0;
+    var todayN = todayCards();
     session = null;
     host.innerHTML = "";
     metaLine("session done");

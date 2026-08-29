@@ -801,7 +801,10 @@ module.exports = async function (h) {
     let rev = 0;
     const s = await site({
       signedIn: true,
-      seed: { done: { '1.1': 1 } },
+      // drillmeta.day and n are merged nowhere now, so a store still carrying
+      // them must not send them: each browser would answer the other's copy
+      // with its own, one revision per page load, for as long as both existed.
+      seed: { done: { '1.1': 1 }, drillmeta: { day: '2026-01-01', n: 4 } },
       api: (route, url, method, body) => {
         if (method === 'GET') {
           return { status: 200, json: { user: { login: 'octocat', id: '1' }, rev, updated: 'then', progress: stored } };
@@ -820,6 +823,8 @@ module.exports = async function (h) {
       (document.getElementById('sync-note') || { textContent: '' }).textContent));
     assert(await settle(() => gets(s.seen) >= 2), 'the reload pulled again');
     assert(puts() === after, 'and pushed nothing back: ' + JSON.stringify(s.seen));
+    assert(stored.drillmeta.n === undefined && stored.drillmeta.day === undefined,
+      'the drill\'s old day counter never left the browser: ' + JSON.stringify(stored.drillmeta));
     assert(await s.page.evaluate(() => window.CNPE_SYNC.state().rev) === rev, 'the rev is the one the pull returned');
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
