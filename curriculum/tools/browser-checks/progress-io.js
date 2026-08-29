@@ -7,8 +7,7 @@ module.exports = async function (h) {
   const { url, fresh, store, assert, group, streakVal, streakLbl, daysAgo, dayCount, TODAY } = h;
 
   /* 1. export writes the wrapper with the whole store */
-  {
-    group('export writes the documented wrapper');
+  await group('export writes the documented wrapper', async () => {
     /** @type {Record<string, CnpeDayCounts>} */
     const days = {}; days[TODAY] = { c: 4, x: 1 }; days[daysAgo(1)] = { c: 10 };
     const seeded = { days, done: { '1.1': 1 }, ex: { '1.1#some-exercise': 1 } };
@@ -32,11 +31,10 @@ module.exports = async function (h) {
     assert(/Wrote |blocked/.test(note), 'the note says what happened: ' + JSON.stringify(note));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 2. export, then import into a fresh profile; merge never lowers a count */
-  {
-    group('export/import carries history, merge never lowers counts');
+  await group('export/import carries history, merge never lowers counts', async () => {
     /** @type {Record<string, CnpeDayCounts>} */
     const days = {}; days[TODAY] = { c: 2, x: 3 }; days[daysAgo(1)] = { c: 3 };
     const payload = JSON.stringify({ cnpe: 2, exported: new Date().toISOString(), progress: { ex: {}, done: {}, exam: {}, drill: {}, drillmeta: {}, days, last: null } });
@@ -63,11 +61,10 @@ module.exports = async function (h) {
     assert(/^Uptime·record2$/.test(await streakLbl(page)), 'record 2 in the label after import');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 3. import rejects what it cannot read, without touching the store */
-  {
-    group('import rejects junk and empty files');
+  await group('import rejects junk and empty files', async () => {
     /** @type {Record<string, CnpeDayCounts>} */
     const days = {}; days[TODAY] = { c: 2 };
     const { ctx, page } = await fresh({ days });
@@ -89,11 +86,10 @@ module.exports = async function (h) {
     assert(s.days[TODAY].c === 2 && Object.keys(s.days).length === 1, 'the store is untouched');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 4. reset clears everything, but only past its confirm */
-  {
-    group('reset clears the store behind its confirm');
+  await group('reset clears the store behind its confirm', async () => {
     /** @type {Record<string, CnpeDayCounts>} */
     const days = {}; days[TODAY] = { c: 5 }; days[daysAgo(1)] = { c: 5 };
     const { ctx, page } = await fresh({ days, done: { '1.1': 1, '2.1': 1 } });
@@ -115,5 +111,5 @@ module.exports = async function (h) {
     assert(/^0days$/.test(await streakVal(page)), 'uptime is back to 0 days');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 };

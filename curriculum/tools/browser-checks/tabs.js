@@ -37,8 +37,7 @@ module.exports = async function (h) {
   const writes = p => p.evaluate(() => window.__writes);
 
   /* 1. a tick made in one tab reaches the other, and repaints it */
-  {
-    group('a tick made in one tab lands in the other');
+  await group('a tick made in one tab lands in the other', async () => {
     const { ctx, page } = await fresh({ done: { '2.1': 1 } });
     await page.goto(url('index.html'));
     const two = await tab(ctx, 'index.html');
@@ -51,11 +50,10 @@ module.exports = async function (h) {
     const errs = page.errors.concat(two.errors);
     assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 2. and so does taking one back */
-  {
-    group('an un-tick travels between tabs the same way');
+  await group('an un-tick travels between tabs the same way', async () => {
     const { ctx, page } = await fresh({ done: { '1.1': 1, '2.1': 1 } });
     await page.goto(url('index.html'));
     const two = await tab(ctx, 'index.html');
@@ -67,11 +65,10 @@ module.exports = async function (h) {
     const errs = page.errors.concat(two.errors);
     assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 3. the clobber this replaces: a tab that saves a store it never merged */
-  {
-    group('a tab saving an older copy of everything is not a mass un-tick');
+  await group('a tab saving an older copy of everything is not a mass un-tick', async () => {
     const { ctx, page } = await fresh({ done: { '2.1': 1 } });
     await page.goto(url('index.html'));
     const two = await tab(ctx, 'index.html');
@@ -88,11 +85,10 @@ module.exports = async function (h) {
     const errs = page.errors.concat(two.errors);
     assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 4. counters cannot conflict, so both tabs keep both answers */
-  {
-    group('drill counters take the max across tabs');
+  await group('drill counters take the max across tabs', async () => {
     const now = Date.now();
     const { ctx, page } = await fresh({ drill: { q: { r: 1, m: 0, ok: true, t: now - 60000 } } });
     await page.goto(url('index.html'));
@@ -114,11 +110,10 @@ module.exports = async function (h) {
     const errs = page.errors.concat(two.errors);
     assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 5. a wipe in one tab is not undone by the other holding a copy */
-  {
-    group('Reset in one tab is not written back by the other');
+  await group('Reset in one tab is not written back by the other', async () => {
     const { ctx, page } = await fresh({ done: { '1.1': 1, '2.1': 1 } });
     await page.goto(url('index.html'));
     const two = await tab(ctx, 'index.html');
@@ -135,11 +130,10 @@ module.exports = async function (h) {
     const errs = page.errors.concat(two.errors);
     assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 5b. and not by a tab reading a section, whose resume pointer outlives the wipe */
-  {
-    group('Reset survives a tab that is reading a section');
+  await group('Reset survives a tab that is reading a section', async () => {
     const { ctx, page } = await fresh({ done: { '1.1': 1, '2.1': 1 } });
     await page.goto(url('01-architecture/01-networking.html'));
     const two = await tab(ctx, 'index.html');
@@ -156,11 +150,10 @@ module.exports = async function (h) {
     const errs = page.errors.concat(two.errors);
     assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 6. the exam clock belongs to the tab its paper is open in */
-  {
-    group('another tab cannot rewind a running exam clock');
+  await group('another tab cannot rewind a running exam clock', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('mock-exam.html'));
     await page.click('#t-start');                       // the exam tab starts the clock
@@ -180,11 +173,10 @@ module.exports = async function (h) {
     const errs = page.errors.concat(two.errors);
     assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 7. converging must not mean answering each other forever */
-  {
-    group('the tabs settle instead of writing at each other');
+  await group('the tabs settle instead of writing at each other', async () => {
     const { ctx, page } = await fresh({ done: { '2.1': 1 } });
     await countWrites(page);
     await page.goto(url('index.html'));
@@ -201,12 +193,11 @@ module.exports = async function (h) {
     const errs = page.errors.concat(two.errors);
     assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 7b. the same, over the resume pointer: a tab that takes another tab's pointer
      must not stamp its own page back over it */
-  {
-    group('two tabs on two sections settle over the resume pointer');
+  await group('two tabs on two sections settle over the resume pointer', async () => {
     const { ctx, page } = await fresh();
     await countWrites(page);
     await page.goto(url('01-architecture/01-networking.html'));
@@ -227,11 +218,10 @@ module.exports = async function (h) {
     const errs = page.errors.concat(two.errors);
     assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 8. rereading a section page is a read, and a repaint does not stack its footer */
-  {
-    group('rereading a section writes nothing, and a repaint leaves one footer');
+  await group('rereading a section writes nothing, and a repaint leaves one footer', async () => {
     const SECTION = '02-gitops/01-gitops-fundamentals.html';
     const { ctx, page } = await fresh({ done: { '2.1': 1 } });
     await countWrites(page);
@@ -268,11 +258,10 @@ module.exports = async function (h) {
     const err8 = page.errors.concat(two.errors);
     assert(err8.length === 0, 'no console errors: ' + err8.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 9. and a repainted dashboard still answers one click once */
-  {
-    group('a repainted dashboard does not double its buttons');
+  await group('a repainted dashboard does not double its buttons', async () => {
     const { ctx, page } = await fresh({ done: { '2.1': 1 } });
     await page.goto(url('index.html'));
     const two = await tab(ctx, 'index.html');
@@ -295,11 +284,10 @@ module.exports = async function (h) {
     const err9 = page.errors.concat(two.errors);
     assert(err9.length === 0, 'no console errors: ' + err9.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 10. a write that never reached the disk is retried, not forgotten */
-  {
-    group('a save the disk refused is written on the next look');
+  await group('a save the disk refused is written on the next look', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('01-architecture/01-networking.html'));
     // reconcile short-circuits on unmoved bytes, and a write that threw does not
@@ -323,5 +311,5 @@ module.exports = async function (h) {
     assert(out.retried === 1, 'the next look writes it: ' + out.retried);
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 };

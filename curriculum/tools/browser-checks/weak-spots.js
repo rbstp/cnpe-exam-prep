@@ -15,30 +15,27 @@ module.exports = async function (h) {
       .filter(t => t.indexOf('domain ' + d + ' ') === 0)[0] || '(missing)', n);
 
   /* 1. no drill history yet */
-  {
-    group('no history: the panel points at the drill');
+  await group('no history: the panel points at the drill', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('index.html'));
     assert(/^No drill history in this browser yet/.test(await verdict(page)), 'the verdict says to run a session');
     assert(/no answers yet/.test(await cellFor(page, 1)), 'a domain cell shows no answers yet');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 2. too few answers per domain to call a weak spot */
-  {
-    group('too few answers: no weak spot is called');
+  await group('too few answers: no weak spot is called', async () => {
     const { ctx, page } = await fresh({ drill: { '2.1#a': { r: 1, m: 1, ok: true, t: 1 } } });
     await page.goto(url('index.html'));
     assert(/^Too few answers per domain/.test(await verdict(page)), 'the verdict asks for more drilling');
     assert(/50% of 2/.test(await cellFor(page, 2)), 'the domain 2 cell still shows its 50% of 2');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 3. a weak spot is called, and its link pre-selects the drill domain */
-  {
-    group('the weakest domain is called and handed to the drill');
+  await group('the weakest domain is called and handed to the drill', async () => {
     const { ctx, page } = await fresh({ drill: {
       '1.1#a': { r: 6, m: 0, ok: true, t: 1 },
       '2.1#b': { r: 2, m: 4, ok: false, t: 1 },
@@ -62,11 +59,10 @@ module.exports = async function (h) {
       'the hand-off was consumed, so the reload deals every domain again: ' + JSON.stringify(back));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 4. the dashboard says how much of the drill has come round */
-  {
-    group('the drill button carries the backlog, once there is one');
+  await group('the drill button carries the backlog, once there is one', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('index.html'));
     // The dashboard renders no card, so it loads the index, not the 67 KB bank.
@@ -100,5 +96,5 @@ module.exports = async function (h) {
     assert(!/due/.test(text), 'no history, no backlog: ' + JSON.stringify(text));
     assert(fresh2.page.errors.length === 0, 'no console errors: ' + fresh2.page.errors.join(' | '));
     await fresh2.ctx.close();
-  }
+  });
 };

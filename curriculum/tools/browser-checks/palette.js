@@ -30,8 +30,7 @@ module.exports = async function (h) {
   };
 
   /* 1. open, filter, arrow-drive, Enter navigates */
-  {
-    group('palette: / opens, filter narrows, Enter opens the selection');
+  await group('palette: / opens, filter narrows, Enter opens the selection', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('index.html'));
     await page.keyboard.press('/');
@@ -60,11 +59,10 @@ module.exports = async function (h) {
       'Enter navigates to the selected section');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 2. no match, Escape, ⌘K, and the palette owns single-key shortcuts */
-  {
-    group('palette: no-match hint, Escape closes, ctrl-K reopens, keys stay in the input');
+  await group('palette: no-match hint, Escape closes, ctrl-K reopens, keys stay in the input', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('index.html'));
     await page.keyboard.press('/');
@@ -84,11 +82,10 @@ module.exports = async function (h) {
     await page.keyboard.press('Escape');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 3. single-key navigation from a section page */
-  {
-    group('shortcuts: n/p/d/g navigate, m completes, ? opens help');
+  await group('shortcuts: n/p/d/g navigate, m completes, ? opens help', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('01-architecture/01-networking.html'));
     const nextPath = await page.evaluate(() => {
@@ -130,11 +127,10 @@ module.exports = async function (h) {
     assert(await pressTo(page, 'g', href => /drill\.html/.test(href)), 'g opens the drill');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 4. x jumps to the exercises, c collapses and expands them all */
-  {
-    group('shortcuts: x and c work the exercise panel');
+  await group('shortcuts: x and c work the exercise panel', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('01-architecture/01-networking.html'));
     assert((await page.evaluate(() => window.scrollY)) === 0, 'the page starts at the top');
@@ -157,5 +153,5 @@ module.exports = async function (h) {
     assert(c.collapsed === 0, 'c again expands them all');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 };

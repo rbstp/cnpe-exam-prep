@@ -165,8 +165,7 @@ module.exports = async function (h) {
 
   /* 1. file:// is local-only: neither control appears and nothing is requested.
         The panel button and the masthead one read usable() separately. */
-  {
-    group('file:// stays local-first: no sync UI, no network');
+  await group('file:// stays local-first: no sync UI, no network', async () => {
     const { ctx, page } = await h.fresh({ done: { '1.1': 1 } });
     /** @type {string[]} */
     const out = [];
@@ -181,11 +180,10 @@ module.exports = async function (h) {
     assert(out.length === 0, 'no request to the sync origin: ' + JSON.stringify(out));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 2. hosted but signed out: the button offers, and still nothing is requested */
-  {
-    group('signed out on https: the button offers, the network stays quiet');
+  await group('signed out on https: the button offers, the network stays quiet', async () => {
     const s = await site({ seed: { done: { '1.1': 1 } } });
     await s.go();
     const b = await btnOf(s.page);
@@ -198,11 +196,10 @@ module.exports = async function (h) {
     assert(s.seen.length === 0, 'no call to the Worker before opting in: ' + JSON.stringify(s.seen));
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 3. signing in records the intent locally and leaves for the Worker */
-  {
-    group('sign-in records the opt-in and hands off to the Worker');
+  await group('sign-in records the opt-in and hands off to the Worker', async () => {
     /** @type {string|null} */
     let started = null;
     const s = await site({
@@ -235,11 +232,10 @@ module.exports = async function (h) {
     assert(/Sign out/.test(b.text), 'the button flips to sign-out on return: ' + JSON.stringify(b.text));
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 4. the pull is a union, and what it merges is pushed straight back */
-  {
-    group('pull merges both ways: remote into local, union back to remote');
+  await group('pull merges both ways: remote into local, union back to remote', async () => {
     /** @type {*} */
     let put = null;
     const s = await site({
@@ -272,11 +268,10 @@ module.exports = async function (h) {
     assert(/Synced .* to @octocat/.test(await noteOf(s.page)), 'the status line names the account');
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 5. the exam clock is progress-adjacent, not progress: it never travels */
-  {
-    group('the mock exam clock stays on the machine that started it');
+  await group('the mock exam clock stays on the machine that started it', async () => {
     /** @type {*} */
     let put = null;
     const s = await site({
@@ -297,11 +292,10 @@ module.exports = async function (h) {
     assert(store.exam.running === true && store.exam.spent === 42, 'and the local clock is left alone');
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 6. a Worker that is down costs a status line and nothing else */
-  {
-    group('a failing Worker never costs local progress');
+  await group('a failing Worker never costs local progress', async () => {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1 }, ex: { '1.1#keep-me': 1 } },
@@ -317,11 +311,10 @@ module.exports = async function (h) {
     assert(/^1\/29/.test(sections), 'and the dashboard still counts it: ' + JSON.stringify(sections));
     assert(realErrors(s.page).length === 0, 'no console errors beyond the expected status: ' + realErrors(s.page).join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 7. an expired session drops back to local-only without losing anything */
-  {
-    group('a 401 drops the opt-in and keeps the progress');
+  await group('a 401 drops the opt-in and keeps the progress', async () => {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1 } },
@@ -336,11 +329,10 @@ module.exports = async function (h) {
     assert(store.done['1.1'] === 1, 'progress is still here');
     assert(realErrors(s.page).length === 0, 'no console errors beyond the expected status: ' + realErrors(s.page).join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 8. sign out is local: the saved copy is left where it is */
-  {
-    group('sign out stops syncing and leaves both copies alone');
+  await group('sign out stops syncing and leaves both copies alone', async () => {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1 } },
@@ -368,11 +360,10 @@ module.exports = async function (h) {
     assert(store.done['1.1'] === 1, 'local progress survives too');
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 9. delete removes the saved copy only */
-  {
-    group('delete removes the saved copy and keeps this browser');
+  await group('delete removes the saved copy and keeps this browser', async () => {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1 } },
@@ -398,11 +389,10 @@ module.exports = async function (h) {
     assert(await s.page.evaluate(() => window.CNPE_SYNC.state().rev) === 0, 'and the client forgets the rev');
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 10. reset asks about the saved copy separately, and honours either answer */
-  {
-    group('reset asks twice: the browser, then the saved copy');
+  await group('reset asks twice: the browser, then the saved copy', async () => {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1, '2.1': 1 } },
@@ -452,13 +442,12 @@ module.exports = async function (h) {
     const store = await readStore(s.page);
     assert(Object.keys(store.done).length === 0, 'and the browser is cleared');
     await s.ctx.close();
-  }
+  });
 
   /* 11. remote content reaches the merge, so prototype keys must not.
          A `{__proto__: 1}` literal sets the prototype and never serialises, so
          the payload is built as raw JSON: the wire is what matters here. */
-  {
-    group('a poisoned remote copy cannot reach the prototype');
+  await group('a poisoned remote copy cannot reach the prototype', async () => {
     // toString rode in on the base lookup: it used to be inert only because
     // `k in into` found it on the prototype, which hasOwnProperty does not.
     const POISON = '{"done":{"__proto__":{"pwned":1},"toString":0,"valueOf":1,"2.1":1},' +
@@ -511,11 +500,10 @@ module.exports = async function (h) {
       'the poison reached the client and did not come back out: ' + JSON.stringify(bodies[0] || '').slice(0, 80));
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 12. drill records are lifetime counters: a merge must never lower one */
-  {
-    group('two browsers drilling offline keep both answers');
+  await group('two browsers drilling offline keep both answers', async () => {
     /** @type {*} */
     let put = null;
     const s = await site({
@@ -547,11 +535,10 @@ module.exports = async function (h) {
     assert(put.progress.drill.q1.r === 11 && put.progress.drill.q1.m === 3, 'the union went back to the server');
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 13. the resume pointer travels, stamped with the moment it was set */
-  {
-    group('the payload carries the resume pointer');
+  await group('the payload carries the resume pointer', async () => {
     /** @type {*} */
     let put = null;
     const s = await site({
@@ -570,11 +557,10 @@ module.exports = async function (h) {
     assert((await readStore(s.page)).last === '1.1', 'and is still set locally');
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 13b. and a newer one from another browser wins here, with nothing ticked */
-  {
-    group('a section read elsewhere moves the resume button');
+  await group('a section read elsewhere moves the resume button', async () => {
     /** @type {*} */
     let put = null;
     const s = await site({
@@ -603,11 +589,10 @@ module.exports = async function (h) {
     assert(put && put.progress.last === '1.3', 'and the stale pointer is not pushed back: ' + JSON.stringify(put && put.progress.last));
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 14. the masthead control is the one reachable from every page */
-  {
-    group('the masthead carries the sync control on every page');
+  await group('the masthead carries the sync control on every page', async () => {
     const s = await site({ seed: { done: { '1.1': 1 } } });
     await s.go();
     let b = await topOf(s.page);
@@ -624,11 +609,10 @@ module.exports = async function (h) {
       'confirming the panel button is genuinely absent there');
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 14b. signed in it reports the account, and it is the same toggle */
-  {
-    group('the masthead control reports state and signs out');
+  await group('the masthead control reports state and signs out', async () => {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1 } },
@@ -663,12 +647,11 @@ module.exports = async function (h) {
     assert(!b.on && /Sign in with GitHub/.test(b.title), 'and it flips back to offering sign-in');
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
 
   /* 14c. the masthead wears the account's avatar, derived from the id alone */
-  {
-    group('the masthead shows the account avatar');
+  await group('the masthead shows the account avatar', async () => {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1 } },
@@ -693,11 +676,10 @@ module.exports = async function (h) {
     assert(s.avatarHits.length === before, 'a repaint reuses it: ' + s.avatarHits.length + ' vs ' + before);
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 14d. a blocked avatar must not leave an empty button */
-  {
-    group('a blocked avatar falls back to the glyph and gives up');
+  await group('a blocked avatar falls back to the glyph and gives up', async () => {
     const s = await site({
       signedIn: true,
       avatar: false,
@@ -724,11 +706,10 @@ module.exports = async function (h) {
     assert(s.avatarHits.length === after, 'and stops asking: ' + s.avatarHits.length + ' vs ' + after);
     assert(realErrors(s.page).length === 0, 'no console errors beyond the failed image: ' + realErrors(s.page).join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 14e. an id that is not digits never reaches a URL */
-  {
-    group('a junk id is refused rather than interpolated');
+  await group('a junk id is refused rather than interpolated', async () => {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1 } },
@@ -749,11 +730,10 @@ module.exports = async function (h) {
     assert((await topOf(s.page)).on, 'the glyph still reports signed in');
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 15. a store the server already has costs no write */
-  {
-    group('reloading with nothing new does not write again');
+  await group('reloading with nothing new does not write again', async () => {
     // The row the server holds is whatever a client last pushed, so let the
     // first load produce it rather than guessing the normalised shape by hand.
     /** @type {*} */
@@ -788,11 +768,10 @@ module.exports = async function (h) {
     assert(await s.page.evaluate(() => window.CNPE_SYNC.state().rev) === rev, 'the rev is the one the pull returned');
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 16. an un-tick made here is not ticked back by the copy the server still has */
-  {
-    group('a local un-tick survives the pull that used to undo it');
+  await group('a local un-tick survives the pull that used to undo it', async () => {
     /** @type {*} */
     let put = null;
     const s = await site({
@@ -830,11 +809,10 @@ module.exports = async function (h) {
            put.progress.exam.tasks['0'] === 0, 'the push carries all three removals: ' + JSON.stringify(put && put.progress.ex));
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 17. and the other direction: the other browser un-ticked, so this one follows */
-  {
-    group('an un-tick made elsewhere comes down and repaints');
+  await group('an un-tick made elsewhere comes down and repaints', async () => {
     const s = await site({
       signedIn: true,
       repaint: true,
@@ -858,13 +836,12 @@ module.exports = async function (h) {
     assert(/^1\/29/.test(sections), 'and the tile repainted: ' + JSON.stringify(sections));
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 18. the only 409 group: the retry carries the conflict's rev, this browser's
          own work, the removal the other browser made against the base, and the
          tick that browser made which this one has never heard of. */
-  {
-    group('a 409 carrying someone elses un-tick is honoured, not undone');
+  await group('a 409 carrying someone elses un-tick is honoured, not undone', async () => {
     /** @type {*[]} */
     const puts = [];
     const s = await site({
@@ -898,11 +875,10 @@ module.exports = async function (h) {
       'the local store agrees, the new tick included: ' + JSON.stringify(store.done));
     assert(realErrors(s.page).length === 0, 'no console errors beyond the expected status: ' + realErrors(s.page).join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 19. a bucket the payload leaves out is not a bucket the server emptied */
-  {
-    group('a payload missing a bucket removes nothing from it');
+  await group('a payload missing a bucket removes nothing from it', async () => {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1 }, ex: { '1.1#keep-me': 1 } },
@@ -923,14 +899,13 @@ module.exports = async function (h) {
     assert(store.ex['1.1#keep-me'] === 1, 'the absent bucket is left alone: ' + JSON.stringify(store.ex));
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 20. merge-test.mjs walks every reason pickBase refuses a base; here the only
          question is whether the client hands it one and honours the null it gets
          back. A refused base and no base reach the merge alike, as that null, so
          with nothing to tell a removal from a gap the un-tick comes back a tick. */
-  {
-    group('a base the client cannot trust falls back to a union');
+  await group('a base the client cannot trust falls back to a union', async () => {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 0 } },
@@ -952,12 +927,11 @@ module.exports = async function (h) {
       'and the base it refused is not still held: ' + held);
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 21. the base is an ancestor of what reached the disk, not of what is in memory.
          A second tab writing under us, or a quota error, breaks exactly that. */
-  {
-    group('a store that no longer matches the disk is not read as a removal');
+  await group('a store that no longer matches the disk is not read as a removal', async () => {
     /** @type {*} */
     let put = null;
     const s = await site({
@@ -992,11 +966,10 @@ module.exports = async function (h) {
       'and the base it could not trust is gone');
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 22. a save that never lands must not leave a base claiming it did */
-  {
-    group('a store write that throws leaves no base behind');
+  await group('a store write that throws leaves no base behind', async () => {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1 } },
@@ -1023,11 +996,10 @@ module.exports = async function (h) {
       'no base is written for a merge that never reached the disk');
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 23. reset is a local wipe, not a mass un-tick: the kept copy still comes back */
-  {
-    group('reset, declining the saved copy, still syncs it back down');
+  await group('reset, declining the saved copy, still syncs it back down', async () => {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1, '2.1': 1 } },
@@ -1061,12 +1033,11 @@ module.exports = async function (h) {
       'and the next load syncs it back down, as the confirm says');
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* 24. the whole thing, twice over: two profiles, one row, and the real buttons.
          Every group above seeds a store; this one clicks. */
-  {
-    group('two browsers, one row: a tick travels, and so does taking it back');
+  await group('two browsers, one row: a tick travels, and so does taking it back', async () => {
     /** @type {{rev: number, blob: *}} */
     const row = { rev: 0, blob: null };
     /** @type {(route: import('playwright').Route, url: URL, method: string, body: string) => *} */
@@ -1130,12 +1101,11 @@ module.exports = async function (h) {
     assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
     await a.ctx.close();
     await b.ctx.close();
-  }
+  });
 
   /* 25. two tabs of one browser share a store and a base, but not a memory.
          The stale tab must never read the fresh tab's work as a removal. */
-  {
-    group('a second tab writing under us cannot turn a tick into a removal');
+  await group('a second tab writing under us cannot turn a tick into a removal', async () => {
     /** @type {{rev: number, blob: *}} */
     const row = { rev: 0, blob: null };
     const s = await site({
@@ -1174,11 +1144,10 @@ module.exports = async function (h) {
     const errs = s.page.errors.concat(two.errors);
     assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
     await s.ctx.close();
-  }
+  });
 
   /* the debounce itself: nothing else here would notice if it went away */
-  {
-    group('a burst of saves is one push, and one lands even mid-burst');
+  await group('a burst of saves is one push, and one lands even mid-burst', async () => {
     let rev = 0;
     const s = await site({
       signedIn: true,
@@ -1218,5 +1187,5 @@ module.exports = async function (h) {
     assert(puts() > mid, 'a save that never stops coming still reaches the server: ' + (puts() - mid));
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
-  }
+  });
 };

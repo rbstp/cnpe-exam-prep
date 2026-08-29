@@ -26,8 +26,7 @@ module.exports = async function (h) {
   }
 
   /* 1. a domain chip narrows the deck to that domain, without repeats */
-  {
-    group('the domain chip filters the deck');
+  await group('the domain chip filters the deck', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('drill.html'));
     await page.click('button.wchip:text-is("d2")');
@@ -42,11 +41,10 @@ module.exports = async function (h) {
     assert(cells.some(c => c.replace(/\s/g, '') === 'gotit10'), 'summary counts 10 got: ' + JSON.stringify(cells));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 2. the size chip sets the deck length */
-  {
-    group('the size chip sets the deck length');
+  await group('the size chip sets the deck length', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('drill.html'));
     await page.click('button.wchip:text-is("40")');
@@ -55,11 +53,10 @@ module.exports = async function (h) {
       'a 40-card session starts at card 1 / 40');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 3. the weighting leans toward missed questions and rests fresh-correct ones */
-  {
-    group('missed questions dominate a weighted deck');
+  await group('missed questions dominate a weighted deck', async () => {
     const { ctx, page } = await fresh();
     // a deterministic Math.random, so this check never flakes on a given bank
     await page.addInitScript(() => {
@@ -91,11 +88,10 @@ module.exports = async function (h) {
     assert(hit >= 4, hit + ' of the 5 missed questions made the 40-card deck');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 4. misses feed the records, the summary and the redrill */
-  {
-    group('a session records misses and offers a redrill');
+  await group('a session records misses and offers a redrill', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('drill.html'));
     await page.click('button.drill-start');
@@ -113,11 +109,10 @@ module.exports = async function (h) {
       'the redrill deals exactly those 3');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 5. the schedule rests what is not due and deals what is */
-  {
-    group('the schedule rests a fresh card and brings a missed one back');
+  await group('the schedule rests a fresh card and brings a missed one back', async () => {
     const { ctx, page } = await fresh();
     await page.addInitScript(() => {
       let s = 42 >>> 0;
@@ -155,11 +150,10 @@ module.exports = async function (h) {
     assert(missed === 1, 'and that is the one card the store has as missed: ' + missed);
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 6. a record can hold any number at all: it came from a file, or from a merge */
-  {
-    group('an absurd counter does not stall the schedule');
+  await group('an absurd counter does not stall the schedule', async () => {
     const { ctx, page } = await fresh({ drill: { 'x': { r: 1e15, m: 0, ok: true, t: Date.now() } } });
     const started = Date.now();
     await page.goto(url('drill.html'));
@@ -167,5 +161,5 @@ module.exports = async function (h) {
     assert(Date.now() - started < 15000, 'the page built and dealt a deck in ' + (Date.now() - started) + 'ms');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 };

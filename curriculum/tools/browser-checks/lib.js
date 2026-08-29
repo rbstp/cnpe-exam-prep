@@ -34,8 +34,23 @@ function makeHarness(browser, siteDir) {
     if (cond) { console.log('  ok  ' + label); }
     else { failures++; console.log('  FAIL ' + label); }
   }
-  /** @param {string} title */
-  function group(title) { console.log(title); }
+  /** With a body, a throw inside it costs that group and no more: the ones after
+   *  it still run. Without one, whatever escapes reaches the area's catch in
+   *  run.js, which discards every group after it.
+   *  @param {string} title
+   *  @param {() => Promise<void>} [body] */
+  async function group(title, body) {
+    console.log(title);
+    if (!body) return;
+    try { await body(); }
+    catch (e) {
+      // A body that rejects with anything but an Error must not throw in here:
+      // that escapes to run.js and takes the rest of the area with it again.
+      assert(false, title + ' aborted: ' + String((e && e.message) || e).split('\n')[0]);
+      // the throw jumped its ctx.close(), and every group opens its own
+      for (const c of browser.contexts()) await c.close().catch(() => {});
+    }
+  }
 
   /** @param {string} p */
   const url = p => pathToFileURL(path.join(siteDir, p)).href;
