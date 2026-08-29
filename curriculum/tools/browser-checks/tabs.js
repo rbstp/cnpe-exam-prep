@@ -222,4 +222,31 @@ module.exports = async function (h) {
     assert(err8.length === 0, 'no console errors: ' + err8.join(' | '));
     await ctx.close();
   }
+
+  /* 9. and a repainted dashboard still answers one click once */
+  {
+    group('a repainted dashboard does not double its buttons');
+    const { ctx, page } = await fresh({ done: { '2.1': 1 } });
+    await page.goto(url('index.html'));
+    const two = await tab(ctx, 'index.html');
+    // Each tick over there re-boots this tab, and buildIndex rewires Reset,
+    // Export and Import. Unguarded, one click raised one dialog per re-boot.
+    for (const on of [1, 0, 1, 0]) {
+      await tick(two, '1.1', on);
+      await page.waitForFunction(
+        a => window.CNPE_PROGRESS.get().done['1.1'] === a, on, { timeout: 4000 });
+    }
+    const dialogs = await page.evaluate(() => {
+      let n = 0;
+      const real = window.confirm;
+      window.confirm = () => { n++; return false; };
+      document.getElementById('reset-progress').click();
+      window.confirm = real;
+      return n;
+    });
+    assert(dialogs === 1, 'one click on Reset raised one dialog: ' + dialogs);
+    const err9 = page.errors.concat(two.errors);
+    assert(err9.length === 0, 'no console errors: ' + err9.join(' | '));
+    await ctx.close();
+  }
 };

@@ -149,7 +149,9 @@
     // that another tab just ran, and could have two tabs writing forever.
     var took = M.merge(store, disk, M.shared(seen, disk));
     takeClocks(disk);
-    var ours = M.merge(JSON.parse(JSON.stringify(disk)), store, M.sets(seen));
+    // The second merge needs a copy, and lastRaw is the disk's own bytes as of
+    // the read above, so parse those rather than re-serializing what they made.
+    var ours = M.merge(JSON.parse(lastRaw), store, M.sets(seen));
     if (moved(ours)) save();               // which moves seen on to what it wrote
     else seen = M.ticks(disk);             // otherwise the disk is what we agree on
     // Panels paint from the store at load, so a merge that moved something needs
@@ -601,6 +603,7 @@
 
     spyState.links = Array.prototype.slice.call(toc.querySelectorAll("a"));
     spyState.targets = spyState.links.map(function (a) { return document.querySelector(a.getAttribute("href")); });
+    spyState.active = -1;                        // the links it last marked are gone
     if (!spyState.wired) {
       window.addEventListener("scroll", throttle(spy, 120), { passive: true });
       spyState.wired = true;
@@ -609,18 +612,34 @@
     // on the next frame, over the page the reader actually gets.
     requestAnimationFrame(spy);
   }
-  var spyState = { links: [], targets: [], wired: false };
+  var spyState = { links: [], targets: [], wired: false, active: -1 };
   function spy() {
-    var y = window.scrollY + 120, idx = 0;
-    spyState.targets.forEach(function (t, i) { if (t && t.offsetTop <= y) idx = i; });
-    spyState.links.forEach(function (a, i) { a.classList.toggle("active", i === idx); });
+    var links = spyState.links;
+    // The stylesheet drops the whole column below 1180px, and a hidden link has
+    // no offsetParent, so ask the layout rather than repeat the breakpoint here.
+    if (!links.length || !links[0].offsetParent) return;
+    // Viewport-relative, because body > * is position: relative, which makes
+    // .wrap the offsetParent and leaves offsetTop a topbar short of the truth.
+    var idx = 0;
+    for (var i = 0; i < spyState.targets.length; i++) {
+      var t = spyState.targets[i];
+      if (t && t.getBoundingClientRect().top <= 120) idx = i;
+    }
+    if (idx === spyState.active) return;
+    if (links[spyState.active]) links[spyState.active].classList.remove("active");
+    links[idx].classList.add("active");
+    spyState.active = idx;
   }
+  // Scroll already arrives at most once a frame, so do the reading on the frame
+  // and let ms space it out. One pending timer per window, not one per event.
   function throttle(fn, ms) {
-    var t = 0, timer = null;
+    var last = 0, frame = 0, timer = 0;
+    function run() { frame = 0; last = Date.now(); fn(); }
+    function soon() { if (!frame) frame = requestAnimationFrame(run); }
     return function () {
-      var n = Date.now();
-      if (n - t > ms) { t = n; fn(); }
-      else { clearTimeout(timer); timer = setTimeout(function () { t = Date.now(); fn(); }, ms); }
+      var wait = ms - (Date.now() - last);
+      if (wait <= 0) { if (timer) { clearTimeout(timer); timer = 0; } soon(); }
+      else if (!timer) timer = setTimeout(function () { timer = 0; soon(); }, wait);
     };
   }
 
@@ -777,10 +796,17 @@
     if (n) location.href = href(n.path);
   }
   var lastFocus = null;
+  /* An overlay scrims the whole viewport and blurs what shows through it, so a
+     wheel that reaches the page behind re-blurs every pixel of it per frame, and
+     the reader loses their place under a dialog they cannot see it through. */
+  function lockScroll(on) {
+    document.documentElement.style.overflow = on ? "hidden" : "";
+  }
   function openPalette() {
     closeOverlays();
     lastFocus = document.activeElement;
     paletteOverlay.classList.add("open");
+    lockScroll(true);
     paletteInput.value = ""; renderPalette(""); paletteInput.focus();
   }
 
@@ -820,6 +846,7 @@
     if (!open) {
       lastFocus = trigger;
       o.classList.add("open");
+      lockScroll(true);
       var focusable = o.querySelector("button, [href], input");
       if (focusable && focusable.focus) focusable.focus();
     }
@@ -827,6 +854,7 @@
   function closeOverlays() {
     var wasOpen = !!document.querySelector(".overlay.open");
     Array.prototype.forEach.call(document.querySelectorAll(".overlay"), function (o) { o.classList.remove("open"); });
+    lockScroll(false);
     if (wasOpen && lastFocus && lastFocus.focus) { try { lastFocus.focus(); } catch (e) {} }
     lastFocus = null;
   }
@@ -1008,7 +1036,17 @@
         "</a>";
       resume.innerHTML = html;
     }
-    var reset = document.getElementById("reset-progress");
+    // These three are the dashboard's own markup, so boot() finds the same three
+    // every time. Wire once, as sync.js does with its two, or a re-boot turns one
+    // click into two: two confirms to reset, two files exported, two file pickers.
+    /** @param {string} id */
+    function once(id) {
+      var b = document.getElementById(id);
+      if (!b || b.getAttribute("data-wired")) return null;
+      b.setAttribute("data-wired", "1");
+      return b;
+    }
+    var reset = once("reset-progress");
     if (reset) reset.addEventListener("click", function () {
       if (!confirm("Clear all section, exercise, exam, drill and streak progress stored in this browser?" +
                    "\n\nOther tabs of the console hold their own copy in memory. Close or reload them " +
@@ -1028,7 +1066,7 @@
 
     var note = document.getElementById("io-note");
     function say(msg) { if (note) { note.textContent = msg; note.hidden = false; } }
-    var exp = document.getElementById("export-progress");
+    var exp = once("export-progress");
     if (exp) exp.addEventListener("click", function () {
       var text = exportPayload();
       var name = "cnpe-progress-" + new Date().toISOString().slice(0, 10) + ".json";
@@ -1043,7 +1081,7 @@
       exp.parentNode.appendChild(box);
       ta.focus(); ta.select();
     });
-    var imp = document.getElementById("import-progress");
+    var imp = once("import-progress");
     if (imp) imp.addEventListener("click", function () {
       var input = document.createElement("input");
       input.type = "file";
@@ -1230,6 +1268,7 @@
   function boot() {
     readPage();
     Array.prototype.forEach.call(document.querySelectorAll(".topbar, .overlay"), function (n) { n.remove(); });
+    lockScroll(false);                 // the bundle boots straight out of an open palette
     buildTopbar();
     buildHead();
     buildExercises();
