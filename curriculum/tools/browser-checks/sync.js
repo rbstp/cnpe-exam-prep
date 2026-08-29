@@ -53,6 +53,7 @@ module.exports = async function (h) {
 
     // Seed once, not on every reload: a merge has to survive the page reload it triggers.
     await ctx.addInitScript(({ s, f, b, repaint }) => {
+      window.CNPE_SYNC_DEBOUNCE = 120;  // convergence, not the 30s wait, is the point
       // A pull that moves something reloads the dashboard once, which tears down
       // whatever the check was about to read. Only the checks that are about that
       // repaint want it, so every other one claims its marker before the page runs.
@@ -1192,6 +1193,50 @@ module.exports = async function (h) {
 
     const errs = s.page.errors.concat(two.errors);
     assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
+    await s.ctx.close();
+  }
+
+  /* the debounce itself: nothing else here would notice if it went away */
+  {
+    group('a burst of saves is one push, and one lands even mid-burst');
+    let rev = 0;
+    const s = await site({
+      signedIn: true,
+      seed: { done: { '1.1': 1 } },
+      api: (route, url, method) => method === 'GET'
+        ? { status: 200, json: { user: { login: 'octocat', id: '1' }, rev, updated: 'then', progress: { done: { '1.1': 1 } } } }
+        : { status: 200, json: { rev: ++rev, updated: 'now' } },
+    });
+    const puts = () => s.seen.filter(x => x === 'PUT /v1/progress').length;
+    await s.go();
+    await s.page.waitForFunction(() => window.CNPE_SYNC.signedIn());
+    const before = puts();
+    // Ten saves inside the window. Written against the window rather than a
+    // fixed delay, so this says the same thing at 50ms and at the shipped 30s.
+    await s.page.evaluate(async () => {
+      const p = window.CNPE_PROGRESS;
+      for (let i = 0; i < 10; i++) {
+        p.get().done['2.' + (i + 1)] = 1;
+        p.save();
+        await new Promise(r => setTimeout(r, window.CNPE_SYNC_DEBOUNCE / 6));
+      }
+    });
+    assert(puts() === before, 'nothing uploaded while the saves were still landing: ' + (puts() - before));
+    assert(await settle(() => puts() > before), 'and one lands once they stop');
+    assert(puts() - before === 1, 'ten saves are one push: ' + (puts() - before));
+
+    // MAXWAIT: a save cannot be starved forever by the next one resetting the timer.
+    const mid = puts();
+    await s.page.evaluate(async () => {
+      const p = window.CNPE_PROGRESS, until = Date.now() + window.CNPE_SYNC_DEBOUNCE * 6;
+      while (Date.now() < until) {
+        p.get().done['3.' + (Date.now() % 6)] = 1;
+        p.save();
+        await new Promise(r => setTimeout(r, window.CNPE_SYNC_DEBOUNCE / 6));
+      }
+    });
+    assert(puts() > mid, 'a save that never stops coming still reaches the server: ' + (puts() - mid));
+    assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
   }
 };
