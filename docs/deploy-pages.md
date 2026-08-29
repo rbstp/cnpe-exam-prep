@@ -37,7 +37,10 @@ The staged artifact is asserted by `curriculum/tools/check-site.sh` (required fi
 via `.github/workflows/ci.yml`, so the merge gate and the deploy gate cannot drift.
 `tools/subset-fonts.py --check` runs alongside it: the shipped faces carry only the
 characters the console writes, and the check fails when new prose reaches for one the cut
-removed, rather than letting it fall back to a system font in a deployed page.
+removed, rather than letting it fall back to a system font in a deployed page. It reads
+`tools/fonts-src/cut.txt` and no font file, so it needs no font library, and it re-hashes
+both directories first: a subset that has drifted from the faces it was cut from cannot
+leave a check that passes on a record of a cut nobody made.
 
 Run the identical staging locally with `make site`, then:
 
