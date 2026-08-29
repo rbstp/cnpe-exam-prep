@@ -45,10 +45,12 @@
   }
 
   /* ── the schedule ────────────────────────────────────────── */
-  /* SM-2's shape over the counters the drill has always kept. A card you keep
-     getting right waits longer each time, stretched by an ease its own miss rate
-     sets; a miss puts it back at the bottom, due again now. Nothing new is
-     stored: r, m, ok and t are the whole of it. */
+  /* SM-2's shape over the counters the drill has always kept. A card sits on a
+     ladder at its lifetime score, right net of missed, and each rung waits longer
+     than the last by an ease its own miss rate sets. A miss costs a rung and makes
+     the card due now; the next right answer buys that rung back, so a lapse sets a
+     card back rather than starting it over, which is as much as a lifetime record
+     can say. Nothing new is stored: r, m, ok and t are the whole of it. */
   var STEP = [1, 4];                 // days to the first review, then to the second
   var CAP = 21;                      // the exam is weeks away, so nothing rests longer
   var EASE_HI = 2.5, EASE_LO = 1.3;  // SM-2's own range, off the lifetime miss rate
@@ -64,7 +66,9 @@
     if (reps < 1) return 0;
     if (reps <= STEP.length) return STEP[reps - 1];
     var days = STEP[STEP.length - 1], ease = easeOf(rec);
-    for (var i = STEP.length; i < reps; i++) days *= ease;
+    // Stop at the cap rather than at reps: r is whatever an imported file said,
+    // and the merge only ever raises it, so the rung count is not ours to trust.
+    for (var i = STEP.length; i < reps && days < CAP; i++) days *= ease;
     return Math.min(days, CAP);
   }
   // Milliseconds until a card comes round again; zero or less means it is due.
@@ -202,7 +206,7 @@
       (due ? due === 1 ? "One card is due for review and the deck starts there. "
                        : due + " cards are due for review, and the deck starts there. "
            : "Nothing is due right now, so this is a session ahead of schedule. ") +
-      "Getting a card right puts it away for longer each time; missing it brings it back now. " +
+      "Getting a card right puts it away for longer than last time; missing it costs a rung and brings it back now. " +
       "The deck also leans toward questions you have not seen and sections you have not marked complete. " +
       "<span class='k'>space</span> reveals, <span class='k'>1</span> missed, <span class='k'>2</span> got it."));
   }

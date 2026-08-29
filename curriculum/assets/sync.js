@@ -6,6 +6,10 @@
 (function () {
   "use strict";
 
+  // As in app.js: a cached page from before merge.js existed carries no script
+  // tag for it, and without the merge there is nothing here worth mounting.
+  if (!window.CNPE_MERGE) return;
+
   var API = String(window.CNPE_SYNC_API || "https://sync.rbstp.dev").replace(/\/+$/, "");
   var FLAG = "cnpe:sync";
   var BASE = "cnpe:sync-base";

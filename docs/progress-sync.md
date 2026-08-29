@@ -146,18 +146,20 @@ be lost. Asking the wider question instead, whether the disk lacks anything this
 holds, would put a whole store back over a **Reset progress** that another tab had
 just run.
 
-So a reset still only clears the tabs that hear about it, which for now means the
-one it was run in: the others keep what they have in memory, and the first of them
-to save writes it back, exactly as before any of this. Closing them first, or
-reloading them after, is the whole of the workaround.
+So a reset still only clears the tab it was run in. The others keep what they hold
+in memory, and the first write from any tab, the resetting one included, is enough
+to put that copy back: the reset moves what the tabs agree on to an empty store, so
+everything the stale tab holds reads as new work the next time anyone writes. That
+is where this was before any of this, and the Reset confirm now says so: close or
+reload the other tabs first.
 
 ### What still does not travel
 
 * **A browser running older JavaScript.** Until it loads the new bundle it merges
   the old way and ticks things back. Every asset reference carries a hash of the
-  file, so a deploy takes effect on the next load rather than whenever Pages'
-  ten-minute cache happens to expire, but a tab that is already open keeps the
-  code it started with until it is reloaded.
+  file, so a page and the scripts it pulls are at least always the same version of
+  the console, but the page itself still rides Pages' ten-minute cache, and a tab
+  that is already open keeps the code it started with until it is reloaded.
 * **An un-tick that lost a race.** A browser that was offline with a pending
   un-tick wins over a newer re-tick made elsewhere, because a base cannot see a
   change that nets back to where it started. Telling those apart needs a per-key

@@ -155,7 +155,19 @@ module.exports = async function (h) {
     await ctx.close();
   }
 
-  /* 6. a handed-over domain pre-selects its chip, once */
+  /* 6. a record can hold any number at all: it came from a file, or from a merge */
+  {
+    group('an absurd counter does not stall the schedule');
+    const { ctx, page } = await fresh({ drill: { 'x': { r: 1e15, m: 0, ok: true, t: Date.now() } } });
+    const started = Date.now();
+    await page.goto(url('drill.html'));
+    await page.click('button.drill-start');
+    assert(Date.now() - started < 15000, 'the page built and dealt a deck in ' + (Date.now() - started) + 'ms');
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  }
+
+  /* 7. a handed-over domain pre-selects its chip, once */
   {
     group('the dashboard hand-off pre-selects a domain chip');
     const { ctx, page } = await fresh();

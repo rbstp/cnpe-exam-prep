@@ -75,13 +75,19 @@ HTML
 sha() {
   if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -c1-10
 }
+# The fonts are left out: the stylesheet pulls those, not the pages, and they are
+# vendored and frozen, so a stamp on style.css already covers every change to it.
 script=""
 for a in "$OUT"/assets/*.css "$OUT"/assets/*.js "$OUT"/assets/*.svg; do
+  [ -e "$a" ] || continue
   name="$(basename "$a")"
   # href="assets/x", href="../assets/x" and 404.html's root-absolute href="/assets/x"
   script+="s#(href|src)=\"((\.\./)*|/)assets/${name//./\\.}\"#\1=\"\2assets/$name?v=$(sha "$a")\"#g;"
 done
-find "$OUT" -name '*.html' -print0 | xargs -0 sed -E -i "$script"
+# sed -i takes a suffix on BSD and none on GNU, so write the copy ourselves.
+while IFS= read -r -d "" f; do
+  sed -E "$script" "$f" > "$f.stamped" && mv "$f.stamped" "$f"
+done < <(find "$OUT" -name '*.html' -print0)
 
 echo "staged         $OUT"
 echo "pages          $(find "$OUT" -name '*.html' | wc -l | tr -d ' ') html files, CNAME=$SITE_DOMAIN"

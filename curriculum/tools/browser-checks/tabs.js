@@ -129,7 +129,7 @@ module.exports = async function (h) {
       s.drill = {}; s.drillmeta = {}; s.days = {}; s.last = null;
       window.CNPE_PROGRESS.save();
     });
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(400);   // long enough for a storage event and an answer to it
     const left = await page.evaluate(() => JSON.parse(localStorage.getItem('cnpe:v2')).done);
     assert(Object.keys(left).length === 0, 'the store on the disk is still empty: ' + JSON.stringify(left));
     const errs = page.errors.concat(two.errors);

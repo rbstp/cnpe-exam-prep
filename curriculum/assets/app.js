@@ -14,7 +14,11 @@
   }
 
   // The merge and the day maths live in merge.js, which knows nothing of the DOM.
+  // Every page loads it first, but a browser holding a cached copy of a page from
+  // before it existed can still fetch this file, so leave that page as the static
+  // HTML it already is rather than throwing across it. It rights itself on reload.
   var M = window.CNPE_MERGE;
+  if (!M) return;
   var DAY_RE = M.DAY_RE, dayKey = M.dayKey, shiftKey = M.shiftKey, dayActs = M.dayActs;
   var seedDays = M.seedDays;
 
@@ -89,6 +93,8 @@
       return d && typeof d === "object" && !Array.isArray(d) ? d : null;
     } catch (e) { return null; }
   }
+  // The merge counts ticks, drill records and days; drillmeta and the resume
+  // pointer have no counter, so a merge that moved only those rides the next save.
   /** @param {CnpeMergeCounts} n */
   function moved(n) { return !!(n.done || n.ex || n.exam || n.drill || n.days || n.off); }
   function reconcile() {
@@ -918,7 +924,9 @@
     }
     var reset = document.getElementById("reset-progress");
     if (reset) reset.addEventListener("click", function () {
-      if (!confirm("Clear all section, exercise, exam, drill and streak progress stored in this browser?")) return;
+      if (!confirm("Clear all section, exercise, exam, drill and streak progress stored in this browser?" +
+                   "\n\nOther tabs of the console hold their own copy in memory. Close or reload them " +
+                   "first, or the next thing written from any tab puts that copy back.")) return;
       function wipe() {
         store = { ex: {}, done: {}, exam: {}, exam2: {}, drill: {}, drillmeta: {}, days: {}, last: null };
         // Drop the base too, or the next pull reads this as un-ticking everything.
