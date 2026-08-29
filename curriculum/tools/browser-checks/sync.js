@@ -577,14 +577,14 @@ module.exports = async function (h) {
     await s.ctx.close();
   }
 
-  /* 14. the resume pointer is per-browser, and the clock never travels */
+  /* 14. the resume pointer travels, stamped with the moment it was set */
   {
-    group('the payload carries progress only');
+    group('the payload carries the resume pointer');
     /** @type {*} */
     let put = null;
     const s = await site({
       signedIn: true,
-      seed: { done: { '1.1': 1 }, last: '1.1' },
+      seed: { done: { '1.1': 1 }, last: '1.1', lastAt: 1000 },
       api: (route, url, method, body) => {
         if (method === 'GET') return { status: 200, json: { user: { login: 'octocat', id: '1' }, rev: 1, progress: null, updated: null } };
         put = JSON.parse(body);
@@ -593,8 +593,42 @@ module.exports = async function (h) {
     });
     await s.go();
     await s.page.waitForFunction(() => window.CNPE_SYNC && window.CNPE_SYNC.state().rev === 2);
-    assert(put.progress.last === undefined, 'the resume pointer stays on this browser: ' + JSON.stringify(put.progress.last));
+    assert(put.progress.last === '1.1' && put.progress.lastAt === 1000,
+      'the pointer goes out with its stamp: ' + JSON.stringify([put.progress.last, put.progress.lastAt]));
     assert((await readStore(s.page)).last === '1.1', 'and is still set locally');
+    assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
+    await s.ctx.close();
+  }
+
+  /* 14b. and a newer one from another browser wins here, with nothing ticked */
+  {
+    group('a section read elsewhere moves the resume button');
+    /** @type {*} */
+    let put = null;
+    const s = await site({
+      repaint: true,      // this one is about the reload the merge triggers
+      signedIn: true,
+      seed: { last: '1.1', lastAt: 1000 },
+      api: (route, url, method, body) => {
+        if (method === 'GET') {
+          return { status: 200, json: {
+            user: { login: 'octocat', id: '1' }, rev: 3, updated: 'then',
+            progress: { last: '1.3', lastAt: 2000 },
+          } };
+        }
+        put = JSON.parse(body);
+        return { status: 200, json: { rev: 4, updated: 'now' } };
+      },
+    });
+    await s.go();
+    assert(await settle(() => gets(s.seen) >= 2), 'the pointer moved, so the dashboard reloaded and pulled again');
+    await s.page.waitForFunction(() => {
+      const p = window.CNPE_PROGRESS && window.CNPE_PROGRESS.get();
+      return p && p.last === '1.3';
+    });
+    const btn = await s.page.evaluate(() => (document.querySelector('#resume .tbtn') || { textContent: '' }).textContent);
+    assert(/Resume 1\.3/.test(btn), 'the button offers the section read on the other browser: ' + JSON.stringify(btn));
+    assert(put && put.progress.last === '1.3', 'and the stale pointer is not pushed back: ' + JSON.stringify(put && put.progress.last));
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
   }

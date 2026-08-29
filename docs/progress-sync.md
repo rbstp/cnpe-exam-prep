@@ -14,6 +14,8 @@ Concretely, the guarantees the code holds to, each asserted by a browser check i
 * Signing out stops the syncing and leaves both copies, local and saved, intact.
 * A tick and an un-tick both reach the other browsers, and work this browser did
   not itself undo survives every merge it takes part in.
+* The section you last read follows you, so **Resume** offers the same one on
+  every browser, ticked or not.
 * Two tabs of one browser converge on the same store instead of overwriting each
   other, signed in or not; that one is local-first machinery, not sync.
 
@@ -55,7 +57,8 @@ Two things deliberately do not travel:
 
 ## How conflicts resolve
 
-Counters cannot conflict, and ticks resolve against a base.
+Counters cannot conflict, ticks resolve against a base, and the resume pointer
+carries the moment it was set.
 
 The counters are a per-field max. `drill.r` and `m` take it independently, `days`
 counts the same way, and only `ok` and `t` follow the clock, so two browsers that
@@ -79,6 +82,15 @@ the plain union this used to be. That is the fallback wherever the base cannot b
 trusted, and it is also what Import gets: an imported file is somebody else's
 history, not a state this browser ever agreed on, so `merge` is called without a
 base and an import still cannot un-tick anything.
+
+The resume pointer is neither a counter nor a tick: there is one of it, and the
+answer wanted is the section read most recently anywhere, not the one whichever
+browser pushed last. So `last` travels with `lastAt`, the epoch millisecond the
+pointer was set, and a copy that arrives moves it only if its stamp is at least
+the local one. A store written before this shipped carries no stamp, reads as 0,
+and is overtaken by the first section anything reads after it. Like the drill's
+own `t`, this trusts the browsers' clocks; a badly wrong one costs a resume
+button pointing at the wrong section and nothing else.
 
 The Worker holds a `rev` per row. A `PUT` carrying a stale `rev` is rejected with
 `409` **and the current copy**; the client merges that in, against the base in
@@ -145,6 +157,13 @@ not nothing after a save that threw, which is exactly the work that would otherw
 be lost. Asking the wider question instead, whether the disk lacks anything this tab
 holds, would put a whole store back over a **Reset progress** that another tab had
 just run.
+
+The resume pointer is left out of both questions. A merge that moved only it
+neither repaints nor writes: repainting would stamp this tab's own section back
+over the pointer it just took, and two tabs on two sections would then write at
+each other for as long as both stayed open. It rides the next save either tab
+makes. The sync repaints by reloading the page, which restamps nothing, so it does
+act on the pointer.
 
 So a reset still only clears the tab it was run in. The others keep what they hold
 in memory, and the first write from any tab, the resetting one included, is enough

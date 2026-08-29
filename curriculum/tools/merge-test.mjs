@@ -253,6 +253,28 @@ group("the resume pointer only names a section that exists");
   ok(s.last === "2.3", "and so is a pointer that is not a string");
 }
 
+group("and the newest read wins, not the newest push");
+{
+  const s = store({ last: "1.1", lastAt: 100 });
+  const n = M.merge(s, { last: "2.3", lastAt: 50 });
+  ok(s.last === "1.1" && s.lastAt === 100, "an older read does not move it");
+  ok(n.last === 0, "and reports nothing moved");
+  const m = M.merge(s, { last: "2.3", lastAt: 200 });
+  ok(s.last === "2.3" && s.lastAt === 200, "a newer one does: " + s.last + "@" + s.lastAt);
+  ok(m.last === 1, "and says so, which is what repaints the button");
+  ok(M.merge(s, { last: "2.3", lastAt: 300 }).last === 0, "the same section again is not a move");
+  const u = store({ last: "1.1" });
+  M.merge(u, { last: "2.3" });
+  ok(u.last === "2.3" && u.lastAt === undefined,
+    "two stampless stores still merge, and no stamp is invented");
+  const v = store({ last: "1.1", lastAt: 100 });
+  M.merge(v, { last: "2.3", lastAt: "soon" });
+  ok(v.last === "1.1", "a stamp that is not a number reads as no stamp");
+  const w = store({ last: "1.1", lastAt: 100 });
+  M.merge(w, { last: "2.3", lastAt: Infinity });
+  ok(w.last === "1.1", "and so does one that is not finite");
+}
+
 group("the ticked keys of a store, which is what a base is made of");
 {
   const s = store({
@@ -335,16 +357,19 @@ group("the shape a store goes over the wire in");
     "a running exam clock stays on the machine that started it");
   ok(w.exam.tasks[0] === 1, "the tasks it scored travel");
   ok(eq(w.exam2, { tasks: {} }), "an exam bucket that is junk goes out as an empty one");
-  ok(w.last === undefined, "the resume pointer is this browser's own business");
+  ok(w.last === "2.3", "the resume pointer travels, so the other browsers can follow it");
   ok(store.exam.startedAt === 999 && store.last === "2.3", "and the store itself is not touched");
   w.done["9.9"] = 1;
   ok(store.done["9.9"] === undefined, "the copy is deep, so the caller cannot write through it");
   ok(M.wire(null) === null && M.wire("nope") === null, "there is no wire shape for nothing");
   const ticking = JSON.parse(JSON.stringify(store));
-  ticking.exam.spent = 60; ticking.exam.running = false; ticking.last = "1.1";
+  ticking.exam.spent = 60; ticking.exam.running = false;
   ok(M.canon(M.wire(ticking)) === M.canon(M.wire(store)),
-    "two stores that differ only in the clock and the pointer go out identical, " +
+    "two stores that differ only in the clock go out identical, " +
     "which is what stops a running exam pushing every second");
+  const read = JSON.parse(JSON.stringify(store));
+  read.last = "1.1"; read.lastAt = 7;
+  ok(M.canon(M.wire(read)) !== M.canon(M.wire(store)), "a section newly read is a push");
 }
 
 group("what counts as having anything to save");
@@ -364,6 +389,7 @@ group("what counts as having anything to save");
   const e2 = store();
   e2.exam2 = { tasks: { 1: 1 } };
   ok(M.hasAnything(e2), "and so does one on the second paper");
+  ok(M.hasAnything(store({ last: "1.1" })), "a section read but nothing ticked earns one too");
 }
 
 group("comparing two stores ignores the order their keys came in");
@@ -404,7 +430,7 @@ group("the counts the callers paint from");
     done: { "2.1": 1 }, ex: { "1.1#a": 1 }, exam: { tasks: { 0: 1 } }, exam2: { tasks: { 1: 1 } },
     drill: { a: { r: 1, m: 0, ok: true, t: 1 } }, days: { [TODAY]: { c: 1 } },
   }, M.sets({ done: ["1.1"] }));
-  ok(eq(n, { done: 1, ex: 1, exam: 2, drill: 1, days: 1, off: 1 }),
+  ok(eq(n, { done: 1, ex: 1, exam: 2, drill: 1, days: 1, last: 0, off: 1 }),
     "one of each, and the tick the base says was removed: " + JSON.stringify(n));
 }
 

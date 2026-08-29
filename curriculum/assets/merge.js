@@ -10,6 +10,7 @@
   var BUCKETS = ["done", "ex", "exam", "exam2"];
   var DAY = 864e5;
   function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+  function stampOf(v) { var n = +v; return isFinite(n) && n > 0 ? n : 0; }
 
   /* ── study days ──────────────────────────────────────────── */
   var DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -180,9 +181,9 @@
   }
 
   /* A store as it goes over the wire. A running exam clock stays on the machine
-     that started it, as import has always left it, and the resume pointer is this
-     browser's own business. The shape is stable so an unchanged store
-     canonicalises to exactly what was sent last time. */
+     that started it, as import has always left it. The shape is stable so an
+     unchanged store canonicalises to exactly what was sent last time: the resume
+     pointer travels, and app.js moves it only when a new section is opened. */
   /** @param {*} p @return {*} */
   function wire(p) {
     if (!p || typeof p !== "object") return null;
@@ -193,7 +194,6 @@
       delete e.startedAt; delete e.running; delete e.spent;
       if (!e.tasks || typeof e.tasks !== "object") e.tasks = {};
     });
-    delete copy.last;
     return copy;
   }
 
@@ -201,6 +201,7 @@
   /** @param {*} p @return {boolean} */
   function hasAnything(p) {
     if (!p) return false;
+    if (typeof p.last === "string" && p.last) return true;
     if (["ex", "done", "drill", "days"].some(function (k) {
       return p[k] && typeof p[k] === "object" && Object.keys(p[k]).length > 0;
     })) return true;
@@ -217,7 +218,7 @@
   function ownKey(k) { return k !== "prototype" && !(k in Object.prototype); }
   /** @param {*} store @param {*} src @param {CnpeMergeBase} [base] @return {CnpeMergeCounts} */
   function mergeProgress(store, src, base) {
-    var n = { done: 0, ex: 0, exam: 0, drill: 0, days: 0, off: 0 };
+    var n = { done: 0, ex: 0, exam: 0, drill: 0, days: 0, last: 0, off: 0 };
     function union(into, from, was, bucket) {
       // A bucket the payload leaves out is not a bucket the server emptied.
       if (!from || typeof from !== "object" || Array.isArray(from)) return;
@@ -303,9 +304,16 @@
       });
     }
     seedDays(store);
+    /* The pointer carries the moment it was set, so the section read most recently
+       wins rather than whichever browser pushed last. A file with no stamp in it,
+       and a store that never carried one, both read as 0 and still merge. */
     var nav = root.CNPE_NAV || [];
-    if (typeof src.last === "string" && nav.filter(function (x) { return x.id === src.last; }).length) {
+    var at = stampOf(src.lastAt);
+    if (typeof src.last === "string" && at >= stampOf(store.lastAt) &&
+        nav.filter(function (x) { return x.id === src.last; }).length) {
+      if (store.last !== src.last) n.last++;
       store.last = src.last;
+      if (at) store.lastAt = at;
     }
     return n;
   }

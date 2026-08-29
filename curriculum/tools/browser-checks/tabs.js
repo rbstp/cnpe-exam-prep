@@ -126,12 +126,33 @@ module.exports = async function (h) {
       // what Reset progress does, minus the reload that follows it
       const s = window.CNPE_PROGRESS.get();
       s.ex = {}; s.done = {}; s.exam = {}; s.exam2 = {};
-      s.drill = {}; s.drillmeta = {}; s.days = {}; s.last = null;
+      s.drill = {}; s.drillmeta = {}; s.days = {}; s.last = null; delete s.lastAt;
       window.CNPE_PROGRESS.save();
     });
     await page.waitForTimeout(400);   // long enough for a storage event and an answer to it
     const left = await page.evaluate(() => JSON.parse(localStorage.getItem('cnpe:v2')).done);
     assert(Object.keys(left).length === 0, 'the store on the disk is still empty: ' + JSON.stringify(left));
+    const errs = page.errors.concat(two.errors);
+    assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
+    await ctx.close();
+  }
+
+  /* 5b. and not by a tab reading a section, whose resume pointer outlives the wipe */
+  {
+    group('Reset survives a tab that is reading a section');
+    const { ctx, page } = await fresh({ done: { '1.1': 1, '2.1': 1 } });
+    await page.goto(url('01-architecture/01-networking.html'));
+    const two = await tab(ctx, 'index.html');
+    await two.evaluate(() => {
+      const s = window.CNPE_PROGRESS.get();
+      s.ex = {}; s.done = {}; s.exam = {}; s.exam2 = {};
+      s.drill = {}; s.drillmeta = {}; s.days = {}; s.last = null; delete s.lastAt;
+      window.CNPE_PROGRESS.save();
+    });
+    await page.waitForTimeout(400);
+    const left = await page.evaluate(() => JSON.parse(localStorage.getItem('cnpe:v2')));
+    assert(Object.keys(left.done).length === 0, 'the store on the disk is still empty: ' + JSON.stringify(left.done));
+    assert(!left.last, 'and the pointer that tab still holds was not written back: ' + JSON.stringify(left.last));
     const errs = page.errors.concat(two.errors);
     assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
     await ctx.close();
@@ -177,6 +198,32 @@ module.exports = async function (h) {
     await page.waitForTimeout(500);
     assert((await writes(two)) === 1, 'the tab that ticked wrote once: ' + await writes(two));
     assert((await writes(page)) === 0, 'the tab that took it wrote not at all: ' + await writes(page));
+    const errs = page.errors.concat(two.errors);
+    assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
+    await ctx.close();
+  }
+
+  /* 7b. the same, over the resume pointer: a tab that takes another tab's pointer
+     must not stamp its own page back over it */
+  {
+    group('two tabs on two sections settle over the resume pointer');
+    const { ctx, page } = await fresh();
+    await countWrites(page);
+    await page.goto(url('01-architecture/01-networking.html'));
+    const two = await ctx.newPage();
+    two.errors = [];
+    two.on('pageerror', e => two.errors.push('pageerror: ' + e.message));
+    await countWrites(two);
+    await two.goto(url('01-architecture/03-storage.html'));
+    assert(await within(page, () => window.CNPE_PROGRESS.get().last === '1.3'),
+      'the tab left behind takes the section opened after it');
+    const a = await writes(page), b = await writes(two);
+    await page.waitForTimeout(700);
+    assert((await writes(page)) === a && (await writes(two)) === b,
+      'and the writes stop: ' + [a, await writes(page)] + ' then ' + [b, await writes(two)]);
+    assert(a <= 2 && b <= 2, 'each tab wrote only what its own visit learned: ' + a + ', ' + b);
+    const left = await two.evaluate(() => JSON.parse(localStorage.getItem('cnpe:v2')).last);
+    assert(left === '1.3', 'the section opened last is the one on the disk: ' + left);
     const errs = page.errors.concat(two.errors);
     assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
     await ctx.close();
