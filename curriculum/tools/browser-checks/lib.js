@@ -43,7 +43,13 @@ function makeHarness(browser, siteDir) {
     console.log(title);
     if (!body) return;
     try { await body(); }
-    catch (e) { assert(false, title + ' aborted: ' + e.message.split('\n')[0]); }
+    catch (e) {
+      // A body that rejects with anything but an Error must not throw in here:
+      // that escapes to run.js and takes the rest of the area with it again.
+      assert(false, title + ' aborted: ' + String((e && e.message) || e).split('\n')[0]);
+      // the throw jumped its ctx.close(), and every group opens its own
+      for (const c of browser.contexts()) await c.close().catch(() => {});
+    }
   }
 
   /** @param {string} p */

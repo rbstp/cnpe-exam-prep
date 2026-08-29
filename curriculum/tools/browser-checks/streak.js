@@ -238,7 +238,7 @@ module.exports = async function (h) {
     assert(page.errors.length === 0, 'no console errors on junk: ' + page.errors.join(' | '));
     await ctx.close();
   });
-  {
+  await group('junk tolerance, in the day records themselves', async () => {
     // a c of "x" must be tolerated, so this map stays untyped
     /** @type {Record<string, *>} */
     const days = { 'not-a-date': { c: 3 } }; days[TODAY] = { c: 'x', x: 2 };
@@ -248,7 +248,7 @@ module.exports = async function (h) {
     assert(/^1day/.test(val), 'junk day entries tolerated: ' + JSON.stringify(val));
     assert(page.errors.length === 0, 'no console errors on junk days: ' + page.errors.join(' | '));
     await ctx.close();
-  }
+  });
 
   /* 10. themes: the strip must boot clean in light and dark */
   await group('themes' + (SHOTS ? ' (screenshots in ' + SHOTS + ')' : ''), async () => {

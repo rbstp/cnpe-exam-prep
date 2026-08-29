@@ -107,7 +107,7 @@ module.exports = async function (h) {
     await page.goto(url('index.html'));
     // what a storage event from another tab does: boot() runs again, topbar and all
     await page.evaluate(() => {
-      for (let i = 0; i < 4; i++) window.CNPE_PROGRESS.save();
+      for (let i = 0; i < 4; i++) window.CNPE_BOOT();
     });
     assert((await page.evaluate(() => document.querySelectorAll('.themebtn').length)) === 1,
       'one button in the masthead');

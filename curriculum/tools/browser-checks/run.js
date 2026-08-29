@@ -36,7 +36,7 @@ async function run() {
     // group() catches inside an area; this is for what escapes one, such as a
     // throw between groups, and keeps the areas after it running
     try { await require('./' + name)(h); }
-    catch (e) { h.assert(false, name + ' aborted: ' + e.message.split('\n')[0]); }
+    catch (e) { h.assert(false, name + ' aborted: ' + String((e && e.message) || e).split('\n')[0]); }
   }
 
   await browser.close();

@@ -55,10 +55,13 @@ module.exports = async function (h) {
       await page.goto(url(p.page));
       const mounts = await mountsOf(page);
       const bad = mounts.filter(m => !m.built || m.failed || m.kids === 0);
+      const short = mounts.length !== p.kinds.length
+        ? ' (' + mounts.length + ' mounts for ' + p.kinds.length + ' kinds)' : '';
       // A kind the registry does not know is skipped without a word, and one that
       // throws is caught and written into the mount: neither raises an error.
       assert(mounts.length === p.kinds.length && bad.length === 0,
-        p.page + ' drew ' + p.kinds.join(', ') + ': ' + (bad.length ? JSON.stringify(bad) : 'ok'));
+        p.page + ' drew ' + p.kinds.join(', ') + ': ' +
+        (bad.length ? JSON.stringify(bad) : 'ok') + short);
       mounts.forEach(m => { if (m.built) drawn.add(m.kind); });
     }
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
