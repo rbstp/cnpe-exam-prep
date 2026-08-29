@@ -56,4 +56,38 @@ module.exports = async function (h) {
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   }
+
+  /* 4. the dashboard says how much of the drill has come round */
+  {
+    group('the drill button carries the backlog, once there is one');
+    const { ctx, page } = await fresh();
+    await page.goto(url('index.html'));
+    // real ids, since the count is over the bank the drill actually deals from
+    await page.evaluate(() => {
+      const st = window.CNPE_PROGRESS.get(), bank = window.CNPE_DRILL, now = Date.now();
+      st.drill = {};
+      st.drill[bank[0].id] = { r: 1, m: 0, ok: true, t: now - 5 * 864e5 };   // came round days ago
+      st.drill[bank[1].id] = { r: 1, m: 0, ok: true, t: now - 5 * 864e5 };   // came round days ago
+      st.drill[bank[2].id] = { r: 2, m: 0, ok: true, t: now };               // resting four days
+      st.drill[bank[3].id] = { r: 6, m: 0, ok: true, t: now };               // resting three weeks
+      window.CNPE_PROGRESS.save();
+    });
+    await page.reload();
+    const drillBtn = () => page.evaluate(() =>
+      (document.querySelector('#resume a[href$="drill.html"]') || { textContent: '' })
+        .textContent.replace(/\s+/g, ' ').trim());
+    assert(/^Drill 10 · 2 due$/.test(await drillBtn()),
+      'two of the four have come round: ' + JSON.stringify(await drillBtn()));
+    await ctx.close();
+
+    // and a browser that has never drilled is not told all 148 are waiting
+    const fresh2 = await fresh({ done: { '1.1': 1 } });
+    await fresh2.page.goto(url('index.html'));
+    const text = await fresh2.page.evaluate(() =>
+      (document.querySelector('#resume a[href$="drill.html"]') || { textContent: '' })
+        .textContent.replace(/\s+/g, ' ').trim());
+    assert(!/due/.test(text), 'no history, no backlog: ' + JSON.stringify(text));
+    assert(fresh2.page.errors.length === 0, 'no console errors: ' + fresh2.page.errors.join(' | '));
+    await fresh2.ctx.close();
+  }
 };

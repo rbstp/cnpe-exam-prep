@@ -138,6 +138,18 @@ interface CnpeMergeApi {
   /** the same, narrowed to the keys another store mentions: what one tab may
       hold as a base against another tab's copy */
   shared(seen: CnpeTickSets, p: unknown): CnpeMergeBase;
+  /** key-order-independent serialisation, for comparing two stores */
+  canon(v: unknown): string;
+  /** the base a browser may hold against the copy that arrived, or null when the
+      row it came from is not the row that arrived; the caller owns the rest */
+  pickBase(b: unknown, progress: unknown, rev: number, uid: string): CnpeMergeBase | null;
+  /** a store as it goes over the wire: no exam clock, no resume pointer */
+  wire(p: unknown): unknown;
+  /** whether a store holds anything worth a remote row */
+  hasAnything(p: unknown): boolean;
+  /** milliseconds until a drill card comes round again; zero or less is due now,
+      worked out from the card's own r/m/ok/t on an SM-2 shaped ladder */
+  dueIn(rec: unknown, now: number): number;
   /** backfill days for a streak earned before the console counted them */
   seedDays(s: unknown): void;
   dayKey(d: Date): string;

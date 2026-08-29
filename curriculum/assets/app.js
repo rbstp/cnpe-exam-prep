@@ -97,6 +97,28 @@
   // pointer have no counter, so a merge that moved only those rides the next save.
   /** @param {CnpeMergeCounts} n */
   function moved(n) { return !!(n.done || n.ex || n.exam || n.drill || n.days || n.off); }
+  /* The exam clock is the one thing that never merges: it belongs to the tab the
+     paper is open in, which is why it does not go to the server either. Any other
+     tab is holding whatever it read at load, and writing that back would rewind a
+     running clock, so those tabs take the disk's. Two tabs on the same paper still
+     each keep their own, which is as much as "it stays where it started" can say. */
+  var CLOCK = ["startedAt", "running", "spent"];
+  /** @param {string} k */
+  function ownsExam(k) {
+    return body.hasAttribute("data-exam") && (PAGE_ID === "EX2" ? "exam2" : "exam") === k;
+  }
+  /** @param {*} disk */
+  function takeClocks(disk) {
+    ["exam", "exam2"].forEach(function (k) {
+      if (ownsExam(k)) return;
+      var mine = store[k], theirs = disk[k];
+      if (!mine || typeof mine !== "object" || Array.isArray(mine)) return;
+      var has = theirs && typeof theirs === "object" && !Array.isArray(theirs);
+      CLOCK.forEach(function (f) {
+        if (has && f in theirs) mine[f] = theirs[f]; else delete mine[f];
+      });
+    });
+  }
   function reconcile() {
     var disk = onDisk();
     if (!disk) return;
@@ -108,6 +130,7 @@
     // that is ours to write. Anything wider would put a store back over a Reset
     // that another tab just ran, and could have two tabs writing forever.
     var took = M.merge(store, disk, M.shared(seen, disk));
+    takeClocks(disk);
     var ours = M.merge(JSON.parse(JSON.stringify(disk)), store, M.sets(seen));
     if (moved(ours)) save();               // which moves seen on to what it wrote
     else seen = M.ticks(disk);             // otherwise the disk is what we agree on
@@ -803,6 +826,20 @@
     });
   }
 
+  /* ── the drill's backlog ───────────────────────────────────── */
+  // Cards that have come round for review: answered before, and their rest is up.
+  // A card nobody has ever seen is not a backlog, it is the rest of the deck, so
+  // it is not counted here or on the drill's own tile. merge.js sets the interval.
+  function dueCards() {
+    var recs = store.drill && typeof store.drill === "object" && !Array.isArray(store.drill) ? store.drill : {};
+    var now = Date.now(), n = 0;
+    (window.CNPE_DRILL || []).forEach(function (q) {
+      var rec = recs[q.id];
+      if (rec && M.dueIn(rec, now) <= 0) n++;
+    });
+    return n;
+  }
+
   /* ── weak spots: drill accuracy split by domain ────────────── */
   // Drill record keys embed the section ("2.3#..."), so the domain comes from the key.
   var WEAK_MIN = 5;   // answers a domain needs before the panel will call it weak
@@ -918,8 +955,12 @@
         html += '<a class="tbtn" style="text-decoration:none" href="' + href(target.path) + '">▶ ' +
           (last ? "Resume " : "Start ") + target.id + " · " + target.title + "</a> ";
       }
+      // What is waiting beats how long the streak is, and the uptime tile above
+      // already carries the streak.
+      var due = dueCards();
       html += '<a class="tbtn ghost" style="text-decoration:none" href="' + href("drill.html") + '">Drill 10' +
-        (sk.streak ? " · up " + sk.streak + (sk.streak === 1 ? " day" : " days") : "") + "</a>";
+        (due ? " · " + due + " due" : sk.streak ? " · up " + sk.streak + (sk.streak === 1 ? " day" : " days") : "") +
+        "</a>";
       resume.innerHTML = html;
     }
     var reset = document.getElementById("reset-progress");

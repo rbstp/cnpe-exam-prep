@@ -64,11 +64,8 @@
   /* ── the base ────────────────────────────────────────────── */
   /* The last state this browser and the server agreed on. mergeProgress reads it
      to tell "I never had this" from "I removed this", which is the whole trick. */
-  var ticks = window.CNPE_MERGE.ticks, sets = window.CNPE_MERGE.sets;
-  /** @param {*} b @return {*} */
-  function only(b) {
-    return { done: b.done || [], ex: b.ex || [], exam: b.exam || [], exam2: b.exam2 || [] };
-  }
+  var M = window.CNPE_MERGE;
+  var ticks = M.ticks, canon = M.canon;
   function readBase() {
     try {
       var b = JSON.parse(localStorage.getItem(BASE) || "null");
@@ -91,53 +88,18 @@
     t.rev = rev;
     try { localStorage.setItem(BASE, JSON.stringify(t)); } catch (e) { clearBase(); }
   }
+  // Whether there is a base at all, and whether this browser may be trusted to
+  // hold one, are questions about the disk and the tabs; whether the one it holds
+  // belongs to the copy that arrived is a rule, and lives in merge.js.
   /** @param {*} progress @param {number} rev @param {string} uid @return {*} */
   function baseFor(progress, rev, uid) {
-    var b = readBase();
-    if (!b || S.foreign || !settled()) return null;
-    if (b.uid && uid && String(b.uid) !== uid) return null;
-    var was = +b.rev || 0;
-    if (rev < was) return null;                       // the row was deleted and remade
-    // One rev holds one blob, so a match that disagrees is a different row.
-    if (rev === was && canon(ticks(progress)) !== canon(only(b))) return null;
-    return sets(b);
+    if (S.foreign || !settled()) return null;
+    return M.pickBase(readBase(), progress, rev, uid);
   }
 
   /* ── the payload ─────────────────────────────────────────── */
-  // A running exam clock stays on the machine that started it, as import does.
-  function snapshot() {
-    var p = window.CNPE_PROGRESS ? window.CNPE_PROGRESS.get() : null;
-    if (!p) return null;
-    var copy;
-    try { copy = JSON.parse(JSON.stringify(p)); } catch (e) { return null; }
-    // A stable wire shape, so an unchanged store canonicalises to what was sent.
-    ["exam", "exam2"].forEach(function (k) {
-      var e = copy[k] && typeof copy[k] === "object" && !Array.isArray(copy[k]) ? copy[k] : (copy[k] = {});
-      delete e.startedAt; delete e.running; delete e.spent;
-      if (!e.tasks || typeof e.tasks !== "object") e.tasks = {};
-    });
-    delete copy.last;
-    return copy;
-  }
-  // An empty store never earns a remote row.
-  function hasAnything(p) {
-    if (!p) return false;
-    if (["ex", "done", "drill", "days"].some(function (k) {
-      return p[k] && typeof p[k] === "object" && Object.keys(p[k]).length > 0;
-    })) return true;
-    return ["exam", "exam2"].some(function (k) {
-      return p[k] && p[k].tasks && Object.keys(p[k].tasks).length > 0;
-    });
-  }
-
-  /** @param {*} v */
-  function canon(v) {
-    if (!v || typeof v !== "object") return JSON.stringify(v === undefined ? null : v);
-    if (Array.isArray(v)) return "[" + v.map(canon).join(",") + "]";
-    return "{" + Object.keys(v).sort().map(function (k) {
-      return JSON.stringify(k) + ":" + canon(v[k]);
-    }).join(",") + "}";
-  }
+  function snapshot() { return M.wire(window.CNPE_PROGRESS ? window.CNPE_PROGRESS.get() : null); }
+  var hasAnything = M.hasAnything;
 
   /* ── transport ───────────────────────────────────────────── */
   /** @param {string} path @param {RequestInit} [opts] */

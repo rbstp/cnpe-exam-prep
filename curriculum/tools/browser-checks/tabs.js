@@ -137,7 +137,31 @@ module.exports = async function (h) {
     await ctx.close();
   }
 
-  /* 6. converging must not mean answering each other forever */
+  /* 6. the exam clock belongs to the tab its paper is open in */
+  {
+    group('another tab cannot rewind a running exam clock');
+    const { ctx, page } = await fresh();
+    await page.goto(url('mock-exam.html'));
+    await page.click('#t-start');                       // the exam tab starts the clock
+    const two = await tab(ctx, 'index.html');           // this one loads it running
+    await page.waitForTimeout(1200);
+    await page.click('#t-start');                       // and pauses, banking the time
+    assert(await within(two, () => window.CNPE_PROGRESS.get().exam.running === false),
+      'the dashboard tab takes the paused clock rather than keeping the running one');
+    await two.evaluate(() => window.CNPE_PROGRESS.save());
+    await two.waitForTimeout(300);
+    const left = await two.evaluate(() => JSON.parse(localStorage.getItem('cnpe:v2')).exam);
+    assert(left.running === false && Math.round(left.spent) >= 1,
+      'and its save leaves the banked time alone: ' + JSON.stringify({ running: left.running, spent: Math.round(left.spent) }));
+    const owner = await page.evaluate(() => window.CNPE_PROGRESS.get().exam);
+    assert(owner.running === false && Math.round(owner.spent) >= 1,
+      'the paper it is open in still holds its own: ' + JSON.stringify({ running: owner.running, spent: Math.round(owner.spent) }));
+    const errs = page.errors.concat(two.errors);
+    assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
+    await ctx.close();
+  }
+
+  /* 7. converging must not mean answering each other forever */
   {
     group('the tabs settle instead of writing at each other');
     const { ctx, page } = await fresh({ done: { '2.1': 1 } });
