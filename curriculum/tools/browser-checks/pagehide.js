@@ -1,0 +1,262 @@
+/* The last save before the page goes away.
+
+   The other sync checks intercept routes, which cannot see a keepalive push from
+   a document that is already gone: the request never reaches the handler, and the
+   PUT that does arrive is the next page booting and pushing for itself. So this
+   area serves the staged site and the stub Worker from one real localhost origin,
+   which usable() allows and which needs no CORS. */
+'use strict';
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+
+/** @type {Record<string, string>} */
+const TYPES = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml',
+  '.woff2': 'font/woff2', '.json': 'application/json',
+};
+
+/* Same origin, no console on it: nothing here can push on its own, so a PUT that
+   lands after navigating to it came from the page being left. */
+const LEAVING = '/__leaving';
+const LEAVING_BODY = '<!doctype html><meta charset="utf-8"><title>gone</title><p>gone';
+
+const AVATAR = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#456"/></svg>');
+
+/** @param {import('./lib').Harness} h */
+module.exports = async function (h) {
+  const { browser, siteDir, assert, group } = h;
+
+  /** @param {{ hang?: boolean }} [o] */
+  async function serve(o) {
+    o = o || {};
+    /** @type {string[]} */
+    const seen = [];
+    /** @type {string[]} */
+    const bodies = [];
+    /** @type {import('http').ServerResponse[]} */
+    const held = [];
+    let rev = 0, denying = false;
+    const server = http.createServer((req, res) => {
+      const u = new URL(req.url || '/', 'http://127.0.0.1');
+      if (u.pathname.indexOf('/api/') === 0) {
+        let body = '';
+        req.on('data', c => { body += c; });
+        return req.on('end', () => {
+          seen.push(req.method + ' ' + u.pathname.slice(4));
+          if (req.method === 'PUT') {
+            bodies.push(body);
+            if (o.hang) { held.push(res); return; }     // ended by close()
+            if (denying) {
+              res.writeHead(401, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+              return res.end('{}');
+            }
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          res.end(JSON.stringify(req.method === 'GET'
+            ? { user: { login: 'octocat', id: '1' }, rev: rev, updated: 'then', progress: { done: { '1.1': 1 } } }
+            : { rev: ++rev, updated: 'now' }));
+        });
+      }
+      if (u.pathname === LEAVING) {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        return res.end(LEAVING_BODY);
+      }
+      const f = path.join(siteDir, u.pathname === '/' ? 'index.html' : decodeURIComponent(u.pathname));
+      if (f.indexOf(siteDir) !== 0 || !fs.existsSync(f) || fs.statSync(f).isDirectory()) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        return res.end('no');
+      }
+      res.writeHead(200, { 'Content-Type': TYPES[path.extname(f)] || 'application/octet-stream' });
+      res.end(fs.readFileSync(f));
+    });
+    await new Promise(r => server.listen(0, '127.0.0.1', () => r(null)));
+    const addr = /** @type {import('net').AddressInfo} */ (server.address());
+    return {
+      seen, bodies,
+      origin: 'http://127.0.0.1:' + addr.port,
+      puts: () => seen.filter(x => x === 'PUT /v1/progress').length,
+      gets: () => seen.filter(x => x === 'GET /v1/progress').length,
+      last: () => bodies[bodies.length - 1] || '',
+      // Only once the boot push has landed: refusing that one drops the session
+      // before the check under it has started.
+      deny: () => { denying = true; },
+      // close() alone waits out keep-alive sockets the browser leaves behind,
+      // which would hold the whole run open after the last check.
+      close: () => new Promise(r => {
+        held.forEach(x => { try { x.destroy(); } catch (e) { /* already gone */ } });
+        server.close(() => r(null));
+        server.closeAllConnections();
+      }),
+    };
+  }
+
+  /** @param {string} origin @param {{ signedIn?: boolean, debounce?: number }} o */
+  async function open(origin, o) {
+    const ctx = await browser.newContext();
+    // No route interception on this origin: it is what the keepalive push needs.
+    await ctx.route('https://avatars.githubusercontent.com/**', route =>
+      route.fulfill({ status: 200, contentType: 'image/svg+xml', body: AVATAR }));
+    await ctx.addInitScript(({ api, ms, f }) => {
+      window.CNPE_SYNC_API = api;
+      window.CNPE_SYNC_DEBOUNCE = ms;
+      try {
+        sessionStorage.setItem('cnpe:sync-reloaded', '1');
+        if (localStorage.getItem('cnpe:seeded')) return;
+        localStorage.setItem('cnpe:seeded', '1');
+        localStorage.setItem('cnpe:v2', JSON.stringify({ done: { '1.1': 1 } }));
+        if (f) localStorage.setItem('cnpe:sync', JSON.stringify({ on: 1, login: 'octocat' }));
+      } catch (e) { /* private mode */ }
+    }, { api: origin + '/api', ms: o.debounce || 60000, f: !!o.signedIn });
+    const page = await ctx.newPage();
+    page.errors = [];
+    page.on('pageerror', e => page.errors.push('pageerror: ' + e.message));
+    page.on('console', m => { if (m.type() === 'error') page.errors.push('console: ' + m.text()); });
+    await page.goto(origin + '/index.html');
+    return { ctx, page };
+  }
+
+  const wait = (/** @type {number} */ ms) => new Promise(r => setTimeout(r, ms));
+  /** @param {() => boolean} done */
+  async function settle(done) {
+    for (let i = 0; i < 80 && !done(); i++) await wait(25);
+    return done();
+  }
+  /** @param {import('playwright').Page} p @param {string} id */
+  const tick = (p, id) => p.evaluate((k) => {
+    const s = window.CNPE_PROGRESS;
+    s.get().done[k] = 1;
+    s.save();
+  }, id);
+
+  /** Boot signed in, let the boot pull settle, hand the page to the body, then
+   *  report what the Worker saw. Every scenario below needs the same preamble.
+   *  @param {{ hang?: boolean, debounce?: number }} o
+   *  @param {(page: import('playwright').Page, srv: *) => Promise<void>} body */
+  async function leave(o, body) {
+    const srv = await serve({ hang: o.hang });
+    const { ctx, page } = await open(srv.origin, { signedIn: true, debounce: o.debounce });
+    await page.waitForFunction(() => !!window.CNPE_SYNC && window.CNPE_SYNC.signedIn());
+    await settle(() => srv.gets() > 0);
+    await wait(300);
+    srv.seen.length = 0;
+    srv.bodies.length = 0;
+    await body(page, srv);
+    const out = { puts: srv.puts(), gets: srv.gets(), last: srv.last(), errors: page.errors.slice() };
+    await ctx.close();
+    await srv.close();
+    return out;
+  }
+
+  /** A keepalive push issued as the document goes away is dropped before it
+   *  reaches the socket about once in fifteen leaves, which is the transport and
+   *  not the console: the flush runs and calls push either way. Give a delivery
+   *  scenario a few goes, so a drop reads as noise and a dead listener does not.
+   *  @param {() => Promise<*>} run @param {(r: *) => boolean} ok */
+  async function delivered(run, ok) {
+    let last = null;
+    for (let i = 0; i < 3; i++) { last = await run(); if (ok(last)) break; }
+    return last;
+  }
+
+  /* 1. the whole point: a save inside the window still goes up on the way out */
+  {
+    group('a save still inside the debounce window is pushed when the page is left');
+    const r = await delivered(() => leave({}, async (page, srv) => {
+      await tick(page, '2.2');
+      await tick(page, '3.3');
+      assert(srv.puts() === 0, 'nothing has gone up yet: ' + srv.puts());
+      await page.goto(srv.origin + LEAVING);
+      await settle(() => srv.puts() > 0);
+    }), x => x.puts === 1);
+    // The debounce is 60s and this run is seconds long, so no timer can have
+    // fired; no GET means it is not the next page booting and pushing either.
+    assert(r.puts === 1, 'exactly one push, so it is the flush and not a timer: ' + r.puts);
+    assert(r.gets === 0, 'and no pull, so the page left behind sent it: ' + r.gets);
+    assert(/"2\.2"/.test(r.last) && /"3\.3"/.test(r.last),
+      'it carries both saves, not a stale body: ' + r.last.slice(0, 120));
+    assert(r.errors.length === 0, 'no console errors: ' + r.errors.join(' | '));
+  }
+
+  /* 2. leaving fires visibilitychange as well as pagehide, and either listener
+        alone carries it. Pin visibility so only pagehide is left to do it. */
+  {
+    group('pagehide alone carries the save, with the visibility path held open');
+    const r = await delivered(() => leave({}, async (page, srv) => {
+      await tick(page, '2.2');
+      await page.evaluate(() => {
+        Object.defineProperty(document, 'visibilityState', { get: () => 'visible', configurable: true });
+      });
+      await page.goto(srv.origin + LEAVING);
+      await settle(() => srv.puts() > 0);
+    }), x => x.puts === 1);
+    assert(r.puts === 1, 'pagehide pushes on its own: ' + r.puts);
+    assert(/"2\.2"/.test(r.last), 'carrying the save: ' + r.last.slice(0, 120));
+    assert(r.errors.length === 0, 'no console errors: ' + r.errors.join(' | '));
+  }
+
+  /* 3. and it stays quiet when there is nothing to say */
+  {
+    group('leaving with nothing pending pushes nothing');
+    const r = await leave({}, async (page, srv) => {
+      await page.goto(srv.origin + LEAVING);
+      await wait(600);
+    });
+    assert(r.puts === 0, 'no push with no pending save: ' + r.puts);
+    assert(r.errors.length === 0, 'no console errors: ' + r.errors.join(' | '));
+  }
+
+  /* 4. the mobile path: backgrounding the tab, not navigating away. The page
+        stays alive here, so this one has nothing to drop. */
+  {
+    group('backgrounding the tab flushes the same way');
+    const r = await leave({}, async (page, srv) => {
+      await tick(page, '4.4');
+      // Headless Chromium will not give a page a real hidden state, so the state
+      // is stubbed and the event dispatched. What is under test is the listener.
+      await page.evaluate(() => {
+        Object.defineProperty(document, 'visibilityState', { get: () => 'hidden', configurable: true });
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      await settle(() => srv.puts() > 0);
+    });
+    assert(r.puts === 1, 'hiding the tab pushes: ' + r.puts);
+    assert(/"4\.4"/.test(r.last), 'carrying the save: ' + r.last.slice(0, 120));
+    assert(r.errors.length === 0, 'no console errors: ' + r.errors.join(' | '));
+  }
+
+  /* 5. a save landing while a push is already open reschedules its own timer,
+        so the flush still finds one and the later save is not stranded. */
+  {
+    group('a save made while a push is in flight still goes out on the way out');
+    const r = await delivered(() => leave({ hang: true, debounce: 250 }, async (page, srv) => {
+      await tick(page, '2.2');
+      await settle(() => srv.puts() === 1);
+      await tick(page, '3.3');
+      await page.goto(srv.origin + LEAVING);
+      await settle(() => srv.puts() === 2);
+    }), x => x.puts === 2);
+    assert(r.puts === 2, 'leaving pushes again rather than waiting on the open one: ' + r.puts);
+    assert(/"3\.3"/.test(r.last), 'and the later save is in it: ' + r.last.slice(0, 120));
+    assert(r.errors.length === 0, 'no console errors: ' + r.errors.join(' | '));
+  }
+
+  /* 6. the listeners stay wired for the life of the page, so leaving after the
+        session was dropped must stay silent. */
+  {
+    group('leaving after a 401 dropped the session pushes nothing more');
+    const r = await leave({ debounce: 250 }, async (page, srv) => {
+      srv.deny();
+      await tick(page, '2.2');
+      assert(await settle(() => srv.puts() === 1), 'the debounced push goes out and is refused: ' + srv.puts());
+      assert(await page.waitForFunction(() => !window.CNPE_SYNC.signedIn(), null, { timeout: 5000 })
+        .then(() => true, () => false), 'the 401 drops the session');
+      await tick(page, '3.3');
+      await page.goto(srv.origin + LEAVING);
+      await wait(700);
+    });
+    assert(r.puts === 1, 'and leaving sends nothing further: ' + r.puts);
+  }
+};
