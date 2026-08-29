@@ -8,6 +8,7 @@
   "use strict";
 
   var BUCKETS = ["done", "ex", "exam", "exam2"];
+  var DAY = 864e5;
   function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
 
   /* ── study days ──────────────────────────────────────────── */
@@ -38,6 +39,37 @@
       if (!dayActs(d)) d.c = 10;                 // the ten cards that earned that day
     }
   }
+
+  /* ── the drill's schedule ─────────────────────────────────── */
+  /* SM-2's shape over the counters the drill has always kept. A card sits on a
+     ladder at its lifetime score, right net of missed, and each rung waits longer
+     than the last by an ease its own miss rate sets. A miss costs a rung and makes
+     the card due now; the next right answer buys that rung back, so a lapse sets a
+     card back rather than starting it over, which is as much as a lifetime record
+     can say. Nothing new is stored: r, m, ok and t are the whole of it. */
+  var STEP = [1, 4];                 // days to the first review, then to the second
+  var CAP = 21;                      // the exam is weeks away, so nothing rests longer
+  var EASE_HI = 2.5, EASE_LO = 1.3;  // SM-2's own range, off the lifetime miss rate
+
+  function easeOf(rec) {
+    var n = (+rec.r || 0) + (+rec.m || 0);
+    return n ? Math.max(EASE_LO, EASE_HI - 1.2 * ((+rec.m || 0) / n)) : EASE_HI;
+  }
+  // Days a card rests after the answer it last got. Zero means it is due now.
+  function restOf(rec) {
+    if (!rec || !rec.t || !rec.ok) return 0;              // never answered, or missed
+    var reps = (+rec.r || 0) - (+rec.m || 0);             // right, net of the misses
+    if (reps < 1) return 0;
+    if (reps <= STEP.length) return STEP[reps - 1];
+    var days = STEP[STEP.length - 1], ease = easeOf(rec);
+    // Stop at the cap rather than at reps: r is whatever an imported file said,
+    // and the merge only ever raises it, so the rung count is not ours to trust.
+    for (var i = STEP.length; i < reps && days < CAP; i++) days *= ease;
+    return Math.min(days, CAP);
+  }
+  // Milliseconds until a card comes round again; zero or less means it is due.
+  function dueIn(rec, now) { return ((rec && +rec.t) || 0) + restOf(rec) * DAY - now; }
+
 
   /* ── the ticked keys of a store ───────────────────────────── */
   /* What cnpe:sync-base holds, and what a tab keeps of the last store it saw on
@@ -248,7 +280,8 @@
 
   root.CNPE_MERGE = {
     merge: mergeProgress, ticks: ticks, sets: sets, shared: shared,
-    canon: canon, pickBase: pickBase, wire: wire, hasAnything: hasAnything, seedDays: seedDays,
+    canon: canon, pickBase: pickBase, wire: wire, hasAnything: hasAnything,
+    dueIn: dueIn, seedDays: seedDays,
     dayKey: dayKey, shiftKey: shiftKey, dayActs: dayActs, DAY_RE: DAY_RE,
   };
 })(typeof window !== "undefined" ? window : globalThis);

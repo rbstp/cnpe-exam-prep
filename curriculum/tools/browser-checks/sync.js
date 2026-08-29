@@ -126,13 +126,18 @@ module.exports = async function (h) {
   }
   const gets = (/** @type {string[]} */ seen) => seen.filter(x => x === 'GET /v1/progress').length;
 
-  /** Wait for a section to settle at a value. A merge-triggered reload destroys the
-   *  execution context and rejects the wait, so pick it back up on the new page. */
+  /** Wait for a section to settle at a value, on the disk as well as in memory: a
+   *  merge that never reached the disk is a merge that did not happen, and these
+   *  checks used to get that for free from the reload the merge triggered. Where
+   *  that reload is still on it destroys the execution context and rejects the
+   *  wait, so pick it back up on the new page. */
   const doneIs = async (/** @type {import('playwright').Page} */ p, /** @type {string} */ id, /** @type {number} */ want) => {
     for (let i = 0; i < 3; i++) {
       const got = await p.waitForFunction(([k, v]) => {
         const s = window.CNPE_PROGRESS;
-        return !!s && s.get().done[k] === v;
+        if (!s || s.get().done[k] !== v) return false;
+        const saved = /** @type {CnpeStore} */ (s.saved());
+        return !!saved && saved.done[k] === v;
       }, /** @type {[string, number]} */ ([id, want]), { timeout: 5000 }).then(() => true, () => false);
       if (got) return true;
     }
@@ -709,9 +714,13 @@ module.exports = async function (h) {
       },
     });
     await s.go();
+    // The glyph is also what the button carries before the pull names the account,
+    // so waiting for a glyph can catch the button on its way up rather than after
+    // the avatar failed. Wait for the request to have been made and given up on.
+    assert(await settle(() => s.avatarHits.length > 0), 'the avatar was asked for');
     await s.page.waitForFunction(() => {
-      const b = document.querySelector('.syncbtn');
-      return !!b && !b.querySelector('img.avt') && !!b.querySelector('svg');
+      const b = /** @type {HTMLButtonElement} */ (document.querySelector('.syncbtn'));
+      return !!b && !b.querySelector('img.avt') && !!b.querySelector('svg') && /Synced/.test(b.title);
     });
     const b = await topOf(s.page);
     assert(b.on && /Synced .* to @octocat/.test(b.title), 'the button still reports the account: ' + JSON.stringify(b.title));
@@ -1091,8 +1100,9 @@ module.exports = async function (h) {
       row.rev += 1; row.blob = put.progress;
       return { status: 200, json: { rev: row.rev, updated: 'now' } };
     };
-    // both browsers here are about the reload a merge triggers
-    const a = await site({ signedIn: true, api: worker, repaint: true });
+    // B reads a tile that the reload the merge triggers is what repaints; A only
+    // ever visits section pages, which have no dashboard to reload.
+    const a = await site({ signedIn: true, api: worker });
     const b = await site({ signedIn: true, api: worker, repaint: true });
     /** Wait for the sections tile to settle on a count.
      * @param {import('playwright').Page} p @param {string} want */

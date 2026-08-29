@@ -290,23 +290,29 @@ group("the base a browser may hold against the copy that arrived");
 {
   const base = { uid: "42", rev: 4, done: ["1.1"], ex: [], exam: [], exam2: [] };
   const same = { done: { "1.1": 1 } };
-  ok(M.pickBase(base, same, 5, "42").done["1.1"] === 1, "a rev past the base's is a row that moved on, so the base stands");
-  ok(M.pickBase(base, same, 4, "42").done["1.1"] === 1, "the base's own rev, carrying the base's own ticks, stands too");
+  // null-safe, so a base that stops being trusted reads as a failure and not a crash
+  const held = (...a) => M.pickBase(...a) || { done: {}, ex: {}, exam: {}, exam2: {} };
+  ok(held(base, same, 5, "42").done["1.1"] === 1, "a rev past the base's is a row that moved on, so the base stands");
+  // the ordinary pull after another browser pushed: the ticks have moved on and
+  // the base must still stand, or every un-tick made elsewhere is resurrected
+  ok(held(base, { done: { "9.9": 1 } }, 5, "42").done["1.1"] === 1,
+    "and it stands even though the copy that arrived has different ticks in it");
+  ok(held(base, same, 4, "42").done["1.1"] === 1, "the base's own rev, carrying the base's own ticks, stands too");
   ok(M.pickBase(base, same, 3, "42") === null, "a rev below the base's means the row was deleted and remade");
   ok(M.pickBase(base, { done: { "2.1": 1 } }, 4, "42") === null,
     "one rev holds one blob, so the same rev with different ticks is a different row");
   ok(M.pickBase(base, same, 4, "99") === null, "a base kept for another account is not this account's");
-  ok(M.pickBase({ rev: 4, done: ["1.1"] }, same, 4, "42").done["1.1"] === 1,
+  ok(held({ rev: 4, done: ["1.1"] }, same, 4, "42").done["1.1"] === 1,
     "a base from before the account was recorded is still usable");
-  ok(M.pickBase(base, same, 4, "").done["1.1"] === 1, "and so is one checked before the account is known");
+  ok(held(base, same, 4, "").done["1.1"] === 1, "and so is one checked before the account is known");
   ok(M.pickBase(null, same, 4, "42") === null, "no base is no base");
   ["", "a string", 42, [], ["1.1"]].forEach(function (junk) {
     ok(M.pickBase(junk, same, 4, "42") === null, "a base that is " + JSON.stringify(junk) + " is refused");
   });
-  ok(M.pickBase({ done: ["1.1"] }, same, 0, "42").done["1.1"] === 1, "a base with no rev reads as rev 0");
+  ok(held({ done: ["1.1"] }, same, 0, "42").done["1.1"] === 1, "a base with no rev reads as rev 0");
   // the exam's ticks live under tasks on the wire and flat in the base
   const exam = { uid: "42", rev: 2, done: [], ex: [], exam: ["3"], exam2: [] };
-  ok(M.pickBase(exam, { exam: { tasks: { 3: 1 } } }, 2, "42").exam["3"] === 1,
+  ok(held(exam, { exam: { tasks: { 3: 1 } } }, 2, "42").exam["3"] === 1,
     "the base's exam list is compared against the payload's exam tasks");
   ok(M.pickBase(exam, { exam: { tasks: { 4: 1 } } }, 2, "42") === null, "and a different task is a different row");
 }
@@ -328,8 +334,11 @@ group("the shape a store goes over the wire in");
   w.done["9.9"] = 1;
   ok(store.done["9.9"] === undefined, "the copy is deep, so the caller cannot write through it");
   ok(M.wire(null) === null && M.wire("nope") === null, "there is no wire shape for nothing");
-  ok(M.canon(M.wire(store)) === M.canon(M.wire(JSON.parse(JSON.stringify(store)))),
-    "the shape is stable, so an unchanged store canonicalises to what was sent");
+  const ticking = JSON.parse(JSON.stringify(store));
+  ticking.exam.spent = 60; ticking.exam.running = false; ticking.last = "1.1";
+  ok(M.canon(M.wire(ticking)) === M.canon(M.wire(store)),
+    "two stores that differ only in the clock and the pointer go out identical, " +
+    "which is what stops a running exam pushing every second");
 }
 
 group("what counts as having anything to save");
@@ -358,6 +367,28 @@ group("comparing two stores ignores the order their keys came in");
   ok(M.canon([1, 2]) !== M.canon([2, 1]), "but array order is order");
   ok(M.canon(undefined) === M.canon(null), "undefined and null read the same");
   ok(M.canon({ a: 1 }) !== M.canon({ a: "1" }), "and a number is not its string");
+}
+
+group("when a drill card comes round again");
+{
+  const now = Date.now(), DAY = 864e5;
+  const days = rec => M.dueIn(rec, now) / DAY;
+  ok(M.dueIn(undefined, now) <= 0, "a card nobody has answered is due");
+  ok(M.dueIn({ r: 0, m: 0 }, now) <= 0, "and so is a record with no answer in it");
+  ok(days({ r: 3, m: 1, ok: false, t: now }) === 0, "a card missed last time is due now, whatever its score");
+  ok(days({ r: 1, m: 0, ok: true, t: now }) === 1, "one right answer buys a day");
+  ok(days({ r: 2, m: 0, ok: true, t: now }) === 4, "two buy four");
+  ok(days({ r: 3, m: 0, ok: true, t: now }) === 10, "three buy ten, the ease being 2.5 for a card never missed");
+  ok(days({ r: 6, m: 0, ok: true, t: now }) === 21, "and the ladder stops at three weeks");
+  const missed = days({ r: 6, m: 2, ok: true, t: now });
+  ok(missed > 0 && missed < 21, "a card with misses on its record climbs slower: " + missed.toFixed(1) + " days");
+  ok(days({ r: 2, m: 2, ok: true, t: now }) === 0, "a score that nets to nothing is due");
+  ok(days({ r: 1, m: 0, ok: true, t: now - DAY }) === 0, "a day later, that card has come round");
+  ok(M.dueIn({ r: 1, m: 0, ok: true }, now) <= 0, "a record with no timestamp cannot be resting");
+  // r is whatever an imported file said, and the merge only ever raises it
+  const started = Date.now();
+  ok(days({ r: 1e15, m: 0, ok: true, t: now }) === 21 && Date.now() - started < 50,
+    "an absurd score is capped without walking every rung to get there");
 }
 
 group("the counts the callers paint from");

@@ -147,6 +147,9 @@ interface CnpeMergeApi {
   wire(p: unknown): unknown;
   /** whether a store holds anything worth a remote row */
   hasAnything(p: unknown): boolean;
+  /** milliseconds until a drill card comes round again; zero or less is due now,
+      worked out from the card's own r/m/ok/t on an SM-2 shaped ladder */
+  dueIn(rec: unknown, now: number): number;
   /** backfill days for a streak earned before the console counted them */
   seedDays(s: unknown): void;
   dayKey(d: Date): string;

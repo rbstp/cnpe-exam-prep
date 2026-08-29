@@ -4,6 +4,7 @@
 
   var GOAL = 10;                     // cards per day that fill the drill's daily goal
   var DAY = 864e5;
+  var dueIn = window.CNPE_MERGE.dueIn;   // the card's own schedule; merge.js holds it
 
   var session = null;                // { deck, i, right[], missed[], revealed }
   var size = 10, domain = 0;         // deck size, and 0 means all domains
@@ -44,38 +45,13 @@
     return api().streak ? api().streak() : { streak: 0, best: 0 };
   }
 
-  /* ── the schedule ────────────────────────────────────────── */
-  /* SM-2's shape over the counters the drill has always kept. A card sits on a
-     ladder at its lifetime score, right net of missed, and each rung waits longer
-     than the last by an ease its own miss rate sets. A miss costs a rung and makes
-     the card due now; the next right answer buys that rung back, so a lapse sets a
-     card back rather than starting it over, which is as much as a lifetime record
-     can say. Nothing new is stored: r, m, ok and t are the whole of it. */
-  var STEP = [1, 4];                 // days to the first review, then to the second
-  var CAP = 21;                      // the exam is weeks away, so nothing rests longer
-  var EASE_HI = 2.5, EASE_LO = 1.3;  // SM-2's own range, off the lifetime miss rate
-
-  function easeOf(rec) {
-    var n = (+rec.r || 0) + (+rec.m || 0);
-    return n ? Math.max(EASE_LO, EASE_HI - 1.2 * ((+rec.m || 0) / n)) : EASE_HI;
-  }
-  // Days a card rests after the answer it last got. Zero means it is due now.
-  function restOf(rec) {
-    if (!rec || !rec.t || !rec.ok) return 0;              // never answered, or missed
-    var reps = (+rec.r || 0) - (+rec.m || 0);             // right, net of the misses
-    if (reps < 1) return 0;
-    if (reps <= STEP.length) return STEP[reps - 1];
-    var days = STEP[STEP.length - 1], ease = easeOf(rec);
-    // Stop at the cap rather than at reps: r is whatever an imported file said,
-    // and the merge only ever raises it, so the rung count is not ours to trust.
-    for (var i = STEP.length; i < reps && days < CAP; i++) days *= ease;
-    return Math.min(days, CAP);
-  }
-  // Milliseconds until a card comes round again; zero or less means it is due.
-  function dueIn(rec, now) { return ((rec && +rec.t) || 0) + restOf(rec) * DAY - now; }
+  // Answered before and rested long enough. A card never seen is not a review.
   function dueCount(now) {
     var r = recs(), n = 0;
-    bank().forEach(function (q) { if (dueIn(r[q.id], now) <= 0) n++; });
+    bank().forEach(function (q) {
+      var rec = r[q.id];
+      if (rec && dueIn(rec, now) <= 0) n++;
+    });
     return n;
   }
 
