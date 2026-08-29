@@ -6,11 +6,14 @@
 (function () {
   "use strict";
 
+  // As in app.js: a cached page from before merge.js existed carries no script
+  // tag for it, and without the merge there is nothing here worth mounting.
+  if (!window.CNPE_MERGE) return;
+
   var API = String(window.CNPE_SYNC_API || "https://sync.rbstp.dev").replace(/\/+$/, "");
   var FLAG = "cnpe:sync";
   var BASE = "cnpe:sync-base";
   var RELOADED = "cnpe:sync-reloaded";
-  var BUCKETS = ["done", "ex", "exam", "exam2"];
   var DEBOUNCE = 2500;
   var MAX_RETRY = 3;
 
@@ -61,27 +64,7 @@
   /* ── the base ────────────────────────────────────────────── */
   /* The last state this browser and the server agreed on. mergeProgress reads it
      to tell "I never had this" from "I removed this", which is the whole trick. */
-  /** @param {*} p @return {*} */
-  function ticks(p) {
-    var out = { done: [], ex: [], exam: [], exam2: [] };
-    if (!p || typeof p !== "object") return out;
-    BUCKETS.forEach(function (b) {
-      var m = b === "exam" || b === "exam2" ? p[b] && p[b].tasks : p[b];
-      if (!m || typeof m !== "object" || Array.isArray(m)) return;
-      out[b] = Object.keys(m).filter(function (k) { return m[k]; }).sort();
-    });
-    return out;
-  }
-  /** @param {*} b @return {*} */
-  function sets(b) {
-    var out = Object.create(null);
-    BUCKETS.forEach(function (k) {
-      var m = Object.create(null);
-      (b && b[k] || []).forEach(function (t) { m[t] = 1; });
-      out[k] = m;
-    });
-    return out;
-  }
+  var ticks = window.CNPE_MERGE.ticks, sets = window.CNPE_MERGE.sets;
   /** @param {*} b @return {*} */
   function only(b) {
     return { done: b.done || [], ex: b.ex || [], exam: b.exam || [], exam2: b.exam2 || [] };
@@ -94,8 +77,8 @@
   }
   function clearBase() { try { localStorage.removeItem(BASE); } catch (e) {} }
   // A base is only an ancestor of a store that reached the disk, so a swallowed
-  // quota error breaks it. So does another tab, but only until that tab saves
-  // its own store over ours, which is what S.foreign below is for.
+  // quota error breaks it. So does another tab whose write app.js could not
+  // merge back into memory, which is what S.foreign below is for.
   function settled() {
     if (!window.CNPE_PROGRESS || !window.CNPE_PROGRESS.saved) return false;
     return canon(ticks(window.CNPE_PROGRESS.saved())) === canon(ticks(window.CNPE_PROGRESS.get()));
@@ -103,7 +86,7 @@
   /** @param {*} progress @param {number} rev */
   function keepBase(progress, rev) {
     if (S.foreign || !settled()) { clearBase(); return; }
-    var t = ticks(progress);
+    var t = /** @type {CnpeSyncBase} */ (ticks(progress));
     t.uid = S.uid;
     t.rev = rev;
     try { localStorage.setItem(BASE, JSON.stringify(t)); } catch (e) { clearBase(); }
@@ -401,8 +384,10 @@
     booted = true;
     if (!usable()) return;
     if (window.CNPE_PROGRESS) window.CNPE_PROGRESS.onSave(schedule);
-    // Fires only in the other tabs. Once one has written a store this one never
-    // saw, our memory has not incorporated the base and cannot again this life.
+    // Fires only in the other tabs, and after app.js has merged that tab's store
+    // into ours: this listener is wired second. If that still left memory and the
+    // disk disagreeing, this tab can no longer tell what it removed from what it
+    // never had, and cannot again this life.
     addEventListener("storage", function () { if (!settled()) S.foreign = true; });
     var f = readFlag();
     if (!f) return;
