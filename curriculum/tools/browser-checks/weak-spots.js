@@ -50,9 +50,16 @@ module.exports = async function (h) {
     assert(/^Weakest: domain 2 /.test(v), 'domain 2 is called weakest: ' + JSON.stringify(v));
     await page.click('#weak-domains [data-drill-domain]');
     await page.waitForURL(/drill\.html/);
-    const sel = await page.evaluate(() =>
+    const chips = () => page.evaluate(() =>
       Array.from(document.querySelectorAll('.wpick button.sel')).map(b => b.textContent));
+    const sel = await chips();
     assert(sel.indexOf('d2') >= 0, 'the drill arrives with d2 pre-selected: ' + JSON.stringify(sel));
+    // once, or every later drill is stuck on the domain one click chose. Named
+    // against 'all' rather than against nothing, so an empty row cannot pass it.
+    await page.reload();
+    const back = await chips();
+    assert(back.indexOf('all') >= 0 && back.indexOf('d2') < 0,
+      'the hand-off was consumed, so the reload deals every domain again: ' + JSON.stringify(back));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   }

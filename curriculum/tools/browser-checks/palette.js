@@ -17,6 +17,18 @@ module.exports = async function (h) {
     return -1;
   });
 
+  /* A key that did nothing leaves the URL matching whatever it matched before, so
+     a check on where it went has to require the address to change, or a shortcut
+     that stopped working passes the check written for the one after it. The old
+     address is read before the key: the navigation can beat a read taken after. */
+  /** @param {import('playwright').Page} page @param {string} key @param {(href: string) => boolean} at */
+  const pressTo = async (page, key, at) => {
+    const from = page.url();
+    await page.keyboard.press(key);
+    return page.waitForURL(u => u.href !== from && at(u.href), { timeout: 5000 })
+      .then(() => true, () => false);
+  };
+
   /* 1. open, filter, arrow-drive, Enter navigates */
   {
     group('palette: / opens, filter narrows, Enter opens the selection');
@@ -44,9 +56,8 @@ module.exports = async function (h) {
     assert(first === '1.1', 'first match for "platform networking" is 1.1: ' + JSON.stringify(first));
     const hint = await page.evaluate(() => document.getElementById('palette-hint').textContent);
     assert(/match/.test(hint), 'hint reports the match count: ' + JSON.stringify(hint));
-    await page.keyboard.press('Enter');
-    await page.waitForURL(/01-networking\.html/);
-    assert(true, 'Enter navigates to the selected section');
+    assert(await pressTo(page, 'Enter', href => /01-networking\.html/.test(href)),
+      'Enter navigates to the selected section');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   }
@@ -84,12 +95,10 @@ module.exports = async function (h) {
       const NAV = window.CNPE_NAV, i = NAV.findIndex(n => n.id === '1.1');
       return NAV[i + 1].path;
     });
-    await page.keyboard.press('n');
-    await page.waitForURL(u => u.href.indexOf(nextPath.split('/').pop()) >= 0);
-    assert(true, 'n opens the next section: ' + nextPath);
-    await page.keyboard.press('p');
-    await page.waitForURL(/01-networking\.html/);
-    assert(true, 'p goes back to the previous one');
+    assert(await pressTo(page, 'n', href => href.indexOf(nextPath.split('/').pop()) >= 0),
+      'n opens the next section: ' + nextPath);
+    assert(await pressTo(page, 'p', href => /01-networking\.html/.test(href)),
+      'p goes back to the previous one');
 
     await page.keyboard.press('?');
     assert(await page.evaluate(() => !!document.querySelector('.overlay.open .helpcard')), '? opens the help card');
@@ -117,12 +126,8 @@ module.exports = async function (h) {
     s = await store(page);
     assert(!s.done['1.1'], 'm again un-marks it');
 
-    await page.keyboard.press('d');
-    await page.waitForURL(/index\.html/);
-    assert(true, 'd returns to the dashboard');
-    await page.keyboard.press('g');
-    await page.waitForURL(/drill\.html/);
-    assert(true, 'g opens the drill');
+    assert(await pressTo(page, 'd', href => /index\.html/.test(href)), 'd returns to the dashboard');
+    assert(await pressTo(page, 'g', href => /drill\.html/.test(href)), 'g opens the drill');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   }
@@ -135,8 +140,9 @@ module.exports = async function (h) {
     assert((await page.evaluate(() => window.scrollY)) === 0, 'the page starts at the top');
     await page.keyboard.press('x');
     // the console scrolls smoothly, so give the animation a moment
-    await page.waitForFunction(() => window.scrollY > 1000);
-    assert(true, 'x scrolls down to the exercises');
+    const scrolled = await page.waitForFunction(() => window.scrollY > 1000, null, { timeout: 5000 })
+      .then(() => true, () => false);
+    assert(scrolled, 'x scrolls down to the exercises');
     const counts = () => page.evaluate(() => ({
       all: document.querySelectorAll('.exercise').length,
       collapsed: document.querySelectorAll('.exercise.collapsed').length,
