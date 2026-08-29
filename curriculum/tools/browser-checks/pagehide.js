@@ -137,17 +137,24 @@ module.exports = async function (h) {
    *  @param {(page: import('playwright').Page, srv: *) => Promise<void>} body */
   async function leave(o, body) {
     const srv = await serve({ hang: o.hang });
-    const { ctx, page } = await open(srv.origin, { signedIn: true, debounce: o.debounce });
-    await page.waitForFunction(() => !!window.CNPE_SYNC && window.CNPE_SYNC.signedIn());
-    await settle(() => srv.gets() > 0);
-    await wait(300);
-    srv.seen.length = 0;
-    srv.bodies.length = 0;
-    await body(page, srv);
-    const out = { puts: srv.puts(), gets: srv.gets(), last: srv.last(), errors: page.errors.slice() };
-    await ctx.close();
-    await srv.close();
-    return out;
+    /** @type {import('playwright').BrowserContext} */
+    let ctx = null;
+    // run.js catches a throwing area, so a server left listening here would hold
+    // the whole run open after the last check rather than failing it.
+    try {
+      const up = await open(srv.origin, { signedIn: true, debounce: o.debounce });
+      ctx = up.ctx;
+      await up.page.waitForFunction(() => !!window.CNPE_SYNC && window.CNPE_SYNC.signedIn());
+      await settle(() => srv.gets() > 0);
+      await wait(300);
+      srv.seen.length = 0;
+      srv.bodies.length = 0;
+      await body(up.page, srv);
+      return { puts: srv.puts(), gets: srv.gets(), last: srv.last(), errors: up.page.errors.slice() };
+    } finally {
+      if (ctx) await ctx.close();
+      await srv.close();
+    }
   }
 
   /** A keepalive push issued as the document goes away is dropped before it
