@@ -38,6 +38,7 @@ module.exports = async function (h) {
    * @param {*} [o.base] cnpe:sync-base to start from
    * @param {(req: import('playwright').Route, url: URL, method: string, body: string) => *} [o.api]
    * @param {boolean} [o.avatar] false to make GitHub's avatar CDN fail
+   * @param {boolean} [o.repaint] let a pull that moved something reload the dashboard
    */
   async function site(o) {
     const ctx = await browser.newContext();
@@ -51,7 +52,12 @@ module.exports = async function (h) {
     page.on('console', m => { if (m.type() === 'error') page.errors.push('console: ' + m.text()); });
 
     // Seed once, not on every reload: a merge has to survive the page reload it triggers.
-    await ctx.addInitScript(({ s, f, b }) => {
+    await ctx.addInitScript(({ s, f, b, repaint }) => {
+      // A pull that moves something reloads the dashboard once, which tears down
+      // whatever the check was about to read. Only the checks that are about that
+      // repaint want it, so every other one claims its marker before the page runs.
+      // Per page, not per context: the marker lives in sessionStorage.
+      try { if (!repaint) sessionStorage.setItem('cnpe:sync-reloaded', '1'); } catch (e) { /* private mode */ }
       try {
         if (localStorage.getItem('cnpe:seeded')) return;
         localStorage.setItem('cnpe:seeded', '1');
@@ -59,7 +65,7 @@ module.exports = async function (h) {
         if (f) localStorage.setItem('cnpe:sync', JSON.stringify({ on: 1, login: 'octocat' }));
         if (b) localStorage.setItem('cnpe:sync-base', JSON.stringify(b));
       } catch (e) { /* private mode */ }
-    }, { s: o.seed || null, f: !!o.signedIn, b: o.base || null });
+    }, { s: o.seed || null, f: !!o.signedIn, b: o.base || null, repaint: !!o.repaint });
 
     await ctx.route(SITE_ORIGIN + '/**', route => {
       const p = new URL(route.request().url()).pathname;
@@ -226,6 +232,7 @@ module.exports = async function (h) {
     /** @type {*} */
     let put = null;
     const s = await site({
+      repaint: true,      // this one is about the reload the merge triggers
       signedIn: true,
       seed: { done: { '1.1': 1 }, ex: { '1.1#local-only': 1 } },
       api: (route, url, method, body) => {
@@ -482,6 +489,7 @@ module.exports = async function (h) {
     /** @type {string[]} */
     const bodies = [];
     const s = await site({
+      repaint: true,      // this one is about the reload the merge triggers
       signedIn: true,
       seed: { done: { '1.1': 1 } },
       base: { uid: '1', rev: 1, done: ['1.1', 'toString'], ex: [], exam: [], exam2: [] },
@@ -533,6 +541,7 @@ module.exports = async function (h) {
     /** @type {*} */
     let put = null;
     const s = await site({
+      repaint: true,      // this one is about the reload the merge triggers
       signedIn: true,
       // this browser got q1 right at t=200; the other missed it at t=300
       seed: { drill: { q1: { r: 11, m: 2, ok: true, t: 200 } }, drillmeta: { day: '2026-08-28', n: 9, best: 7, t: 200 } },
@@ -819,6 +828,7 @@ module.exports = async function (h) {
     group('an un-tick made elsewhere comes down and repaints');
     const s = await site({
       signedIn: true,
+      repaint: true,
       seed: { done: { '1.1': 1, '2.1': 1 } },
       base: { uid: '1', rev: 1, done: ['1.1', '2.1'], ex: [], exam: [], exam2: [] },
       api: (route, url, method) => {
@@ -1011,10 +1021,6 @@ module.exports = async function (h) {
       },
     });
     await s.page.addInitScript(() => {
-      // The pull moves something, so the dashboard would reload under this check
-      // and tear down the context it is reading from. That repaint has its own
-      // check; claim its once-per-session marker so this one can read in peace.
-      sessionStorage.setItem('cnpe:sync-reloaded', '1');
       const real = Storage.prototype.setItem;
       Storage.prototype.setItem = function (k, v) {
         if (k === 'cnpe:v2') throw new Error('QuotaExceededError');
@@ -1085,8 +1091,9 @@ module.exports = async function (h) {
       row.rev += 1; row.blob = put.progress;
       return { status: 200, json: { rev: row.rev, updated: 'now' } };
     };
-    const a = await site({ signedIn: true, api: worker });
-    const b = await site({ signedIn: true, api: worker });
+    // both browsers here are about the reload a merge triggers
+    const a = await site({ signedIn: true, api: worker, repaint: true });
+    const b = await site({ signedIn: true, api: worker, repaint: true });
     /** Wait for the sections tile to settle on a count.
      * @param {import('playwright').Page} p @param {string} want */
     const tileIs = async (p, want) => {
