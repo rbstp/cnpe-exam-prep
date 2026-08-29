@@ -20,17 +20,43 @@
   // Name what this file needs, not just the object: a cache can hold an older
   // merge.js as easily as none, and a missing member throws mid-boot instead.
   var M = window.CNPE_MERGE;
-  if (!M || !M.streak) return;
+  if (!M || !M.pruneDays) return;
   var dayKey = M.dayKey, dayActs = M.dayActs;
   var seedDays = M.seedDays;
 
   /* ── study days: the console-wide streak ───────────────────── */
+  /* This browser's slot in the day counters. It names a slot, it is not progress,
+     so it lives outside the store and never travels: two browsers sharing one
+     would hide each other's answers again. Minted on the first action, not at
+     load, so reading the console still writes nothing. */
+  var DEV_KEY = "cnpe:dev";
+  var dev = "";
+  function devId() {
+    if (dev) return dev;
+    try { dev = localStorage.getItem(DEV_KEY) || ""; } catch (e) {}
+    if (!/^[a-z0-9]{8}$/.test(dev)) {
+      dev = (Math.random().toString(36) + "0000000000").slice(2, 10);
+      try { localStorage.setItem(DEV_KEY, dev); } catch (e) {}
+    }
+    return dev;
+  }
   function bumpDay(kind) {                       // kind: c cards, x exercises, s sections, e exam tasks
     if (!store.days || typeof store.days !== "object" || Array.isArray(store.days)) store.days = {};
     var k = dayKey(new Date());
     var d = store.days[k];
     if (!d || typeof d !== "object" || Array.isArray(d)) d = store.days[k] = {};
-    d[kind] = (+d[kind] || 0) + 1;
+    var c = d[kind];
+    // A number is what this browser wrote before it had a slot. It stays where
+    // it is, unnamed, rather than being claimed: another browser may hold the
+    // same number, and claiming it on both would count it twice.
+    if (!c || typeof c !== "object" || Array.isArray(c)) {
+      var was = +c || 0;
+      c = d[kind] = {};
+      if (was > 0) c[""] = was;
+    }
+    var id = devId();
+    c[id] = (+c[id] || 0) + 1;
+    M.pruneDays(store);
   }
   function studyStreak() { return M.streak(store); }   // the maths is merge.js's
 
@@ -189,7 +215,7 @@
     }
     var n = mergeProgress(src);
     save();
-    if (!n.done && !n.ex && !n.exam && !n.drill && !n.days) return "Nothing new in that file; this browser is already up to date.";
+    if (!n.done && !n.ex && !n.exam && !n.drill && !n.days && !n.last) return "Nothing new in that file; this browser is already up to date.";
     return { added: n };
   }
 
@@ -963,9 +989,11 @@
     var totalEx = Object.keys(store.ex).length, doneEx = Object.keys(store.ex).filter(function (k) { return store.ex[k]; }).length;
     var stats = document.querySelector(".stats");
     if (stats) {
-      // Last 30 days, one cell per day, column-major so today lands bottom right.
+      // The window the store carries, one cell per day, column-major so today
+      // lands bottom right. Drawing a day the store no longer keeps would draw
+      // a gap that is not one, so the strip is exactly as wide as KEEP.
       var cells = "", now = new Date();
-      for (var i = 29; i >= 0; i--) {
+      for (var i = M.KEEP - 1; i >= 0; i--) {
         var dk = dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i));
         var acts = dayActs(store.days[dk]);
         cells += '<i class="' + (acts ? "on" : "") + '" title="' + dk +
@@ -978,7 +1006,8 @@
         '<div class="stat g" id="stat-streak"><div class="lbl">Uptime' + (sk.best ? " · record " + sk.best : "") +
           '</div><div class="vrow"><div class="val">' + sk.streak +
           '<span class="u">' + (sk.streak === 1 ? "day" : "days") + '</span></div>' +
-          '<div class="heat" role="img" aria-label="Study heartbeat over the last 30 days, one cell per day, newest bottom right">' + cells + "</div></div></div>" +
+          '<div class="heat" role="img" aria-label="Study heartbeat over the last ' + M.KEEP +
+            ' days, one cell per day, newest bottom right">' + cells + "</div></div></div>" +
         tile("p", "Exam length", '120<span class="u">min</span>', false) +
         tile("y", "Tasks on the day", '15–20<span class="u">≈7 min each</span>', false);
     }

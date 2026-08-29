@@ -4,7 +4,7 @@ const path = require('path');
 
 /** @param {import('./lib').Harness} h */
 module.exports = async function (h) {
-  const { url, fresh, store, assert, group, streakVal, streakLbl, heatOn, heatAll, daysAgo, TODAY, YDAY } = h;
+  const { url, fresh, store, assert, group, streakVal, streakLbl, heatOn, heatAll, daysAgo, dayCount, TODAY, YDAY } = h;
   const SHOTS = process.env.STREAK_SHOTS || '';
 
   /* 1. drill answers count, once per day; a full session shows the summary */
@@ -26,7 +26,79 @@ module.exports = async function (h) {
     // wk and wv are sibling spans, so textContent runs them together
     assert(cells.some(c => /^uptimeup 1 day · today's 10 are in$/.test(c)), 'summary uptime cell: ' + JSON.stringify(cells));
     const s = await store(page);
-    assert(s.days[TODAY] && s.days[TODAY].c === 10, 'days[today].c === 10: ' + JSON.stringify(s.days));
+    assert(dayCount(s.days[TODAY], 'c') === 10, 'days[today].c === 10: ' + JSON.stringify(s.days));
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  }
+
+  /* 1b. a day another browser already worked on is one day, and the goal knows it */
+  {
+    group('the daily goal counts what every browser answered');
+    /** @type {Record<string, *>} */
+    const days = {}; days[TODAY] = { c: { otherbox: 6 } };
+    const { ctx, page } = await fresh({ days });
+    await page.goto(url('drill.html'));
+    let line = await page.evaluate(() => document.getElementById('drill-meta').textContent);
+    assert(/^6 of 10 answered today$/.test(line.trim()),
+      'the six answered on the other browser are already counted: ' + JSON.stringify(line));
+    await page.click('button.drill-start');
+    for (let i = 0; i < 4; i++) {
+      await page.click('button:has-text("Show answer")');
+      await page.click('button.drill-hit');
+    }
+    const s = await store(page);
+    assert(dayCount(s.days[TODAY], 'c') === 10, 'four here and six there is ten: ' + JSON.stringify(s.days[TODAY]));
+    const c = /** @type {Record<string, number>} */ (s.days[TODAY].c);
+    assert(Object.keys(c).length === 2, 'each browser answered into its own slot');
+    assert(c.otherbox === 6, "and this one did not write in the other's");
+    assert(s.drillmeta.earned === TODAY, 'so the day is earned on four answers, not ten');
+    await page.goto(url('drill.html'));
+    line = await page.evaluate(() => document.getElementById('drill-meta').textContent);
+    assert(/today's 10 are in the bank/.test(line), 'and the goal says so: ' + JSON.stringify(line));
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  }
+
+  /* 1c. the slot is this browser's, minted when it first acts and not before */
+  {
+    group('the browser id is minted on the first action, not on a read');
+    const { ctx, page } = await fresh();
+    await page.goto(url('index.html'));
+    const before = await page.evaluate(() => localStorage.getItem('cnpe:dev'));
+    assert(before === null, 'reading the dashboard mints nothing: ' + JSON.stringify(before));
+    await page.goto(url('01-architecture/01-networking.html'));
+    await page.click('.exercise .mark');
+    const id = await page.evaluate(() => localStorage.getItem('cnpe:dev'));
+    assert(/^[a-z0-9]{8}$/.test(id || ''), 'the first action mints one: ' + JSON.stringify(id));
+    await page.click('.exercise .mark');
+    await page.click('.exercise .mark');
+    const s = await store(page);
+    const x = /** @type {Record<string, number>} */ (s.days[TODAY].x);
+    assert(Object.keys(x).length === 1 && x[id || ''] === 2,
+      'and every action since went to the same slot: ' + JSON.stringify(s.days[TODAY]));
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  }
+
+  /* 1d. a store only carries the window the heat strip shows */
+  {
+    group('days past the window are dropped, and the run they held is carried');
+    /** @type {Record<string, *>} */
+    const days = {};
+    for (let i = 0; i < 40; i++) days[daysAgo(i)] = { c: 1 };
+    const { ctx, page } = await fresh({ days });
+    await page.goto(url('01-architecture/01-networking.html'));
+    await page.click('.exercise .mark');            // any action prunes as it writes
+    const s = await store(page);
+    assert(Object.keys(s.days).length === 30, 'thirty days are left: ' + Object.keys(s.days).length);
+    assert(!s.days[daysAgo(30)] && s.days[daysAgo(29)], 'and they are the thirty most recent');
+    await page.goto(url('index.html'));
+    const lbl = await streakLbl(page);
+    assert(/record\s*40/.test(lbl), 'the record outlives the days that earned it: ' + JSON.stringify(lbl));
+    const val = await streakVal(page);
+    assert(/^40days/.test(val), 'and so does the run, on the length prune wrote down: ' + JSON.stringify(val));
+    const run = (await store(page)).run;
+    assert(run && run.n === 10 && run.d === daysAgo(30), 'carried below the window: ' + JSON.stringify(run));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   }
@@ -38,13 +110,13 @@ module.exports = async function (h) {
     await page.goto(url('01-architecture/01-networking.html'));
     await page.click('.exercise .mark');
     let s = await store(page);
-    assert(s.days[TODAY] && s.days[TODAY].x === 1, 'x === 1 after verify');
+    assert(dayCount(s.days[TODAY], 'x') === 1, 'x === 1 after verify');
     await page.click('.exercise .mark');
     s = await store(page);
-    assert(s.days[TODAY].x === 1, 'x stays 1 after un-tick');
+    assert(dayCount(s.days[TODAY], 'x') === 1, 'x stays 1 after un-tick');
     await page.click('.exercise .mark');
     s = await store(page);
-    assert(s.days[TODAY].x === 2, 'x === 2 after re-tick');
+    assert(dayCount(s.days[TODAY], 'x') === 2, 'x === 2 after re-tick');
     await page.goto(url('index.html'));
     assert(/^1day/.test(await streakVal(page)), 'dashboard uptime is 1 day');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
@@ -58,10 +130,10 @@ module.exports = async function (h) {
     await page.goto(url('01-architecture/01-networking.html'));
     await page.click('.finish button.tbtn');
     let s = await store(page);
-    assert(s.days[TODAY] && s.days[TODAY].s === 1, 's === 1 after complete');
+    assert(dayCount(s.days[TODAY], 's') === 1, 's === 1 after complete');
     await page.click('.finish button.tbtn');
     s = await store(page);
-    assert(s.days[TODAY].s === 1, 's stays 1 after un-tick');
+    assert(dayCount(s.days[TODAY], 's') === 1, 's stays 1 after un-tick');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   }
@@ -73,10 +145,10 @@ module.exports = async function (h) {
     await page.goto(url('mock-exam.html'));
     await page.click('.task .dot');
     let s = await store(page);
-    assert(s.days[TODAY] && s.days[TODAY].e === 1, 'e === 1 after scoring a task');
+    assert(dayCount(s.days[TODAY], 'e') === 1, 'e === 1 after scoring a task');
     await page.click('.task .dot');
     s = await store(page);
-    assert(s.days[TODAY].e === 1, 'e stays 1 after un-tick');
+    assert(dayCount(s.days[TODAY], 'e') === 1, 'e stays 1 after un-tick');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   }

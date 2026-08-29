@@ -18,7 +18,7 @@ const SESSION_COOKIE = "__Host-cnpe_session";
 const STATE_COOKIE = "__Host-cnpe_oauth";
 const SESSION_TTL = 60 * 60 * 24 * 30;
 const STATE_TTL = 60 * 10;
-const MAX_BLOB = 64 * 1024;                    // a completed store is ~21 KB
+const MAX_BLOB = 64 * 1024;                    // a completed store is ~19 KB
 
 /* ── encoding ───────────────────────────────────────────────── */
 

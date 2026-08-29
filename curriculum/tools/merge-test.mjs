@@ -195,7 +195,8 @@ group("study days are counters too");
 {
   const s = store({ days: { [TODAY]: { c: 4, x: 1 } } });
   const n = M.merge(s, { days: { [TODAY]: { c: 2, x: 3, s: 1 }, "not-a-day": { c: 9 }, [day(1)]: "junk" } });
-  ok(s.days[TODAY].c === 4 && s.days[TODAY].x === 3 && s.days[TODAY].s === 1, "per-counter max, so nothing is lowered");
+  const got = k => M.countOf(s.days[TODAY][k]);
+  ok(got("c") === 4 && got("x") === 3 && got("s") === 1, "per-slot max, so nothing is lowered");
   ok(n.days === 1, "the day that grew is counted");
   ok(s.days["not-a-day"] === undefined, "a key that is not a date is not a day");
   ok(s.days[day(1)] === undefined, "a day record that is junk is skipped");
@@ -203,21 +204,190 @@ group("study days are counters too");
   ok(M.merge(t, { days: { [TODAY]: { c: 9 } } }).days === 0, "a day that did not grow is not counted");
 }
 
+group("and a day's counter adds its browsers up");
+{
+  const s = store({ days: { [TODAY]: { c: { lap: 6 } } } });
+  const n = M.merge(s, { days: { [TODAY]: { c: { ph: 6 } } } });
+  ok(M.countOf(s.days[TODAY].c) === 12, "six answered here and six there is twelve, not six");
+  ok(n.days === 1, "and the day is counted as grown");
+  ok(M.merge(s, { days: { [TODAY]: { c: { ph: 6 } } } }).days === 0,
+    "merging the same copy again adds nothing, which is what lets it run on every pull");
+  ok(M.countOf(s.days[TODAY].c) === 12, "and does not double it");
+
+  const t = store({ days: { [TODAY]: { c: 4 } } });
+  M.merge(t, { days: { [TODAY]: { c: { ph: 3 } } } });
+  ok(M.countOf(t.days[TODAY].c) === 7,
+    "a count from before the slots is one slot of its own: " + JSON.stringify(t.days[TODAY].c));
+  const u = store({ days: { [TODAY]: { c: { lap: 3 } } } });
+  M.merge(u, { days: { [TODAY]: { c: 4 } } });
+  ok(M.countOf(u.days[TODAY].c) === 7, "in either direction");
+
+  const v = store({ days: { [TODAY]: { c: { lap: 2, toString: 9, __proto__: 9 } } } });
+  ok(M.countOf(v.days[TODAY].c) === 2, "a slot Object.prototype answers for is not a browser");
+  ok(M.countOf(undefined) === 0 && M.countOf("nope") === 0 && M.countOf(-3) === 0 && M.countOf({ a: -3 }) === 0,
+    "and nothing counts as nothing");
+
+  // Slot names come off the wire, so a day is bounded in both what it may name
+  // and how much of it: a payload naming thousands of browsers is not one.
+  const junk = {};
+  for (let i = 0; i < 5000; i++) junk["k" + i] = 1;
+  const h = store();
+  M.merge(h, { days: { [TODAY]: { c: junk } } });
+  ok(Object.keys(h.days[TODAY].c).length === 16, "a day holds sixteen browsers at the outside: " +
+    Object.keys(h.days[TODAY].c).length);
+  const b = store();
+  M.merge(b, { days: { [TODAY]: { c: { "a name that is not one": 5, "UPPER": 5, ok1: 5 } } } });
+  ok(M.countOf(b.days[TODAY].c) === 5, "and only names shaped like the ones it writes: " +
+    JSON.stringify(b.days[TODAY].c));
+}
+
+group("a day beyond tomorrow is a clock, not a day");
+{
+  const s = store({ days: { [TODAY]: { c: 1 }, [day(-1)]: { c: 1 }, [day(-9)]: { c: 1 } } });
+  M.pruneDays(s, TODAY);
+  ok(s.days[day(-1)] && !s.days[day(-9)],
+    "tomorrow is a browser an ocean east, next week is not: " + JSON.stringify(Object.keys(s.days).sort()));
+}
+
+group("a store carries thirty days and no more");
+{
+  const days = {};
+  for (let i = 0; i < 40; i++) days[day(i)] = { c: 1 };
+  const s = store({ days });
+  const dropped = M.pruneDays(s, TODAY);
+  ok(dropped === 10, "the days past the window go: " + dropped);
+  ok(Object.keys(s.days).length === 30 && s.days[day(29)] && !s.days[day(30)],
+    "thirty are kept, counting today as one of them");
+  ok(s.drillmeta.best === 40, "and the record they held is folded into best first: " + s.drillmeta.best);
+  ok(M.streak(s, TODAY).best === 40, "so the streak still reports it");
+  ok(M.pruneDays(s, TODAY) === 0, "a store already inside the window is left alone");
+  ok(M.pruneDays(store(), TODAY) === 0 && M.pruneDays(null, TODAY) === 0, "and so is one with no days at all");
+
+  // The merge skips them rather than taking them and dropping them after: a
+  // count of days it did not keep would tell Import it added history it has not.
+  const t = store({ days: { [TODAY]: { c: 1 } } });
+  const took = M.merge(t, { days: { [day(90)]: { c: 5 }, [day(2)]: { c: 5 } } });
+  ok(!t.days[day(90)] && t.days[day(2)], "a day older than the window never comes in");
+  ok(took.days === 1, "and is not counted as added: " + took.days);
+}
+
+group("a run goes on below the days that are left to prove it");
+{
+  // Sixty days running, pruned each day as it is lived, as a browser would.
+  const s = store();
+  for (let d = 59; d >= 0; d--) { s.days[day(d)] = { c: { me: 10 } }; M.pruneDays(s, day(d)); }
+  const r = M.streak(s, TODAY);
+  ok(Object.keys(s.days).length === 30, "thirty days are stored: " + Object.keys(s.days).length);
+  ok(r.streak === 60, "and the streak is still sixty: " + r.streak);
+  ok(r.best === 60, "so the record is too: " + r.best);
+  ok(s.run.d === day(30) && s.run.n === 30, "carried as a length and the day it ends on: " + JSON.stringify(s.run));
+
+  // A gap below the window is not bridged by a carry left over from before it.
+  const g = store({ days: { [TODAY]: { c: 1 } }, run: { d: day(9), n: 40 } });
+  ok(M.streak(g, TODAY).streak === 1, "a carry the walk does not reach is not added");
+
+  // The carry travels, because the days that made it do not.
+  const a = store();
+  for (let d = 29; d >= 0; d--) a.days[day(d)] = { c: 1 };
+  M.merge(a, { run: { d: day(30), n: 12 } });
+  ok(a.run.n === 12 && M.streak(a, TODAY).streak === 42,
+    "a carry that arrives picks the walk up where the days stop: " + M.streak(a, TODAY).streak);
+  M.merge(a, { run: { d: day(30), n: 9 } });
+  ok(a.run.n === 12, "a shorter one for the same day is not taken");
+  M.merge(a, { run: { d: day(31), n: 40 } });
+  ok(a.run.d === day(30) && a.run.n === 12, "nor is one anchored below where the walk stops");
+
+  const c = store({ days: { [TODAY]: { c: 1 } } });
+  M.merge(c, { run: { d: day(40), n: 5 } });
+  ok(c.run.n === 5, "a carry is kept even where the walk cannot reach it yet");
+  M.merge(c, { run: { d: day(35), n: 2 } });
+  ok(c.run.d === day(35) && c.run.n === 2, "a later day wins, however long the run it replaces");
+  M.merge(c, { run: { d: "nope", n: 99 } });
+  M.merge(c, { run: "junk" });
+  M.merge(c, { run: { d: day(34), n: -5 } });
+  ok(c.run.d === day(35) && c.run.n === 2, "and junk is not a carry");
+}
+
+group("and the carry only ever moves forward");
+{
+  // The seed can put a day back inside the window on every merge, and the walk
+  // below it then finds one day where it once found a run. Taking the shorter
+  // of the two would spend a streak a merge at a time.
+  const s = store();
+  for (let d = 58; d >= 0; d--) { s.days[day(d)] = { c: { me: 10 } }; M.pruneDays(s, day(d)); }
+  const was = M.streak(s, TODAY).streak;
+  s.drillmeta.streak = was; s.drillmeta.earned = TODAY;     // as the drill would have left it
+  M.merge(s, {});
+  M.merge(s, {});
+  ok(was === 59, "fifty-nine days running: " + was);
+  ok(M.streak(s, TODAY).streak === 59, "and still fifty-nine after two merges: " + M.streak(s, TODAY).streak);
+  ok(!Object.keys(s.days).some(k => k < M.shiftKey(TODAY, -29)),
+    "the seed put nothing back below the window: " + JSON.stringify(Object.keys(s.days).sort()[0]));
+
+  // A store from before the console counted days: the seed fills the window and
+  // the rest of what drillmeta claims becomes the carry.
+  const t = store({ drillmeta: { streak: 100, earned: TODAY } });
+  M.merge(t, {});
+  ok(Object.keys(t.days).length === 30, "thirty days are seeded, not a hundred: " + Object.keys(t.days).length);
+  ok(M.streak(t, TODAY).streak === 100, "but the streak it claims survives whole: " + M.streak(t, TODAY).streak);
+  ok(t.run.n === 70 && t.run.d === day(30), "as thirty days and a carry: " + JSON.stringify(t.run));
+
+  // A carry is a run of days, not a number a file may say what it likes about.
+  const b = store();
+  M.merge(b, { run: { d: day(40), n: 1e9 } });
+  ok(b.run.n === 3660, "an absurd carry is capped where the seed is: " + b.run.n);
+}
+
+group("and nothing shorter takes the place of a longer one");
+{
+  const lived = n => {
+    const s = store();
+    for (let d = n - 1; d >= 0; d--) { s.days[day(d)] = { c: { me: 10 } }; M.pruneDays(s, day(d)); }
+    return s;
+  };
+  // What the drill claims is a floor under the streak, never a ceiling on it:
+  // its own counter only ever knew about the days it earned a goal on.
+  const a = lived(200);
+  a.drillmeta.streak = 35; a.drillmeta.earned = TODAY;
+  M.merge(a, {});
+  ok(M.streak(a, TODAY).streak === 200, "a shorter claim from the drill does not spend the run: " + M.streak(a, TODAY).streak);
+
+  // Nor does a browser that has only been used a month, whose carry is anchored
+  // on the same day as this one's and says less.
+  const c = lived(200);
+  M.merge(c, { run: { d: day(30), n: 5 } });
+  ok(M.streak(c, TODAY).streak === 200, "and neither does another browser's shorter one: " + M.streak(c, TODAY).streak);
+  M.merge(c, { run: { d: day(30), n: 400 } });
+  ok(M.streak(c, TODAY).streak === 430, "a longer one is taken, being something this browser cannot know");
+
+  // The row an old client wrote is a year of days and no carry at all. Taking
+  // only the window would push that year back over the account, a month long.
+  // A carry inside the window is one the walk can never reach, having the days
+  // themselves to read there, and taking it would only block the next real one.
+  const w = lived(200);
+  M.merge(w, { run: { d: day(29), n: 1 } });
+  ok(M.streak(w, TODAY).streak === 200, "a carry anchored inside the window is not taken: " + M.streak(w, TODAY).streak);
+
+  const old = { days: {} };
+  for (let d = 199; d >= 0; d--) old.days[day(d)] = { c: 10 };
+  const f = store();
+  const n = M.merge(f, old);
+  ok(M.streak(f, TODAY).streak === 200, "a browser that has never seen those days still counts them: " + M.streak(f, TODAY).streak);
+  ok(Object.keys(f.days).length === 30, "without keeping them: " + Object.keys(f.days).length);
+  ok(n.days === 30, "and counts as added only what it kept: " + n.days);
+}
+
 group("the drill's own day counter and the streak it earns");
 {
-  const s = store({ drillmeta: { day: TODAY, n: 7, streak: 2, best: 3, earned: day(1), t: 10 } });
-  M.merge(s, { drillmeta: { day: TODAY, n: 4, streak: 1, best: 1, earned: day(2), t: 5 } });
-  ok(s.drillmeta.n === 7, "the same day keeps the higher count");
+  const s = store({ drillmeta: { streak: 2, best: 3, earned: day(1), t: 10 } });
+  M.merge(s, { drillmeta: { streak: 1, best: 1, earned: day(2), t: 5 } });
   ok(s.drillmeta.streak === 2 && s.drillmeta.best === 3 && s.drillmeta.earned === day(1) && s.drillmeta.t === 10,
-    "and every other field takes the max");
+    "every field takes the max");
 
   const t = store({ drillmeta: { day: day(1), n: 9 } });
   M.merge(t, { drillmeta: { day: TODAY, n: 2 } });
-  ok(t.drillmeta.day === TODAY && t.drillmeta.n === 2, "a newer day replaces the count rather than raising it");
-
-  const u = store({ drillmeta: { day: TODAY, n: 9 } });
-  M.merge(u, { drillmeta: { day: day(1), n: 99 } });
-  ok(u.drillmeta.day === TODAY && u.drillmeta.n === 9, "an older day cannot touch today's count");
+  ok(t.drillmeta.n === 9 && t.drillmeta.day === day(1),
+    "today's card count is not kept here any more, so neither field is merged");
 
   const v = store();
   M.merge(v, { drillmeta: {} });
@@ -356,6 +526,8 @@ group("the shape a store goes over the wire in");
   ok(w.exam.startedAt === undefined && w.exam.running === undefined && w.exam.spent === undefined,
     "a running exam clock stays on the machine that started it");
   ok(w.exam.tasks[0] === 1, "the tasks it scored travel");
+  ok(M.wire({ drillmeta: { day: "2026-01-01", n: 4, streak: 2 } }).drillmeta.n === undefined,
+    "the drill's old day counter does not, being merged nowhere: two browsers would answer it forever");
   ok(eq(w.exam2, { tasks: {} }), "an exam bucket that is junk goes out as an empty one");
   ok(w.last === "2.3", "the resume pointer travels, so the other browsers can follow it");
   ok(store.exam.startedAt === 999 && store.last === "2.3", "and the store itself is not touched");

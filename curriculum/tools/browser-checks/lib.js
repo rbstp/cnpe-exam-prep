@@ -9,6 +9,15 @@ const { pathToFileURL } = require('url');
 const pad = n => (n < 10 ? '0' : '') + n;
 /** @param {Date} d */
 const dayKey = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+// One day's counter, summed over the browsers that contributed to it, which is
+// the shape merge.js keeps them in. A plain number is one unnamed browser.
+/** @param {*} rec @param {string} k @return {number} */
+const dayCount = (rec, k) => {
+  const v = rec && rec[k];
+  if (typeof v === 'number') return v;
+  if (!v || typeof v !== 'object') return 0;
+  return Object.keys(v).reduce((n, s) => n + (+v[s] > 0 ? +v[s] : 0), 0);
+};
 /** @param {number} n */
 const daysAgo = n => { const t = new Date(); return dayKey(new Date(t.getFullYear(), t.getMonth(), t.getDate() - n)); };
 
@@ -77,7 +86,7 @@ function makeHarness(browser, siteDir) {
     browser, siteDir,
     url, fresh, store, assert, group,
     streakVal, streakLbl, heatOn, heatAll,
-    dayKey, daysAgo,
+    dayKey, daysAgo, dayCount,
     TODAY: daysAgo(0), YDAY: daysAgo(1),
     counts: () => ({ checks, failures }),
   };
