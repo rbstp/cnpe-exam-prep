@@ -171,6 +171,8 @@ interface CnpeProgressApi {
   /** count one action toward today's study heartbeat */
   bump(kind: "c" | "x" | "s" | "e"): void;
   streak(): { streak: number; best: number };
+  /** empty the store and write that, which only app.js can do: it rebinds it */
+  reset(): void;
   /** the store as it is on the disk, which is not always the one in memory */
   saved(): unknown;
   /** merge in another store: counters take the max, and ticks resolve against
@@ -178,6 +180,22 @@ interface CnpeProgressApi {
   merge(src: unknown, base?: CnpeMergeBase): CnpeMergeCounts;
   /** called after every save, so the optional sync can mirror it */
   onSave(fn: () => void): void;
+}
+
+/** What app.js lends the page-shaped panels (CNPE_UI). The whole of it: a panel
+    that needs more is a reason to widen this, not to reach into the closure. */
+interface CnpeUiApi {
+  /** document.createElement with a class and innerHTML in one call */
+  el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string): HTMLElementTagNameMap[K];
+  el(tag: string, cls?: string, html?: string): HTMLElement;
+  /** one stat tile's markup */
+  tile(cls: string, label: string, value: string, small: boolean): string;
+  /** a section path as this page should link to it; a hash route in the bundle */
+  href(path: string): string;
+  /** sections complete across the whole curriculum */
+  overall(): { done: number; total: number; pct: number };
+  /** the page's data-id, e.g. "2.3", "EX2", or null on the dashboard */
+  pageId(): string | null;
 }
 
 /** Optional remote progress sync (CNPE_SYNC). Absent over file://. */
@@ -213,8 +231,13 @@ interface Window {
   /** origin of the sync Worker; defaults to https://sync.rbstp.dev */
   CNPE_SYNC_API?: string;
   CNPE_THEME?: CnpeThemeApi;
+  CNPE_UI?: CnpeUiApi;
   CNPE_WIDGETS?: { mount(): void };
   CNPE_DRILL_UI?: { mount(): void };
+  /** the dashboard's panels; loaded by index.html only */
+  CNPE_DASH?: { mount(): void };
+  /** the mock exam's clock and score; loaded by the two papers only */
+  CNPE_EXAM?: { mount(): void };
   /** re-run by the single-file bundle on every hash navigation */
   CNPE_BOOT?: () => void;
   /** set only by the bundled console (tools/bundle.py) */

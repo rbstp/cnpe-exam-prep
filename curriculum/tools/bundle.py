@@ -114,6 +114,12 @@ window.CNPE_EXAM_KEYS = %s;
 %s
 </script>
 <script>
+%s
+</script>
+<script>
+%s
+</script>
+<script>
 (function () {
   var view = document.getElementById("view");
   function keyFromHash() {
@@ -170,6 +176,11 @@ window.CNPE_EXAM_KEYS = %s;
     "\n".join(parts),
     json.dumps(sorted(k for k, (_, ex) in seen.items() if ex)),
     read("assets/widgets.js") if os.path.exists(os.path.join(ROOT, "assets/widgets.js")) else "",
+    # The page-shaped panels, before app.js as the pages load them: app.js boots
+    # as it goes, and boot is what mounts them. Sidecar pages take one each; the
+    # bundle is every page at once, so it carries both and boot picks per hash.
+    read("assets/app-dash.js"),
+    read("assets/app-exam.js"),
     read("assets/app.js"),
     read("assets/sync.js"),
     read("assets/drill.js"),

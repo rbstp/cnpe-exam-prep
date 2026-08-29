@@ -87,9 +87,15 @@
     // Optional sync listens here. A listener that throws must not cost a save.
     for (var i = 0; i < savers.length; i++) { try { savers[i](); } catch (e) {} }
   }
-  // Reset progress swaps the store object, so hand out getters, not the object.
+  // Reset swaps the store object, so hand out getters, not the object. It also
+  // has to happen in here for that reason: nothing outside can rebind store.
+  function resetStore() {
+    store = { ex: {}, done: {}, exam: {}, exam2: {}, drill: {}, drillmeta: {}, days: {}, last: null };
+    save();
+  }
   window.CNPE_PROGRESS = {
     get: function () { return store; }, save: save, bump: bumpDay, streak: studyStreak,
+    reset: resetStore,
     // What is actually on the disk, which is not always what is in memory.
     saved: function () { try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { return null; } },
     /** @param {*} src @param {CnpeMergeBase} [base] */
@@ -171,40 +177,9 @@
     if (document.visibilityState === "visible") reconcile();
   });
 
-  /* ── progress transfer ─────────────────────────────────────── */
-  function exportPayload() {
-    return JSON.stringify({ cnpe: 2, exported: new Date().toISOString(), progress: store }, null, 2);
-  }
-  function saveFile(name, text) {
-    try {
-      var a = document.createElement("a");
-      if (!("download" in a)) return false;
-      var url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
-      a.href = url; a.download = name;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
-      return true;
-    } catch (e) { return false; }
-  }
+  // Export and import moved to app-dash.js with the buttons that call them.
   /** @param {*} src @param {CnpeMergeBase} [base] */
   function mergeProgress(src, base) { return M.merge(store, src, base); }
-  function importPayload(text) {
-    var obj;
-    try { obj = JSON.parse(text); } catch (e) { return "That file is not valid JSON."; }
-    // accept both the exported wrapper and a bare copy of the stored object
-    var src = (obj && typeof obj === "object" && obj.progress && typeof obj.progress === "object")
-      ? obj.progress : obj;
-    if (!src || typeof src !== "object" || Array.isArray(src)) {
-      return "That file does not look like exported CNPE progress.";
-    }
-    if (!src.done && !src.ex && !src.exam && !src.exam2 && !src.drill && !src.days) {
-      return "That file has no CNPE progress in it.";
-    }
-    var n = mergeProgress(src);
-    save();
-    if (!n.done && !n.ex && !n.exam && !n.drill && !n.days) return "Nothing new in that file; this browser is already up to date.";
-    return { added: n };
-  }
 
   function slug(s) {
     return (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48);
@@ -271,6 +246,15 @@
     }
     return ROOT + path;
   }
+
+  /* What the panels in app-dash.js and app-exam.js need from the runtime, and
+     the whole of it: page-shaped view helpers, next to CNPE_PROGRESS for the
+     store. Anything a panel wants that is not here is a reason to widen this
+     deliberately, not a reason to reach into the closure. */
+  window.CNPE_UI = {
+    el: el, tile: tile, href: href, overall: overall,
+    pageId: function () { return PAGE_ID; },
+  };
 
   /* ── top bar ─────────────────────────────────────────────── */
   function buildTopbar() {
@@ -913,372 +897,6 @@
     });
   }
 
-  /* ── the drill's backlog ───────────────────────────────────── */
-  // Ids and sections, no prose: the dashboard's index or the drill's full bank.
-  function deck() { return window.CNPE_DRILL || window.CNPE_DRILL_INDEX || []; }
-  // Cards that have come round for review: answered before, and their rest is up.
-  // A card nobody has ever seen is not a backlog, it is the rest of the deck, so
-  // it is not counted here or on the drill's own tile. merge.js sets the interval.
-  function dueCards() {
-    var recs = store.drill && typeof store.drill === "object" && !Array.isArray(store.drill) ? store.drill : {};
-    var now = Date.now(), n = 0;
-    deck().forEach(function (q) {
-      var rec = recs[q.id];
-      if (rec && M.dueIn(rec, now) <= 0) n++;
-    });
-    return n;
-  }
-
-  /* ── weak spots: drill accuracy split by domain ────────────── */
-  // Drill record keys embed the section ("2.3#..."), so the domain comes from the key.
-  var WEAK_MIN = 5;   // answers a domain needs before the panel will call it weak
-  function buildWeakSpots() {
-    var host = document.getElementById("weak-domains");
-    if (!host) return;
-    var totals = {};
-    deck().forEach(function (q) {
-      var d = +q.sec.split(".")[0];
-      totals[d] = (totals[d] || 0) + 1;
-    });
-    var per = {};
-    DOMAINS.forEach(function (d) { per[d.n] = { seen: 0, r: 0, m: 0 }; });
-    var drill = store.drill && typeof store.drill === "object" ? store.drill : {};
-    Object.keys(drill).forEach(function (k) {
-      var rec = drill[k], d = per[+k.split(".")[0]];
-      if (!d || !rec || typeof rec !== "object") return;
-      d.seen++; d.r += rec.r || 0; d.m += rec.m || 0;
-    });
-
-    /** @type {{ dom: CnpeDomain, pct: number, n: number } | null} */
-    var weakest = null;
-    var cells = DOMAINS.map(function (dom) {
-      var p = per[dom.n], n = p.r + p.m;
-      var seenTxt = totals[dom.n] ? p.seen + "/" + totals[dom.n] + " seen" : p.seen + " seen";
-      if (!n) {
-        return '<div class="wcell"><span class="wk">domain ' + dom.n + " · " + seenTxt +
-          '</span><span class="wv"><span class="u">no answers yet</span></span>' +
-          '<span class="wbar"><i class="dim" style="width:100%"></i></span></div>';
-      }
-      var pct = Math.round(p.r / n * 100);
-      if (n >= WEAK_MIN && (!weakest || pct < weakest.pct)) weakest = { dom: dom, pct: pct, n: n };
-      return '<div class="wcell"><span class="wk">domain ' + dom.n + " · " + seenTxt +
-        '</span><span class="wv wnum">' + pct + '<span class="u">% of ' + n + "</span></span>" +
-        '<span class="wbar"><i class="' + (pct >= 80 ? "green" : pct >= 60 ? "warn" : "bad") +
-        '" style="width:' + pct + '%"></i></span></div>';
-    });
-
-    var answered = DOMAINS.some(function (d) { return per[d.n].r + per[d.n].m > 0; });
-    var verdict;
-    if (!answered) {
-      verdict = 'No drill history in this browser yet. <a href="' + href("drill.html") +
-        '">Run a session</a> and this panel starts pointing at the domain to spend evenings on.';
-    } else if (!weakest) {
-      verdict = "Too few answers per domain to call a weak spot; " + WEAK_MIN +
-        " in one domain is the minimum. Keep drilling.";
-    } else {
-      verdict = "Weakest: <strong>domain " + weakest.dom.n + " · " + weakest.dom.name + "</strong> at " +
-        weakest.pct + "% over " + weakest.n + " answers, worth " +
-        (weakest.pct >= 80 ? "keeping warm" : "an evening") + ". " +
-        '<a href="' + href("drill.html") + '" data-drill-domain="' + weakest.dom.n + '">Drill domain ' +
-        weakest.dom.n + "</a>.";
-    }
-    host.innerHTML = cells.join("") +
-      '<div class="wcell wspan"><span class="wk">read it like this</span><span class="wv">' + verdict + "</span></div>";
-
-    var link = host.querySelector("[data-drill-domain]");
-    if (link) link.addEventListener("click", function () {
-      // the drill page picks this up once and pre-selects the domain chip
-      try { sessionStorage.setItem("cnpe:drill-domain", link.getAttribute("data-drill-domain")); } catch (e) {}
-    });
-  }
-
-  /* ── index dashboard ─────────────────────────────────────── */
-  function buildIndex() {
-    var host = document.getElementById("domain-grid");
-    if (!host) return;
-    var ov = overall();
-    var sk = studyStreak();
-    var totalEx = Object.keys(store.ex).length, doneEx = Object.keys(store.ex).filter(function (k) { return store.ex[k]; }).length;
-    var stats = document.querySelector(".stats");
-    if (stats) {
-      // Last 30 days, one cell per day, column-major so today lands bottom right.
-      var cells = "", now = new Date();
-      for (var i = 29; i >= 0; i--) {
-        var dk = dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i));
-        var acts = dayActs(store.days[dk]);
-        cells += '<i class="' + (acts ? "on" : "") + '" title="' + dk +
-          (acts ? " · " + acts + (acts === 1 ? " heartbeat" : " heartbeats") : " · no heartbeat") + '"></i>';
-      }
-      stats.innerHTML =
-        '<div class="stat g"><div class="lbl">Sections complete</div><div class="vrow"><div class="val">' + ov.done +
-          '<span class="u">/ ' + ov.total + '</span></div><div class="spark"><i style="width:' + ov.pct + '%"></i></div></div></div>' +
-        tile("c", "Exercises verified", doneEx + (totalEx ? '<span class="u">/ ' + totalEx + " seen</span>" : ""), false) +
-        '<div class="stat g" id="stat-streak"><div class="lbl">Uptime' + (sk.best ? " · record " + sk.best : "") +
-          '</div><div class="vrow"><div class="val">' + sk.streak +
-          '<span class="u">' + (sk.streak === 1 ? "day" : "days") + '</span></div>' +
-          '<div class="heat" role="img" aria-label="Study heartbeat over the last 30 days, one cell per day, newest bottom right">' + cells + "</div></div></div>" +
-        tile("p", "Exam length", '120<span class="u">min</span>', false) +
-        tile("y", "Tasks on the day", '15–20<span class="u">≈7 min each</span>', false);
-    }
-    host.innerHTML = DOMAINS.map(function (d) {
-      var secs = NAV.filter(function (n) { return n.d === d.n; });
-      var done = secs.filter(function (n) { return store.done[n.id]; }).length;
-      var pct = secs.length ? Math.round(done / secs.length * 100) : 0;
-      return '<div class="dcard"><header><span class="badge d' + d.n + '">D' + d.n + '</span><h3>' + d.name +
-        '</h3><span class="w">' + d.weight + "</span></header><ol>" +
-        secs.map(function (n) {
-          return '<li><a class="' + (store.done[n.id] ? "done" : "") + '" href="' + href(n.path) + '">' +
-            '<span class="sid">' + n.id + '</span><span class="st">' + n.title + '</span><span class="tick"></span></a></li>';
-        }).join("") +
-        '</ol><div class="foot"><span>' + done + "/" + secs.length + '</span><span class="track"><i style="width:' + pct +
-        '%"></i></span><span>' + pct + "%</span></div></div>";
-    }).join("");
-
-    var resume = document.getElementById("resume");
-    if (resume) {
-      var last = store.last ? NAV.filter(function (n) { return n.id === store.last; })[0] : null;
-      var nextUp = NAV.filter(function (n) { return n.d > 0 && !store.done[n.id]; })[0];
-      var target = last || nextUp;
-      var html = "";
-      if (target) {
-        html += '<a class="tbtn" style="text-decoration:none" href="' + href(target.path) + '">▶ ' +
-          (last ? "Resume " : "Start ") + target.id + " · " + target.title + "</a> ";
-      }
-      // What is waiting beats how long the streak is, and the uptime tile above
-      // already carries the streak.
-      var due = dueCards();
-      html += '<a class="tbtn ghost" style="text-decoration:none" href="' + href("drill.html") + '">Drill 10' +
-        (due ? " · " + due + " due" : sk.streak ? " · up " + sk.streak + (sk.streak === 1 ? " day" : " days") : "") +
-        "</a>";
-      resume.innerHTML = html;
-    }
-    // These three are the dashboard's own markup, so boot() finds the same three
-    // every time. Wire once, as sync.js does with its two, or a re-boot turns one
-    // click into two: two confirms to reset, two files exported, two file pickers.
-    /** @param {string} id */
-    function once(id) {
-      var b = document.getElementById(id);
-      if (!b || b.getAttribute("data-wired")) return null;
-      b.setAttribute("data-wired", "1");
-      return b;
-    }
-    var reset = once("reset-progress");
-    if (reset) reset.addEventListener("click", function () {
-      if (!confirm("Clear all section, exercise, exam, drill and streak progress stored in this browser?" +
-                   "\n\nOther tabs of the console hold their own copy in memory. Close or reload them " +
-                   "first, or the next thing written from any tab puts that copy back.")) return;
-      function wipe() {
-        store = { ex: {}, done: {}, exam: {}, exam2: {}, drill: {}, drillmeta: {}, days: {}, last: null };
-        // Drop the base too, or the next pull reads this as un-ticking everything.
-        if (window.CNPE_SYNC && window.CNPE_SYNC.forgetBase) window.CNPE_SYNC.forgetBase();
-        save(); location.reload();
-      }
-      if (!(window.CNPE_SYNC && window.CNPE_SYNC.signedIn())) { wipe(); return; }
-      // Keeping the saved copy is a real choice, but it does come back.
-      if (confirm("Also delete the copy saved to your GitHub account?\n\nCancel keeps it, and this browser will sync it back down on the next load.")) {
-        window.CNPE_SYNC.forget().then(wipe, wipe);
-      } else wipe();
-    });
-
-    var note = document.getElementById("io-note");
-    function say(msg) { if (note) { note.textContent = msg; note.hidden = false; } }
-    var exp = once("export-progress");
-    if (exp) exp.addEventListener("click", function () {
-      var text = exportPayload();
-      var name = "cnpe-progress-" + new Date().toISOString().slice(0, 10) + ".json";
-      if (saveFile(name, text)) { say("Wrote " + name + " to your downloads."); return; }
-      say("This browser blocked the download; copy the JSON below into " + name + ".");
-      var box = document.getElementById("io-box") || el("div", "iobox");
-      box.id = "io-box";
-      box.innerHTML = "";
-      var ta = document.createElement("textarea");
-      ta.readOnly = true; ta.rows = 8; ta.value = text;
-      box.appendChild(ta);
-      exp.parentNode.appendChild(box);
-      ta.focus(); ta.select();
-    });
-    var imp = once("import-progress");
-    if (imp) imp.addEventListener("click", function () {
-      var input = document.createElement("input");
-      input.type = "file";
-      input.accept = ".json,application/json";
-      input.style.display = "none";
-      input.addEventListener("change", function () {
-        var file = input.files && input.files[0];
-        if (!file) { input.remove(); return; }
-        var fr = new FileReader();
-        fr.onload = function () {
-          var res = importPayload(String(fr.result));
-          input.remove();
-          if (typeof res === "string") { say(res); return; }
-          var a = res.added;
-          alert("Imported: " + a.done + " section(s), " + a.ex + " exercise(s), " + a.exam +
-                " exam task(s), " + a.drill + " drill record(s), " + a.days + " study day(s).\nNothing already ticked here was changed.");
-          location.reload();
-        };
-        fr.onerror = function () { input.remove(); say("Could not read that file."); };
-        fr.readAsText(file);
-      });
-      document.body.appendChild(input);
-      input.click();
-    });
-  }
-
-  /* ── mock exam widgets ───────────────────────────────────── */
-  var examTimer = null, examLifecycleWired = false;
-  function buildExam() {
-    if (examTimer) { clearInterval(examTimer); examTimer = null; }
-    if (!body.hasAttribute("data-exam")) return;
-    var TOTAL = 120 * 60;
-    // Each exam page keeps its own clock and score under its own store key.
-    var bucket = PAGE_ID === "EX2" ? "exam2" : "exam";
-    var st = store[bucket] && typeof store[bucket] === "object" ? store[bucket] : {};
-    if (!st.tasks || typeof st.tasks !== "object") st.tasks = {};
-    store[bucket] = st;
-    var clock = document.getElementById("clock");
-    var scoreVal = document.getElementById("score-val");
-    var startBtn = document.getElementById("t-start");
-    var resetBtn = document.getElementById("t-reset");
-
-    function remaining() {
-      if (!st.startedAt) return TOTAL;
-      var spent = (st.spent || 0) + (st.running ? (Date.now() - st.startedAt) / 1000 : 0);
-      return Math.max(0, TOTAL - spent);
-    }
-    function paintClock() {
-      if (!clock) return;
-      var r = Math.floor(remaining());
-      if (r === 0 && st.running) {   // time is up: stop the meter where it ran out
-        st.running = false; st.spent = TOTAL; save();
-      }
-      var mm = String(Math.floor(r / 60)).padStart(3, " "), ss = String(r % 60).padStart(2, "0");
-      clock.textContent = mm + ":" + ss;
-      clock.className = "clock" + (r === 0 ? " out" : r < 15 * 60 ? " low" : "");
-      if (startBtn) startBtn.textContent = st.running ? "❚❚ Pause" : (st.spent ? "▶ Resume" : "▶ Start 120:00");
-    }
-    // A paused clock repaints the same digits, so the meter runs only with the
-    // paper. paintClock clears st.running at time-up, which stops it here.
-    function tick() {
-      if (examTimer) { clearInterval(examTimer); examTimer = null; }
-      if (st.running) examTimer = setInterval(function () { paintClock(); if (!st.running) tick(); }, 1000);
-    }
-    // Both buttons are markup, so boot() finds the same two; wire them once.
-    if (startBtn && !startBtn.getAttribute("data-wired")) {
-      startBtn.setAttribute("data-wired", "1");
-      startBtn.addEventListener("click", function () {
-        if (st.running) { st.spent = (st.spent || 0) + (Date.now() - st.startedAt) / 1000; st.running = false; }
-        else { st.startedAt = Date.now(); st.running = true; }
-        store[bucket] = st; save(); paintClock(); tick();
-      });
-    }
-    if (resetBtn && !resetBtn.getAttribute("data-wired")) {
-      resetBtn.setAttribute("data-wired", "1");
-      resetBtn.addEventListener("click", function () {
-        st.startedAt = 0; st.spent = 0; st.running = false;
-        // Zero, not drop: a deleted key says nothing to the merge.
-        Object.keys(st.tasks).forEach(function (k) { st.tasks[k] = 0; });
-        save();
-        Array.prototype.forEach.call(document.querySelectorAll(".task"), function (t) { t.classList.remove("done"); });
-        Array.prototype.forEach.call(document.querySelectorAll(".task .dot"), function (d) { d.setAttribute("aria-pressed", "false"); });
-        paintClock(); paintScore(); tick();
-      });
-    }
-    paintClock();
-    tick();
-
-    // Wire these once: boot() re-runs on navigation and they listen on the document.
-    if (!examLifecycleWired) {
-      var stamp = function () {
-        ["exam", "exam2"].forEach(function (k) {
-          var s = store[k];
-          if (s && s.running) { s.spent = (s.spent || 0) + (Date.now() - s.startedAt) / 1000; s.startedAt = Date.now(); save(); }
-        });
-      };
-      document.addEventListener("visibilitychange", function () {
-        if (document.visibilityState === "hidden") stamp();
-      });
-      addEventListener("pagehide", stamp);
-      examLifecycleWired = true;
-    }
-
-    var tasks = document.querySelectorAll(".task");
-    var maxPts = 0;
-    Array.prototype.forEach.call(tasks, function (t, i) {
-      var pts = +(t.getAttribute("data-pts") || 0);
-      maxPts += pts;
-      var title = t.getAttribute("data-title") || "";
-      if (t.getAttribute("data-built")) return;
-      t.setAttribute("data-built", "1");
-      var inner = t.innerHTML;
-      t.innerHTML = "";
-
-      var h = el("header");
-      var dot = el("button", "dot");
-      dot.type = "button";
-      dot.setAttribute("aria-label", "Mark task " + (i + 1) + " scored: " + title);
-      var disc = el("button", "disc");
-      disc.type = "button";
-      disc.innerHTML = '<span class="tno">' + (i + 1) + '</span><span class="tt">' + title +
-                       '</span><span class="pts">' + pts + " pts</span>";
-      var b = el("div", "body", inner);
-      b.id = "task-" + i;
-      disc.setAttribute("aria-controls", b.id);
-      disc.setAttribute("aria-expanded", "true");
-
-      function paintTask() {
-        var on = !!st.tasks[i];
-        t.classList.toggle("done", on);
-        dot.setAttribute("aria-pressed", on ? "true" : "false");
-      }
-      dot.addEventListener("click", function (e) {
-        e.stopPropagation();
-        st.tasks[i] = st.tasks[i] ? 0 : 1;
-        if (st.tasks[i]) bumpDay("e");
-        save(); paintTask(); paintScore();
-      });
-      disc.addEventListener("click", function () {
-        var hidden = b.style.display === "none";
-        b.style.display = hidden ? "" : "none";
-        disc.setAttribute("aria-expanded", hidden ? "true" : "false");
-      });
-      h.appendChild(dot); h.appendChild(disc);
-      t.appendChild(h); t.appendChild(b);
-      paintTask();
-    });
-    function paintScore() {
-      if (!scoreVal) return;
-      var got = 0, byDomain = {};
-      Array.prototype.forEach.call(tasks, function (t, i) {
-        var pts = +(t.getAttribute("data-pts") || 0);
-        var m = /domain (\d)/.exec(t.getAttribute("data-title") || "");
-        var d = m ? m[1] : "?";
-        byDomain[d] = byDomain[d] || { got: 0, max: 0 };
-        byDomain[d].max += pts;
-        if (st.tasks[i]) { got += pts; byDomain[d].got += pts; }
-      });
-      scoreVal.innerHTML = got + '<span class="u">/ ' + maxPts + "</span>";
-      var sp = /** @type {HTMLElement} */ (document.querySelector("#stat-score .spark i"));
-      if (sp) sp.style.width = (maxPts ? got / maxPts * 100 : 0) + "%";
-
-      var host = document.getElementById("score-domains");
-      if (!host) return;
-      host.innerHTML = Object.keys(byDomain).sort().map(function (d) {
-        var b = byDomain[d], pct = b.max ? Math.round(b.got / b.max * 100) : 0;
-        var state = b.got === 0 ? "bad" : pct >= 70 ? "ok" : "warn";
-        return '<div class="wcell"><span class="wk">domain ' + d + '</span>' +
-          '<span class="wv wnum">' + b.got + '<span class="u" style="font-size:12px;color:var(--paper-3)"> / ' + b.max + '</span></span>' +
-          '<span class="wbar"><i class="' + (state === "ok" ? "green" : state === "warn" ? "warn" : "bad") +
-          '" style="width:' + pct + '%"></i></span></div>';
-      }).join("") +
-      '<div class="wcell wspan"><span class="wk">read this before the total</span><span class="wv">' +
-        (Object.keys(byDomain).some(function (d) { return byDomain[d].got === 0; })
-          ? "A domain at zero fails you in ways an average hides; re-drill that one first."
-          : "Every domain is on the board. Now push the weakest one above 70%.") +
-      "</span></div>";
-    }
-    paintScore();
-  }
-
   /* ── boot ────────────────────────────────────────────────── */
   var wired = false;
   function boot() {
@@ -1294,10 +912,10 @@
     buildFooter();
     buildPalette();
     buildHelp();
-    buildIndex();
+    // The page-shaped panels, each mounted only where its page loaded its file.
+    if (window.CNPE_DASH) window.CNPE_DASH.mount();
     if (window.CNPE_SYNC) window.CNPE_SYNC.mount();
-    buildWeakSpots();
-    buildExam();
+    if (window.CNPE_EXAM) window.CNPE_EXAM.mount();
     // Must run last: the builders above re-serialize their panels.
     buildCodeBlocks();
     if (!wired) { keys(); wired = true; }

@@ -13,7 +13,8 @@ SITE_DOMAIN="${SITE_DOMAIN:-cnpe.rbstp.dev}"
 SYNC_DOMAIN="${SYNC_DOMAIN:-sync.rbstp.dev}"
 
 for f in index.html mock-exam.html mock-exam-2.html drill.html console.html 404.html CNAME \
-         assets/style.css assets/app.js assets/nav.js assets/widgets.js \
+         assets/style.css assets/app.js assets/app-dash.js assets/app-exam.js \
+         assets/nav.js assets/widgets.js \
          assets/theme.js assets/favicon.svg assets/drill-data.js assets/drill-index.js \
          assets/drill.js assets/merge.js assets/sync.js; do
   test -s "$SITE/$f" || { echo "missing or empty: $f"; exit 1; }
@@ -62,6 +63,26 @@ for f in index.html mock-exam.html mock-exam-2.html; do
 done
 grep -q 'assets/drill-data\.js' "$SITE/drill.html" ||
   { echo "drill.html does not load the drill bank"; exit 1; }
+
+# The two page-shaped panels. Each mounts against markup only its own page has,
+# so a page that loads the wrong one gets a silent no-op rather than an error.
+# The pairing is the thing worth asserting, in both directions.
+panel() {                                      # panel <file> <asset> <marker>
+  found=$(grep -cF "assets/$2" "$SITE/$1" || true)
+  wants=$(grep -cF "$3" "$SITE/$1" || true)
+  if test "$wants" -gt 0 && test "$found" -eq 0; then
+    echo "$1 has $3 but does not load $2"; exit 1
+  fi
+  if test "$wants" -eq 0 && test "$found" -gt 0; then
+    echo "$1 loads $2 but has no $3 to mount on"; exit 1
+  fi
+}
+while IFS= read -r f; do
+  rel="${f#"$SITE"/}"
+  case "$rel" in console.html|404.html) continue;; esac
+  panel "$rel" 'app-dash.js' 'id="domain-grid"'
+  panel "$rel" 'app-exam.js' 'data-exam'
+done < <(find "$SITE" -name '*.html')
 
 # Every asset a page pulls must carry its content stamp, and so must every font
 # the stylesheet pulls. Without one, Pages' ten-minute cache decides when a deploy

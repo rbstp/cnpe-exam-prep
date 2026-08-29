@@ -87,6 +87,42 @@ module.exports = async function (h) {
     await ctx.close();
   }
 
+  /* each page-shaped panel reaches the page that mounts it, and no other */
+  {
+    group('the panels land on their own pages and nowhere else');
+    const { ctx, page } = await fresh();
+    /** @param {string} p */
+    const loaded = async p => {
+      await page.goto(url(p));
+      return page.evaluate(() => ({
+        ui: !!window.CNPE_UI,
+        dash: !!window.CNPE_DASH,
+        exam: !!window.CNPE_EXAM,
+        widgets: !!window.CNPE_WIDGETS,
+        drill: !!window.CNPE_DRILL_UI,
+      }));
+    };
+    // check-site.sh asserts the script tags; this asserts the code actually arrives,
+    // and that a page carrying a panel it cannot mount would be caught either way.
+    /** @param {{ui: boolean, dash: boolean, exam: boolean, widgets: boolean, drill: boolean}} o */
+    const shape = o => [o.ui, o.dash, o.exam, o.widgets, o.drill].map(Number).join('');
+    //                    page                                   ui dash exam widgets drill
+    const want = [
+      ['index.html', '11000'],
+      ['mock-exam.html', '10100'],
+      ['mock-exam-2.html', '10100'],
+      ['drill.html', '10001'],
+      ['01-architecture/01-networking.html', '10010'],   // draws a figure
+      ['02-gitops/04-tekton.html', '10000'],             // draws none
+    ];
+    for (const [p, expected] of want) {
+      const got = shape(await loaded(p));
+      assert(got === expected, p + ' carries ' + got + ' (ui/dash/exam/widgets/drill), wanted ' + expected);
+    }
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  }
+
   /* the scroll spy across the 1180px breakpoint, where the column comes and goes */
   {
     group('the toc mark is right after the column comes back');
