@@ -51,6 +51,8 @@
   }
 
   /* ── storage ─────────────────────────────────────────────── */
+  // Seeding a pre-days store is a migration, not a repaint: boot saves it once.
+  var seeded = false;
   var store = (function () {
     var s = /** @type {CnpeStore} */ (/** @type {unknown} */ ({ ex: {}, done: {}, exam: {}, last: null }));
     try { var raw = localStorage.getItem(KEY); if (raw) s = Object.assign(s, JSON.parse(raw)); } catch (e) {}
@@ -59,15 +61,26 @@
       if (!s[k] || typeof s[k] !== "object") s[k] = {};
     });
     if (typeof s.last !== "string") s.last = null;
-    if (!hadDays) seedDays(s);
+    if (!hadDays) {
+      seedDays(s);
+      seeded = Object.keys(s.days).length > 0;
+    }
     return s;
   })();
   var savers = [];
   // The ticks of the store as this tab last left them on the disk. A save that
   // throws never happened, so it must not move this on either.
   var seen = M.ticks(store);
+  // The bytes on the disk as of this tab's last look; onDisk compares against it.
+  var lastRaw = null;
+  try { lastRaw = localStorage.getItem(KEY); } catch (e) {}
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(store)); seen = M.ticks(store); } catch (e) {}
+    try {
+      var raw = JSON.stringify(store);
+      localStorage.setItem(KEY, raw);
+      seen = M.ticks(store);
+      lastRaw = raw;
+    } catch (e) {}
     // Optional sync listens here. A listener that throws must not cost a save.
     for (var i = 0; i < savers.length; i++) { try { savers[i](); } catch (e) {} }
   }
@@ -87,9 +100,14 @@
      With seen as the base, another tab's write becomes the same three-way merge
      the sync runs: what this tab changed since wins, and everything else follows
      the disk, an un-tick included. Both tabs end up holding the same store. */
+  // Only when the bytes moved. Every change goes through save(), so unmoved bytes
+  // mean the parse, the clone and the two merges below reach the same answer.
   function onDisk() {
     try {
-      var d = JSON.parse(localStorage.getItem(KEY) || "null");
+      var raw = localStorage.getItem(KEY);
+      if (raw === lastRaw) return null;
+      lastRaw = raw;
+      var d = JSON.parse(raw || "null");
       return d && typeof d === "object" && !Array.isArray(d) ? d : null;
     } catch (e) { return null; }
   }
@@ -515,12 +533,13 @@
   function buildExercises() {
     if (!entry) return;
     var list = document.querySelectorAll(".exercise");
+    var registered = false;
     Array.prototype.forEach.call(list, function (ex, i) {
       if (ex.getAttribute("data-built")) return;
       ex.setAttribute("data-built", "1");
       var title = ex.getAttribute("data-title") || "Exercise " + (i + 1);
       var k = exKey(entry.id, i, title);
-      if (!(k in store.ex)) store.ex[k] = 0;
+      if (!(k in store.ex)) { store.ex[k] = 0; registered = true; }
       var body = ex.innerHTML;
       ex.innerHTML = "";
 
@@ -556,7 +575,7 @@
       ex.appendChild(hdr); ex.appendChild(bodyEl);
       paint();
     });
-    save();
+    if (registered) save();            // only the first visit has keys to write down
     refreshExTile();   // the tile is built before the exercises are registered
   }
 
@@ -583,10 +602,12 @@
     spyState.links = Array.prototype.slice.call(toc.querySelectorAll("a"));
     spyState.targets = spyState.links.map(function (a) { return document.querySelector(a.getAttribute("href")); });
     if (!spyState.wired) {
-      window.addEventListener("scroll", throttle(spy, 120));
+      window.addEventListener("scroll", throttle(spy, 120), { passive: true });
       spyState.wired = true;
     }
-    spy();
+    // spy() reads offsetTop and six builders still have to run, so lay out once,
+    // on the next frame, over the page the reader actually gets.
+    requestAnimationFrame(spy);
   }
   var spyState = { links: [], targets: [], wired: false };
   function spy() {
@@ -611,9 +632,14 @@
     var idx = NAV.indexOf(entry);
     var prev = NAV[idx - 1], next = NAV[idx + 1];
 
+    // Both strips below are appended, so a re-boot would stack a second copy.
+    // The dashboard's own finish strip is markup, carries no stamp, and stays.
+    Array.prototype.forEach.call(art.querySelectorAll("[data-gen]"), function (n) { n.remove(); });
+
     // Only numbered sections get the completion strip.
     if (entry.d > 0) {
       var fin = el("div", "finish");
+      fin.setAttribute("data-gen", "1");
       var done = !!store.done[entry.id];
       fin.innerHTML = '<div class="txt">Finished this section? Marking it complete updates the dashboard and your overall progress.</div>';
       var b = el("button", "tbtn" + (done ? " on" : ""), done ? "✓ Section complete" : "Mark section complete");
@@ -643,6 +669,7 @@
 
     var label = function (x) { return (x.d > 0 ? x.id + " " : "") + x.title; };
     var pager = el("div", "pager");
+    pager.setAttribute("data-gen", "1");
     pager.innerHTML =
       (prev ? '<a class="prev" href="' + href(prev.path) + '"><span class="dir">◀ previous</span>' + label(prev) + "</a>"
             : '<a class="prev ghost">&nbsp;</a>') +
@@ -650,7 +677,9 @@
             : '<a class="next" href="' + href("index.html") + '"><span class="dir">next ▶</span>Back to the dashboard</a>');
     art.appendChild(pager);
 
-    if (entry.d > 0) { store.last = entry.id; save(); }   // the mock exam is not "where you were reading"
+    // The mock exam is not "where you were reading", and neither is a reread:
+    // a save serializes the whole store and wakes every other tab to merge it.
+    if (entry.d > 0 && store.last !== entry.id) { store.last = entry.id; save(); }
   }
 
   /* ── command palette ─────────────────────────────────────── */
@@ -684,6 +713,19 @@
       else if (e.key === "Enter") { e.preventDefault(); go(paletteSel); }
     });
     paletteOverlay.addEventListener("click", function (e) { if (e.target === paletteOverlay) closeOverlays(); });
+    // Delegated: wiring each row meant 33 × 2 listeners rebuilt per keystroke.
+    paletteList.addEventListener("click", function (e) {
+      var li = e.target.closest ? e.target.closest("li[data-i]") : null;
+      if (li) go(+li.getAttribute("data-i"));
+    });
+    paletteList.addEventListener("mousemove", function (e) {
+      var li = e.target.closest ? e.target.closest("li[data-i]") : null;
+      if (!li) return;
+      var i = +li.getAttribute("data-i");
+      if (i === paletteSel) return;
+      paletteSel = i;
+      markSel();
+    });
     renderPalette("");
   }
   function renderPalette(q) {
@@ -711,21 +753,22 @@
         '</span><span class="ptitle">' + n.title +
         '</span><span class="pmeta">' + (d ? "d" + d.n : /^EX/.test(n.id) ? "exam" : "drill") + hit + "</span></li>";
     }).join("");
-    Array.prototype.forEach.call(paletteList.children, function (li) {
-      li.addEventListener("click", function () { go(+li.getAttribute("data-i")); });
-      li.addEventListener("mousemove", function () { paletteSel = +li.getAttribute("data-i"); markSel(); });
-    });
+    palettePainted = -1;                         // those rows are gone
     markSel();
   }
+  // Two rows change, so move the mark rather than walking the list.
+  var palettePainted = -1;
   function markSel() {
-    Array.prototype.forEach.call(paletteList.children, function (li, i) {
-      var on = i === paletteSel;
-      li.classList.toggle("sel", on);
-      li.setAttribute("aria-selected", on ? "true" : "false");
-    });
-    var s = paletteList.children[paletteSel];
+    var kids = paletteList.children;
+    var was = kids[palettePainted];
+    if (was) { was.classList.remove("sel"); was.setAttribute("aria-selected", "false"); }
+    var s = kids[paletteSel];
+    palettePainted = s ? paletteSel : -1;
     if (s) {
-      if (s.scrollIntoView) s.scrollIntoView({ block: "nearest" });
+      s.classList.add("sel");
+      s.setAttribute("aria-selected", "true");
+      // Closed at boot, and asking then forces a layout boot is about to undo.
+      if (s.scrollIntoView && paletteOverlay.classList.contains("open")) s.scrollIntoView({ block: "nearest" });
       if (paletteInput) paletteInput.setAttribute("aria-activedescendant", s.id);
     } else if (paletteInput) paletteInput.removeAttribute("aria-activedescendant");
   }
@@ -827,13 +870,15 @@
   }
 
   /* ── the drill's backlog ───────────────────────────────────── */
+  // Ids and sections, no prose: the dashboard's index or the drill's full bank.
+  function deck() { return window.CNPE_DRILL || window.CNPE_DRILL_INDEX || []; }
   // Cards that have come round for review: answered before, and their rest is up.
   // A card nobody has ever seen is not a backlog, it is the rest of the deck, so
   // it is not counted here or on the drill's own tile. merge.js sets the interval.
   function dueCards() {
     var recs = store.drill && typeof store.drill === "object" && !Array.isArray(store.drill) ? store.drill : {};
     var now = Date.now(), n = 0;
-    (window.CNPE_DRILL || []).forEach(function (q) {
+    deck().forEach(function (q) {
       var rec = recs[q.id];
       if (rec && M.dueIn(rec, now) <= 0) n++;
     });
@@ -847,7 +892,7 @@
     var host = document.getElementById("weak-domains");
     if (!host) return;
     var totals = {};
-    (window.CNPE_DRILL || []).forEach(function (q) {
+    deck().forEach(function (q) {
       var d = +q.sec.split(".")[0];
       totals[d] = (totals[d] || 0) + 1;
     });
@@ -1057,22 +1102,35 @@
       clock.className = "clock" + (r === 0 ? " out" : r < 15 * 60 ? " low" : "");
       if (startBtn) startBtn.textContent = st.running ? "❚❚ Pause" : (st.spent ? "▶ Resume" : "▶ Start 120:00");
     }
-    if (startBtn) startBtn.addEventListener("click", function () {
-      if (st.running) { st.spent = (st.spent || 0) + (Date.now() - st.startedAt) / 1000; st.running = false; }
-      else { st.startedAt = Date.now(); st.running = true; }
-      store[bucket] = st; save(); paintClock();
-    });
-    if (resetBtn) resetBtn.addEventListener("click", function () {
-      st.startedAt = 0; st.spent = 0; st.running = false;
-      // Zero, not drop: a deleted key says nothing to the merge.
-      Object.keys(st.tasks).forEach(function (k) { st.tasks[k] = 0; });
-      save();
-      Array.prototype.forEach.call(document.querySelectorAll(".task"), function (t) { t.classList.remove("done"); });
-      Array.prototype.forEach.call(document.querySelectorAll(".task .dot"), function (d) { d.setAttribute("aria-pressed", "false"); });
-      paintClock(); paintScore();
-    });
-    examTimer = setInterval(paintClock, 1000);
+    // A paused clock repaints the same digits, so the meter runs only with the
+    // paper. paintClock clears st.running at time-up, which stops it here.
+    function tick() {
+      if (examTimer) { clearInterval(examTimer); examTimer = null; }
+      if (st.running) examTimer = setInterval(function () { paintClock(); if (!st.running) tick(); }, 1000);
+    }
+    // Both buttons are markup, so boot() finds the same two; wire them once.
+    if (startBtn && !startBtn.getAttribute("data-wired")) {
+      startBtn.setAttribute("data-wired", "1");
+      startBtn.addEventListener("click", function () {
+        if (st.running) { st.spent = (st.spent || 0) + (Date.now() - st.startedAt) / 1000; st.running = false; }
+        else { st.startedAt = Date.now(); st.running = true; }
+        store[bucket] = st; save(); paintClock(); tick();
+      });
+    }
+    if (resetBtn && !resetBtn.getAttribute("data-wired")) {
+      resetBtn.setAttribute("data-wired", "1");
+      resetBtn.addEventListener("click", function () {
+        st.startedAt = 0; st.spent = 0; st.running = false;
+        // Zero, not drop: a deleted key says nothing to the merge.
+        Object.keys(st.tasks).forEach(function (k) { st.tasks[k] = 0; });
+        save();
+        Array.prototype.forEach.call(document.querySelectorAll(".task"), function (t) { t.classList.remove("done"); });
+        Array.prototype.forEach.call(document.querySelectorAll(".task .dot"), function (d) { d.setAttribute("aria-pressed", "false"); });
+        paintClock(); paintScore(); tick();
+      });
+    }
     paintClock();
+    tick();
 
     // Wire these once: boot() re-runs on navigation and they listen on the document.
     if (!examLifecycleWired) {
@@ -1191,4 +1249,5 @@
   }
   window.CNPE_BOOT = boot;
   boot();
+  if (seeded) { seeded = false; save(); }   // the only write a page load owes
 })();

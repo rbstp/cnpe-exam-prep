@@ -181,4 +181,45 @@ module.exports = async function (h) {
     assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
     await ctx.close();
   }
+
+  /* 8. rereading a section page is a read, and a repaint does not stack its footer */
+  {
+    group('rereading a section writes nothing, and a repaint leaves one footer');
+    const SECTION = '02-gitops/01-gitops-fundamentals.html';
+    const { ctx, page } = await fresh({ done: { '2.1': 1 } });
+    await countWrites(page);
+    // A first visit learns the exercise keys and that this is where you are.
+    await page.goto(url(SECTION));
+    await page.waitForTimeout(300);
+    const first = await writes(page);
+    assert(first > 0 && first <= 2, 'a first visit writes what it learned: ' + first);
+    // A second knows all of it, and a save wakes every other tab to merge it.
+    await page.evaluate(() => { window.__writes = 0; });
+    await page.reload();
+    await page.waitForTimeout(300);
+    assert((await writes(page)) === 0, 'rereading it wrote nothing: ' + await writes(page));
+
+    /** @param {import('playwright').Page} p */
+    const strips = p => p.evaluate(() => ({
+      pager: document.querySelectorAll('.pager').length,
+      finish: document.querySelectorAll('.finish').length,
+    }));
+    assert(JSON.stringify(await strips(page)) === '{"pager":1,"finish":1}',
+      'one pager and one completion strip: ' + JSON.stringify(await strips(page)));
+
+    // A tick over there is a storage event here, which merges and re-boots.
+    // buildFooter appends, so without a sweep the page grew a pager per tick.
+    const two = await tab(ctx, SECTION);
+    for (const on of [1, 0, 1, 0]) {
+      await tick(two, '1.1', on);
+      await page.waitForFunction(
+        a => window.CNPE_PROGRESS.get().done['1.1'] === a, on, { timeout: 4000 });
+    }
+    await page.waitForTimeout(300);
+    assert(JSON.stringify(await strips(page)) === '{"pager":1,"finish":1}',
+      'still one of each after four cross-tab ticks: ' + JSON.stringify(await strips(page)));
+    const err8 = page.errors.concat(two.errors);
+    assert(err8.length === 0, 'no console errors: ' + err8.join(' | '));
+    await ctx.close();
+  }
 };

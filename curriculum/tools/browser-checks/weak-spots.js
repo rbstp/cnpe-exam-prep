@@ -62,9 +62,13 @@ module.exports = async function (h) {
     group('the drill button carries the backlog, once there is one');
     const { ctx, page } = await fresh();
     await page.goto(url('index.html'));
-    // real ids, since the count is over the bank the drill actually deals from
+    // The dashboard renders no card, so it loads the index, not the 67 KB bank.
+    assert(await page.evaluate(() => !window.CNPE_DRILL && Array.isArray(window.CNPE_DRILL_INDEX)),
+      'the dashboard has the drill index and not the bank');
+    // real ids, since the count is over the deck the drill actually deals from
     await page.evaluate(() => {
-      const st = window.CNPE_PROGRESS.get(), bank = window.CNPE_DRILL, now = Date.now();
+      const st = window.CNPE_PROGRESS.get(), now = Date.now();
+      const bank = window.CNPE_DRILL || window.CNPE_DRILL_INDEX;
       st.drill = {};
       st.drill[bank[0].id] = { r: 1, m: 0, ok: true, t: now - 5 * 864e5 };   // came round days ago
       st.drill[bank[1].id] = { r: 1, m: 0, ok: true, t: now - 5 * 864e5 };   // came round days ago
