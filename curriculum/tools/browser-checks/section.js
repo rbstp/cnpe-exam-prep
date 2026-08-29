@@ -86,4 +86,34 @@ module.exports = async function (h) {
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   }
+
+  /* the scroll spy across the 1180px breakpoint, where the column comes and goes */
+  {
+    group('the toc mark is right after the column comes back');
+    const { ctx, page } = await fresh();
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await page.goto(url('02-gitops/04-tekton.html'));
+    const marked = () => page.evaluate(() =>
+      (document.querySelector('#toc a.active') || {}).textContent || null);
+    const first = await page.evaluate(() => (document.querySelector('#toc a') || {}).textContent);
+    // Instant, or smooth scrolling keeps firing events that hide the bug.
+    /** @param {number} y */
+    const to = y => page.evaluate(n => window.scrollTo({ top: n, behavior: 'instant' }), y);
+    await to(5000);
+    await page.waitForTimeout(250);
+    const deep = await marked();
+    assert(deep !== first, 'reading deep in the page marks a later panel: ' + JSON.stringify(deep));
+    // spy leaves the mark alone while the column is gone, so widening back has to
+    // re-read; nothing else will, since the reader has not scrolled since.
+    await page.setViewportSize({ width: 1000, height: 900 });
+    await page.waitForTimeout(200);
+    await to(0);
+    await page.waitForTimeout(200);
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await page.waitForTimeout(300);
+    assert(await marked() === first,
+      'back at the top and wide again, the first panel is marked: ' + JSON.stringify(await marked()));
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  }
 };

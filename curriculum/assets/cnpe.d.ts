@@ -26,12 +26,16 @@ interface CnpeDomain {
   layers: string;
 }
 
-/** One flashcard in the generated question bank (CNPE_DRILL). */
-interface CnpeDrillQuestion {
+/** A card's identity, which is all the dashboard's counting needs (CNPE_DRILL_INDEX). */
+interface CnpeDrillCard {
   /** "sec#slug-of-the-question" */
   id: string;
   /** owning section id, e.g. "2.3" */
   sec: string;
+}
+
+/** One flashcard in the generated question bank (CNPE_DRILL). */
+interface CnpeDrillQuestion extends CnpeDrillCard {
   /** question, HTML */
   q: string;
   /** answer, HTML */
@@ -201,6 +205,8 @@ interface Window {
   CNPE_NAV?: CnpeNavEntry[];
   CNPE_DOMAINS?: CnpeDomain[];
   CNPE_DRILL?: CnpeDrillQuestion[];
+  /** the same deck without the prose; the dashboard loads this instead */
+  CNPE_DRILL_INDEX?: CnpeDrillCard[];
   CNPE_MERGE?: CnpeMergeApi;
   CNPE_PROGRESS?: CnpeProgressApi;
   CNPE_SYNC?: CnpeSyncApi;

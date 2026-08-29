@@ -181,4 +181,100 @@ module.exports = async function (h) {
     assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
     await ctx.close();
   }
+
+  /* 8. rereading a section page is a read, and a repaint does not stack its footer */
+  {
+    group('rereading a section writes nothing, and a repaint leaves one footer');
+    const SECTION = '02-gitops/01-gitops-fundamentals.html';
+    const { ctx, page } = await fresh({ done: { '2.1': 1 } });
+    await countWrites(page);
+    // A first visit learns the exercise keys and that this is where you are.
+    await page.goto(url(SECTION));
+    await page.waitForTimeout(300);
+    const first = await writes(page);
+    assert(first > 0 && first <= 2, 'a first visit writes what it learned: ' + first);
+    // A second knows all of it, and a save wakes every other tab to merge it.
+    await page.evaluate(() => { window.__writes = 0; });
+    await page.reload();
+    await page.waitForTimeout(300);
+    assert((await writes(page)) === 0, 'rereading it wrote nothing: ' + await writes(page));
+
+    /** @param {import('playwright').Page} p */
+    const strips = p => p.evaluate(() => ({
+      pager: document.querySelectorAll('.pager').length,
+      finish: document.querySelectorAll('.finish').length,
+    }));
+    assert(JSON.stringify(await strips(page)) === '{"pager":1,"finish":1}',
+      'one pager and one completion strip: ' + JSON.stringify(await strips(page)));
+
+    // A tick over there is a storage event here, which merges and re-boots.
+    // buildFooter appends, so without a sweep the page grew a pager per tick.
+    const two = await tab(ctx, SECTION);
+    for (const on of [1, 0, 1, 0]) {
+      await tick(two, '1.1', on);
+      await page.waitForFunction(
+        a => window.CNPE_PROGRESS.get().done['1.1'] === a, on, { timeout: 4000 });
+    }
+    await page.waitForTimeout(300);
+    assert(JSON.stringify(await strips(page)) === '{"pager":1,"finish":1}',
+      'still one of each after four cross-tab ticks: ' + JSON.stringify(await strips(page)));
+    const err8 = page.errors.concat(two.errors);
+    assert(err8.length === 0, 'no console errors: ' + err8.join(' | '));
+    await ctx.close();
+  }
+
+  /* 9. and a repainted dashboard still answers one click once */
+  {
+    group('a repainted dashboard does not double its buttons');
+    const { ctx, page } = await fresh({ done: { '2.1': 1 } });
+    await page.goto(url('index.html'));
+    const two = await tab(ctx, 'index.html');
+    // Each tick over there re-boots this tab, and buildIndex rewires Reset,
+    // Export and Import. Unguarded, one click raised one dialog per re-boot.
+    for (const on of [1, 0, 1, 0]) {
+      await tick(two, '1.1', on);
+      await page.waitForFunction(
+        a => window.CNPE_PROGRESS.get().done['1.1'] === a, on, { timeout: 4000 });
+    }
+    const dialogs = await page.evaluate(() => {
+      let n = 0;
+      const real = window.confirm;
+      window.confirm = () => { n++; return false; };
+      document.getElementById('reset-progress').click();
+      window.confirm = real;
+      return n;
+    });
+    assert(dialogs === 1, 'one click on Reset raised one dialog: ' + dialogs);
+    const err9 = page.errors.concat(two.errors);
+    assert(err9.length === 0, 'no console errors: ' + err9.join(' | '));
+    await ctx.close();
+  }
+
+  /* 10. a write that never reached the disk is retried, not forgotten */
+  {
+    group('a save the disk refused is written on the next look');
+    const { ctx, page } = await fresh();
+    await page.goto(url('01-architecture/01-networking.html'));
+    // reconcile short-circuits on unmoved bytes, and a write that threw does not
+    // move them, so the tick lives only in memory until something notices.
+    const out = await page.evaluate(async () => {
+      const real = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (k) {
+        if (k === 'cnpe:v2') { const e = new Error('quota'); e.name = 'QuotaExceededError'; throw e; }
+        return real.apply(this, arguments);
+      };
+      /** @type {HTMLElement} */ (document.querySelector('.finish button.tbtn')).click();
+      const onDisk = () => (JSON.parse(localStorage.getItem('cnpe:v2') || '{}').done || {})['1.1'];
+      const refused = onDisk();
+      Storage.prototype.setItem = real;
+      document.dispatchEvent(new Event('visibilitychange'));
+      await new Promise(r => setTimeout(r, 150));
+      return { memory: window.CNPE_PROGRESS.get().done['1.1'], refused, retried: onDisk() };
+    });
+    assert(out.memory === 1, 'the tick is in memory: ' + out.memory);
+    assert(out.refused === undefined, 'and not on the disk the write was refused by');
+    assert(out.retried === 1, 'the next look writes it: ' + out.retried);
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  }
 };

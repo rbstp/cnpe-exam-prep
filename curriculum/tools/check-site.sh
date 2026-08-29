@@ -14,8 +14,8 @@ SYNC_DOMAIN="${SYNC_DOMAIN:-sync.rbstp.dev}"
 
 for f in index.html mock-exam.html mock-exam-2.html drill.html console.html 404.html CNAME \
          assets/style.css assets/app.js assets/nav.js assets/widgets.js \
-         assets/theme.js assets/favicon.svg assets/drill-data.js assets/drill.js \
-         assets/merge.js assets/sync.js; do
+         assets/theme.js assets/favicon.svg assets/drill-data.js assets/drill-index.js \
+         assets/drill.js assets/merge.js assets/sync.js; do
   test -s "$SITE/$f" || { echo "missing or empty: $f"; exit 1; }
 done
 test -f "$SITE/.nojekyll" || { echo "missing: .nojekyll"; exit 1; }
@@ -36,6 +36,32 @@ for f in assets/sync.js console.html; do
   grep -q "https://$SYNC_DOMAIN" "$SITE/$f" ||
     { echo "$f does not point at https://$SYNC_DOMAIN"; exit 1; }
 done
+
+# widgets.js is 52 KB and twelve pages draw a figure, so it ships per page. A page
+# that forgot the tag just renders nothing, so assert the pairing here.
+while IFS= read -r f; do
+  case "${f#"$SITE"/}" in console.html|404.html) continue;; esac
+  # data-widget, not class="widget": that is the attribute the registry keys on,
+  # and a host that grew a second class would slip past the literal.
+  has_fig=$(grep -c 'data-widget=' "$f" || true)
+  has_tag=$(grep -c 'assets/widgets\.js' "$f" || true)
+  if test "$has_fig" -gt 0 && test "$has_tag" -eq 0; then
+    echo "${f#"$SITE"/} draws a figure but does not load widgets.js"; exit 1
+  fi
+  if test "$has_fig" -eq 0 && test "$has_tag" -gt 0; then
+    echo "${f#"$SITE"/} loads widgets.js but draws no figure"; exit 1
+  fi
+done < <(find "$SITE" -name '*.html')
+
+# Only the drill renders a card, so only the drill may pull the 67 KB bank.
+grep -q 'assets/drill-index\.js' "$SITE/index.html" ||
+  { echo "index.html does not load the drill index"; exit 1; }
+for f in index.html mock-exam.html mock-exam-2.html; do
+  grep -q 'assets/drill-data\.js' "$SITE/$f" &&
+    { echo "$f pulls the full drill bank; it only needs assets/drill-index.js"; exit 1; }
+done
+grep -q 'assets/drill-data\.js' "$SITE/drill.html" ||
+  { echo "drill.html does not load the drill bank"; exit 1; }
 
 # Every asset a page pulls must carry its content stamp, and so must every font
 # the stylesheet pulls. Without one, Pages' ten-minute cache decides when a deploy

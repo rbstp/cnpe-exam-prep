@@ -93,6 +93,10 @@ module.exports = async function (h) {
 
     await page.keyboard.press('?');
     assert(await page.evaluate(() => !!document.querySelector('.overlay.open .helpcard')), '? opens the help card');
+    // An overlay blurs what shows through it, so a wheel reaching the page behind
+    // re-blurs the viewport per frame and moves the reader's place under a scrim.
+    assert(await page.evaluate(() => getComputedStyle(document.documentElement).overflow === 'hidden'),
+      'the page behind the help card cannot scroll');
     // the modal owns the keyboard: n must not navigate while the help card is open
     await page.keyboard.press('n');
     assert(await page.evaluate(() => !!document.querySelector('.overlay.open .helpcard')),
@@ -101,6 +105,8 @@ module.exports = async function (h) {
     await page.keyboard.press('Escape');
     assert(await page.evaluate(() => !document.querySelector('.overlay.open') && !!document.querySelector('.finish')),
       'Escape closes the help card, still on the section page');
+    assert(await page.evaluate(() => getComputedStyle(document.documentElement).overflow !== 'hidden'),
+      'and hands scrolling back');
 
     await page.keyboard.press('m');
     let s = await store(page);
