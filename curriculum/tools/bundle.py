@@ -176,9 +176,9 @@ window.CNPE_EXAM_KEYS = %s;
     "\n".join(parts),
     json.dumps(sorted(k for k, (_, ex) in seen.items() if ex)),
     read("assets/widgets.js") if os.path.exists(os.path.join(ROOT, "assets/widgets.js")) else "",
-    # The page-shaped panels, before app.js as the pages load them: app.js boots
-    # as it goes, and boot is what mounts them. Sidecar pages take one each; the
-    # bundle is every page at once, so it carries both and boot picks per hash.
+    # The page-shaped panels. Order does not matter here, unlike on the sidecar
+    # pages: the bundle's own router calls CNPE_BOOT after every script has run.
+    # It carries both, being every page at once, and boots per hash.
     read("assets/app-dash.js"),
     read("assets/app-exam.js"),
     read("assets/app.js"),

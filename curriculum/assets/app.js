@@ -89,13 +89,17 @@
   }
   // Reset swaps the store object, so hand out getters, not the object. It also
   // has to happen in here for that reason: nothing outside can rebind store.
+  // The reload is part of it, not the caller's to remember: every panel holding
+  // a reference into the old store is stale the moment this returns, and one of
+  // them writes its copy back on the next click.
   function resetStore() {
     store = { ex: {}, done: {}, exam: {}, exam2: {}, drill: {}, drillmeta: {}, days: {}, last: null };
     save();
+    location.reload();
   }
   window.CNPE_PROGRESS = {
     get: function () { return store; }, save: save, bump: bumpDay, streak: studyStreak,
-    reset: resetStore,
+    overall: overall, reset: resetStore,
     // What is actually on the disk, which is not always what is in memory.
     saved: function () { try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { return null; } },
     /** @param {*} src @param {CnpeMergeBase} [base] */
@@ -247,14 +251,12 @@
     return ROOT + path;
   }
 
-  /* What the panels in app-dash.js and app-exam.js need from the runtime, and
-     the whole of it: page-shaped view helpers, next to CNPE_PROGRESS for the
-     store. Anything a panel wants that is not here is a reason to widen this
-     deliberately, not a reason to reach into the closure. */
-  window.CNPE_UI = {
-    el: el, tile: tile, href: href, overall: overall,
-    pageId: function () { return PAGE_ID; },
-  };
+  /* The two view helpers a panel cannot reasonably own. tile() is markup for a
+     CSS component app.js writes too, and href() needs this page's depth and
+     whether it is the bundle. Everything else a panel wants it either keeps for
+     itself, as widgets.js and drill.js keep their own el(), or reads off
+     CNPE_PROGRESS. Widen this deliberately or not at all. */
+  window.CNPE_UI = { tile: tile, href: href };
 
   /* ── top bar ─────────────────────────────────────────────── */
   function buildTopbar() {
@@ -897,6 +899,26 @@
     });
   }
 
+  /* ── a page that arrived without its panel ─────────────────── */
+  /* The ?v= stamp keeps a page and its assets on one version, but only for the
+     assets that page already names. A file this version added is one the last
+     version's HTML never asked for, and Pages ignores the query when it serves,
+     so for the ten minutes its cache holds that HTML a reader gets new app.js
+     against old markup: the dashboard renders nothing, its buttons wire to
+     nothing, and no error says so. The HTML is the stale half, so fetch it
+     again; once per session, or a 404 on the panel would spin. */
+  var RELOADED = "cnpe:panel-reload";
+  function missingPanel() {
+    var want = document.getElementById("domain-grid") ? "CNPE_DASH"
+             : body.hasAttribute("data-exam") ? "CNPE_EXAM" : null;
+    if (!want || window[want]) return;
+    try {
+      if (sessionStorage.getItem(RELOADED)) return;
+      sessionStorage.setItem(RELOADED, "1");
+    } catch (e) { return; }              // no session storage, no way to stop a loop
+    location.reload();
+  }
+
   /* ── boot ────────────────────────────────────────────────── */
   var wired = false;
   function boot() {
@@ -916,6 +938,7 @@
     if (window.CNPE_DASH) window.CNPE_DASH.mount();
     if (window.CNPE_SYNC) window.CNPE_SYNC.mount();
     if (window.CNPE_EXAM) window.CNPE_EXAM.mount();
+    missingPanel();
     // Must run last: the builders above re-serialize their panels.
     buildCodeBlocks();
     if (!wired) { keys(); wired = true; }

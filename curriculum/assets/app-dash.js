@@ -1,19 +1,28 @@
 /* CNPE curriculum: the dashboard. Mounts on index.html and nowhere else.
 
    A panel, on the same terms as widgets.js and drill.js: it exposes a mount(),
-   boot() calls it if the page loaded it, and it reaches the runtime through
-   CNPE_PROGRESS and CNPE_UI rather than through app.js's closure. */
+   boot() calls it, and it self-mounts too, so it works loaded either side of
+   app.js. It reaches the runtime through CNPE_PROGRESS for the store and
+   CNPE_UI for the two view helpers it cannot reasonably own: tile(), which is
+   markup for a CSS component app.js also writes, and href(), which needs the
+   page's depth and whether this is the bundle. */
 (function () {
   "use strict";
 
-  // Bound in mount(), not here: this file loads before app.js, because app.js
-  // calls boot() as it goes and boot is what mounts the panels. Same order
-  // widgets.js sits in, so nothing app.js defines exists yet at this line.
-  var M, UI, NAV, DOMAINS, dayKey, dayActs, el, tile, href;
+  // Bound in mount(): CNPE_UI is app.js's, and this file may load before it.
+  var UI, tile, href;
 
   function api() { return window.CNPE_PROGRESS; }
   function store() { return api().get(); }
   function save() { api().save(); }
+  function nav() { return window.CNPE_NAV || []; }
+  function domains() { return window.CNPE_DOMAINS || []; }
+  function el(tag, cls, html) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (html != null) e.innerHTML = html;
+    return e;
+  }
 
   /* ── the drill's backlog ───────────────────────────────────── */
   // Ids and sections, no prose: the dashboard's index or the drill's full bank.
@@ -27,7 +36,7 @@
     var now = Date.now(), n = 0;
     deck().forEach(function (q) {
       var rec = recs[q.id];
-      if (rec && M.dueIn(rec, now) <= 0) n++;
+      if (rec && window.CNPE_MERGE.dueIn(rec, now) <= 0) n++;
     });
     return n;
   }
@@ -78,7 +87,7 @@
       totals[d] = (totals[d] || 0) + 1;
     });
     var per = {};
-    DOMAINS.forEach(function (d) { per[d.n] = { seen: 0, r: 0, m: 0 }; });
+    domains().forEach(function (d) { per[d.n] = { seen: 0, r: 0, m: 0 }; });
     var s = store();
     var drill = s.drill && typeof s.drill === "object" ? s.drill : {};
     Object.keys(drill).forEach(function (k) {
@@ -89,7 +98,7 @@
 
     /** @type {{ dom: CnpeDomain, pct: number, n: number } | null} */
     var weakest = null;
-    var cells = DOMAINS.map(function (dom) {
+    var cells = domains().map(function (dom) {
       var p = per[dom.n], n = p.r + p.m;
       var seenTxt = totals[dom.n] ? p.seen + "/" + totals[dom.n] + " seen" : p.seen + " seen";
       if (!n) {
@@ -105,7 +114,7 @@
         '" style="width:' + pct + '%"></i></span></div>';
     });
 
-    var answered = DOMAINS.some(function (d) { return per[d.n].r + per[d.n].m > 0; });
+    var answered = domains().some(function (d) { return per[d.n].r + per[d.n].m > 0; });
     var verdict;
     if (!answered) {
       verdict = 'No drill history in this browser yet. <a href="' + href("drill.html") +
@@ -135,7 +144,7 @@
     var host = document.getElementById("domain-grid");
     if (!host) return;
     var s = store();
-    var ov = UI.overall();
+    var ov = api().overall();
     var sk = api().streak();
     var totalEx = Object.keys(s.ex).length, doneEx = Object.keys(s.ex).filter(function (k) { return s.ex[k]; }).length;
     var stats = document.querySelector(".stats");
@@ -143,8 +152,8 @@
       // Last 30 days, one cell per day, column-major so today lands bottom right.
       var cells = "", now = new Date();
       for (var i = 29; i >= 0; i--) {
-        var dk = dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i));
-        var acts = dayActs(s.days[dk]);
+        var dk = window.CNPE_MERGE.dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i));
+        var acts = window.CNPE_MERGE.dayActs(s.days[dk]);
         cells += '<i class="' + (acts ? "on" : "") + '" title="' + dk +
           (acts ? " · " + acts + (acts === 1 ? " heartbeat" : " heartbeats") : " · no heartbeat") + '"></i>';
       }
@@ -159,8 +168,8 @@
         tile("p", "Exam length", '120<span class="u">min</span>', false) +
         tile("y", "Tasks on the day", '15–20<span class="u">≈7 min each</span>', false);
     }
-    host.innerHTML = DOMAINS.map(function (d) {
-      var secs = NAV.filter(function (n) { return n.d === d.n; });
+    host.innerHTML = domains().map(function (d) {
+      var secs = nav().filter(function (n) { return n.d === d.n; });
       var done = secs.filter(function (n) { return s.done[n.id]; }).length;
       var pct = secs.length ? Math.round(done / secs.length * 100) : 0;
       return '<div class="dcard"><header><span class="badge d' + d.n + '">D' + d.n + '</span><h3>' + d.name +
@@ -175,8 +184,8 @@
 
     var resume = document.getElementById("resume");
     if (resume) {
-      var last = s.last ? NAV.filter(function (n) { return n.id === s.last; })[0] : null;
-      var nextUp = NAV.filter(function (n) { return n.d > 0 && !s.done[n.id]; })[0];
+      var last = s.last ? nav().filter(function (n) { return n.id === s.last; })[0] : null;
+      var nextUp = nav().filter(function (n) { return n.d > 0 && !s.done[n.id]; })[0];
       var target = last || nextUp;
       var html = "";
       if (target) {
@@ -209,8 +218,7 @@
       function wipe() {
         // Drop the sync's base too, or the next pull reads this as un-ticking everything.
         if (window.CNPE_SYNC && window.CNPE_SYNC.forgetBase) window.CNPE_SYNC.forgetBase();
-        api().reset();
-        location.reload();
+        api().reset();                     // which reloads, so nothing here is stale
       }
       if (!(window.CNPE_SYNC && window.CNPE_SYNC.signedIn())) { wipe(); return; }
       // Keeping the saved copy is a real choice, but it does come back.
@@ -267,16 +275,17 @@
   // same store and neither reads the other's markup, but keep the order stable.
   window.CNPE_DASH = {
     mount: function () {
-      M = window.CNPE_MERGE; UI = window.CNPE_UI;
-      // A cached page from before either existed still fetches this file; leave
+      UI = window.CNPE_UI;
+      // A cached page from before these existed still fetches this file; leave
       // it the static HTML it already is rather than throwing across it.
-      if (!M || !UI || !window.CNPE_PROGRESS) return;
-      NAV = window.CNPE_NAV || [];
-      DOMAINS = window.CNPE_DOMAINS || [];
-      dayKey = M.dayKey; dayActs = M.dayActs;
-      el = UI.el; tile = UI.tile; href = UI.href;
+      if (!UI || !window.CNPE_MERGE || !window.CNPE_PROGRESS) return;
+      tile = UI.tile; href = UI.href;
       buildIndex();
       buildWeakSpots();
     },
   };
+  // Mount now as well as from boot(), so this file works loaded either side of
+  // app.js: before it, CNPE_UI is not there yet and boot() does the work; after
+  // it, this call does, and boot() re-runs are idempotent either way.
+  window.CNPE_DASH.mount();
 })();

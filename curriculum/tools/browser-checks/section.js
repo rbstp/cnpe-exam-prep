@@ -87,38 +87,51 @@ module.exports = async function (h) {
     await ctx.close();
   }
 
-  /* each page-shaped panel reaches the page that mounts it, and no other */
+  /* each page-shaped panel actually painted the markup it owns */
   {
-    group('the panels land on their own pages and nowhere else');
+    group('every panel mounted on the page that owns it');
     const { ctx, page } = await fresh();
+    // Asserting window.CNPE_DASH here would prove only that a script tag exists,
+    // which check-site.sh already reads off the HTML, and it stays true when the
+    // panel loads but never mounts. Count what mounting leaves behind instead.
     /** @param {string} p */
-    const loaded = async p => {
+    const painted = async p => {
       await page.goto(url(p));
+      await page.waitForTimeout(150);
       return page.evaluate(() => ({
-        ui: !!window.CNPE_UI,
-        dash: !!window.CNPE_DASH,
-        exam: !!window.CNPE_EXAM,
-        widgets: !!window.CNPE_WIDGETS,
-        drill: !!window.CNPE_DRILL_UI,
+        // the dashboard: five domain cards, five stat tiles, the weak-spots grid
+        dash: document.querySelectorAll('#domain-grid .dcard').length,
+        tiles: document.querySelectorAll('.stats .stat').length,
+        weak: document.querySelectorAll('#weak-domains .wcell').length,
+        // the paper: a clock with digits in it, and every task given a header
+        clock: (document.getElementById('clock') || {}).textContent || '',
+        tasks: document.querySelectorAll('.task > header .dot').length,
+        // the figures and the drill
+        figs: document.querySelectorAll('.widget .wfig').length,
+        drill: document.querySelectorAll('#drill-app .drill-actions').length,
       }));
     };
-    // check-site.sh asserts the script tags; this asserts the code actually arrives,
-    // and that a page carrying a panel it cannot mount would be caught either way.
-    /** @param {{ui: boolean, dash: boolean, exam: boolean, widgets: boolean, drill: boolean}} o */
-    const shape = o => [o.ui, o.dash, o.exam, o.widgets, o.drill].map(Number).join('');
-    //                    page                                   ui dash exam widgets drill
-    const want = [
-      ['index.html', '11000'],
-      ['mock-exam.html', '10100'],
-      ['mock-exam-2.html', '10100'],
-      ['drill.html', '10001'],
-      ['01-architecture/01-networking.html', '10010'],   // draws a figure
-      ['02-gitops/04-tekton.html', '10000'],             // draws none
-    ];
-    for (const [p, expected] of want) {
-      const got = shape(await loaded(p));
-      assert(got === expected, p + ' carries ' + got + ' (ui/dash/exam/widgets/drill), wanted ' + expected);
-    }
+    let m = await painted('index.html');
+    assert(m.dash === 5 && m.tiles === 5 && m.weak > 5,
+      'the dashboard painted its map, tiles and weak spots: ' + JSON.stringify(m));
+    assert(!m.clock && !m.tasks && !m.figs && !m.drill, 'and nothing else mounted there');
+
+    m = await painted('mock-exam-2.html');
+    assert(/^\s*\d+:\d\d$/.test(m.clock) && m.tasks === 15,
+      'the second paper painted its clock and 15 tasks: ' + JSON.stringify(m));
+    assert(!m.dash && !m.weak, 'and the dashboard did not follow it there');
+
+    m = await painted('drill.html');
+    assert(m.drill === 1, 'the drill painted its deck: ' + JSON.stringify(m));
+    assert(!m.dash && !m.clock, 'and neither of the others mounted');
+
+    m = await painted('01-architecture/01-networking.html');
+    assert(m.figs === 1, 'a section page painted its figure: ' + JSON.stringify(m));
+    assert(!m.dash && !m.clock && !m.drill, 'and carries no page-shaped panel');
+
+    m = await painted('02-gitops/04-tekton.html');
+    assert(!m.figs && !m.dash && !m.clock && !m.drill,
+      'a section page with no figure paints none of them: ' + JSON.stringify(m));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   }

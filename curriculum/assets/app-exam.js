@@ -1,18 +1,21 @@
 /* CNPE curriculum: the mock exam. Mounts on the two papers and nowhere else.
 
    A panel, on the same terms as widgets.js and drill.js: it exposes a mount(),
-   boot() calls it if the page loaded it, and it reaches the runtime through
-   CNPE_PROGRESS and CNPE_UI rather than through app.js's closure. */
+   boot() calls it, and it self-mounts too, so it works loaded either side of
+   app.js. Its whole dependency on the runtime is CNPE_PROGRESS; the five lines
+   of el() below are its own, as drill.js and widgets.js keep theirs. */
 (function () {
   "use strict";
-
-  // Bound in mount(), not here: this file loads before app.js, because app.js
-  // calls boot() as it goes and boot is what mounts the panels.
-  var UI, el;
 
   function api() { return window.CNPE_PROGRESS; }
   function store() { return api().get(); }
   function save() { api().save(); }
+  function el(tag, cls, html) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (html != null) e.innerHTML = html;
+    return e;
+  }
 
   var examTimer = null, examLifecycleWired = false;
 
@@ -21,7 +24,7 @@
     if (!document.body.hasAttribute("data-exam")) return;
     var TOTAL = 120 * 60;
     // Each exam page keeps its own clock and score under its own store key.
-    var bucket = UI.pageId() === "EX2" ? "exam2" : "exam";
+    var bucket = document.body.getAttribute("data-id") === "EX2" ? "exam2" : "exam";
     var s = store();
     var st = s[bucket] && typeof s[bucket] === "object" ? s[bucket] : {};
     if (!st.tasks || typeof st.tasks !== "object") st.tasks = {};
@@ -172,13 +175,12 @@
   }
 
   window.CNPE_EXAM = {
-    mount: function () {
-      UI = window.CNPE_UI;
-      // A cached page from before it existed still fetches this file; leave it
-      // the static HTML it already is rather than throwing across it.
-      if (!UI || !window.CNPE_PROGRESS) return;
-      el = UI.el;
-      buildExam();
-    },
+    // A cached page from before the store existed still fetches this file; leave
+    // it the static HTML it already is rather than throwing across it.
+    mount: function () { if (window.CNPE_PROGRESS) buildExam(); },
   };
+  // Mount now as well as from boot(), so this file works loaded either side of
+  // app.js: before it, CNPE_PROGRESS is not there yet and boot() does the work;
+  // after it, this call does, and boot() re-runs are idempotent either way.
+  window.CNPE_EXAM.mount();
 })();

@@ -171,7 +171,11 @@ interface CnpeProgressApi {
   /** count one action toward today's study heartbeat */
   bump(kind: "c" | "x" | "s" | "e"): void;
   streak(): { streak: number; best: number };
-  /** empty the store and write that, which only app.js can do: it rebinds it */
+  /** sections complete across the whole curriculum */
+  overall(): { done: number; total: number; pct: number };
+  /** empty the store, write that, and reload. Only app.js can do the first (it
+      rebinds the variable) and the reload is not optional: every panel holding
+      a reference into the old store is stale the moment this returns. */
   reset(): void;
   /** the store as it is on the disk, which is not always the one in memory */
   saved(): unknown;
@@ -182,20 +186,14 @@ interface CnpeProgressApi {
   onSave(fn: () => void): void;
 }
 
-/** What app.js lends the page-shaped panels (CNPE_UI). The whole of it: a panel
-    that needs more is a reason to widen this, not to reach into the closure. */
+/** The two view helpers a panel cannot reasonably own (CNPE_UI). A panel keeps
+    its own el(), as widgets.js and drill.js do, and reads the store off
+    CNPE_PROGRESS; this is for what depends on app.js's own state. */
 interface CnpeUiApi {
-  /** document.createElement with a class and innerHTML in one call */
-  el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string): HTMLElementTagNameMap[K];
-  el(tag: string, cls?: string, html?: string): HTMLElement;
-  /** one stat tile's markup */
+  /** one stat tile's markup, which app.js writes too */
   tile(cls: string, label: string, value: string, small: boolean): string;
   /** a section path as this page should link to it; a hash route in the bundle */
   href(path: string): string;
-  /** sections complete across the whole curriculum */
-  overall(): { done: number; total: number; pct: number };
-  /** the page's data-id, e.g. "2.3", "EX2", or null on the dashboard */
-  pageId(): string | null;
 }
 
 /** Optional remote progress sync (CNPE_SYNC). Absent over file://. */
