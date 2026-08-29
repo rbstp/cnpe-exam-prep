@@ -72,7 +72,9 @@
   // throws never happened, so it must not move this on either.
   var seen = M.ticks(store);
   // The bytes on the disk as of this tab's last look; onDisk compares against it.
-  var lastRaw = null;
+  // unsaved says memory is ahead of them anyway, which is what a write that threw
+  // leaves behind: the bytes did not move, so nothing else would notice.
+  var lastRaw = null, unsaved = false;
   try { lastRaw = localStorage.getItem(KEY); } catch (e) {}
   function save() {
     try {
@@ -80,7 +82,8 @@
       localStorage.setItem(KEY, raw);
       seen = M.ticks(store);
       lastRaw = raw;
-    } catch (e) {}
+      unsaved = false;
+    } catch (e) { unsaved = true; }
     // Optional sync listens here. A listener that throws must not cost a save.
     for (var i = 0; i < savers.length; i++) { try { savers[i](); } catch (e) {} }
   }
@@ -105,7 +108,7 @@
   function onDisk() {
     try {
       var raw = localStorage.getItem(KEY);
-      if (raw === lastRaw) return null;
+      if (raw === lastRaw && !unsaved) return null;
       lastRaw = raw;
       var d = JSON.parse(raw || "null");
       return d && typeof d === "object" && !Array.isArray(d) ? d : null;
@@ -605,7 +608,11 @@
     spyState.targets = spyState.links.map(function (a) { return document.querySelector(a.getAttribute("href")); });
     spyState.active = -1;                        // the links it last marked are gone
     if (!spyState.wired) {
-      window.addEventListener("scroll", throttle(spy, 120), { passive: true });
+      var run = throttle(spy, 120);
+      window.addEventListener("scroll", run, { passive: true });
+      // The column comes and goes at 1180px, and spy leaves the mark alone while
+      // it is gone, so widening back would show whatever it read last.
+      window.addEventListener("resize", run, { passive: true });
       spyState.wired = true;
     }
     // spy() reads offsetTop and six builders still have to run, so lay out once,
@@ -798,9 +805,18 @@
   var lastFocus = null;
   /* An overlay scrims the whole viewport and blurs what shows through it, so a
      wheel that reaches the page behind re-blurs every pixel of it per frame, and
-     the reader loses their place under a dialog they cannot see it through. */
+     the reader loses their place under a dialog they cannot see it through.
+     Taking the scrollbar away would shift the page sideways under the scrim, so
+     give the width back as padding, and only while the overlay is up: reserving
+     a gutter in the stylesheet would cost that width on every page instead.
+     iOS Safari ignores overflow on the root, so there the lock is a no-op. */
   function lockScroll(on) {
-    document.documentElement.style.overflow = on ? "hidden" : "";
+    var root = document.documentElement;
+    if (!on) { root.style.overflow = ""; root.style.paddingRight = ""; return; }
+    if (root.style.overflow === "hidden") return;
+    var bar = window.innerWidth - root.clientWidth;      // 0 with overlay scrollbars
+    root.style.overflow = "hidden";
+    if (bar > 0) root.style.paddingRight = bar + "px";
   }
   function openPalette() {
     closeOverlays();

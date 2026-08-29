@@ -249,4 +249,32 @@ module.exports = async function (h) {
     assert(err9.length === 0, 'no console errors: ' + err9.join(' | '));
     await ctx.close();
   }
+
+  /* 10. a write that never reached the disk is retried, not forgotten */
+  {
+    group('a save the disk refused is written on the next look');
+    const { ctx, page } = await fresh();
+    await page.goto(url('01-architecture/01-networking.html'));
+    // reconcile short-circuits on unmoved bytes, and a write that threw does not
+    // move them, so the tick lives only in memory until something notices.
+    const out = await page.evaluate(async () => {
+      const real = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (k) {
+        if (k === 'cnpe:v2') { const e = new Error('quota'); e.name = 'QuotaExceededError'; throw e; }
+        return real.apply(this, arguments);
+      };
+      /** @type {HTMLElement} */ (document.querySelector('.finish button.tbtn')).click();
+      const onDisk = () => (JSON.parse(localStorage.getItem('cnpe:v2') || '{}').done || {})['1.1'];
+      const refused = onDisk();
+      Storage.prototype.setItem = real;
+      document.dispatchEvent(new Event('visibilitychange'));
+      await new Promise(r => setTimeout(r, 150));
+      return { memory: window.CNPE_PROGRESS.get().done['1.1'], refused, retried: onDisk() };
+    });
+    assert(out.memory === 1, 'the tick is in memory: ' + out.memory);
+    assert(out.refused === undefined, 'and not on the disk the write was refused by');
+    assert(out.retried === 1, 'the next look writes it: ' + out.retried);
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  }
 };

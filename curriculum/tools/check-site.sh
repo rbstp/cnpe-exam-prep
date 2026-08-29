@@ -41,7 +41,9 @@ done
 # that forgot the tag just renders nothing, so assert the pairing here.
 while IFS= read -r f; do
   case "${f#"$SITE"/}" in console.html|404.html) continue;; esac
-  has_fig=$(grep -c 'class="widget"' "$f" || true)
+  # data-widget, not class="widget": that is the attribute the registry keys on,
+  # and a host that grew a second class would slip past the literal.
+  has_fig=$(grep -c 'data-widget=' "$f" || true)
   has_tag=$(grep -c 'assets/widgets\.js' "$f" || true)
   if test "$has_fig" -gt 0 && test "$has_tag" -eq 0; then
     echo "${f#"$SITE"/} draws a figure but does not load widgets.js"; exit 1
