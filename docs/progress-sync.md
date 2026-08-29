@@ -408,10 +408,11 @@ Nothing, with a very large margin. The [Workers free plan](https://developers.cl
 is 100,000 requests/day, and [D1's](https://developers.cloudflare.com/d1/platform/pricing/)
 is 5 GB with 5M row reads and 100,000 row writes per day. Pushes are debounced to
 one per 30 seconds of idle, and never later than two minutes after the first save
-that has not gone up, plus one when the tab is hidden or left, and a store that
-already matches what the server holds is not pushed at all, so a hard study
-session is a few dozen requests and an idle reload is none. Fifty people using it daily would spend a few
-percent of the request budget and a rounding error of the storage.
+that has not gone up, plus one when the tab is hidden or left with a save still
+waiting. A store that already matches what the server holds is not pushed at all,
+so a hard study session is a few dozen requests and an idle reload is none. Fifty
+people using it daily would spend a few percent of the request budget and a
+rounding error of the storage.
 
 D1 rather than KV for two reasons: KV's free plan allows 1,000 writes/day against
 D1's 100,000, and KV is eventually consistent for up to a minute, which is
