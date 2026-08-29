@@ -95,27 +95,17 @@ TRUTH.forEach(function (row) {
      (counts ? "" : ", counted " + JSON.stringify(n)));
 });
 
-group("what the table means, said in words");
+/* Every row above is one key on its own, merged by itself. A payload arrives with
+   all of them at once, so this is the same four outcomes in a single call. */
+group("several keys, different fates, one merge");
 {
-  const s = store({ done: { "1.1": 1 } });
-  M.merge(s, { done: { "2.1": 1 } });
-  ok(s.done["1.1"] === 1 && s.done["2.1"] === 1, "no base is the union import has always been");
-
-  const t = store({ done: { "1.1": 1 } });
-  const n = M.merge(t, { done: { "1.1": 1, "2.1": 1 } }, M.sets({ done: ["1.1"] }));
-  ok(t.done["2.1"] === 1 && n.done === 1, "a tick made elsewhere arrives");
-
-  const u = store({ done: { "1.1": 0 } });
-  const un = M.merge(u, { done: { "1.1": 1 } }, M.sets({ done: ["1.1"] }));
-  ok(u.done["1.1"] === 0 && un.done === 0 && un.off === 0, "an un-tick this browser made is not undone");
-
-  const v = store({ done: { "1.1": 1 } });
-  const off = M.merge(v, { done: { "1.1": 0 } }, M.sets({ done: ["1.1"] }));
-  ok(v.done["1.1"] === 0 && off.off === 1, "an un-tick made elsewhere comes down, and is counted");
-
-  const w = store({ done: { "1.1": 1, "9.9": 1 } });
-  M.merge(w, { done: { "1.1": 1 } }, M.sets({ done: ["1.1"] }));
-  ok(w.done["9.9"] === 1, "a key neither the base nor the payload mentions is left alone");
+  const s = store({ done: { "1.1": 1, "2.1": 0, "9.9": 1 } });
+  const n = M.merge(s, { done: { "1.1": 0, "2.1": 1, "3.1": 1 } }, M.sets({ done: ["1.1", "2.1"] }));
+  ok(s.done["1.1"] === 0, "a tick taken back elsewhere comes down");
+  ok(s.done["2.1"] === 0, "an un-tick made here is not undone by their tick");
+  ok(s.done["3.1"] === 1, "a tick neither side had before arrives");
+  ok(s.done["9.9"] === 1, "a key neither the base nor the payload names is left alone");
+  ok(n.done === 1 && n.off === 1, "one added and one cleared: " + JSON.stringify(n));
 }
 
 group("a bucket the payload leaves out is not a bucket the server emptied");

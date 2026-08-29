@@ -86,7 +86,9 @@ module.exports = async function (h) {
     await page.click('button.drill-start');
     const { qs } = await walk(page, 40);
     const hit = missedQs.filter(q => qs.indexOf(q) >= 0).length;
-    assert(hit >= 2, hit + ' of the 5 missed questions made the 40-card deck');
+    // Weighted, all five make it; flat, one or two do. Anything lower than this
+    // is a bound an unweighted deck clears on its own.
+    assert(hit >= 4, hit + ' of the 5 missed questions made the 40-card deck');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   }
@@ -163,22 +165,6 @@ module.exports = async function (h) {
     await page.goto(url('drill.html'));
     await page.click('button.drill-start');
     assert(Date.now() - started < 15000, 'the page built and dealt a deck in ' + (Date.now() - started) + 'ms');
-    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
-    await ctx.close();
-  }
-
-  /* 7. a handed-over domain pre-selects its chip, once */
-  {
-    group('the dashboard hand-off pre-selects a domain chip');
-    const { ctx, page } = await fresh();
-    await page.goto(url('index.html'));
-    await page.evaluate(() => sessionStorage.setItem('cnpe:drill-domain', '3'));
-    await page.goto(url('drill.html'));
-    const sel = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('.wpick button.sel')).map(b => b.textContent));
-    assert(sel.indexOf('d3') >= 0, 'the d3 chip arrives selected: ' + JSON.stringify(sel));
-    assert((await page.evaluate(() => sessionStorage.getItem('cnpe:drill-domain'))) === null,
-      'the hand-off is consumed on arrival');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   }

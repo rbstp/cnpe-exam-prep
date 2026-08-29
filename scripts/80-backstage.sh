@@ -5,11 +5,15 @@ need node; need npx
 APP="${BACKSTAGE_APP:-$LAB_HOME/portal}"
 
 command -v yarn >/dev/null || { log "Installing yarn"; sudo npm i -g yarn; }
-# Backstage only supports even LTS Node releases (20, 22, 24).
+# The app create-app scaffolds carries "node": "22 || 24" in its package.json, so
+# an odd release is not the only thing that fails: 20 is even and still refused.
+# One list, read by both the mise fallback and the guard, in preference order.
+SUPPORTED=(22 24)
+supported() { case " ${SUPPORTED[*]} " in *" $1 "*) return 0;; *) return 1;; esac; }
 node_major() { node -v 2>/dev/null | sed 's/v\([0-9]*\).*/\1/'; }
 NODE_MAJOR=$(node_major)
-if { [ $((NODE_MAJOR % 2)) -ne 0 ] || [ "$NODE_MAJOR" -gt 24 ]; } && command -v mise >/dev/null; then
-  for v in 22 24 20; do
+if ! supported "$NODE_MAJOR" && command -v mise >/dev/null; then
+  for v in "${SUPPORTED[@]}"; do
     NODE_DIR=$(mise where "node@$v" 2>/dev/null) || continue
     [ -x "$NODE_DIR/bin/node" ] || continue
     log "Using mise-pinned Node $v from $NODE_DIR (shell default is $(node -v))"
@@ -18,10 +22,8 @@ if { [ $((NODE_MAJOR % 2)) -ne 0 ] || [ "$NODE_MAJOR" -gt 24 ]; } && command -v 
     break
   done
 fi
-if [ "$NODE_MAJOR" -lt 20 ]; then
-  die "Backstage needs Node 20+ (you have $(node -v))"
-elif [ $((NODE_MAJOR % 2)) -ne 0 ] || [ "$NODE_MAJOR" -gt 24 ]; then
-  warn "Node $(node -v) is not a version Backstage supports (it wants an even LTS: 22 or 24)."
+if ! supported "$NODE_MAJOR"; then
+  warn "Node $(node -v) is not a version Backstage supports (its app wants 22 or 24)."
   if command -v mise >/dev/null; then
     warn "You have mise. Pin a supported Node just for this directory:"
     warn "    cd $LAB_HOME && mise use node@24 && exec \$SHELL"

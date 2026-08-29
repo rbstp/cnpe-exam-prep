@@ -335,7 +335,7 @@ These cost me real time, and none of them are obvious from the upstream docs.
 
 **Gateway API v1.5 and later blocks older CRDs.** It ships a ValidatingAdmissionPolicy that rejects any Gateway API CRD before v1.5.0. cloud-provider-kind embeds an older bundle and installs it at startup, so it gets denied and its service controller dies, and no LoadBalancer ever gets an IP. Start it with `--gateway-channel=disabled`.
 
-**Backstage wants an even LTS Node.** It supports 22 and 24. Arch ships 26, and `create-app` fails on it, so `mise.toml` pins 24 for this directory. `create-app` also has no `--name` flag and always prompts, so it hangs when scripted, and the `.yarnrc.yml` it generates sets `npmMinimalAgeGate: 3d`, which can reject one of Backstage's own fresh dependencies.
+**Backstage wants Node 22 or 24, not any even LTS.** The app `create-app` scaffolds declares `"node": "22 || 24"`, so 20 is even and still refused. Arch ships 26, and `create-app` fails on it, so `mise.toml` pins 24 for this directory. `create-app` also has no `--name` flag and always prompts, so it hangs when scripted, and the `.yarnrc.yml` it generates sets `npmMinimalAgeGate: 3d`, which can reject one of Backstage's own fresh dependencies.
 
 **Trivy's node-collector needs a toleration.** It is pinned to each node by nodeSelector but does not tolerate the control-plane taint, so that node silently produces no compliance report. `nodeCollector.tolerations` and `trivyOperator.scanJobTolerations` are separate chart keys and you need both.
 
