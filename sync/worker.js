@@ -7,6 +7,7 @@
  *   PUT    /v1/progress               { rev, progress }; 409 carries the current copy
  *   DELETE /v1/progress               forget the stored copy
  *   GET    /healthz                   ok
+ *   GET    /readyz                    configuration and D1 readiness
  *
  * Bindings: DB (D1). Vars: GITHUB_CLIENT_ID, ALLOWED_ORIGINS, ALLOWED_LOGINS.
  * Secrets: GITHUB_CLIENT_SECRET, SESSION_SECRET. See ../docs/progress-sync.md.
@@ -19,6 +20,7 @@ const STATE_COOKIE = "__Host-cnpe_oauth";
 const SESSION_TTL = 60 * 60 * 24 * 30;
 const STATE_TTL = 60 * 10;
 const MAX_BLOB = 64 * 1024;                    // a completed store is ~19 KB
+const utf8 = new TextEncoder();
 
 /* ── encoding ───────────────────────────────────────────────── */
 
@@ -48,13 +50,13 @@ function equalStrings(a, b) {
 /** @param {string} secret @param {string} data */
 async function sign(secret, data) {
   const key = await crypto.subtle.importKey(
-    "raw", new TextEncoder().encode(secret),
+    "raw", utf8.encode(secret),
     { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  return b64url(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data)));
+  return b64url(await crypto.subtle.sign("HMAC", key, utf8.encode(data)));
 }
 /** @param {string} secret @param {*} obj */
 async function seal(secret, obj) {
-  const body = b64url(new TextEncoder().encode(JSON.stringify(obj)));
+  const body = b64url(utf8.encode(JSON.stringify(obj)));
   return body + "." + await sign(secret, body);
 }
 /** @param {string} secret @param {string} token */
@@ -245,8 +247,14 @@ async function readRow(env, uid) {
 
 /** @param {Request} req @param {Env} env @param {{uid: string, login: string}} who */
 async function putProgress(req, env, who) {
+  const declaredSize = Number(req.headers.get("Content-Length"));
+  if (Number.isFinite(declaredSize) && declaredSize > MAX_BLOB) {
+    return json({ error: "too large" }, 413);
+  }
   const raw = await req.text();
-  if (raw.length > MAX_BLOB) return json({ error: "too large" }, 413);
+  if (raw.length > MAX_BLOB || utf8.encode(raw).byteLength > MAX_BLOB) {
+    return json({ error: "too large" }, 413);
+  }
   let body;
   try { body = JSON.parse(raw); } catch { return json({ error: "not JSON" }, 400); }
   if (!body || typeof body !== "object" || !looksLikeProgress(body.progress)) {
@@ -254,7 +262,9 @@ async function putProgress(req, env, who) {
   }
   const rev = Number.isSafeInteger(body.rev) && body.rev >= 0 ? body.rev : 0;
   const blob = JSON.stringify(body.progress);
-  if (blob.length > MAX_BLOB) return json({ error: "too large" }, 413);
+  if (blob.length > MAX_BLOB || utf8.encode(blob).byteLength > MAX_BLOB) {
+    return json({ error: "too large" }, 413);
+  }
   const now = new Date().toISOString();
 
   if (rev > 0) {
@@ -287,6 +297,20 @@ function misconfigured(env) {
   return null;
 }
 
+/** Readiness checks configuration and D1 without reading progress or requiring a session.
+    @param {Env} env */
+async function ready(env) {
+  const missing = misconfigured(env);
+  if (missing) return json({ error: "sync is not configured: " + missing }, 503);
+  try {
+    const result = await env.DB.prepare("SELECT 1 AS ok").first();
+    if (!result || result.ok !== 1) throw new Error("unexpected D1 readiness result");
+  } catch {
+    return json({ error: "database is not ready" }, 503);
+  }
+  return json({ ready: true });
+}
+
 /** @type {ExportedHandler} */
 const handler = {
   /** @param {Request} req @param {Env} env */
@@ -306,6 +330,7 @@ const handler = {
     }
 
     if (url.pathname === "/healthz") return text("ok", 200);
+    if (url.pathname === "/readyz" && req.method === "GET") return ready(env);
 
     const missing = misconfigured(env);
     if (missing) return withCors(json({ error: "sync is not configured: " + missing }, 500), origin);

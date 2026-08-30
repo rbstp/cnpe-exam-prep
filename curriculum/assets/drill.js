@@ -281,7 +281,7 @@
     host.appendChild(grid);
 
     if (missed.length) {
-      var list = el("div", "drill-missed", "<h4>Worth rereading</h4>");
+      var list = el("div", "drill-missed", "<h3>Worth rereading</h3>");
       missed.forEach(function (q) {
         var nav = navOf(q.sec);
         var row = el("details", "row");

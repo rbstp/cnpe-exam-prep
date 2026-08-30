@@ -4,6 +4,10 @@ source "$(dirname "$0")/lib.sh"
 mkdir -p "$BIN_DIR"
 export PATH="$BIN_DIR:$PATH"
 
+RELEASE_CACHE=$(mktemp -d)
+RELEASE_ROWS=$(mktemp)
+trap 'rm -rf "$RELEASE_CACHE"; rm -f "$RELEASE_ROWS"' EXIT
+
 pac() {
   for p in "$@"; do
     if ! pacman -Si "$p" >/dev/null 2>&1; then
@@ -14,33 +18,133 @@ pac() {
   done
 }
 
-api() { curl -fsSL "https://api.github.com/repos/$1/releases/latest"; }
-tag() { api "$1" | jq -r .tag_name; }
+api() {
+  local repo="$1"
+  local cache="$RELEASE_CACHE/${repo//\//_}.json"
+  if [ ! -s "$cache" ]; then
+    curl -fsSL "https://api.github.com/repos/$repo/releases/latest" -o "$cache"
+  fi
+  cat "$cache"
+}
+
+tag() { api "$1" | jq -er .tag_name; }
+
+# Print one client-side version line without waiting on a Kubernetes API.
+ver() {
+  local t="$1"
+  command -v "$t" >/dev/null || { echo MISSING; return; }
+  case "$t" in
+    istioctl) timeout 10 "$t" version --remote=false 2>/dev/null | head -1 ;;
+    linkerd)  timeout 10 "$t" version --client --short 2>/dev/null | head -1 ;;
+    argocd)   timeout 10 "$t" version --client --short 2>/dev/null | head -1 ;;
+    flux)     timeout 10 "$t" version --client 2>/dev/null | head -1 ;;
+    helm)     timeout 10 "$t" version --short 2>/dev/null | head -1 ;;
+    cosign)   timeout 10 "$t" version --json 2>/dev/null | jq -r .gitVersion ;;
+    kubectl-cost) timeout 10 "$t" version 2>/dev/null | awk -F ': +' '$1 ~ /Git Summary/ {print $2; exit}' ;;
+    kubectl-argo-rollouts) timeout 10 "$t" version 2>/dev/null | head -1 ;;
+    kind|trivy|kubebuilder|cilium|hubble|argo|tkn|crossplane|cloud-provider-kind)
+              timeout 10 "$t" version 2>/dev/null | head -1 ;;
+    *)        timeout 10 "$t" version --client 2>/dev/null | head -1 ;;
+  esac
+}
+
+has_release() {
+  local out="$1" release="$2" plain="${2#v}" escaped
+  printf '%s\n' "$out" | grep -Fq "$release" && return 0
+  escaped=$(printf '%s' "$plain" | sed 's/[][\\.^$*+?{}|()]/\\&/g')
+  printf '%s\n' "$out" | grep -Eq "(^|[^[:alnum:]])v?${escaped}([^[:alnum:]]|$)"
+}
+
+report_matches_release() {
+  local tool="$1" repo="$2" release="$3" path expected actual recorded
+  [ -s "$REPO_ROOT/.lab-versions.json" ] || return 1
+  path=$(command -v "$tool" 2>/dev/null) || return 1
+  [ -f "$path" ] || return 1
+  recorded=$(jq -r --arg tool "$tool" --arg repo "$repo" \
+    '.upstream_releases[]? | select(.tool == $tool and .repository == $repo) | .latest_release' \
+    "$REPO_ROOT/.lab-versions.json" | head -1)
+  [ "$recorded" = "$release" ] || return 1
+  expected=$(jq -r --arg tool "$tool" '.tools[]? | select(.name == $tool) | .sha256' \
+    "$REPO_ROOT/.lab-versions.json" | head -1)
+  if [ -z "$expected" ] || [ "$expected" = null ]; then return 1; fi
+  actual=$(sha256sum "$path" | awk '{print $1}')
+  [ "$actual" = "$expected" ]
+}
+
+asset_field() {
+  local repo="$1" match="$2" field="$3"
+  api "$repo" | jq -er --arg m "$match" --arg f "$field" \
+    '.assets[] | select(.name|test($m)) | .[$f]' | head -1
+}
+
+download_asset() {
+  local repo="$1" match="$2" destination="$3" url digest expected actual
+  url=$(asset_field "$repo" "$match" browser_download_url) || return 1
+  digest=$(asset_field "$repo" "$match" digest 2>/dev/null || true)
+  log "download <- $url"
+  curl -fsSL "$url" -o "$destination"
+  if [[ "$digest" == sha256:* ]]; then
+    expected=${digest#sha256:}
+    actual=$(sha256sum "$destination" | awk '{print $1}')
+    [ "$actual" = "$expected" ] || die "checksum mismatch for $url"
+    ok "verified sha256 for $(basename "$url")"
+  else
+    warn "GitHub did not publish an asset digest for $(basename "$url"); TLS verification still applies"
+  fi
+}
 
 # gh_bin <repo> <asset-name-substring> <output-name>
 gh_bin() {
   local repo="$1" match="$2" out="$3"
-  command -v "$out" >/dev/null && { ok "$out present"; return; }
-  local url; url=$(api "$repo" | jq -r --arg m "$match" '.assets[] | select(.name|test($m)) | .browser_download_url' | head -1)
-  [ -n "$url" ] || { warn "no asset matching '$match' in $repo"; return; }
-  log "$out <- $url"
-  if [[ "$url" == *.gz && "$url" != *.tar.gz ]]; then
-    curl -fsSL "$url" | gunzip > "$BIN_DIR/$out"
-  else
-    curl -fsSL "$url" -o "$BIN_DIR/$out"
+  local release current asset tmp installed
+  release=$(tag "$repo") || { warn "could not resolve the latest $repo release"; return; }
+  printf '%s\t%s\t%s\n' "$out" "$repo" "$release" >> "$RELEASE_ROWS"
+  current=$(ver "$out" || true)
+  if { [ "$current" != MISSING ] && has_release "$current" "$release"; } || \
+     report_matches_release "$out" "$repo" "$release"; then
+    ok "$out already matches latest ($release)"
+    return
   fi
-  chmod +x "$BIN_DIR/$out"
+  if [ "$current" = MISSING ]; then installed="not installed"; else installed="installed: ${current:-unknown}"; fi
+  log "$out latest is $release ($installed)"
+  tmp=$(mktemp -d)
+  asset="$tmp/asset"
+  if ! download_asset "$repo" "$match" "$asset"; then
+    warn "no asset matching '$match' in $repo"
+    rm -rf "$tmp"
+    return
+  fi
+  if [[ "$(asset_field "$repo" "$match" name)" == *.gz && "$(asset_field "$repo" "$match" name)" != *.tar.gz ]]; then
+    gunzip -c "$asset" > "$tmp/$out"
+    install -m755 "$tmp/$out" "$BIN_DIR/$out"
+  else
+    install -m755 "$asset" "$BIN_DIR/$out"
+  fi
+  rm -rf "$tmp"
 }
 
 # gh_tar <repo> <asset-substring> <path-inside-tar> <output-name>
 gh_tar() {
   local repo="$1" match="$2" inner="$3" out="$4"
-  command -v "$out" >/dev/null && { ok "$out present"; return; }
-  local url; url=$(api "$repo" | jq -r --arg m "$match" '.assets[] | select(.name|test($m)) | .browser_download_url' | head -1)
-  [ -n "$url" ] || { warn "no asset matching '$match' in $repo"; return; }
-  log "$out <- $url"
-  local tmp; tmp=$(mktemp -d)
-  curl -fsSL "$url" | tar xz -C "$tmp"
+  local release current tmp installed
+  release=$(tag "$repo") || { warn "could not resolve the latest $repo release"; return; }
+  printf '%s\t%s\t%s\n' "$out" "$repo" "$release" >> "$RELEASE_ROWS"
+  current=$(ver "$out" || true)
+  if { [ "$current" != MISSING ] && has_release "$current" "$release"; } || \
+     report_matches_release "$out" "$repo" "$release"; then
+    ok "$out already matches latest ($release)"
+    return
+  fi
+  if [ "$current" = MISSING ]; then installed="not installed"; else installed="installed: ${current:-unknown}"; fi
+  log "$out latest is $release ($installed)"
+  tmp=$(mktemp -d)
+  if ! download_asset "$repo" "$match" "$tmp/asset"; then
+    warn "no asset matching '$match' in $repo"
+    rm -rf "$tmp"
+    return
+  fi
+  tar xzf "$tmp/asset" -C "$tmp"
+  [ -f "$tmp/$inner" ] || die "$inner was not present in the downloaded $repo archive"
   install -m755 "$tmp/$inner" "$BIN_DIR/$out"
   rm -rf "$tmp"
 }
@@ -49,7 +153,7 @@ log "Arch repo packages"
 pac kubectl helm k9s kustomize kind trivy cosign stern kubectx skopeo nodejs npm yarn go
 
 log "Core cluster tooling"
-command -v kind >/dev/null || gh_bin kubernetes-sigs/kind 'kind-linux-amd64$' kind
+gh_bin kubernetes-sigs/kind 'kind-linux-amd64$' kind
 gh_tar kubernetes-sigs/cloud-provider-kind 'linux_amd64.tar.gz$' cloud-provider-kind cloud-provider-kind
 gh_bin kubernetes-sigs/kubebuilder 'kubebuilder_linux_amd64$' kubebuilder
 
@@ -61,21 +165,28 @@ gh_tar fluxcd/flux2 'flux_.*_linux_amd64.tar.gz$' flux flux
 gh_tar tektoncd/cli 'tkn_.*_Linux_x86_64.tar.gz$' tkn tkn
 
 log "Platform APIs"
-if ! command -v crossplane >/dev/null; then
-  ( cd "$BIN_DIR" && curl -fsSL https://raw.githubusercontent.com/crossplane/crossplane/main/install.sh | sh )
+crossplane_release=$(tag crossplane/cli)
+printf '%s\t%s\t%s\n' crossplane crossplane/cli "$crossplane_release" >> "$RELEASE_ROWS"
+if ! has_release "$(ver crossplane || true)" "$crossplane_release" && \
+   ! report_matches_release crossplane crossplane/cli "$crossplane_release"; then
+  log "crossplane latest is $crossplane_release"
+  ( cd "$BIN_DIR" && curl -fsSL https://cli.crossplane.io/install.sh | XP_VERSION="$crossplane_release" sh )
 fi
 
 log "Networking / mesh"
 gh_tar cilium/cilium-cli 'cilium-linux-amd64.tar.gz$' cilium cilium
 gh_tar cilium/hubble 'hubble-linux-amd64.tar.gz$' hubble hubble
-if ! command -v istioctl >/dev/null; then
-  ( cd /tmp && curl -fsSL https://istio.io/downloadIstio | sh - >/dev/null && \
-    install -m755 /tmp/istio-*/bin/istioctl "$BIN_DIR/istioctl" && rm -rf /tmp/istio-* )
+istio_release=$(tag istio/istio)
+printf '%s\t%s\t%s\n' istioctl istio/istio "$istio_release" >> "$RELEASE_ROWS"
+if ! has_release "$(ver istioctl || true)" "$istio_release" && \
+   ! report_matches_release istioctl istio/istio "$istio_release"; then
+  log "istioctl latest is $istio_release"
+  istio_tmp=$(mktemp -d)
+  ( cd "$istio_tmp" && curl -fsSL https://istio.io/downloadIstio | ISTIO_VERSION="${istio_release#v}" sh - >/dev/null )
+  install -m755 "$istio_tmp"/istio-*/bin/istioctl "$BIN_DIR/istioctl"
+  rm -rf "$istio_tmp"
 fi
-if ! command -v linkerd >/dev/null; then
-  curl -fsSL https://run.linkerd.io/install-edge | sh
-  install -m755 "$HOME/.linkerd2/bin/linkerd" "$BIN_DIR/linkerd" 2>/dev/null || true
-fi
+gh_bin linkerd/linkerd2 'linkerd2-cli-.*-linux-amd64$' linkerd
 
 log "Secrets tooling"
 gh_tar bitnami/sealed-secrets 'kubeseal-.*-linux-amd64.tar.gz$' kubeseal kubeseal
@@ -101,22 +212,30 @@ export do='--dry-run=client -o yaml'        # exam muscle memory
 export now='--force --grace-period=0'
 RC
 
+if helm repo list >/dev/null 2>&1 && [ "$(helm repo list -o json | jq 'length')" -gt 0 ]; then
+  log "Refreshing configured Helm repository indexes"
+  helm repo update >/dev/null
+fi
+
 log "Installed versions"
-# Some of these version commands contact the cluster and hang, so force client-only.
-ver() {
-  local t="$1"
-  command -v "$t" >/dev/null || { echo MISSING; return; }
-  case "$t" in
-    istioctl) timeout 10 "$t" version --remote=false 2>/dev/null | head -1 ;;
-    linkerd)  timeout 10 "$t" version --client --short 2>/dev/null | head -1 ;;
-    argocd)   timeout 10 "$t" version --client --short 2>/dev/null | head -1 ;;
-    kind|trivy|cosign|kubebuilder|cilium|hubble|argo|tkn|flux|crossplane|kubectl-cost)
-              timeout 10 "$t" version 2>/dev/null | head -1 ;;
-    *)        timeout 10 "$t" version --client 2>/dev/null | head -1 ;;
-  esac
-}
+report_rows=$(mktemp)
 for t in kubectl helm kind argocd flux tkn crossplane istioctl linkerd cilium hubble \
          argo kubectl-argo-rollouts trivy cosign kubebuilder kubectl-cost cloud-provider-kind; do
-  printf '  %-24s %s\n' "$t" "$(ver "$t" || echo installed)"
+  version=$(ver "$t" || echo installed)
+  printf '  %-24s %s\n' "$t" "$version"
+  path=$(command -v "$t" 2>/dev/null || true)
+  if [ -n "$path" ] && [ -f "$path" ]; then digest=$(sha256sum "$path" | awk '{print $1}'); else digest=""; fi
+  printf '%s\t%s\t%s\n' "$t" "${version//$'\t'/ }" "$digest" >> "$report_rows"
 done
-ok "Tools ready. Open a new shell, then: make up"
+report_extra='{}'
+if [ -s "$REPO_ROOT/.lab-versions.json" ]; then
+  report_extra=$(jq '{charts, images} | with_entries(select(.value != null))' "$REPO_ROOT/.lab-versions.json")
+fi
+releases=$(jq -Rn '[inputs | split("\t") | {tool: .[0], repository: .[1], latest_release: .[2]}]' < "$RELEASE_ROWS")
+jq -Rn --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson extra "$report_extra" --argjson releases "$releases" \
+  '{generated_at: $generated_at, tools: [inputs | split("\t") | {name: .[0], version: .[1], sha256: .[2]}], upstream_releases: $releases} + $extra' \
+  < "$report_rows" > "$REPO_ROOT/.lab-versions.json.tmp"
+mv "$REPO_ROOT/.lab-versions.json.tmp" "$REPO_ROOT/.lab-versions.json"
+rm -f "$report_rows"
+ok "Tools ready. Resolved versions: $REPO_ROOT/.lab-versions.json"
+ok "Open a new shell, then: make up"

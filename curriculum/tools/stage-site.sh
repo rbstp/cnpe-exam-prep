@@ -48,7 +48,7 @@ cat > "$OUT/404.html" <<'HTML'
 </head>
 <body>
 <div class="wrap"><div class="cols">
-<article>
+<article id="main" role="main" tabindex="-1">
   <header class="pagehead">
     <div class="eyebrow"><span class="badge d4">404</span><span>no page at this address</span></div>
     <h1>Nothing here</h1>

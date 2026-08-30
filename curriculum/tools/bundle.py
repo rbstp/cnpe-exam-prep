@@ -81,7 +81,7 @@ bundle = """<title>CNPE study console</title>
 </style>
 
 <div class="wrap"><div class="cols">
-  <article id="view"></article>
+  <article id="main" role="main" tabindex="-1"></article>
   <aside class="toc" id="toc"></aside>
 </div></div>
 
@@ -118,7 +118,7 @@ window.CNPE_EXAM_KEYS = %s;
 </script>
 <script>
 (function () {
-  var view = document.getElementById("view");
+  var view = document.getElementById("main");
   function keyFromHash() {
     var h = (location.hash || "#index").slice(1);
     return window.CNPE_PAGES[h] ? h : "index";

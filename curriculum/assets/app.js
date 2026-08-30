@@ -288,7 +288,7 @@
   /* ── top bar ─────────────────────────────────────────────── */
   function buildTopbar() {
     var d = entry ? domainOf(entry.d) : null;
-    var bar = el("div", "topbar");
+    var bar = el("header", "topbar");
     var inner = el("div", "inner");
 
     var logo = el("a", "logo",
@@ -360,15 +360,22 @@
 
     bar.appendChild(inner);
     bar.appendChild(el("div", "trace", traceSvg()));
-    body.insertBefore(bar, body.firstChild);
 
-    if (!document.querySelector(".skip")) {
-      var skip = el("a", "skip", "Skip to content");
-      skip.href = "#main";
-      body.insertBefore(skip, body.firstChild);
+    var skip = document.querySelector(".skip");
+    if (!skip) {
+      skip = el("a", "skip", "Skip to content");
+      skip.setAttribute("href", "#main");
     }
+    // Keep all masthead content inside the banner landmark. The link stays
+    // first in its focus order, which is the point of a skip link.
+    bar.insertBefore(skip, bar.firstChild);
+    body.insertBefore(bar, body.firstChild);
     var art = document.querySelector("article");
-    if (art && !art.id) { art.id = "main"; art.setAttribute("tabindex", "-1"); }
+    if (art) {
+      art.setAttribute("role", "main");
+      if (!art.id) art.id = "main";
+      if (!art.hasAttribute("tabindex")) art.setAttribute("tabindex", "-1");
+    }
   }
 
   /* ── theme switch ──────────────────────────────────────────── */
@@ -462,6 +469,12 @@
   /* ── code blocks: language bar, copy, light highlighting ─── */
   // The colouring is syntax.js; this file owns the block and does the write.
   function buildCodeBlocks() {
+    // Axe treats a horizontally scrollable region as unreachable unless a
+    // keyboard user can focus it. Whether a block overflows depends on the
+    // viewport, so make every code transcript and diagram focusable.
+    Array.prototype.forEach.call(document.querySelectorAll(".cb pre, pre.diagram"), function (pre) {
+      if (!pre.hasAttribute("tabindex")) pre.setAttribute("tabindex", "0");
+    });
     Array.prototype.forEach.call(document.querySelectorAll(".cb"), function (cb) {
       if (cb.getAttribute("data-built")) return;
       cb.setAttribute("data-built", "1");
@@ -535,7 +548,7 @@
       var hdr = el("header");
       var disc = el("button", "disc");
       disc.type = "button";
-      disc.innerHTML = '<span class="dot" aria-hidden="true"></span><h4>' + title + '</h4><span class="chev" aria-hidden="true">▾</span>';
+      disc.innerHTML = '<span class="dot" aria-hidden="true"></span><span class="title">' + title + '</span><span class="chev" aria-hidden="true">▾</span>';
       var mark = el("button", "mark");
       mark.type = "button";
       var bodyEl = el("div", "body", body);
@@ -575,7 +588,7 @@
     toc.style.display = "";
     var heads = document.querySelectorAll("article .panel > .phdr h2");
     if (!heads.length) { toc.style.display = "none"; toc.innerHTML = ""; return; }
-    var html = "<h4>On this page</h4>";
+    var html = "<h2>On this page</h2>";
     Array.prototype.forEach.call(heads, function (h, i) {
       var panel = h.closest(".panel");
       if (!panel.id) panel.id = "p" + i;

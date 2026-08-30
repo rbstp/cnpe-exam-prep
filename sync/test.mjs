@@ -24,6 +24,7 @@ function fakeDB(seed) {
       const self = {
         bind(...v) { args = v; return self; },
         async first() {
+          if (sql === "SELECT 1 AS ok") return { ok: 1 };
           const r = rows.get(args[0]);
           return r ? { rev: r.rev, blob: r.blob, updated_at: r.updated_at } : null;
         },
@@ -95,6 +96,14 @@ async function run() {
     ok(res.status === 500 && body.error.indexOf(name) >= 0, "missing " + name + " is a 500 that names it");
   }
   ok((await call("/healthz", {}, env({ SESSION_SECRET: "" }))).status === 200, "healthz still answers unconfigured");
+
+  group("readiness checks configuration and D1 without authentication or progress data");
+  let res = await call("/readyz");
+  ok(res.status === 200 && (await res.json()).ready === true, "readyz accepts a configured Worker with a reachable D1 binding");
+  res = await call("/readyz", {}, env({ SESSION_SECRET: "" }));
+  ok(res.status === 503 && /SESSION_SECRET/.test((await res.json()).error), "readyz reports missing configuration");
+  res = await call("/readyz", {}, env({ DB: { prepare() { throw new Error("D1 unavailable"); } } }));
+  ok(res.status === 503 && (await res.json()).error === "database is not ready", "readyz reports a failed D1 query without leaking details");
 
   group("the session cookie cannot be forged, tampered with, or outlived");
   const good = await session("42");
@@ -185,7 +194,7 @@ async function run() {
   const put = (cookie, rev, progress) => call("/v1/progress",
     { method: "PUT", origin: SITE, cookie, body: JSON.stringify({ rev, progress }) }, e);
 
-  let res = await put(mine, 0, { done: { "1.1": 1 } });
+  res = await put(mine, 0, { done: { "1.1": 1 } });
   ok(res.status === 200 && (await res.json()).rev === 1, "a first write inserts at rev 1");
   res = await put(mine, 0, { done: { "1.1": 1 } });
   ok(res.status === 409, "a second write still claiming rev 0 conflicts");
@@ -210,9 +219,22 @@ async function run() {
   ok((await call("/v1/progress", { method: "PUT", origin: SITE, cookie: mine, body: "{not json" }, e)).status === 400,
     "so is a body that is not JSON");
   ok((await put(mine, 2, { done: { x: "y".repeat(70000) } })).status === 413, "an oversized body is refused");
+  ok((await call("/v1/progress", {
+    method: "PUT", origin: SITE, cookie: mine, body: "{}", headers: { "Content-Length": "65537" },
+  }, e)).status === 413, "a declared body over the limit is refused before parsing");
   res = await call("/v1/progress", { origin: SITE, cookie: mine }, e);
   body = await res.json();
   ok(body.rev === 2 && body.progress.done["2.1"] === 1, "and none of it disturbed the stored copy");
+
+  const unicodeDB = fakeDB();
+  const unicodeEnv = env({ DB: unicodeDB });
+  const unicodePut = value => call("/v1/progress", {
+    method: "PUT", origin: SITE, cookie: mine,
+    body: JSON.stringify({ rev: 0, progress: { done: { x: value } } }),
+  }, unicodeEnv);
+  ok((await unicodePut("é".repeat(32000))).status === 200, "a multibyte payload below 64 KiB is accepted");
+  ok((await unicodePut("é".repeat(33000))).status === 413, "a multibyte payload over 64 KiB is refused by its UTF-8 size");
+  ok(unicodeDB.rows.get("42").rev === 1, "the rejected multibyte payload does not disturb the stored copy");
 
   group("delete removes only the caller's row");
   ok((await call("/v1/progress", { method: "DELETE", origin: SITE, cookie: mine }, e)).status === 200, "delete answers");
