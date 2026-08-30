@@ -19,7 +19,8 @@ pac() {
 }
 
 api() {
-  local repo="$1" cache="$RELEASE_CACHE/${repo//\//_}.json"
+  local repo="$1"
+  local cache="$RELEASE_CACHE/${repo//\//_}.json"
   if [ ! -s "$cache" ]; then
     curl -fsSL "https://api.github.com/repos/$repo/releases/latest" -o "$cache"
   fi
