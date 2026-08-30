@@ -12,6 +12,9 @@ host:    ## Kernel limits, docker, thermal advice (run once, needs sudo)
 	@$(S)/00-host-setup.sh
 tools:   ## Install every CLI into ~/.local/bin
 	@$(S)/01-tools.sh
+refresh: ## Upgrade lab CLIs, refresh Helm indexes, and update an existing Gitea
+	@CNPE_REFRESH=1 $(S)/01-tools.sh
+	@CNPE_REFRESH=1 $(S)/11-gitea.sh --refresh-only
 
 ## ── the lab ─────────────────────────────────────────────────────────────
 up:      ## Create the cluster: kind + Cilium + LB + metrics + VPA + registry
@@ -86,7 +89,7 @@ down:    ## Delete both clusters (keeps git history + registry)
 nuke:    ## Delete everything including Gitea data
 	@$(S)/99-down.sh all
 
-.PHONY: help host tools up gitea gitops cicd api obs sec mesh portal core full spire validate fix-cp-metrics study fonts site browser worker merge syntax typecheck urls forward forward-stop status break break-fix down nuke
+.PHONY: help host tools refresh up gitea gitops cicd api obs sec mesh portal core full spire validate fix-cp-metrics study fonts site browser worker merge syntax typecheck urls forward forward-stop status break break-fix down nuke
 
 break-answer: ## Reveal the last injected fault
 	@cat /tmp/cnpe-lab/.last-fault 2>/dev/null || echo "none injected yet"

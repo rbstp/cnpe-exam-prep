@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # A local Git server, resolvable inside the cluster as gitea.lab.
 source "$(dirname "$0")/lib.sh"
-need docker; need kubectl; need git
+need docker
 
-if [ "$(docker inspect -f '{{.State.Running}}' gitea 2>/dev/null || true)" != "true" ]; then
-  log "Starting Gitea"
-  docker rm -f gitea >/dev/null 2>&1 || true
-  docker run -d --name gitea --network kind --restart=always \
+GITEA_CONTAINER=gitea
+GITEA_IMAGE=gitea/gitea:latest
+
+run_gitea() {
+  docker run -d --name "$GITEA_CONTAINER" --network kind --restart=always \
     -p "127.0.0.1:${GITEA_PORT}:3000" \
     -e GITEA__database__DB_TYPE=sqlite3 \
     -e GITEA__security__INSTALL_LOCK=true \
@@ -15,14 +16,85 @@ if [ "$(docker inspect -f '{{.State.Running}}' gitea 2>/dev/null || true)" != "t
     -e GITEA__service__DISABLE_REGISTRATION=false \
     -e GITEA__repository__DEFAULT_BRANCH=main \
     -v gitea-data:/data \
-    gitea/gitea:latest >/dev/null
-  log "Waiting for Gitea to come up"
-  up=no
+    "$GITEA_IMAGE" >/dev/null
+}
+
+wait_gitea() {
+  local up=no
   for _ in $(seq 1 60); do
     curl -fsS "http://localhost:${GITEA_PORT}/api/healthz" >/dev/null 2>&1 && { up=yes; break; }
     sleep 2
   done
-  [ "$up" = yes ] || die "gitea did not become healthy on port ${GITEA_PORT} after 120s (docker logs gitea)"
+  [ "$up" = yes ]
+}
+
+record_gitea_image() {
+  local digest tmp
+  command -v jq >/dev/null || return 0
+  digest=$(docker image inspect -f '{{index .RepoDigests 0}}' "$GITEA_IMAGE" 2>/dev/null || true)
+  [ -n "$digest" ] || digest=$(docker image inspect -f '{{.Id}}' "$GITEA_IMAGE")
+  tmp="$REPO_ROOT/.lab-versions.json.tmp"
+  if [ -s "$REPO_ROOT/.lab-versions.json" ]; then
+    jq --arg digest "$digest" '.images = ((.images // {}) + {gitea: $digest})' \
+      "$REPO_ROOT/.lab-versions.json" > "$tmp"
+  else
+    jq -n --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg digest "$digest" \
+      '{generated_at: $generated_at, tools: [], images: {gitea: $digest}}' > "$tmp"
+  fi
+  mv "$tmp" "$REPO_ROOT/.lab-versions.json"
+}
+
+refresh_gitea() {
+  local old_id latest_id old_name was_running
+  if ! docker inspect "$GITEA_CONTAINER" >/dev/null 2>&1; then
+    ok "Gitea is not installed; refresh leaves it absent"
+    return
+  fi
+
+  log "Pulling $GITEA_IMAGE"
+  old_id=$(docker inspect -f '{{.Image}}' "$GITEA_CONTAINER")
+  docker pull "$GITEA_IMAGE" >/dev/null
+  latest_id=$(docker image inspect -f '{{.Id}}' "$GITEA_IMAGE")
+  record_gitea_image
+  if [ "$old_id" = "$latest_id" ]; then
+    ok "Gitea already uses the latest image ($latest_id)"
+    return
+  fi
+
+  was_running=$(docker inspect -f '{{.State.Running}}' "$GITEA_CONTAINER")
+  old_name="gitea-cnpe-rollback-$(date +%s)"
+  log "Replacing Gitea while preserving the gitea-data volume"
+  docker stop "$GITEA_CONTAINER" >/dev/null
+  docker rename "$GITEA_CONTAINER" "$old_name"
+  if run_gitea && wait_gitea; then
+    docker rm "$old_name" >/dev/null
+    [ "$was_running" = true ] || docker stop "$GITEA_CONTAINER" >/dev/null
+    ok "Gitea updated to $latest_id"
+    return
+  fi
+
+  warn "The refreshed Gitea did not become healthy; restoring the previous container"
+  docker rm -f "$GITEA_CONTAINER" >/dev/null 2>&1 || true
+  docker rename "$old_name" "$GITEA_CONTAINER"
+  [ "$was_running" = true ] && docker start "$GITEA_CONTAINER" >/dev/null
+  die "Gitea refresh failed; the previous container was restored"
+}
+
+if [ "${CNPE_REFRESH:-0}" = 1 ]; then
+  refresh_gitea
+  [ "${1:-}" = --refresh-only ] && exit 0
+elif [ "${1:-}" = --refresh-only ]; then
+  die "--refresh-only must be run through 'make refresh'"
+fi
+
+need kubectl; need git
+
+if [ "$(docker inspect -f '{{.State.Running}}' "$GITEA_CONTAINER" 2>/dev/null || true)" != "true" ]; then
+  log "Starting Gitea"
+  docker rm -f "$GITEA_CONTAINER" >/dev/null 2>&1 || true
+  run_gitea
+  log "Waiting for Gitea to come up"
+  wait_gitea || die "gitea did not become healthy on port ${GITEA_PORT} after 120s (docker logs gitea)"
 fi
 
 GITEA_IP=$(docker inspect -f '{{ (index .NetworkSettings.Networks "kind").IPAddress }}' gitea)

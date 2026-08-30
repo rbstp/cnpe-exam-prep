@@ -47,6 +47,8 @@ One row per GitHub user: the numeric user id, the login, a revision counter and
 the `cnpe:v2` store as JSON. Nothing else. A **fully completed** store, meaning all
 29 sections, all 123 exercises, all 148 drill cards, both mock exams and a full
 window of study days, is about 19 KB against a 64 KB ceiling.
+The Worker measures that ceiling on the UTF-8 encoded JSON, not JavaScript
+character count, so multibyte text cannot bypass the limit.
 
 The window is 30 days, the same span the dashboard's heat strip draws, and `KEEP`
 in `merge.js` is the one number that says so. Days older than that are dropped as
@@ -321,6 +323,18 @@ curl https://sync.rbstp.dev/v1/progress
 everyone out; it does not touch stored progress. It must be at least 16 characters:
 the Worker refuses every route with a 500 naming the missing value rather than
 signing cookies with a guessable key, so a half-configured deploy fails loudly.
+
+Once both secrets are set, use the readiness endpoint for deployment checks:
+
+```bash
+curl --fail https://sync.rbstp.dev/readyz
+# {"ready":true}
+```
+
+`/healthz` is a liveness check and returns `ok` even during a half-configured
+deploy. `/readyz` checks every required binding, variable and secret, then runs
+`SELECT 1` against D1. It requires no session and does not read the progress
+table. It returns 503 when configuration or D1 is unavailable.
 
 ### This does not touch the Pages hostname
 

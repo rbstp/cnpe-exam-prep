@@ -19,7 +19,6 @@
   function frame(title, hint) {
     var w = h("figure", { "class": "wfig" });
     var id = "wfig-" + (++figSeq);
-    w.setAttribute("role", "group");
     w.setAttribute("aria-labelledby", id);
     var head = h("figcaption", { "class": "whead" });
     var t = h("span", { "class": "wtitle", html: title });

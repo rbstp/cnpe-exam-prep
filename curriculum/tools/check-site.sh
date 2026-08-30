@@ -24,6 +24,15 @@ test -f "$SITE/.nojekyll" || { echo "missing: .nojekyll"; exit 1; }
 n=$(find "$SITE" -name '*.html' | wc -l | tr -d ' ')
 test "$n" -eq 35 || { echo "expected 35 html files, found $n"; exit 1; }
 
+# One content landmark per page. The authored pages, generated 404 and bundled
+# console take different build paths, so checking only a source template misses
+# exactly the pages most likely to drift.
+while IFS= read -r f; do
+  mains=$(grep -oE '<(main([ >])|[^>]+role="main"[^>]*>)' "$f" | wc -l | tr -d ' ')
+  test "$mains" -eq 1 ||
+    { echo "expected one main landmark in ${f#"$SITE"/}, found $mains"; exit 1; }
+done < <(find "$SITE" -name '*.html')
+
 # the bundle must be self-contained: no sidecar asset references
 if grep -qE '<(link|script)[^>]+(href|src)="assets/' "$SITE/console.html"; then
   echo "console.html references sidecar assets"; exit 1

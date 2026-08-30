@@ -15,7 +15,7 @@ const { makeHarness } = require('./lib');
 const SITE = path.resolve(process.argv[2] || path.join(__dirname, '..', '..', '..', '_site'));
 
 const ALL = ['streak', 'palette', 'exam-clock', 'drill-deck', 'progress-io', 'sync', 'tabs',
-  'section', 'weak-spots', 'trace', 'widgets', 'theme', 'pagehide'];
+  'section', 'weak-spots', 'trace', 'widgets', 'theme', 'accessibility', 'pagehide'];
 
 const want = (process.env.AREAS || '').split(',').map(s => s.trim()).filter(Boolean);
 const unknown = want.filter(a => ALL.indexOf(a) < 0);
