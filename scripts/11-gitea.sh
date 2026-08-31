@@ -29,19 +29,10 @@ wait_gitea() {
 }
 
 record_gitea_image() {
-  local digest tmp
-  command -v jq >/dev/null || return 0
+  local digest
   digest=$(docker image inspect -f '{{index .RepoDigests 0}}' "$GITEA_IMAGE" 2>/dev/null || true)
   [ -n "$digest" ] || digest=$(docker image inspect -f '{{.Id}}' "$GITEA_IMAGE")
-  tmp="$REPO_ROOT/.lab-versions.json.tmp"
-  if [ -s "$REPO_ROOT/.lab-versions.json" ]; then
-    jq --arg digest "$digest" '.images = ((.images // {}) + {gitea: $digest})' \
-      "$REPO_ROOT/.lab-versions.json" > "$tmp"
-  else
-    jq -n --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg digest "$digest" \
-      '{generated_at: $generated_at, tools: [], images: {gitea: $digest}}' > "$tmp"
-  fi
-  mv "$tmp" "$REPO_ROOT/.lab-versions.json"
+  record_image gitea "$digest"
 }
 
 refresh_gitea() {

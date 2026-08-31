@@ -252,9 +252,7 @@ async function putProgress(req, env, who) {
     return json({ error: "too large" }, 413);
   }
   const raw = await req.text();
-  if (raw.length > MAX_BLOB || utf8.encode(raw).byteLength > MAX_BLOB) {
-    return json({ error: "too large" }, 413);
-  }
+  if (utf8.encode(raw).byteLength > MAX_BLOB) return json({ error: "too large" }, 413);
   let body;
   try { body = JSON.parse(raw); } catch { return json({ error: "not JSON" }, 400); }
   if (!body || typeof body !== "object" || !looksLikeProgress(body.progress)) {
@@ -262,9 +260,7 @@ async function putProgress(req, env, who) {
   }
   const rev = Number.isSafeInteger(body.rev) && body.rev >= 0 ? body.rev : 0;
   const blob = JSON.stringify(body.progress);
-  if (blob.length > MAX_BLOB || utf8.encode(blob).byteLength > MAX_BLOB) {
-    return json({ error: "too large" }, 413);
-  }
+  if (utf8.encode(blob).byteLength > MAX_BLOB) return json({ error: "too large" }, 413);
   const now = new Date().toISOString();
 
   if (rev > 0) {

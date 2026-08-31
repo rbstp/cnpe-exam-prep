@@ -22,45 +22,44 @@ die()  { printf '%s ✗  %s %s\n' "$C_ERR" "$C_OFF" "$*" >&2; exit 1; }
 
 need() { command -v "$1" >/dev/null 2>&1 || die "missing '$1'; run: make tools"; }
 
-record_image() {
-  local name="$1" reference="$2" tmp
+# record_versions <jq filter> [jq args...]
+record_versions() {
+  local filter="$1"; shift
+  local file="$REPO_ROOT/.lab-versions.json" tmp base
   command -v jq >/dev/null || return 0
-  tmp="$REPO_ROOT/.lab-versions.json.tmp"
-  if [ -s "$REPO_ROOT/.lab-versions.json" ]; then
-    jq --arg name "$name" --arg reference "$reference" \
-      '.images = ((.images // {}) + {($name): $reference})' \
-      "$REPO_ROOT/.lab-versions.json" > "$tmp"
+  if [ -s "$file" ]; then
+    base=$(cat "$file")
   else
-    jq -n --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg name "$name" --arg reference "$reference" \
-      '{generated_at: $generated_at, tools: [], images: {($name): $reference}}' > "$tmp"
+    base=$(jq -n --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{generated_at: $generated_at, tools: []}')
   fi
-  mv "$tmp" "$REPO_ROOT/.lab-versions.json"
+  tmp="$file.tmp"
+  printf '%s' "$base" | jq "$@" "$filter" > "$tmp"
+  mv "$tmp" "$file"
+}
+
+record_image() {
+  record_versions '.images = ((.images // {}) + {($name): $reference})' \
+    --arg name "$1" --arg reference "$2"
+}
+
+record_chart() {
+  record_versions '.charts = ((.charts // {}) + {($release): {chart: $chart, version: $version, app_version: $app_version}})' \
+    --arg release "$1" --arg chart "$2" --arg version "$3" --arg app_version "$4"
 }
 
 kctx() { kubectl --context "kind-${1:-$CLUSTER}" "${@:2}"; }
 
 helmi() {
-  local release="$1" chart="$2" ns="$3" chart_version app_version tmp; shift 3
-  chart_version=$(helm show chart "$chart" | awk -F ': ' '$1 == "version" {print $2; exit}')
+  local release="$1" chart="$2" ns="$3" metadata chart_version app_version; shift 3
+  metadata=$(helm show chart "$chart")
+  chart_version=$(printf '%s\n' "$metadata" | awk -F ': ' '$1 == "version" {print $2; exit}')
   [ -n "$chart_version" ] || die "could not resolve a version for Helm chart '$chart'"
-  app_version=$(helm show chart "$chart" | awk -F ': ' '$1 == "appVersion" {print $2; exit}')
+  app_version=$(printf '%s\n' "$metadata" | awk -F ': ' '$1 == "appVersion" {print $2; exit}')
 
-  if command -v jq >/dev/null; then
-    tmp="$REPO_ROOT/.lab-versions.json.tmp"
-    if [ -s "$REPO_ROOT/.lab-versions.json" ]; then
-      jq --arg release "$release" --arg chart "$chart" --arg version "$chart_version" --arg app_version "$app_version" \
-        '.charts = ((.charts // {}) + {($release): {chart: $chart, version: $version, app_version: $app_version}})' \
-        "$REPO_ROOT/.lab-versions.json" > "$tmp"
-    else
-      jq -n --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        --arg release "$release" --arg chart "$chart" --arg version "$chart_version" --arg app_version "$app_version" \
-        '{generated_at: $generated_at, tools: [], charts: {($release): {chart: $chart, version: $version, app_version: $app_version}}}' > "$tmp"
-    fi
-    mv "$tmp" "$REPO_ROOT/.lab-versions.json"
-  fi
-
+  # Callers tolerate an optional chart failing, so 'set -e' will not stop here.
   helm --kube-context "kind-$CLUSTER" upgrade --install "$release" "$chart" \
-    --version "$chart_version" --namespace "$ns" --create-namespace --wait --timeout 12m "$@"
+    --version "$chart_version" --namespace "$ns" --create-namespace --wait --timeout 12m "$@" || return
+  record_chart "$release" "$chart" "$chart_version" "$app_version"
 }
 
 repo_add() {
