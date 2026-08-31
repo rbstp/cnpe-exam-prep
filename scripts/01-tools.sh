@@ -89,7 +89,10 @@ download_asset() {
   url=$(asset_field "$repo" "$match" browser_download_url) || return 1
   digest=$(asset_field "$repo" "$match" digest 2>/dev/null || true)
   log "download <- $url"
-  curl -fsSL "$url" -o "$destination"
+  if ! curl -fsSL "$url" -o "$destination"; then
+    rm -f "$destination"
+    return 1
+  fi
   if [[ "$digest" == sha256:* ]]; then
     expected=${digest#sha256:}
     actual=$(sha256sum "$destination" | awk '{print $1}')
@@ -117,7 +120,7 @@ gh_bin() {
   tmp=$(mktemp -d)
   asset="$tmp/asset"
   if ! download_asset "$repo" "$match" "$asset"; then
-    warn "no asset matching '$match' in $repo"
+    warn "download failed or no asset matching '$match' in $repo"
     rm -rf "$tmp"
     return
   fi
@@ -148,7 +151,7 @@ gh_tar() {
   log "$out latest is $release ($installed)"
   tmp=$(mktemp -d)
   if ! download_asset "$repo" "$match" "$tmp/asset"; then
-    warn "no asset matching '$match' in $repo"
+    warn "download failed or no asset matching '$match' in $repo"
     rm -rf "$tmp"
     return
   fi
