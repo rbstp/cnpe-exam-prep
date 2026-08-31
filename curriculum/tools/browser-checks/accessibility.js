@@ -64,7 +64,8 @@ module.exports = async function (h) {
 
   await group('axe finds no violations in representative pages and themes', async () => {
     if (!AxeBuilder) {
-      console.log('  note @axe-core/playwright is not installed; structural checks still ran');
+      assert(!process.env.CI, '@axe-core/playwright must be installed in CI (npm ci)');
+      if (!process.env.CI) console.log('  note @axe-core/playwright is not installed; structural checks still ran');
       return;
     }
     const pages = ['index.html', '01-architecture/02-compute-right-sizing.html',

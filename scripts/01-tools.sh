@@ -40,12 +40,19 @@ ver() {
     flux)     timeout 10 "$t" version --client 2>/dev/null | head -1 ;;
     helm)     timeout 10 "$t" version --short 2>/dev/null | head -1 ;;
     cosign)   timeout 10 "$t" version --json 2>/dev/null | jq -r .gitVersion ;;
+    kubeseal) timeout 10 "$t" --version 2>/dev/null | head -1 ;;
     kubectl-cost) timeout 10 "$t" version 2>/dev/null | awk -F ': +' '$1 ~ /Git Summary/ {print $2; exit}' ;;
     kubectl-argo-rollouts) timeout 10 "$t" version 2>/dev/null | head -1 ;;
     kind|trivy|kubebuilder|cilium|hubble|argo|tkn|crossplane|cloud-provider-kind)
               timeout 10 "$t" version 2>/dev/null | head -1 ;;
     *)        timeout 10 "$t" version --client 2>/dev/null | head -1 ;;
   esac
+}
+
+# Only for a tool that now sits at <release>: a row written before a download
+# that then fails pairs it with the old binary's hash, which later runs trust.
+record_release() {
+  printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$RELEASE_ROWS"
 }
 
 has_release() {
@@ -96,12 +103,12 @@ download_asset() {
 # gh_bin <repo> <asset-name-substring> <output-name>
 gh_bin() {
   local repo="$1" match="$2" out="$3"
-  local release current asset tmp installed
+  local release current asset tmp installed name
   release=$(tag "$repo") || { warn "could not resolve the latest $repo release"; return; }
-  printf '%s\t%s\t%s\n' "$out" "$repo" "$release" >> "$RELEASE_ROWS"
   current=$(ver "$out" || true)
   if { [ "$current" != MISSING ] && has_release "$current" "$release"; } || \
      report_matches_release "$out" "$repo" "$release"; then
+    record_release "$out" "$repo" "$release"
     ok "$out already matches latest ($release)"
     return
   fi
@@ -114,13 +121,15 @@ gh_bin() {
     rm -rf "$tmp"
     return
   fi
-  if [[ "$(asset_field "$repo" "$match" name)" == *.gz && "$(asset_field "$repo" "$match" name)" != *.tar.gz ]]; then
+  name=$(asset_field "$repo" "$match" name)
+  if [[ "$name" == *.gz && "$name" != *.tar.gz ]]; then
     gunzip -c "$asset" > "$tmp/$out"
     install -m755 "$tmp/$out" "$BIN_DIR/$out"
   else
     install -m755 "$asset" "$BIN_DIR/$out"
   fi
   rm -rf "$tmp"
+  record_release "$out" "$repo" "$release"
 }
 
 # gh_tar <repo> <asset-substring> <path-inside-tar> <output-name>
@@ -128,10 +137,10 @@ gh_tar() {
   local repo="$1" match="$2" inner="$3" out="$4"
   local release current tmp installed
   release=$(tag "$repo") || { warn "could not resolve the latest $repo release"; return; }
-  printf '%s\t%s\t%s\n' "$out" "$repo" "$release" >> "$RELEASE_ROWS"
   current=$(ver "$out" || true)
   if { [ "$current" != MISSING ] && has_release "$current" "$release"; } || \
      report_matches_release "$out" "$repo" "$release"; then
+    record_release "$out" "$repo" "$release"
     ok "$out already matches latest ($release)"
     return
   fi
@@ -147,6 +156,7 @@ gh_tar() {
   [ -f "$tmp/$inner" ] || die "$inner was not present in the downloaded $repo archive"
   install -m755 "$tmp/$inner" "$BIN_DIR/$out"
   rm -rf "$tmp"
+  record_release "$out" "$repo" "$release"
 }
 
 log "Arch repo packages"
@@ -165,26 +175,42 @@ gh_tar fluxcd/flux2 'flux_.*_linux_amd64.tar.gz$' flux flux
 gh_tar tektoncd/cli 'tkn_.*_Linux_x86_64.tar.gz$' tkn tkn
 
 log "Platform APIs"
-crossplane_release=$(tag crossplane/cli)
-printf '%s\t%s\t%s\n' crossplane crossplane/cli "$crossplane_release" >> "$RELEASE_ROWS"
-if ! has_release "$(ver crossplane || true)" "$crossplane_release" && \
-   ! report_matches_release crossplane crossplane/cli "$crossplane_release"; then
-  log "crossplane latest is $crossplane_release"
-  ( cd "$BIN_DIR" && curl -fsSL https://cli.crossplane.io/install.sh | XP_VERSION="$crossplane_release" sh )
+if crossplane_release=$(tag crossplane/cli); then
+  if has_release "$(ver crossplane || true)" "$crossplane_release" || \
+     report_matches_release crossplane crossplane/cli "$crossplane_release"; then
+    record_release crossplane crossplane/cli "$crossplane_release"
+  else
+    log "crossplane latest is $crossplane_release"
+    if ( cd "$BIN_DIR" && curl -fsSL https://cli.crossplane.io/install.sh | XP_VERSION="$crossplane_release" sh ); then
+      record_release crossplane crossplane/cli "$crossplane_release"
+    else
+      warn "the crossplane installer failed; the installed CLI is unchanged"
+    fi
+  fi
+else
+  warn "could not resolve the latest crossplane/cli release; skipping crossplane"
 fi
 
 log "Networking / mesh"
 gh_tar cilium/cilium-cli 'cilium-linux-amd64.tar.gz$' cilium cilium
 gh_tar cilium/hubble 'hubble-linux-amd64.tar.gz$' hubble hubble
-istio_release=$(tag istio/istio)
-printf '%s\t%s\t%s\n' istioctl istio/istio "$istio_release" >> "$RELEASE_ROWS"
-if ! has_release "$(ver istioctl || true)" "$istio_release" && \
-   ! report_matches_release istioctl istio/istio "$istio_release"; then
-  log "istioctl latest is $istio_release"
-  istio_tmp=$(mktemp -d)
-  ( cd "$istio_tmp" && curl -fsSL https://istio.io/downloadIstio | ISTIO_VERSION="${istio_release#v}" sh - >/dev/null )
-  install -m755 "$istio_tmp"/istio-*/bin/istioctl "$BIN_DIR/istioctl"
-  rm -rf "$istio_tmp"
+if istio_release=$(tag istio/istio); then
+  if has_release "$(ver istioctl || true)" "$istio_release" || \
+     report_matches_release istioctl istio/istio "$istio_release"; then
+    record_release istioctl istio/istio "$istio_release"
+  else
+    log "istioctl latest is $istio_release"
+    istio_tmp=$(mktemp -d)
+    if ( cd "$istio_tmp" && curl -fsSL https://istio.io/downloadIstio | ISTIO_VERSION="${istio_release#v}" sh - >/dev/null ) && \
+       install -m755 "$istio_tmp"/istio-*/bin/istioctl "$BIN_DIR/istioctl"; then
+      record_release istioctl istio/istio "$istio_release"
+    else
+      warn "the istioctl download failed; the installed CLI is unchanged"
+    fi
+    rm -rf "$istio_tmp"
+  fi
+else
+  warn "could not resolve the latest istio/istio release; skipping istioctl"
 fi
 gh_bin linkerd/linkerd2 'linkerd2-cli-.*-linux-amd64$' linkerd
 
@@ -220,7 +246,7 @@ fi
 log "Installed versions"
 report_rows=$(mktemp)
 for t in kubectl helm kind argocd flux tkn crossplane istioctl linkerd cilium hubble \
-         argo kubectl-argo-rollouts trivy cosign kubebuilder kubectl-cost cloud-provider-kind; do
+         argo kubectl-argo-rollouts trivy cosign kubebuilder kubeseal kubectl-cost cloud-provider-kind; do
   version=$(ver "$t" || echo installed)
   printf '  %-24s %s\n' "$t" "$version"
   path=$(command -v "$t" 2>/dev/null || true)
