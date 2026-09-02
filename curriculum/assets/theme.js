@@ -16,7 +16,7 @@
   function resolved() { return pref === "system" ? (mq && mq.matches ? "light" : "dark") : pref; }
 
   // Browser chrome backgrounds, kept in sync with --dk-ink and --lt-ink in the CSS.
-  var CHROME = { dark: "#101010", light: "#F4F4F4" };
+  var CHROME = { dark: "#171511", light: "#F3EFE6" };
 
   function paint() {
     if (pref === "system") root.removeAttribute("data-theme");

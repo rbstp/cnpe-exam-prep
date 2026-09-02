@@ -248,7 +248,7 @@ curl -sS -o /dev/null -w 'apex %{http_code}\n' https://rbstp.dev/
 ### Browser pass
 
 1. **Fonts.** Open `https://cnpe.rbstp.dev/`, DevTools → Network → filter `Font`, reload.
-   Six `woff2` at `200`: plex-sans (variable), plex-cond 600/700, plex-mono 400/500/600.
+   Nine `woff2` at `200`: plex-sans (variable), plex-serif 400/400i/600, plex-cond 600/700, plex-mono 400/500/600.
    Headings should be narrow and condensed, code monospaced; a serif or the system UI
    font means they did not load.
 2. **Palette.** Press <kbd>/</kbd> → the overlay opens. Type `crossplane` → one hit
@@ -265,7 +265,7 @@ curl -sS -o /dev/null -w 'apex %{http_code}\n' https://rbstp.dev/
    file → it reports what it added and reloads showing 1.1 done. Importing it a second
    time says *"Nothing new in that file"* rather than double-counting.
 6. **The theme.** The ground matches your OS setting on first load. Click the masthead
-   theme button (or press <kbd>t</kbd>) → paper, then graphite, then back to *system*;
+   theme button (or press <kbd>t</kbd>) → paper, then night, then back to *system*;
    the tooltip names the current state. Reload on a pinned theme: the page comes up in it
    with no flash of the other ground, because `assets/theme.js` runs from `<head>`.
 7. **The single file.** `/console.html` → same dashboard. Network shows one document and
