@@ -117,4 +117,29 @@ module.exports = async function (h) {
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   });
+
+  /* the last panels sit above the pager and the footer, so their headings never
+     reach the spy line and the rail used to stop short of them */
+  await group('the bottom of the page marks the last panel', async () => {
+    const { ctx, page } = await fresh();
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await page.goto(url('03-platform-apis/04-argo-workflows.html'));
+    const marked = () => page.evaluate(() =>
+      (document.querySelector('#toc a.active') || {}).textContent || null);
+    const last = await page.evaluate(() => {
+      const as = document.querySelectorAll('#toc a');
+      return as.length ? as[as.length - 1].textContent : null;
+    });
+    assert(last, 'the page has a rail to mark: ' + JSON.stringify(last));
+    await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }));
+    await page.waitForTimeout(300);
+    assert(await marked() === last,
+      'at the bottom the last panel is marked: ' + JSON.stringify(await marked()) + ' want ' + JSON.stringify(last));
+    // and it is the bottom that does it, not a one-way latch: scrolling back up releases
+    await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+    await page.waitForTimeout(300);
+    assert(await marked() !== last, 'back at the top it lets go again: ' + JSON.stringify(await marked()));
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  });
 };

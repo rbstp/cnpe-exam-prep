@@ -11,7 +11,7 @@
   var dueIn = M.dueIn;                   // the card's own schedule; merge.js holds it
   var countOf = M.countOf;
 
-  var session = null;                // { deck, i, right[], missed[], revealed }
+  var session = null;                // { deck, i, right[], missed[], marks[], revealed }
   var size = 10, domain = 0;         // deck size, and 0 means all domains
   var keysWired = false;
   var host = null;

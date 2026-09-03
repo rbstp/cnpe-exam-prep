@@ -633,7 +633,8 @@
     // of scroll before their headings reach the line. Once the bottom is on
     // screen there is nothing further to read, so mark the last one.
     var root = document.documentElement;
-    if (window.innerHeight + window.pageYOffset >= root.scrollHeight - 2) idx = spyState.targets.length - 1;
+    if (root.scrollHeight > window.innerHeight &&
+        window.innerHeight + window.pageYOffset >= root.scrollHeight - 2) idx = spyState.targets.length - 1;
     if (idx === spyState.active) return;
     if (links[spyState.active]) links[spyState.active].classList.remove("active");
     links[idx].classList.add("active");
@@ -812,7 +813,11 @@
   }
   function go(i) {
     var n = paletteItems[i];
-    if (n) location.href = href(n.path);
+    if (!n) return;
+    // The palette opens on the section being read, so the first ⏎ lands on the
+    // page you are already on: reloading it would only throw away your place.
+    if (n === entry) { closeOverlays(); return; }
+    location.href = href(n.path);
   }
   var lastFocus = null;
   /* An overlay scrims the whole viewport and blurs what shows through it, so a

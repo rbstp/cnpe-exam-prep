@@ -61,6 +61,42 @@ module.exports = async function (h) {
     await ctx.close();
   });
 
+  /* 1b. opened from a section, the list starts on that section */
+  await group('palette: opens on the section being read, and ⏎ there closes rather than reloads', async () => {
+    const { ctx, page } = await fresh();
+    await page.goto(url('04-observability/01-prometheus.html'));
+    await page.keyboard.press('/');
+    assert(await paletteOpen(page), '/ opens the palette');
+    const pid = await page.evaluate(() => {
+      const li = document.querySelector('#palette-list li.sel');
+      return li ? li.querySelector('.pid').textContent : '(nothing selected)';
+    });
+    assert(pid === '4.1', 'the selected row is the section being read, not 1.1: ' + JSON.stringify(pid));
+    // that row is well down a 30-row list, so it has to have been scrolled to
+    assert(await page.evaluate(() => {
+      const li = document.querySelector('#palette-list li.sel'), ul = document.getElementById('palette-list');
+      const a = li.getBoundingClientRect(), b = ul.getBoundingClientRect();
+      return a.top >= b.top - 1 && a.bottom <= b.bottom + 1;
+    }), 'and it is scrolled into view rather than left off the end');
+
+    // ⏎ on the page you are already on has nowhere to go: it should not reload
+    // a reload wipes the DOM, so a mark on the root outlives one only if none happened
+    await page.evaluate(() => { document.documentElement.dataset.stillHere = '1'; });
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(400);
+    assert(await page.evaluate(() => document.documentElement.dataset.stillHere === '1'),
+      '⏎ on the current section does not reload the page');
+    assert(!(await paletteOpen(page)), 'it closes the palette instead');
+    assert(/01-prometheus\.html/.test(page.url()), 'and leaves the address alone: ' + page.url());
+
+    // typing still overrides the preselection: a query re-selects from the top
+    await page.keyboard.press('/');
+    await page.keyboard.type('tekton');
+    assert((await selIndex(page)) === 0, 'a query puts the selection back on the first match');
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  });
+
   /* 2. no match, Escape, ⌘K, and the palette owns single-key shortcuts */
   await group('palette: no-match hint, Escape closes, ctrl-K reopens, keys stay in the input', async () => {
     const { ctx, page } = await fresh();
