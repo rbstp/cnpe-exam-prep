@@ -306,7 +306,7 @@
 
     var logo = el("a", "logo",
       '<svg class="mark" viewBox="0 0 24 24" aria-hidden="true">' +
-        '<polygon class="hx" points="12.00,0.60 21.87,6.30 21.87,17.70 12.00,23.40 2.13,17.70 2.13,6.30" stroke-width="1" stroke-linejoin="round"/>' +
+        '<polygon class="hx" points="12.00,0.60 21.87,6.30 21.87,17.70 12.00,23.40 2.13,17.70 2.13,6.30"/>' +
         '<g transform="translate(12 12) scale(.72) translate(-12 -12)" fill="none" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round">' +
           '<path class="l3" d="M20.4 17 12 21.4 3.6 17"/>' +
           '<path class="l2" d="M20.4 12 12 16.4 3.6 12"/>' +
