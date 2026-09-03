@@ -264,10 +264,17 @@ Save. Copy the **Client ID** into `sync/wrangler.toml` under `[vars]`, then pres
 GitHub will not show it again.
 
 **Upload a logo** while you are there: `sync/oauth-app-logo.png` is the console's
-own stack mark on its dark ground, 512x512, which is what people see on the
-authorize screen. It is rendered from `curriculum/assets/favicon.svg`, so the two
-cannot drift into different marks; GitHub masks it to a circle, and the padding
-is set so nothing clips.
+stack mark set inside a hexagon on the dark ground, 512x512, which is what people
+see on the authorize screen. Its source is `sync/oauth-app-logo.svg`: the same badge as
+`curriculum/assets/favicon.svg` and the masthead mark, drawn large, with the
+palette from `curriculum/assets/style.css`, so the three cannot drift into
+different marks. GitHub masks it to a circle, and the
+hexagon sits inside that circle so nothing clips. To regenerate the PNG after
+editing the SVG:
+
+```bash
+npx playwright screenshot --viewport-size=512,512 sync/oauth-app-logo.svg sync/oauth-app-logo.png
+```
 
 The app needs no scopes and no permissions to request. `/auth/start` sends
 `scope=`, empty, on purpose.

@@ -306,12 +306,12 @@
 
     var logo = el("a", "logo",
       '<svg class="mark" viewBox="0 0 24 24" aria-hidden="true">' +
-        '<defs><linearGradient id="cnpeMark" x1="0" y1="0" x2="1" y2="1">' +
-          '<stop class="s1" offset="0%" stop-color="#B7CDF2"/><stop class="s2" offset="100%" stop-color="#8FB0E4"/>' +
-        '</linearGradient></defs>' +
-        '<path d="M12 2.6 20.4 7 12 11.4 3.6 7z" fill="none" stroke="url(#cnpeMark)" stroke-width="1.7" stroke-linejoin="round"/>' +
-        '<path class="sv" d="M20.4 12 12 16.4 3.6 12" fill="none" stroke="#8FBF74" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>' +
-        '<path d="M20.4 17 12 21.4 3.6 17" fill="none" stroke="url(#cnpeMark)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '<polygon class="hx" points="12.00,0.60 21.87,6.30 21.87,17.70 12.00,23.40 2.13,17.70 2.13,6.30"/>' +
+        '<g transform="translate(12 12) scale(.72) translate(-12 -12)" fill="none" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round">' +
+          '<path class="l3" d="M20.4 17 12 21.4 3.6 17"/>' +
+          '<path class="l2" d="M20.4 12 12 16.4 3.6 12"/>' +
+          '<path class="l1" d="M12 2.6 20.4 7 12 11.4 3.6 7z"/>' +
+        '</g>' +
       '</svg>' +
       '<span class="word">CNPE</span><span class="sub">study console</span>');
     logo.href = href("index.html");
