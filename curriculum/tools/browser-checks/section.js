@@ -118,6 +118,51 @@ module.exports = async function (h) {
     await ctx.close();
   });
 
+  /* href() splices the root into markup that six builders hand to innerHTML, so
+     the root must be rebuilt from a literal rather than carried out of the DOM.
+     CodeQL called that path js/xss-through-dom twelve times over. */
+  await group('the page root is rebuilt, not carried out of the DOM', async () => {
+    const { ctx, page } = await fresh();
+    await page.goto(url('01-architecture/01-networking.html'));
+    await page.waitForTimeout(300);
+
+    // a section page sits one directory down, and its generated links say so
+    const real = await page.evaluate(() => ({
+      attr: document.body.getAttribute('data-root'),
+      logo: document.querySelector('.logo').getAttribute('href'),
+      // the first pager slot is a hrefless ghost when there is no previous
+      // section, so ask for one that actually carries a link
+      pager: (document.querySelector('.pager a[href]') || {}).getAttribute
+        ? document.querySelector('.pager a[href]').getAttribute('href') : null
+    }));
+    assert(real.attr === '../', 'the page declares a root one level up: ' + JSON.stringify(real.attr));
+    assert(real.logo === '../index.html', 'and the logo link is built from it: ' + JSON.stringify(real.logo));
+    assert(real.pager && real.pager.indexOf('../') === 0,
+      'as is the pager: ' + JSON.stringify(real.pager));
+
+    /* Now hand it a root no page writes. The value must not reach the markup,
+       and the builders must fall back to the top of the site rather than splice
+       it in: this is the assertion the twelve alerts were about. */
+    const hostile = await page.evaluate(() => {
+      document.body.setAttribute('data-root', '"><img src=x onerror="document.title=String.fromCharCode(88)">');
+      window.CNPE_BOOT();
+      return {
+        injected: document.querySelectorAll('img[src="x"]').length,
+        title: document.title,
+        logo: document.querySelector('.logo').getAttribute('href'),
+        // nothing anywhere in the rebuilt chrome may carry the attribute's text
+        leaked: document.querySelector('.topbar').innerHTML.indexOf('onerror') >= 0
+      };
+    });
+    assert(hostile.injected === 0, 'a hostile root injects no element: ' + hostile.injected + ' found');
+    assert(hostile.title !== 'X', 'and runs no script: title is ' + JSON.stringify(hostile.title));
+    assert(!hostile.leaked, 'its text reaches no markup');
+    assert(hostile.logo === 'index.html',
+      'the builders fall back to the top of the site: ' + JSON.stringify(hostile.logo));
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  });
+
   /* the last panels sit above the pager and the footer, so their headings never
      reach the spy line and the rail used to stop short of them */
   await group('the bottom of the page marks the last panel', async () => {
