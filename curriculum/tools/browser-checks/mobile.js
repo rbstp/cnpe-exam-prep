@@ -87,9 +87,9 @@ module.exports = async function (h) {
   });
   await group('mobile: nor at 320px, where a long unbroken token would show', () => sweep(SMALL));
 
-  /* 3. the measure is a ceiling, so a phone spends every pixel it has on text,
-     and no width anywhere lets a line grow past that ceiling */
-  await group('mobile: text fills the column, and never exceeds the measure at any width', async () => {
+  /* 3. the column is the measure, so nothing carries a gutter its neighbour
+     does not — the rule that keeps prose the width of the exercise bodies */
+  await group('measure: text spends the whole column at every width', async () => {
     const { ctx, page } = await fresh();
     /** @param {number} w */
     const widths = async w => {
@@ -97,33 +97,41 @@ module.exports = async function (h) {
       await page.waitForTimeout(120);
       return page.evaluate(() => {
         const r = (/** @type {Element | null} */ e) => e ? Math.round(e.getBoundingClientRect().width) : null;
+        /* A block that hangs its content off a rule or a number owns that
+           indent; what has to match is the width it has left. */
+        const indent = (/** @type {string} */ sel) => {
+          const e = document.querySelector(sel);
+          if (!e) return null;
+          const cs = getComputedStyle(e);
+          return Math.round(parseFloat(cs.paddingLeft) + parseFloat(cs.borderLeftWidth));
+        };
         return {
           col: r(document.querySelector('.panel .pbody')),
           para: r(document.querySelector('.panel .pbody p')),
-          quiz: r(document.querySelector('.quiz .answer'))
+          quiz: r(document.querySelector('.quiz .answer')),
+          callout: r(document.querySelector('.callout p')),
+          coIndent: indent('.callout'),
+          // the exercise bodies never set a measure, so they are the reference
+          exercise: r(document.querySelector('.exercise .body p')),
+          exIndent: indent('.exercise .body')
         };
       });
     };
     await page.goto(url('01-architecture/05-cost.html'));
 
-    for (const w of [320, 390, 430, 768]) {
+    /* Both sides of the 1180px breakpoint, where the rail leaves and the column
+       widens, and down to the narrowest phone. */
+    for (const w of [1400, 1181, 1179, 1000, 768, 430, 390, 320]) {
       const m = await widths(w);
       assert(m.para === m.col, w + 'px: a paragraph spends the whole column, no gutter: ' +
         m.para + ' of ' + m.col);
-      assert(m.quiz > 0 && m.quiz <= m.col, w + 'px: a self-check answer fits the column: ' +
-        m.quiz + ' of ' + m.col);
+      assert(m.callout === null || m.callout === m.col - m.coIndent,
+        w + 'px: so does a callout, less its own rule: ' + m.callout +
+        ' of ' + m.col + ' − ' + m.coIndent);
+      assert(m.exercise === null || m.exercise === m.col - m.exIndent,
+        w + 'px: and an exercise body, less its own indent: ' + m.exercise +
+        ' of ' + m.col + ' − ' + m.exIndent);
     }
-
-    /* The rail leaves at 1180px and the column widens to the whole page, so
-       without a px ceiling narrowing the window would lengthen the line. */
-    const wide = await widths(1400), justUnder = await widths(1179), justOver = await widths(1181);
-    assert(wide.para <= 846, 'wide: the line stops at the measure: ' + wide.para);
-    assert(justUnder.col > justOver.col,
-      'the column really does widen when the rail leaves: ' + justOver.col + ' → ' + justUnder.col);
-    assert(justUnder.para <= wide.para,
-      'yet narrowing the window never lengthens the line: ' + justOver.para + ' → ' + justUnder.para);
-    assert(justUnder.para === justUnder.quiz && wide.para === wide.quiz,
-      'a paragraph and an answer break in the same place at both widths');
     /* the answer hangs under the question rather than under the Q number, so on a
        phone the two have to share a left edge or the block reads as two columns */
     await page.setViewportSize({ width: 390, height: 900 });
