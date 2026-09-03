@@ -265,9 +265,10 @@ GitHub will not show it again.
 
 **Upload a logo** while you are there: `sync/oauth-app-logo.png` is the console's
 stack mark set inside a hexagon on the dark ground, 512x512, which is what people
-see on the authorize screen. Its source is `sync/oauth-app-logo.svg`, which reuses
-the favicon's mark geometry and the palette from `curriculum/assets/style.css`, so
-the two cannot drift into different marks. GitHub masks it to a circle, and the
+see on the authorize screen. Its source is `sync/oauth-app-logo.svg`: the same badge as
+`curriculum/assets/favicon.svg` and the masthead mark, drawn large, with the
+palette from `curriculum/assets/style.css`, so the three cannot drift into
+different marks. GitHub masks it to a circle, and the
 hexagon sits inside that circle so nothing clips. To regenerate the PNG after
 editing the SVG:
 
