@@ -629,6 +629,12 @@
       var t = spyState.targets[i];
       if (t && t.getBoundingClientRect().top <= 120) idx = i;
     }
+    // The last sections sit above the pager and the footer, so the page runs out
+    // of scroll before their headings reach the line. Once the bottom is on
+    // screen there is nothing further to read, so mark the last one.
+    var root = document.documentElement;
+    if (root.scrollHeight > window.innerHeight &&
+        window.innerHeight + window.pageYOffset >= root.scrollHeight - 2) idx = spyState.targets.length - 1;
     if (idx === spyState.active) return;
     if (links[spyState.active]) links[spyState.active].classList.remove("active");
     links[idx].classList.add("active");
@@ -763,6 +769,12 @@
       return q.split(/\s+/).every(function (tok) { return hay.indexOf(tok) >= 0; });
     });
     paletteItems = items; paletteSel = 0;
+    // Opened with no query, the list is the whole manifest: start it on the
+    // section being read, so ⏎ is a no-op and ↑↓ walks out from where you are.
+    if (!q && entry) {
+      var here = items.indexOf(entry);
+      if (here > 0) paletteSel = here;
+    }
     var hint = document.getElementById("palette-hint");
     if (hint) {
       hint.textContent = !q ? "↑↓ navigate · ⏎ open · esc close · type a tool name (kyverno, flux, spiffe…) to find its section"
@@ -781,11 +793,11 @@
         '</span><span class="pmeta">' + (d ? "d" + d.n : /^EX/.test(n.id) ? "exam" : "drill") + hit + "</span></li>";
     }).join("");
     palettePainted = -1;                         // those rows are gone
-    markSel();
+    markSel(paletteSel > 0);   // the row it jumped to is worth centring, a match at the top is not
   }
   // Two rows change, so move the mark rather than walking the list.
   var palettePainted = -1;
-  function markSel() {
+  function markSel(center) {
     var kids = paletteList.children;
     var was = kids[palettePainted];
     if (was) { was.classList.remove("sel"); was.setAttribute("aria-selected", "false"); }
@@ -795,13 +807,17 @@
       s.classList.add("sel");
       s.setAttribute("aria-selected", "true");
       // Closed at boot, and asking then forces a layout boot is about to undo.
-      if (s.scrollIntoView && paletteOverlay.classList.contains("open")) s.scrollIntoView({ block: "nearest" });
+      if (s.scrollIntoView && paletteOverlay.classList.contains("open")) s.scrollIntoView({ block: center ? "center" : "nearest" });
       if (paletteInput) paletteInput.setAttribute("aria-activedescendant", s.id);
     } else if (paletteInput) paletteInput.removeAttribute("aria-activedescendant");
   }
   function go(i) {
     var n = paletteItems[i];
-    if (n) location.href = href(n.path);
+    if (!n) return;
+    // The palette opens on the section being read, so the first ⏎ lands on the
+    // page you are already on: reloading it would only throw away your place.
+    if (n === entry) { closeOverlays(); return; }
+    location.href = href(n.path);
   }
   var lastFocus = null;
   /* An overlay scrims the whole viewport and blurs what shows through it, so a

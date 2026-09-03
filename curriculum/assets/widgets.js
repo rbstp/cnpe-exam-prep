@@ -679,7 +679,7 @@
       ];
       var firstBad = hops.filter(function (x) { return !x.ok; })[0];
       out.innerHTML =
-        '<div class="wpath">' + hops.map(function (x, i) {
+        '<div class="wpath narrow">' + hops.map(function (x, i) {
           var state = x.ok ? (firstBad && hops.indexOf(firstBad) < i ? "skip" : "pass") : "fail";
           return '<div class="whop ' + state + '"><span class="whop-n">' + x.n + "</span>" +
                  '<span class="whop-s">' + (state === "pass" ? "✓" : state === "fail" ? "✕" : "·") + "</span></div>";

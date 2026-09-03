@@ -11,7 +11,7 @@
   var dueIn = M.dueIn;                   // the card's own schedule; merge.js holds it
   var countOf = M.countOf;
 
-  var session = null;                // { deck, i, right[], missed[], revealed }
+  var session = null;                // { deck, i, right[], missed[], marks[], revealed }
   var size = 10, domain = 0;         // deck size, and 0 means all domains
   var keysWired = false;
   var host = null;
@@ -202,7 +202,7 @@
 
   function startSession(deck) {
     if (!deck.length) { renderSetup(); return; }
-    session = { deck: deck, i: 0, right: [], missed: [], revealed: false };
+    session = { deck: deck, i: 0, right: [], missed: [], marks: [], revealed: false };
     renderCard();
   }
 
@@ -210,9 +210,18 @@
     var q = session.deck[session.i];
     host.innerHTML = "";
 
+    // One cell per card, in the order they were answered, so the bar is the
+    // session's record rather than a count of how far through it you are.
+    var cells = "";
+    for (var c = 0; c < session.deck.length; c++) {
+      var mark = c < session.marks.length ? (session.marks[c] ? "hit" : "miss") : (c === session.i ? "now" : "");
+      cells += '<i class="' + mark + '"></i>';
+    }
     var prog = el("div", "drill-prog",
       "<span>card " + (session.i + 1) + " / " + session.deck.length + "</span>" +
-      '<span class="track"><i style="width:' + (session.i / session.deck.length * 100) + '%"></i></span>' +
+      '<span class="track" role="img" aria-label="' + session.right.length + " correct, " +
+        session.missed.length + " missed, " + (session.deck.length - session.marks.length) +
+        ' to go">' + cells + "</span>" +
       '<span><b class="ok">✓ ' + session.right.length + '</b> · <b class="bad">✕ ' + session.missed.length + "</b></span>");
     host.appendChild(prog);
     metaLine("card " + (session.i + 1) + " of " + session.deck.length);
@@ -251,6 +260,7 @@
     var q = session.deck[session.i];
     record(q, ok);
     (ok ? session.right : session.missed).push(q);
+    session.marks.push(ok);
     session.revealed = false;
     session.i++;
     paintTiles();
