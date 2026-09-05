@@ -545,6 +545,9 @@ interface CnpeGameDebug {
   /** the camera as last drawn, in map pixels (null before the first frame), and whether it is easing back
       to the player after a scene, which it does over 180 ms through whole pixels and never during a step */
   camera: { x: number; y: number } | null; cameraEase: boolean;
+  /** the signpost: where next (the nearest town with its trial or dungeon to do, then an open keep, then the
+      gate) as a tile and a phrase, or null once the exam is passed */
+  goal: { x: number; y: number; what: string } | null;
   /** how many animated tiles the last frame found in view: water, and the rest */
   waterInView: number; ambientInView: number;
   /** the quest is mounted, how many times it has been, and the listeners,

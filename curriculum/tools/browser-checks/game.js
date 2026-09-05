@@ -726,6 +726,73 @@ module.exports = async function (h) {
     await still.ctx.close();
   });
 
+  /* 8d2. the signpost: where next, in the where window, on the minimap and in the label; it moves on as things are done */
+  await group('the signpost points to the trial, then the dungeon, then the nearest town left, and rings it on the minimap', async () => {
+    /** @param {import('playwright').Page} page */
+    const sign = page => page.evaluate(() => { window.CNPE_GAME.debug().frame(); const d = window.CNPE_GAME.debug(); return { goal: d.goal, where: document.querySelector('.gm-where').textContent, nx: (document.querySelector('.gm-where .nx') || { textContent: '' }).textContent, label: document.querySelector('.gm-stage canvas').getAttribute('aria-label') }; });
+    /** the ring's pixels around a tile, and the tile itself, read at the backing scale
+        @param {import('playwright').Page} page @param {number} x @param {number} y */
+    const ring = (page, x, y) => page.evaluate(({ x, y }) => {
+      const c = /** @type {HTMLCanvasElement} */ (document.querySelector('.gm-mini canvas')), k = c.getContext('2d'), s = window.CNPE_GAME.debug().minimap.scale;
+      const at = (/** @type {number} */ px, /** @type {number} */ py) => { const p = k.getImageData(px * s, py * s, 1, 1).data; return p[0] + ',' + p[1] + ',' + p[2]; };
+      return { tl: at(x - 2, y - 2), br: at(x + 2, y + 2), left: at(x - 2, y), top: at(x, y - 2), inner: at(x - 1, y), centre: at(x, y), odd: (window.CNPE_GAME.debug().waterFrame & 1) === 1 };
+    }, { x, y });
+    const rgb = (/** @type {string} */ hex) => { const h = hex.replace('#', ''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)).join(','); };
+    // a fresh start two tiles under Portmouth: its trial is the first thing to do
+    const { ctx, page } = await fresh({ game: { flags: { intro: 1 }, pos: { x: 8, y: 8, t: 1 } } });
+    await page.goto(url('game.html'));
+    await page.waitForSelector('.gm-stage canvas');
+    await skipIntro(page);
+    const colours = await page.evaluate(() => { const cs = getComputedStyle(document.documentElement); const v = (/** @type {string} */ n) => cs.getPropertyValue(n).trim(); return { accent: v('--accent'), paper: v('--paper') }; });
+    let s = await sign(page);
+    assert(!!s.goal && s.goal.x === TOWN.x && s.goal.y === TOWN.y && s.goal.what === 'the trial in Portmouth', 'from the start the signpost points to Portmouth\'s trial: ' + JSON.stringify(s.goal));
+    assert(s.nx === 'next: the trial in Portmouth · 2 ▲' && /Substrate Downs/.test(s.where), 'the where window says so, with the steps and the way: ' + JSON.stringify(s.nx));
+    assert(/Next: the trial in Portmouth, 2 steps north\./.test(s.label || ''), 'and the canvas says it in words: ' + s.label);
+    // the ring: a hollow five by five in the accent around the town on the beat's odd frames, gone on the even ones the dot takes
+    /** @type {Record<string, ReturnType<typeof ring> extends Promise<infer T> ? T : never>} */
+    const seen = {};
+    for (let i = 0; i < 3; i++) { if (i) await page.evaluate(() => { window.CNPE_GAME.debug().tick(); window.CNPE_GAME.debug().frame(); }); const r = await ring(page, TOWN.x, TOWN.y); seen[r.odd ? 'odd' : 'even'] = r; }
+    const on = seen.odd, off = seen.even;
+    assert(!!on && [on.tl, on.br, on.left, on.top].every(c => c === rgb(colours.accent)) && on.inner !== rgb(colours.accent) && on.centre === rgb(colours.paper),
+      'on the odd frame the ring is the accent, hollow, and the town\'s own pixel shows through it: ' + JSON.stringify(on));
+    assert(!!off && [off.tl, off.br, off.left, off.top].every(c => c !== rgb(colours.accent)), 'on the even frame the ring is lifted and the ground shows: ' + JSON.stringify(off));
+    // the trial cleared, the signpost moves on to the dungeon door
+    await page.evaluate(() => { const st = window.CNPE_PROGRESS.get(); st.game.towns = { '1.1': 1 }; window.CNPE_PROGRESS.save(); });
+    s = await sign(page);
+    assert(!!s.goal && s.goal.x === DOOR.x && s.goal.y === DOOR.y && s.nx === 'next: the dungeon of Portmouth · 5 ▲▶', 'cleared, it points to the dungeon door, north-east: ' + JSON.stringify({ goal: s.goal, nx: s.nx }));
+    assert(/Next: the dungeon of Portmouth, 5 steps north-east\./.test(s.label || ''), 'in words too: ' + s.label);
+    // the dungeon won, the nearest town still to do is next; standing in that town, it is "here"
+    await page.evaluate(() => { const st = window.CNPE_PROGRESS.get(); st.game.wins = { 'svc-selector': { n: 1, best: 5, t: 1 } }; window.CNPE_PROGRESS.save(); });
+    const nearest = await page.evaluate(/** @returns {{ x: number, y: number, name: string, d: number } | null} */ () => { const D = window.CNPE_GAME_DATA; /** @type {{ x: number, y: number, name: string, d: number } | null} */ let best = null; let bd = 1e9; D.towns.forEach(t => { if (t.sec === '1.1') return; const d = Math.abs(t.x - 8) + Math.abs(t.y - 8); if (d < bd) { bd = d; best = { x: t.x, y: t.y, name: t.name, d: bd }; } }); return best; });
+    if (!nearest) throw new Error('the map has one town');
+    s = await sign(page);
+    assert(!!s.goal && s.goal.x === nearest.x && s.goal.y === nearest.y && s.goal.what === 'the trial in ' + nearest.name && new RegExp(' · ' + nearest.d + ' ').test(s.nx),
+      'won, it points to the nearest town left, ' + nearest.name + ': ' + JSON.stringify({ goal: s.goal, nx: s.nx }));
+    await standAt(page, nearest.x, nearest.y);
+    await page.keyboard.press('Escape');                 // standing on a town opens it: leave, and the signpost reads here
+    await page.waitForFunction(() => /** @type {HTMLElement} */ (document.querySelector('.gm-screen')).hidden);
+    s = await sign(page);
+    assert(s.nx === 'next: the trial in ' + nearest.name + ' · here' && /Next: the trial in .*, here\./.test(s.label || ''), 'standing there, the signpost reads here: ' + JSON.stringify(s.nx));
+    // everything done: no signpost, no ring, and the label says so
+    await page.evaluate(() => { const st = window.CNPE_PROGRESS.get(); const D = window.CNPE_GAME_DATA; st.game.towns = {}; D.towns.forEach(t => { st.game.towns[t.sec] = 1; }); st.game.wins = {}; D.scenarios.forEach(sc => { st.game.wins[sc.id] = { n: 1, best: 1, t: 1 }; }); st.game.flags = { intro: 1, final: 1 }; D.regions.forEach(r => { st.game.flags['boss-' + r.d] = 1; }); window.CNPE_PROGRESS.save(); });
+    s = await sign(page);
+    assert(s.goal === null && s.nx === '' && /The exam is passed/.test(s.label || ''), 'with the exam passed there is nowhere left to point: ' + JSON.stringify({ goal: s.goal, nx: s.nx }));
+    const gone = await ring(page, nearest.x, nearest.y);
+    assert([gone.tl, gone.br, gone.left, gone.top].every(c => c !== rgb(colours.accent)), 'and the ring is lifted for good: ' + JSON.stringify(gone));
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+    // reduced motion: the ring holds steady, like the dot
+    const still = await fresh({ game: { flags: { intro: 1 }, pos: { x: 8, y: 8, t: 1 } } }, { reducedMotion: 'reduce' });
+    await still.page.goto(url('game.html'));
+    await still.page.waitForSelector('.gm-stage canvas');
+    await skipIntro(still.page);
+    await still.page.evaluate(() => window.CNPE_GAME.debug().frame());
+    const steady = await ring(still.page, TOWN.x, TOWN.y);
+    assert([steady.tl, steady.br, steady.left, steady.top].every(c => c === rgb(colours.accent)), 'reduced motion: the ring is on and stays: ' + JSON.stringify(steady));
+    assert(still.page.errors.length === 0, 'no console errors: ' + still.page.errors.join(' | '));
+    await still.ctx.close();
+  });
+
   /* 8e. three round trips through the bundle's #GM route leave one animation loop, one ticker, and nothing after unmount */
   await group('unmount() leaves nothing behind: one loop and one ticker after three round trips', async () => {
     const { ctx, page } = await fresh();

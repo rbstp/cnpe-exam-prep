@@ -249,6 +249,40 @@
     function dungeonOpen(t) { return has("towns", t.sec); }
     function keepOpen(r) { return D.scenarios.filter(function (s) { return s.d === r.d; }).every(function (s) { return wins(s.id) > 0; }); }
     function gateOpen() { return D.regions.every(function (r) { return has("flags", "boss-" + r.d); }); }
+    function nextGoal() {
+        var best = null, bd = 1e9;
+        var offer = function (x, y, what) {
+            var d = Math.abs(x - player.x) + Math.abs(y - player.y);
+            if (d < bd) {
+                bd = d;
+                best = { x: x, y: y, what: what };
+            }
+        };
+        D.towns.forEach(function (t) {
+            if (!has("towns", t.sec))
+                offer(t.x, t.y, "the trial in " + t.name);
+            else if (!wins(t.dungeon))
+                offer(t.door.x, t.door.y, "the dungeon of " + t.name);
+        });
+        if (best)
+            return best;
+        D.regions.forEach(function (r) { if (!has("flags", "boss-" + r.d) && keepOpen(r))
+            offer(r.keep.x, r.keep.y, "the " + r.name + " keep"); });
+        if (best)
+            return best;
+        if (!has("flags", "final") && gateOpen())
+            return { x: D.finale.keep.x, y: D.finale.keep.y, what: "the Exam gate" };
+        return null;
+    }
+    /** the way to a goal: glyphs for the window (the d-pad's arrows, which the fonts carry), words for the label */
+    function wayTo(gl, words) {
+        var dx = gl.x - player.x, dy = gl.y - player.y;
+        if (words) {
+            var ns = dy < 0 ? "north" : dy > 0 ? "south" : "", ew = dx > 0 ? "east" : dx < 0 ? "west" : "";
+            return ns && ew ? ns + "-" + ew : ns || ew;
+        }
+        return (dy < 0 ? "▲" : dy > 0 ? "▼" : "") + (dx > 0 ? "▶" : dx < 0 ? "◀" : "");
+    }
     function loadPos() {
         var p = obj(g().pos);
         if (p && walkable(+p.x, +p.y)) {
@@ -478,6 +512,7 @@
     var focused = false; // the stage has focus: its border and the minimap's frame take the accent
     var miniDot = { x: -1, y: -1 }; // where the dot was last painted, to lift it
     var miniFrame = { x: -1, y: -1 }; // the viewport frame's top-left tile as last painted, to lift it
+    var miniGoal = { x: -1, y: -1 }; // the signpost's ring as last painted, to lift it
     var lastLabel = ""; // the canvas's aria-label as last written
     // Coming back to the map, the camera eases from where it last stood to the
     // player over EASE_MS, through whole pixels, on the same frames as a step;
@@ -708,6 +743,8 @@
         miniDot.y = -1;
         miniFrame.x = -1;
         miniFrame.y = -1;
+        miniGoal.x = -1;
+        miniGoal.y = -1;
     }
     /** the ground back under a rectangle of the minimap, clipped to the map, so a lift at its edge stretches nothing */
     function restoreMini(m, x, y, w, h) {
@@ -745,6 +782,8 @@
             restoreMini(m, miniFrame.x, miniFrame.y, 1, VH);
             restoreMini(m, miniFrame.x + VW - 1, miniFrame.y, 1, VH);
         }
+        if (miniGoal.x >= 0)
+            restoreMini(m, miniGoal.x - 2, miniGoal.y - 2, 5, 5);
         if (miniDot.x >= 0)
             restoreMini(m, miniDot.x - 1, miniDot.y - 1, 3, 3);
         var c = lastCam || camera(player.x * TILE, player.y * TILE);
@@ -756,6 +795,24 @@
         m.fillRect(fx + VW - 1, fy, 1, VH);
         miniFrame.x = fx;
         miniFrame.y = fy;
+        // the signpost's ring: a hollow five by five in the accent around where next, on the beat's odd frames, so it
+        // and the dot take turns; steady under reduced motion. It never covers the tile it points at.
+        var gl = nextGoal();
+        if (gl && (reduceMotion || (animFrame & 1))) {
+            m.fillStyle = P.accent;
+            m.fillRect(gl.x - 2, gl.y - 2, 5, 1);
+            m.fillRect(gl.x - 2, gl.y + 2, 5, 1);
+            m.fillRect(gl.x - 2, gl.y - 1, 1, 3);
+            m.fillRect(gl.x + 2, gl.y - 1, 1, 3);
+        }
+        if (gl) {
+            miniGoal.x = gl.x;
+            miniGoal.y = gl.y;
+        }
+        else {
+            miniGoal.x = -1;
+            miniGoal.y = -1;
+        }
         var x = player.x, y = player.y;
         if (reduceMotion || !(animFrame & 1)) {
             m.fillStyle = P.ink;
@@ -859,10 +916,12 @@
         var what = tileAt(player.x, player.y);
         var tw = townAt(player.x, player.y), dd = doorAt(player.x, player.y), kp = keepAt(player.x, player.y);
         var where = here ? here.region.name + (tw ? " · " + tw.name : dd ? " · dungeon of " + dd.name : kp ? " · the keep" : gateAt(player.x, player.y) ? " · the Exam gate" : "") : "";
-        var aria = "Overworld map. You stand on " + what + " in " + where + ". " + (here && here.dist ? here.town.name + " is " + here.dist + " steps away." : "");
+        var gl = nextGoal(), far = gl ? Math.abs(gl.x - player.x) + Math.abs(gl.y - player.y) : 0;
+        var aria = "Overworld map. You stand on " + what + " in " + where + ". " + (here && here.dist ? here.town.name + " is " + here.dist + " steps away. " : "") +
+            (gl ? "Next: " + gl.what + (far ? ", " + far + " steps " + wayTo(gl, true) + "." : ", here.") : "The exam is passed; the map is yours.");
         if (aria !== lastLabel) {
             lastLabel = aria;
-            whereEl.textContent = where;
+            whereEl.innerHTML = esc(where) + (gl ? '<span class="nx">next: ' + esc(gl.what) + (far ? " · " + far + " " + wayTo(gl, false) : " · here") + "</span>" : "");
             canvas.setAttribute("aria-label", aria);
         }
         stats.frames++;
@@ -1944,15 +2003,18 @@
         stage.appendChild(canvas);
         hud = el("div", "gm-win gm-hud");
         stage.appendChild(hud);
+        // the right-hand column: the where window (with the signpost under it) and the minimap under that, however tall the window runs
+        var side = el("div", "gm-side");
+        stage.appendChild(side);
         whereEl = el("div", "gm-win gm-where");
-        stage.appendChild(whereEl);
+        side.appendChild(whereEl);
         miniWin = el("div", "gm-win gm-mini");
         miniWin.setAttribute("aria-hidden", "true");
         mini = el("canvas");
         mini.width = mapW;
         mini.height = mapH;
         miniWin.appendChild(mini);
-        stage.appendChild(miniWin);
+        side.appendChild(miniWin);
         dialog = el("div", "gm-win gm-dialog");
         dialog.hidden = true;
         dialog.setAttribute("role", "dialog");
@@ -2209,6 +2271,7 @@
                 anim: !!animTimer, reduceMotion: reduceMotion, waterFrame: animFrame, walkFrame: walkFrame, face: player.face,
                 x: player.x, y: player.y, walking: !!walk, offset: { x: drawnOff.x, y: drawnOff.y }, sub: drawnSub, queued: !!queued,
                 camera: lastCam ? { x: lastCam.x, y: lastCam.y } : null, cameraEase: !!ease,
+                goal: nextGoal(),
                 waterInView: waterInView, ambientInView: ambientInView,
                 mounted: !!host, mounts: mounts, listeners: undo.length, timers: timers.length,
                 frame: paintNow,
