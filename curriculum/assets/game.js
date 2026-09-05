@@ -9,7 +9,12 @@
    Progress lives in store.game, in the shapes merge.js merges (see cnpe.d.ts):
    counters per browser slot, ticks as unions, the position stamped. Trial
    answers go into store.drill exactly as drill.js writes them, so the drill and
-   the quest share one memory and one heartbeat. */
+   the quest share one memory and one heartbeat.
+
+   mount() builds into #game-app and unmount() takes everything down again: the
+   bundle's router calls the pair around every visit to the #GM route, so what a
+   visit wires (the animation frame, the beat, the listeners, the observers, the
+   terrain cache) is gone before the page is replaced. */
 (function () {
     "use strict";
     var M = window.CNPE_MERGE; // the guard below is the real check
@@ -169,14 +174,14 @@
             accent: v("--accent"), accentDim: v("--accent-dim"), accentLit: v("--accent-lit"), warn: v("--warn"), warnDim: v("--warn-dim"),
             ok: v("--ok"), okLit: v("--ok-lit"), bad: v("--bad"), badLit: v("--bad-lit"), viol: v("--viol"), info: v("--info") };
         ART.theme(P); // every sprite is repainted from these on its next use
-        terrainSig = ""; // and the terrain with them
+        terrainStale = true; // and the whole terrain with them, on the next frame
     }
     /* ── state ──────────────────────────────────────────────── */
     let host;
     let stage;
     let canvas;
     let ctx;
-    let hud, whereEl, dialog, screen, live;
+    let hud, whereEl, miniWin, dialog, screen, live;
     var player = { x: 0, y: 0, face: "d" };
     var scene = "map"; // map | town | trial | battle | shop
     var town = null;
@@ -184,11 +189,26 @@
     var battle = null;
     var hp = 0; // the session's hearts; a page load heals
     var dlg = null; // { who, pages: [], i, done: fn }
-    var posTimer = 0, keysWired = false, themeWired = false, dirty = true;
+    var posTimer = 0, themeWired = false, dirty = true;
     var bt = null; // the battle screen, while one is built
     var tn = null; // the town screen, while one is built
-    var fx = null; // the effect the next battle paint plays: hit, stagger, win
+    /** the effect the next battle paint plays (hit, stagger, win), and the number that floats up with it */
+    var fx = null;
     var walked = false; // a step was taken: only then is the position worth a save
+    /** listeners, observers and timers the mount holds, undone in order by unmount() */
+    var undo = [];
+    var timers = []; // one-shot timers (a floating number's fallback, a result card's delay)
+    var mounts = 0;
+    function listen(t, type, fn, capture) {
+        t.addEventListener(type, fn, !!capture);
+        undo.push(function () { t.removeEventListener(type, fn, !!capture); });
+    }
+    function later(fn, ms) {
+        var id = window.setTimeout(function () { var i = timers.indexOf(id); if (i >= 0)
+            timers.splice(i, 1); fn(); }, ms);
+        timers.push(id);
+        return id;
+    }
     /* ── the overworld ──────────────────────────────────────── */
     function tileAt(x, y) {
         var row = D.map[y];
@@ -244,11 +264,24 @@
         else
             posTimer = setTimeout(write, 1500);
     }
+    // A step is a short tween: the player's tile changes at once (it is what the
+    // store, the checks and arrive() read), and the sprite and the camera slide
+    // over from the tile before it across STEP_MS, in STEP_SUBS whole-pixel
+    // sub-positions, on the animation frame. A step asked for while one is in
+    // flight waits for it and starts the moment it lands, so a held key walks
+    // tile by tile and never skips one. Under reduced motion the step is instant.
+    var STEP_MS = 120, STEP_SUBS = 5;
+    var walk = null; // the step in flight: from (fx, fy) to the player's tile
+    var queued = null; // the step waiting behind it
     function move(dx, dy) {
         if (scene !== "map")
             return;
         if (dlg) {
             advanceDialog();
+            return;
+        }
+        if (walk) {
+            queued = { dx: dx, dy: dy };
             return;
         }
         player.face = dx < 0 ? "l" : dx > 0 ? "r" : dy < 0 ? "u" : "d";
@@ -259,14 +292,43 @@
             requestDraw();
             return;
         }
+        var fx0 = player.x, fy0 = player.y;
         player.x = nx;
         player.y = ny;
         walked = true;
         savePos(false);
-        step();
+        if (reduceMotion) {
+            requestDraw();
+            arrive();
+            return;
+        }
+        walk = { fx: fx0, fy: fy0, t0: performance.now() };
         requestDraw();
-        arrive();
     }
+    /** how far the step in flight has come, in whole sub-positions: 0 at the tile it left, 1 on the tile it ends on */
+    function stepProgress(now) {
+        if (!walk)
+            return 1;
+        var p = (now - walk.t0) / STEP_MS;
+        return p >= 1 ? 1 : Math.floor(p * STEP_SUBS) / STEP_SUBS;
+    }
+    /** the sprite's pixel offset from the tile the step ends on */
+    function stepOffset(p) {
+        if (!walk || p >= 1)
+            return { x: 0, y: 0 };
+        return { x: Math.round((walk.fx - player.x) * (1 - p) * TILE), y: Math.round((walk.fy - player.y) * (1 - p) * TILE) };
+    }
+    /** the step landed: what the tile means happens now, then the step waiting behind it */
+    function landStep() {
+        walk = null;
+        arrive();
+        var q = queued;
+        queued = null;
+        if (q && scene === "map" && !dlg)
+            move(q.dx, q.dy);
+    }
+    /** a scene change or an unmount ends a step where it was going, with no tween left to land */
+    function settleStep() { walk = null; queued = null; }
     // What standing on a tile means. Walking onto a town enters it; the doors and
     // the keeps ask first, because a battle is a commitment.
     function arrive() {
@@ -309,6 +371,8 @@
             advanceDialog();
             return;
         }
+        if (walk)
+            return; // the step lands first, and landing is what acts
         arrive();
         if (!dlg && scene === "map") {
             var here = regionAt(player.x, player.y);
@@ -368,24 +432,32 @@
             done();
     }
     /* ── drawing ────────────────────────────────────────────── */
-    // The overworld is two layers. The terrain, every tile of the whole map, is
-    // painted once into an offscreen canvas and painted again only when the
-    // palette or a landmark's state changes. A frame blits the viewport out of
-    // it, then draws what moves: the water's current frame, the banners, the
-    // player. Frames are requested and painted on the next animation frame, so
-    // a held key coalesces and a still map costs nothing.
-    var terrain = null, terrainSig = "";
+    // The overworld is three layers. The terrain, every tile of the whole map, is
+    // painted once into an offscreen canvas, painted again in full only when the
+    // palette changes, and patched tile by tile when a door, a keep or the gate
+    // changes state. A frame blits the viewport out of it at the camera's pixel
+    // position, then draws what moves: the water's and the flowers' frame, the
+    // smoke over the towns, the torches on the open doors, the banners, the
+    // player. The minimap is a third canvas, built from the terrain when it is
+    // painted and touched only where the player's dot moves. Frames are requested
+    // and painted on the next animation frame, so a held key coalesces and a
+    // still map costs nothing.
+    var terrain = null, terrainSig = "", terrainStale = true;
     var mapW = 0, mapH = 0;
     var regionOf = new Uint8Array(0); // the domain each tile belongs to; 0 on the open sea
     var scale = 2, dprSeen = 1; // whole device pixels per art pixel, chosen for the screen
-    var rafId = 0, animTimer = 0, idleTimer = 0, waterFrame = 0, walkFrame = 0, waterInView = 1;
-    var ANIM_MS = 420; // the water's beat
+    var rafId = 0, animTimer = 0, animFrame = 0, walkFrame = 0, waterInView = 1, ambientInView = 0;
+    var ANIM_MS = 420; // the beat: the water, the flowers, the smoke, the torches, the minimap's dot
     var motionQuery = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
     var reduceMotion = !!(motionQuery && motionQuery.matches);
-    var sizeObs = null, motionWired = false; // wired once; the bundle mounts the quest again on every visit
-    var stats = { frames: 0, drawMs: 0, terrainRenders: 0, terrainMs: 0 };
-    function camera() {
-        return { x: Math.max(0, Math.min(mapW - VW, player.x - Math.floor(VW / 2))), y: Math.max(0, Math.min(mapH - VH, player.y - Math.floor(VH / 2))) };
+    var sizeObs = null;
+    var stats = { frames: 0, drawMs: 0, terrainRenders: 0, terrainMs: 0, terrainPatches: 0, tilesRepainted: 0, patchMs: 0, minimapBuilds: 0 };
+    var mini = null, miniBase = null; // the minimap, and the map under its dot
+    var miniDot = { x: -1, y: -1 }; // where the dot was last painted, to lift it
+    var lastLabel = ""; // the canvas's aria-label as last written
+    /** the camera, in map pixels: the player's pixel position centred, clamped to the map */
+    function camera(px, py) {
+        return { x: Math.max(0, Math.min((mapW - VW) * TILE, px - Math.floor(VW / 2) * TILE)), y: Math.max(0, Math.min((mapH - VH) * TILE, py - Math.floor(VH / 2) * TILE)) };
     }
     /** water for the shoreline's purposes: the sea, a bridge over it, and the void past the edge */
     function isWater(x, y) { var t = tileAt(x, y); return t === "water" || t === "bridge" || t === "void"; }
@@ -438,7 +510,8 @@
                 regionOf[k] = here ? here.region.d : 0;
             }
     }
-    /** what the terrain was painted with: the doors, keeps and gate can change state */
+    /** what the terrain was painted with: one character per door, then per keep,
+        then the gate, so a change names the tiles to repaint */
     function landmarkSig() {
         var s = "";
         for (var i = 0; i < D.towns.length; i++)
@@ -447,12 +520,12 @@
             s += has("flags", "boss-" + D.regions[j].d) ? "1" : "0";
         return s + (has("flags", "final") ? "F" : gateOpen() ? "O" : "S");
     }
-    /** the sprite for a map tile, in the water's given frame */
+    /** the sprite for a map tile, in the beat's given frame */
     function tileSprite(mx, my, frame) {
         var t = tileAt(mx, my), d = regionOf[my * mapW + mx] || 0, v = Math.floor(hash(mx, my) * 4);
         switch (t) {
             case "grass": return ART.grass(v, d);
-            case "flower": return ART.flower(v, d);
+            case "flower": return ART.flower(v, d, frame);
             case "road": return ART.road(v, d, edgeMask(mx, my, isRoadLike));
             case "sand": return ART.sand(v, d);
             case "tree": return ART.tree(v, d);
@@ -473,6 +546,16 @@
             default: return null;
         }
     }
+    function paintTile(k, x, y) {
+        var s = tileSprite(x, y, 0);
+        if (s)
+            k.drawImage(s, x * TILE, y * TILE);
+        else {
+            k.fillStyle = P.sunk;
+            k.fillRect(x * TILE, y * TILE, TILE, TILE);
+        }
+    }
+    /** the whole map, once, and again only for a new palette */
     function renderTerrain() {
         var t0 = performance.now();
         if (!terrain) {
@@ -487,119 +570,239 @@
         k.fillStyle = P.sunk;
         k.fillRect(0, 0, terrain.width, terrain.height);
         for (var y = 0; y < mapH; y++)
-            for (var x = 0; x < mapW; x++) {
-                var s = tileSprite(x, y, 0);
-                if (s)
-                    k.drawImage(s, x * TILE, y * TILE);
-            }
+            for (var x = 0; x < mapW; x++)
+                paintTile(k, x, y);
         terrainSig = landmarkSig();
+        terrainStale = false;
         stats.terrainRenders++;
         stats.terrainMs += performance.now() - t0;
+        buildMinimap();
+    }
+    /** only the landmarks whose state changed: a door that opened, a keep that fell, the gate */
+    function patchTerrain(sig) {
+        var k = terrain && terrain.getContext("2d");
+        if (!k)
+            return;
+        var t0 = performance.now(), n = 0, i = 0;
+        for (var t = 0; t < D.towns.length; t++, i++)
+            if (sig[i] !== terrainSig[i]) {
+                paintTile(k, D.towns[t].door.x, D.towns[t].door.y);
+                n++;
+            }
+        for (var r = 0; r < D.regions.length; r++, i++)
+            if (sig[i] !== terrainSig[i]) {
+                paintTile(k, D.regions[r].keep.x, D.regions[r].keep.y);
+                n++;
+            }
+        if (sig[i] !== terrainSig[i]) {
+            paintTile(k, D.finale.keep.x, D.finale.keep.y);
+            n++;
+        }
+        terrainSig = sig;
+        var dt = performance.now() - t0;
+        stats.terrainPatches++;
+        stats.tilesRepainted += n;
+        stats.terrainMs += dt;
+        stats.patchMs += dt;
+        buildMinimap(); // a cleared town turns green on it
+    }
+    /** the minimap's ground: the terrain scaled to a pixel a tile, each region's
+        tint over its land, the towns, the keeps and the gate in their state's colour */
+    function buildMinimap() {
+        if (!terrain || !mini)
+            return;
+        if (!miniBase) {
+            miniBase = document.createElement("canvas");
+            miniBase.width = mapW;
+            miniBase.height = mapH;
+        }
+        var k = miniBase.getContext("2d"), m = mini.getContext("2d");
+        if (!k || !m)
+            return;
+        k.imageSmoothingEnabled = true;
+        k.clearRect(0, 0, mapW, mapH);
+        k.drawImage(terrain, 0, 0, terrain.width, terrain.height, 0, 0, mapW, mapH);
+        k.globalAlpha = 0.32;
+        for (var y = 0; y < mapH; y++) {
+            for (var x = 0; x < mapW;) {
+                var d = regionOf[y * mapW + x];
+                if (!d || isWater(x, y)) {
+                    x++;
+                    continue;
+                }
+                var x0 = x;
+                while (x < mapW && regionOf[y * mapW + x] === d && !isWater(x, y))
+                    x++;
+                k.fillStyle = ART.tint(d);
+                k.fillRect(x0, y, x - x0, 1);
+            }
+        }
+        k.globalAlpha = 1;
+        D.towns.forEach(function (t) { k.fillStyle = has("towns", t.sec) ? P.ok : P.paper; k.fillRect(t.x, t.y, 1, 1); });
+        D.regions.forEach(function (r) { k.fillStyle = has("flags", "boss-" + r.d) ? P.ok : P.warn; k.fillRect(r.keep.x, r.keep.y, 1, 1); });
+        k.fillStyle = has("flags", "final") ? P.ok : P.viol;
+        k.fillRect(D.finale.keep.x, D.finale.keep.y, 1, 1);
+        m.imageSmoothingEnabled = false;
+        m.clearRect(0, 0, mapW, mapH);
+        m.drawImage(miniBase, 0, 0);
+        miniDot.x = -1;
+        miniDot.y = -1;
+        stats.minimapBuilds++;
+    }
+    /** the player's dot on the minimap: the last one lifted, the new one put down, blinking on the beat */
+    function drawMinimap() {
+        var m = mini && miniBase && mini.getContext("2d");
+        if (!m)
+            return;
+        if (miniDot.x >= 0)
+            m.drawImage(miniBase, miniDot.x - 1, miniDot.y - 1, 3, 3, miniDot.x - 1, miniDot.y - 1, 3, 3);
+        var x = player.x, y = player.y;
+        if (reduceMotion || !(animFrame & 1)) {
+            m.fillStyle = P.ink;
+            m.fillRect(x - 1, y - 1, 3, 3);
+            m.fillStyle = P.warn;
+            m.fillRect(x, y, 1, 1);
+        }
+        miniDot.x = x;
+        miniDot.y = y;
     }
     /** paint on the next animation frame; several requests in one frame are one paint */
     function requestDraw() {
         dirty = true;
-        if (!rafId && scene === "map")
+        if (!rafId && host && scene === "map")
             rafId = requestAnimationFrame(frame);
     }
     function frame() { rafId = 0; draw(); }
     function draw() {
-        if (!ctx || scene !== "map" || !dirty)
+        if (!ctx || !host || scene !== "map" || !dirty)
             return;
         dirty = false;
         var t0 = performance.now();
-        if (!terrain || terrainSig !== landmarkSig())
+        if (!terrain || terrainStale)
             renderTerrain();
-        var cam = camera(), cx = cam.x, cy = cam.y;
+        else {
+            var sig = landmarkSig();
+            if (sig !== terrainSig)
+                patchTerrain(sig);
+        }
+        var p = stepProgress(t0), off = stepOffset(p);
+        walkFrame = walk && p < 0.5 ? 1 : 0;
+        var px = player.x * TILE + off.x, py = player.y * TILE + off.y;
+        var cam = camera(px, py), cx = cam.x, cy = cam.y;
+        var tx0 = Math.floor(cx / TILE), ty0 = Math.floor(cy / TILE), ox = cx - tx0 * TILE, oy = cy - ty0 * TILE;
         ctx.setTransform(scale, 0, 0, scale, 0, 0);
         ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(terrain, cx * TILE, cy * TILE, W, H, 0, 0, W, H);
-        // the water's frame, over the first frame the terrain holds
+        ctx.drawImage(terrain, cx, cy, W, H, 0, 0, W, H);
+        // what moves, over the first frame the terrain holds: the water and the
+        // flowers in another frame, the smoke over a town, the torches on an open door
         waterInView = 0;
-        for (var y = 0; y < VH; y++)
-            for (var x = 0; x < VW; x++) {
-                if (tileAt(cx + x, cy + y) !== "water")
-                    continue;
-                waterInView++;
-                if (waterFrame)
-                    ctx.drawImage(ART.water(shoreMask(cx + x, cy + y), waterFrame), x * TILE, y * TILE);
+        ambientInView = 0;
+        var cols = VW + (ox ? 1 : 0), rows = VH + (oy ? 1 : 0);
+        for (var y = 0; y < rows; y++)
+            for (var x = 0; x < cols; x++) {
+                var mx = tx0 + x, my = ty0 + y, t = tileAt(mx, my), sx = x * TILE - ox, sy = y * TILE - oy;
+                if (t === "water") {
+                    waterInView++;
+                    if (animFrame)
+                        ctx.drawImage(ART.water(shoreMask(mx, my), animFrame), sx, sy);
+                }
+                else if (t === "flower") {
+                    ambientInView++;
+                    if (animFrame)
+                        ctx.drawImage(ART.flower(Math.floor(hash(mx, my) * 4), regionOf[my * mapW + mx] || 0, animFrame), sx, sy);
+                }
+                else if (t === "town") {
+                    ambientInView++;
+                    ctx.drawImage(ART.ambient("puff", animFrame), sx, sy);
+                }
+                else if (t === "door") {
+                    var dr = doorAt(mx, my);
+                    if (dr && dungeonOpen(dr)) {
+                        ambientInView++;
+                        ctx.drawImage(ART.ambient("torch", animFrame), sx, sy);
+                    }
+                }
             }
         // banners over towns and keeps, so the map reads without a legend
         ctx.font = "8px CNPE Mono, ui-monospace, monospace";
         ctx.textBaseline = "top";
-        D.towns.forEach(function (t) { label(t.name, t.x - cx, t.y - cy, has("towns", t.sec) ? P.ok : P.paper); });
-        D.regions.forEach(function (r) { label(r.name + " keep", r.keep.x - cx, r.keep.y - cy, has("flags", "boss-" + r.d) ? P.ok : P.warn); });
-        label("The Exam", D.finale.keep.x - cx, D.finale.keep.y - cy, has("flags", "final") ? P.ok : P.viol);
-        ctx.drawImage(ART.hero(player.face, reduceMotion ? 0 : walkFrame), (player.x - cx) * TILE, (player.y - cy) * TILE);
+        D.towns.forEach(function (t) { label(t.name, t.x * TILE - cx, t.y * TILE - cy, has("towns", t.sec) ? P.ok : P.paper); });
+        D.regions.forEach(function (r) { label(r.name + " keep", r.keep.x * TILE - cx, r.keep.y * TILE - cy, has("flags", "boss-" + r.d) ? P.ok : P.warn); });
+        label("The Exam", D.finale.keep.x * TILE - cx, D.finale.keep.y * TILE - cy, has("flags", "final") ? P.ok : P.viol);
+        ctx.drawImage(ART.hero(player.face, walkFrame), px - cx, py - cy);
+        drawMinimap();
         var here = regionAt(player.x, player.y);
         var what = tileAt(player.x, player.y);
-        var t = townAt(player.x, player.y), d = doorAt(player.x, player.y), k = keepAt(player.x, player.y);
-        var where = here ? here.region.name + (t ? " · " + t.name : d ? " · dungeon of " + d.name : k ? " · the keep" : gateAt(player.x, player.y) ? " · the Exam gate" : "") : "";
-        whereEl.textContent = where;
-        canvas.setAttribute("aria-label", "Overworld map. You stand on " + what + " in " + where + ". " + (here && here.dist ? here.town.name + " is " + here.dist + " steps away." : ""));
+        var tw = townAt(player.x, player.y), dd = doorAt(player.x, player.y), kp = keepAt(player.x, player.y);
+        var where = here ? here.region.name + (tw ? " · " + tw.name : dd ? " · dungeon of " + dd.name : kp ? " · the keep" : gateAt(player.x, player.y) ? " · the Exam gate" : "") : "";
+        var aria = "Overworld map. You stand on " + what + " in " + where + ". " + (here && here.dist ? here.town.name + " is " + here.dist + " steps away." : "");
+        if (aria !== lastLabel) {
+            lastLabel = aria;
+            whereEl.textContent = where;
+            canvas.setAttribute("aria-label", aria);
+        }
         stats.frames++;
         stats.drawMs += performance.now() - t0;
+        if (walk) {
+            if (p >= 1)
+                landStep();
+            else
+                requestDraw();
+        } // the step in flight: land it, or paint the next sub-position
     }
-    /** a pixel banner: ink on a rim, a pointer toward the tile, the name in its state's colour */
-    function label(s, tx, ty, color) {
-        if (tx < -4 || tx >= VW + 4 || ty < 0 || ty >= VH)
+    /** a pixel banner: ink on a rim, a pointer toward the tile, the name in its state's colour; px, py the tile's top-left on the canvas */
+    function label(s, px, py, color) {
+        if (px < -4 * TILE || px >= W + 4 * TILE || py <= -TILE || py >= H)
             return;
-        var w = s.length * 5 + 8, x = Math.round(tx * TILE + TILE / 2 - w / 2), y = ty * TILE - 14, below = false;
+        var w = s.length * 5 + 8, x = Math.round(px + TILE / 2 - w / 2), y = py - 14, below = false;
         if (y < 0) {
-            y = ty * TILE + TILE + 3;
+            y = py + TILE + 3;
             below = true;
         }
-        var px = Math.round(tx * TILE + TILE / 2);
+        var ptr = Math.round(px + TILE / 2);
         ctx.fillStyle = P.paper3;
         ctx.fillRect(x - 1, y - 1, w + 2, 12);
         if (below) {
-            ctx.fillRect(px - 2, y - 2, 4, 1);
-            ctx.fillRect(px - 1, y - 3, 2, 1);
+            ctx.fillRect(ptr - 2, y - 2, 4, 1);
+            ctx.fillRect(ptr - 1, y - 3, 2, 1);
         }
         else {
-            ctx.fillRect(px - 2, y + 11, 4, 1);
-            ctx.fillRect(px - 1, y + 12, 2, 1);
+            ctx.fillRect(ptr - 2, y + 11, 4, 1);
+            ctx.fillRect(ptr - 1, y + 12, 2, 1);
         }
         ctx.fillStyle = P.ink;
         ctx.fillRect(x, y, w, 10);
         ctx.fillStyle = color;
         ctx.fillText(s, x + 4, y + 1);
     }
-    /** a step taken: the other foot, then back to standing once you stop */
-    function step() {
-        walkFrame ^= 1;
-        if (reduceMotion)
-            return;
-        if (idleTimer)
-            clearTimeout(idleTimer);
-        idleTimer = setTimeout(function () { idleTimer = 0; if (walkFrame) {
-            walkFrame = 0;
-            requestDraw();
-        } }, 260);
-    }
-    /** the water's beat: only on the map, only when it can be seen, never under reduced motion */
+    /** the beat: only on the map, only while the page shows, never under reduced motion */
     function syncAnim() {
         var want = scene === "map" && !reduceMotion && document.visibilityState !== "hidden" && !!host && document.body.contains(host);
         if (want && !animTimer)
-            animTimer = setTimeout(tickAnim, ANIM_MS);
+            animTimer = window.setTimeout(tickAnim, ANIM_MS);
         if (!want && animTimer) {
             clearTimeout(animTimer);
             animTimer = 0;
         }
-        if (!want && waterFrame) {
-            waterFrame = 0;
+        if (!want && animFrame) {
+            animFrame = 0;
             requestDraw();
         }
     }
+    /** one beat: a frame if anything animated is in view, else only the minimap's dot blinks */
     function tickAnim() {
         animTimer = 0;
-        waterFrame = (waterFrame + 1) % ART.FRAMES;
-        if (waterInView)
+        animFrame = (animFrame + 1) % ART.FRAMES;
+        if (waterInView || ambientInView)
             requestDraw();
+        else if (!rafId)
+            drawMinimap();
         syncAnim();
     }
     /** the backing store: whole device pixels per art pixel, so the art stays sharp on any screen */
     function fitCanvas() {
+        if (!host)
+            return;
         var dpr = window.devicePixelRatio || 1, cssW = stage.clientWidth || W;
         var s = Math.max(1, Math.min(4, Math.round(cssW * dpr / W)));
         dprSeen = dpr;
@@ -634,6 +837,7 @@
         canvas.style.visibility = onMap ? "" : "hidden";
         hud.hidden = !onMap;
         whereEl.hidden = !onMap;
+        miniWin.hidden = !onMap;
         stage.classList.toggle("gm-map", onMap);
         if (onMap) {
             screen.innerHTML = "";
@@ -646,6 +850,7 @@
         else {
             dialog.hidden = true;
             dlg = null;
+            settleStep();
         }
         syncAnim();
     }
@@ -929,7 +1134,7 @@
         if (hp < 1)
             hp = maxHp();
         battle = { chain: chain, idx: 0, sc: scenario(chain[0]), found: {}, turn: 0, log: [], mode: "menu", opts: opts,
-            gained: 0, goldGained: 0, turnsTotal: 0, pick: null };
+            gained: 0, goldGained: 0, turnsTotal: 0, pick: null, history: [], histAt: 0, draft: "" };
         fx = null; // a blow from a lost fight does not land on the next one's first frame
         setScene("battle");
         logSys("A " + (opts.boss ? "keep" : opts.final ? "gate" : "dungeon") + " battle begins: " + battle.sc.name + ". The ticket is above; the terminal is yours.");
@@ -962,7 +1167,8 @@
         [nm, lv, guardWrap, guardLbl, hpWrap, hpLbl].forEach(function (e) { side.appendChild(e); });
         figure.appendChild(side);
         // the effect's class comes off when its animation ends; data-fx keeps the last one for the checks
-        figure.addEventListener("animationend", function () { figure.classList.remove("fx-hit", "fx-stagger", "fx-win"); });
+        figure.addEventListener("animationend", function (e) { if (e.target === sprite)
+            figure.classList.remove("fx-hit", "fx-stagger", "fx-win"); });
         left.appendChild(figure);
         var ticket = el("p", "gm-ticket");
         left.appendChild(ticket);
@@ -1006,8 +1212,31 @@
             if (!cmd)
                 return;
             input.value = "";
+            if (b.history[b.history.length - 1] !== cmd)
+                b.history.push(cmd);
+            b.histAt = b.history.length;
+            b.draft = "";
             runCommand(cmd, !b.fromMenu);
             b.fromMenu = false;
+        });
+        // up and down walk the commands typed this battle, like a shell; the draft
+        // left when going up comes back at the bottom
+        input.addEventListener("keydown", function (e) {
+            if (e.key !== "ArrowUp" && e.key !== "ArrowDown")
+                return;
+            if (e.metaKey || e.ctrlKey || e.altKey || !b.history.length)
+                return;
+            if (b.histAt >= b.history.length)
+                b.draft = input.value;
+            var at = b.histAt + (e.key === "ArrowUp" ? -1 : 1);
+            if (at < 0 || at > b.history.length) {
+                e.preventDefault();
+                return;
+            }
+            b.histAt = at;
+            input.value = at < b.history.length ? b.history[at] : b.draft;
+            input.setSelectionRange(input.value.length, input.value.length);
+            e.preventDefault();
         });
         term.appendChild(form);
         right.appendChild(term);
@@ -1027,6 +1256,21 @@
             bt = buildBattle();
         var t = bt;
         var nFound = Object.keys(b.found).length, nAll = sc.evidence.length;
+        // a chain's next monster waits for the last one's fall: the fall plays on the
+        // figure as it is, and the swap comes when the animation ends
+        if (t.scId && t.scId !== sc.id && fx && fx.name === "win" && !reduceMotion) {
+            var cur = fx, swapped = false;
+            fx = null;
+            var swap = function () { if (swapped)
+                return; swapped = true; t.sprite.removeEventListener("animationend", once); if (bt !== t || !battle)
+                return; t.scId = ""; paintBattle(); };
+            var once = function (e) { if (e.target === t.sprite)
+                swap(); };
+            t.sprite.addEventListener("animationend", once);
+            later(swap, 1200); // reduced motion aside (handled above), a fall that never ends still gives way
+            play(t.figure, cur.name);
+            return;
+        }
         if (t.scId !== sc.id) {
             t.scId = sc.id;
             t.family = ART.familyOf(sc.id, sc.d);
@@ -1034,6 +1278,7 @@
             drawMonster(t.sprite, t.family);
             t.sprite.setAttribute("aria-label", "The monster " + sc.name + ", a " + t.family + " fault");
             t.sprite.setAttribute("data-family", t.family);
+            t.figure.setAttribute("data-family", t.family);
             t.nm.textContent = sc.name;
             t.lv.textContent = "difficulty " + stars(sc.difficulty) + " · domain " + sc.d;
             t.ticket.innerHTML = "<b>TICKET</b><br>" + esc(sc.ticket);
@@ -1066,7 +1311,9 @@
             b.pending = null;
         }
         if (fx) {
-            play(t.figure, fx);
+            play(t.figure, fx.name);
+            if (fx.num)
+                floatNum(fx.from === "guard" ? t.guard.parentNode : t.figure, fx.num, fx.from === "guard" ? "gain" : "hit");
             fx = null;
         }
         if (b.mode === "menu" || b.mode === "typed")
@@ -1080,6 +1327,18 @@
         void e.offsetWidth; // restart the animation if the same one is still up
         e.classList.add("fx-" + name);
         e.setAttribute("data-fx", name);
+    }
+    /** a number that floats up and fades: the damage over the monster, the xp over the guard bar */
+    function floatNum(anchor, num, cls) {
+        var f = el("span", "gm-float " + cls, esc(num));
+        f.setAttribute("aria-hidden", "true");
+        anchor.appendChild(f);
+        var gone = false;
+        var lift = function () { if (gone)
+            return; gone = true; if (f.parentNode)
+            f.parentNode.removeChild(f); };
+        f.addEventListener("animationend", lift);
+        later(lift, 1400); // reduced motion runs no animation, so the number is lifted by the clock
     }
     function lastCmd() { for (var i = battle.log.length - 1; i >= 0; i--)
         if (battle.log[i].cmd)
@@ -1252,7 +1511,7 @@
             b.gained += gain;
             b.log.push(entry);
             b.log.push({ gain: "Evidence found (" + Object.keys(b.found).length + "/" + sc.evidence.length + "): the enemy staggers. +" + gain + " xp" + (typed ? " (typed)" : "") + "." });
-            fx = "stagger";
+            fx = { name: "stagger", num: "+" + gain + " xp", from: "guard" };
             save();
             paintBattle();
             return;
@@ -1276,7 +1535,7 @@
         var b = battle, sc = b.sc;
         var dmg = Math.ceil((1 + sc.difficulty) * mult * (b.opts.final ? 1.5 : 1)) + Math.floor(b.turn / 4);
         hp = Math.max(0, hp - dmg);
-        fx = "hit";
+        fx = { name: "hit", num: "-" + dmg, from: "enemy" };
         b.log.push({ hit: sc.name + " strikes for " + dmg + ". Health " + hp + " of " + maxHp() + "." });
         if (hp <= 0)
             defeat();
@@ -1302,7 +1561,7 @@
             b.mode = "menu";
             logSys("The truth: " + sc.answer);
             logSys("From the dark, another rises: " + b.sc.name + ". A new ticket.");
-            fx = "win";
+            fx = { name: "win" };
             save();
             paintBattle();
             return;
@@ -1326,7 +1585,15 @@
         }
         b.over = true;
         save();
-        resultCard(true);
+        // the monster falls, in its family's way, and the card comes up behind it
+        if (reduceMotion) {
+            resultCard(true);
+            return;
+        }
+        fx = { name: "win" };
+        paintBattle();
+        later(function () { if (battle === b && b.over)
+            resultCard(true); }, 950);
     }
     function defeat() {
         var b = battle;
@@ -1337,6 +1604,8 @@
     }
     function flee() {
         var b = battle;
+        if (b.over)
+            return; // the monster is falling; the card is on its way
         say("", []);
         dlg = null;
         logSys("You back away up the stairs. The evidence you found stays found in your head, and the xp for it stays yours.");
@@ -1382,12 +1651,9 @@
     }
     /* ── input ──────────────────────────────────────────────── */
     function keys() {
-        if (keysWired)
-            return;
-        keysWired = true;
         // Capture phase, like the drill: inside the game the keys are the game's,
         // and app.js's page shortcuts (d for dashboard, g for the drill) must not fire.
-        document.addEventListener("keydown", function (e) {
+        listen(document, "keydown", function (e) {
             if (!host || !document.body.contains(host) || !host.contains(document.activeElement))
                 return;
             if (e.metaKey || e.ctrlKey || e.altKey)
@@ -1506,6 +1772,13 @@
         stage.appendChild(hud);
         whereEl = el("div", "gm-win gm-where");
         stage.appendChild(whereEl);
+        miniWin = el("div", "gm-win gm-mini");
+        miniWin.setAttribute("aria-hidden", "true");
+        mini = el("canvas");
+        mini.width = mapW;
+        mini.height = mapH;
+        miniWin.appendChild(mini);
+        stage.appendChild(miniWin);
         dialog = el("div", "gm-win gm-dialog");
         dialog.hidden = true;
         dialog.setAttribute("role", "dialog");
@@ -1524,12 +1797,12 @@
         // a click on the map is a step toward where you clicked, and takes focus
         canvas.addEventListener("click", function (e) {
             stage.focus();
-            if (scene !== "map" || dlg)
+            if (scene !== "map" || dlg || walk)
                 return;
             var r = canvas.getBoundingClientRect();
             var px = (e.clientX - r.left) / r.width * VW, py = (e.clientY - r.top) / r.height * VH;
-            var cam = camera();
-            var dx = Math.floor(px) + cam.x - player.x, dy = Math.floor(py) + cam.y - player.y;
+            var cam = camera(player.x * TILE, player.y * TILE);
+            var dx = Math.floor(px) + cam.x / TILE - player.x, dy = Math.floor(py) + cam.y / TILE - player.y;
             if (dx === 0 && dy === 0) {
                 act();
                 return;
@@ -1578,9 +1851,13 @@
         host.appendChild(pad);
         readPalette();
         fitCanvas();
+        // the theme's listener is wired once for the page (theme.js has no way to let
+        // one go) and does nothing while the quest is unmounted
         if (window.CNPE_THEME && !themeWired) {
             themeWired = true;
             window.CNPE_THEME.onChange(function () {
+                if (!host)
+                    return;
                 readPalette();
                 requestDraw();
                 // a live battle repaints so the monster takes the new palette; a finished
@@ -1602,21 +1879,27 @@
         if (document.fonts && document.fonts.ready)
             document.fonts.ready.then(function () { requestDraw(); });
         // the screen: a resize or a zoom changes how many device pixels an art pixel gets
-        window.addEventListener("resize", fitCanvas); // the same function each mount: added once
-        document.addEventListener("visibilitychange", syncAnim);
-        if (sizeObs)
-            sizeObs.disconnect(); // the last mount's stage is gone; let go of it
+        listen(window, "resize", fitCanvas);
+        listen(document, "visibilitychange", syncAnim);
         if (typeof ResizeObserver !== "undefined") {
-            sizeObs = new ResizeObserver(function () { fitCanvas(); });
-            sizeObs.observe(stage);
+            var obs = sizeObs = new ResizeObserver(function () { fitCanvas(); });
+            obs.observe(stage);
+            undo.push(function () { obs.disconnect(); if (sizeObs === obs)
+                sizeObs = null; });
         }
-        if (motionQuery && !motionWired) {
-            motionWired = true;
-            var onMotion = function () { reduceMotion = !!(motionQuery && motionQuery.matches); walkFrame = 0; syncAnim(); requestDraw(); };
-            if (motionQuery.addEventListener)
-                motionQuery.addEventListener("change", onMotion);
-            else if (motionQuery.addListener)
-                motionQuery.addListener(onMotion);
+        if (motionQuery) {
+            var mq = motionQuery;
+            var onMotion = function () { reduceMotion = mq.matches; walkFrame = 0; if (reduceMotion) {
+                settleStep();
+            } syncAnim(); requestDraw(); };
+            if (mq.addEventListener) {
+                mq.addEventListener("change", onMotion);
+                undo.push(function () { mq.removeEventListener("change", onMotion); });
+            }
+            else if (mq.addListener) {
+                mq.addListener(onMotion);
+                undo.push(function () { mq.removeListener(onMotion); });
+            }
         }
     }
     function intro() {
@@ -1659,6 +1942,12 @@
             dlg = null;
             bt = null;
             tn = null;
+            fx = null;
+            walk = null;
+            queued = null;
+            walked = false;
+            lastLabel = "";
+            mounts++;
             buildRegions();
             build();
             hp = maxHp();
@@ -1670,11 +1959,62 @@
             frame(); // the first frame now, not on the next tick: the page opens painted
             intro();
         },
+        /** take the quest down: the animation frame, the beat, every timer, observer
+            and listener the mount added, and the terrain and minimap caches. The
+            bundle calls this before it replaces the page on a hash route; the host
+            is left as a plain element the next mount() can build into again. */
+        unmount: function () {
+            if (!host)
+                return;
+            savePos(true); // a step taken is worth writing before the page goes
+            if (rafId) {
+                cancelAnimationFrame(rafId);
+                rafId = 0;
+            }
+            if (animTimer) {
+                clearTimeout(animTimer);
+                animTimer = 0;
+            }
+            timers.forEach(function (id) { clearTimeout(id); });
+            timers = [];
+            undo.forEach(function (fn) { fn(); });
+            undo = [];
+            settleStep();
+            terrain = null;
+            miniBase = null;
+            mini = null;
+            terrainStale = true;
+            terrainSig = "";
+            dlg = null;
+            battle = null;
+            trial = null;
+            town = null;
+            bt = null;
+            tn = null;
+            fx = null;
+            host.removeAttribute("data-built");
+            host.classList.remove("gm");
+            host.innerHTML = "";
+            host = null;
+            scene = "map";
+            animFrame = 0;
+            walkFrame = 0;
+            waterInView = 1;
+            ambientInView = 0;
+            dirty = true;
+        },
         /** what the renderer is doing, for the browser checks and profiling */
         debug: function () {
+            var off = stepOffset(stepProgress(performance.now()));
             return { frames: stats.frames, drawMs: stats.drawMs, terrainRenders: stats.terrainRenders, terrainMs: stats.terrainMs,
-                terrain: terrain ? { w: terrain.width, h: terrain.height } : null, scale: scale, dpr: dprSeen,
-                anim: !!animTimer, reduceMotion: reduceMotion, waterFrame: waterFrame, walkFrame: walkFrame, face: player.face,
+                terrain: terrain ? { w: terrain.width, h: terrain.height } : null,
+                terrainPatches: stats.terrainPatches, tilesRepainted: stats.tilesRepainted, patchMs: stats.patchMs,
+                minimap: mini ? { w: mini.width, h: mini.height } : null, minimapBuilds: stats.minimapBuilds,
+                scale: scale, dpr: dprSeen,
+                anim: !!animTimer, reduceMotion: reduceMotion, waterFrame: animFrame, walkFrame: walkFrame, face: player.face,
+                x: player.x, y: player.y, walking: !!walk, offset: off, queued: !!queued,
+                waterInView: waterInView, ambientInView: ambientInView,
+                mounted: !!host, mounts: mounts, listeners: undo.length,
                 frame: function () { if (rafId) {
                     cancelAnimationFrame(rafId);
                     rafId = 0;

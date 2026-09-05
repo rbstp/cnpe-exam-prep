@@ -8,15 +8,16 @@
    assets/*.js as one the fonts must carry, and these must not add a glyph.
 
    game.js asks for tiles by name and state, keeps the canvases this returns,
-   and calls theme() when the palette changes, which drops the cache. Nothing
-   below touches the DOM until a sprite is asked for, so node can load it to
-   check the grids (see tools/browser-checks/game.js, which does the same in
-   the browser). */
+   and calls theme() when the palette changes, which drops the cache. The water,
+   the flowers, a town's chimney smoke and the torches on an open door each have
+   FRAMES frames, stepped together on one beat. Nothing below touches the DOM
+   until a sprite is asked for, so node can load it to check the grids (see
+   tools/browser-checks/game.js, which does the same in the browser). */
 (function () {
   "use strict";
 
   var TILE = 16;
-  var FRAMES = 3;                                    // water frames
+  var FRAMES = 3;                                    // frames of the water, and of everything else that moves on its beat
 
   /* ── colour ─────────────────────────────────────────────── */
   type RGBA = [number, number, number, number];
@@ -131,6 +132,39 @@
      "...eFe..........", "....e...........", "....L...........", "................", "................", "...........f....", "..........fFf...", "...........f...."],
     ["................", "....e...........", "...eFe..........", "....e...........", "...........L....", "..........f.....", ".........fFf....", "..........f.....",
      "................", "................", "................", ".....f..........", "....fFf.........", ".....f..........", ".....L..........", "................"]
+  ];
+  /* the flowers sway: for each variant, the heads leaning right, then left; the grid above is the frame at rest */
+  var FLOWER_SWAY: Grid[][] = [
+    [
+      ["................", "................", "............f...", "...........fFf..", "...........f....", "................", "................", ".....e..........",
+       "....eFe.........", "....e...........", "....L...........", "................", "................", "............f...", "...........fFf..", "...........f...."],
+      ["................", "................", "..........f.....", ".........fFf....", "...........f....", "................", "................", "...e............",
+       "..eFe...........", "....e...........", "....L...........", "................", "................", "..........f.....", ".........fFf....", "...........f...."]
+    ],
+    [
+      ["................", ".....e..........", "....eFe.........", "....e...........", "...........L....", "...........f....", "..........fFf...", "..........f.....",
+       "................", "................", "................", "......f.........", ".....fFf........", ".....f..........", ".....L..........", "................"],
+      ["................", "...e............", "..eFe...........", "....e...........", "...........L....", ".........f......", "........fFf.....", "..........f.....",
+       "................", "................", "................", "....f...........", "...fFf..........", ".....f..........", ".....L..........", "................"]
+    ]
+  ];
+  /* a puff of smoke over a town's chimney (the roof's stack, columns 11 and 12), rising and thinning over three frames */
+  var PUFF: Grid[] = [
+    ["................", "................", "...........mm...", "................", "................", "................", "................", "................",
+     "................", "................", "................", "................", "................", "................", "................", "................"],
+    ["................", "...........Mm...", "..........mMMm..", "................", "................", "................", "................", "................",
+     "................", "................", "................", "................", "................", "................", "................", "................"],
+    ["............Mm..", "...........mM...", "............m...", "................", "................", "................", "................", "................",
+     "................", "................", "................", "................", "................", "................", "................", "................"]
+  ];
+  /* torches on an open door's posts: a flame over each pillar, leaning and guttering over three frames */
+  var TORCH: Grid[] = [
+    ["...f........f...", "..fF........Ff..", "................", "................", "................", "................", "................", "................",
+     "................", "................", "................", "................", "................", "................", "................", "................"],
+    ["..f..........f..", "..Ff........fF..", "................", "................", "................", "................", "................", "................",
+     "................", "................", "................", "................", "................", "................", "................", "................"],
+    ["................", "..fF........Ff..", "................", "................", "................", "................", "................", "................",
+     "................", "................", "................", "................", "................", "................", "................", "................"]
   ];
   var ROAD: Grid[] = [
     ["................", "..R.............", "................", ".........q......", "................", "....R...........", "................", "..........R.....",
@@ -416,7 +450,15 @@
     TILE: TILE, FRAMES: FRAMES, FAMILIES: FAMILIES,
     theme: function (p) { P = p; gen++; cache = {}; groundCache = {}; bright = lum(p.paper) > lum(p.ink) ? p.paper : p.ink; dark = bright === p.paper ? p.ink : p.paper; },
     grass: function (v, d) { return cached("g" + v + "." + d, function (k) { var s = ground(d); fill(k, s.g); stamp(k, GRASS[v % GRASS.length], s, 0, 0); }); },
-    flower: function (v, d) { return cached("f" + v + "." + d, function (k) { var s = ground(d); fill(k, s.g); stamp(k, GRASS[(v + 1) % GRASS.length], s, 0, 0); stamp(k, FLOWER[v % FLOWER.length], s, 0, 0); }); },
+    /* frame 0 is the flower at rest, which the terrain cache holds; 1 and 2 are the sway */
+    flower: function (v, d, frame) {
+      frame = ((frame || 0) % FRAMES + FRAMES) % FRAMES;
+      return cached("f" + v + "." + d + "." + frame, function (k) {
+        var s = ground(d), i = v % FLOWER.length;
+        fill(k, s.g); stamp(k, GRASS[(v + 1) % GRASS.length], s, 0, 0);
+        stamp(k, frame ? FLOWER_SWAY[i][frame - 1] : FLOWER[i], s, 0, 0);
+      });
+    },
     road: function (v, d, mask) {
       return cached("r" + v + "." + d + "." + mask, function (k) { var s = ground(d); fill(k, s.r); stamp(k, ROAD[v % ROAD.length], s, 0, 0); edges4(k, ROAD_EDGE, s, mask); });
     },
@@ -482,6 +524,18 @@
       return cached("e" + fam + "." + scale, function (k) { stamp(k, ENEMIES[fam], enemySlots(fam), 0, 0, scale); }, 32 * scale, 32 * scale);
     },
     familyOf: familyOf,
+    /** a transparent overlay for the living world, drawn over a tile the terrain already holds:
+        "puff" over a town's chimney, "torch" over an open door's posts */
+    ambient: function (kind, frame) {
+      frame = ((frame || 0) % FRAMES + FRAMES) % FRAMES;
+      return cached("a" + kind + "." + frame, function (k) {
+        var p = P!;
+        if (kind === "puff") stamp(k, PUFF[frame], { m: alpha(p.paper3, 0.6), M: alpha(p.paper2, 0.4) }, 0, 0);
+        else stamp(k, TORCH[frame], { f: p.warn, F: lighten(p.warn, 0.5) }, 0, 0);
+      });
+    },
+    /** the colour a region tints its ground with, for the minimap; the open sea's is the meadow's */
+    tint: function (d) { return tintOf(d).c; },
     /** a strip of scenery behind a town menu: the square, the inn, the shop, or the people */
     backdrop: function (scene, d, w, h) {
       return cached("bd" + scene + "." + d + "." + w + "x" + h, function (k) {
@@ -513,6 +567,9 @@
       ROAD.forEach(function (g, i) { sq("road" + i, g, TILE); }); SAND.forEach(function (g, i) { sq("sand" + i, g, TILE); });
       WATER.forEach(function (g, i) { sq("water" + i, g, TILE); }); CLIFF.forEach(function (g, i) { sq("cliff" + i, g, TILE); });
       TREE.forEach(function (g, i) { sq("tree" + i, g, TILE); }); KEEPS.forEach(function (g, i) { sq("keep" + i, g, TILE); });
+      FLOWER_SWAY.forEach(function (v, i) { v.forEach(function (g, j) { sq("flower-sway" + i + "." + j, g, TILE); }); });
+      PUFF.forEach(function (g, i) { sq("puff" + i, g, TILE); }); TORCH.forEach(function (g, i) { sq("torch" + i, g, TILE); });
+      if (FLOWER_SWAY.length !== FLOWER.length || FLOWER_SWAY.some(function (v) { return v.length !== FRAMES - 1; }) || PUFF.length !== FRAMES || TORCH.length !== FRAMES) bad.push("ambient-frames");
       [["bridge", BRIDGE], ["town", TOWN], ["door-sealed", DOOR_SEALED], ["door-open", DOOR_OPEN], ["gate", GATE], ["gate-bars", GATE_BARS], ["cliff-s", CLIFF_S], ["cliff-w", CLIFF_W]].forEach(function (x) { sq(x[0] as string, x[1] as Grid, TILE); });
       Object.keys(PROPS).forEach(function (n) { sq("prop-" + n, PROPS[n], TILE); });
       Object.keys(HERO).forEach(function (f) { HERO[f].forEach(function (g, i) { sq("hero-" + f + i, g, TILE); }); });
