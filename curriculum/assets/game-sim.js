@@ -209,6 +209,11 @@
                 // -p is --previous for logs and --patch for patch; decide by the verb so far
                 if (name === "-p")
                     name = (verb === "logs" || (pos[0] === "logs")) ? "--previous" : "--patch";
+                // and -f is --follow there, not --filename
+                if (name === "-f" && val === undefined && (verb === "logs" || pos[0] === "logs")) {
+                    flags["-f"] = true;
+                    continue;
+                }
                 if (name in BARE && val === undefined) {
                     flags[BARE[name]] = true;
                     continue;

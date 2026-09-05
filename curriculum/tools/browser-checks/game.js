@@ -65,14 +65,17 @@ module.exports = async function (h) {
     await page.waitForSelector('.gm-stage canvas');
     assert((await page.evaluate(() => document.querySelectorAll('main, [role="main"]').length)) === 1, 'one main landmark');
     assert(await page.isVisible('.gm-dialog'), 'the intro note is up');
+    // reading the console never writes: the kit lands when the note is put down
+    assert((await page.evaluate(() => localStorage.getItem('cnpe:v2'))) === null, 'opening the page wrote nothing to the store');
+    assert((await page.evaluate(() => localStorage.getItem('cnpe:dev'))) === null, 'and minted no device id');
+    await skipIntro(page);
     let s = await store(page);
-    assert(s.game && s.game.flags && s.game.flags.intro === 1, 'the intro flag is set: ' + JSON.stringify(s.game && s.game.flags));
+    assert(s.game && s.game.flags && s.game.flags.intro === 1, 'putting the note down sets the intro flag: ' + JSON.stringify(s.game && s.game.flags));
     assert(s.game.learned && ['k-get', 'k-describe', 'k-events', 'k-logs'].every(k => s.game.learned[k] === 1), 'the four starter techniques are learned');
     assert(s.game.items && dayCount(s.game.items.scroll, 'g') === 2, 'two hint scrolls in the pack: ' + JSON.stringify(s.game.items));
     assert(dayCount(s.game, 'xp') === 0 && !s.game.wins, 'no xp and no wins yet');
     const tiles = await page.evaluate(() => document.querySelector('.stats').textContent.replace(/\s+/g, ' '));
     assert(/Level ?1/.test(tiles) && /Battles won ?0/.test(tiles), 'the tiles read level 1 and no battles: ' + tiles);
-    await skipIntro(page);
     assert(!(await page.isVisible('.gm-dialog')), 'the note closes');
     const label = await page.getAttribute('.gm-stage canvas', 'aria-label');
     assert(/Substrate Downs/.test(label || ''), 'the canvas describes where you stand: ' + label);
@@ -89,7 +92,10 @@ module.exports = async function (h) {
     await page.keyboard.press('ArrowUp'); await page.keyboard.press('ArrowUp');
     await page.waitForSelector('.gm-screen:not([hidden]) .gm-title');
     assert(/Portmouth/.test(await page.textContent('.gm-title')), 'two steps north is Portmouth');
-    // d is a page shortcut for the dashboard, and WASD inside the game must not fire it
+    // d and g are page shortcuts (dashboard, drill); inside the game they are the game's
+    await page.keyboard.press('d'); await page.keyboard.press('g');
+    await page.waitForTimeout(150);
+    assert(/game\.html/.test(page.url()) && /Portmouth/.test(await page.textContent('.gm-title')), 'a letter pressed in a town does not leave the page');
     await page.click('.gm-menu button:has-text("Trial")');
     await page.waitForSelector('.gm-opt');
     const n = await page.evaluate(() => document.querySelectorAll('.gm-opt').length);

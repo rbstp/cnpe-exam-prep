@@ -58,7 +58,10 @@ the position keeps the latest stamp. One caveat the counters carry: held gold
 and held items are earned minus spent as the merged view shows them, so two
 browsers spending the same gold while both offline can, once they meet, read as
 having spent more than was earned; the game clamps the reading at zero and no
-merge ever lowers a counter to repair it.
+merge ever lowers a counter to repair it. The mirror case is two tabs of one
+browser, which share a slot: two purchases made in the same instant, before the
+tabs' storage event has merged them, keep only the larger spend. The window is
+the milliseconds between a save and the other tab's reconcile.
 The Worker measures that ceiling on the UTF-8 encoded JSON, not JavaScript
 character count, so multibyte text cannot bypass the limit.
 

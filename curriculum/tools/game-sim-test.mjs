@@ -50,6 +50,7 @@ const SAME = [
   ["kubectl set image deployments broken nginx-unprivileged=img:1 -n team-a", ["kubectl -n team-a set image deploy/broken nginx-unprivileged=img:1", "kubectl set image deployment broken nginx-unprivileged=img:1 --namespace team-a"]],
   ["kubectl label namespaces team-a pod-security.kubernetes.io/enforce=baseline --overwrite", ["kubectl label ns team-a pod-security.kubernetes.io/enforce=baseline --overwrite", "kubectl label --overwrite namespace team-a pod-security.kubernetes.io/enforce=baseline"]],
   ["kubectl explain deployments.spec.template", ["kubectl explain deploy.spec.template", "kubectl explain deployment.spec.template"]],
+  ["kubectl logs broken-x -n team-a -f", ["kubectl logs -f broken-x -n team-a", "kubectl -n team-a logs broken-x --follow".replace("--follow", "-f")]],
 ];
 SAME.forEach(([want, forms]) => {
   forms.forEach(f => {
@@ -201,6 +202,28 @@ D.scenarios.forEach(sc => {
   const text = JSON.stringify(sc);
   ok(glyphsOk(text), "every character in the scenario is one the fonts carry");
 });
+
+/* ── fixes a reviewer found the matchers rejecting ─────────── */
+group("\nevery legitimate spelling of a fix wins");
+[
+  ["probe", "kubectl -n team-a patch deploy broken --type=json -p='[{\"op\":\"replace\",\"path\":\"/spec/template/spec/containers/0/readinessProbe/httpGet/port\",\"value\":8080}]'"],
+  ["probe", "kubectl -n team-a patch deploy broken -p '{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"nginx-unprivileged\",\"readinessProbe\":{\"httpGet\":{\"path\":\"/\",\"port\":8080}}}]}}}}'"],
+  ["svc-selector", "kubectl -n team-a label pods -l app=web-frontend app=web --overwrite"],
+  ["svc-selector", "kubectl label pods --all -n team-a app=web --overwrite"],
+  ["svc-selector", "kubectl -n team-a label pod web-7d4f8c9b6-n3k7p web-7d4f8c9b6-r8m2q app=web --overwrite"],
+  ["svc-selector", "kubectl -n team-a label pod web-7d4f8c9b6-n3k7p app=web"],
+  ["resources", "kubectl -n team-a set resources deploy/broken --limits=cpu=1,memory=256Mi --requests=cpu=50m,memory=64Mi"],
+  ["hpa-unknown", "kubectl -n team-a set resources deploy/web --limits=cpu=500m --requests=cpu=100m"],
+  ["quota", "kubectl scale deploy broken --replicas=1 -n team-a"],
+  ["xr-paused", "kubectl annotate appenvironment team-c-dev -n default crossplane.io/paused-"],
+  ["servicemonitor-labels", "kubectl label servicemonitor web -n team-a release=prometheus"],
+  ["alert-never-fires", "kubectl label prometheusrule team-a-alerts -n team-a release=prometheus"],
+].forEach(([id, cmd]) => {
+  const sc = D.scenarios.find(s => s.id === id);
+  const r = S.run(sc, {}, cmd);
+  ok(r.fixed === true, id + ": " + JSON.stringify(cmd).slice(0, 110) + (r.fixed ? "" : " -> " + JSON.stringify({ e: r.evidence, wrong: r.wrong, g: r.generic })));
+});
+ok(D.scenarios.every(sc => sc.fix.every(re => !/;/.test(re))), "no matcher waits for a ; the tokenizer ends the command at");
 
 /* ── the world around the fights ───────────────────────────── */
 group("\nthe bosses chain real fights");

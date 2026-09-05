@@ -38,7 +38,7 @@
     ok: string; okLit: string; bad: string; badLit: string; viol: string; info: string;
   }
   /** the dialogue window: one speaker, pages of text, an optional yes/no */
-  interface Dialogue { who: string; pages: string[]; i: number; yes: (() => void) | null; ask: boolean; }
+  interface Dialogue { who: string; pages: string[]; i: number; yes: (() => void) | null; ask: boolean; done?: () => void; }
   /** one multiple-choice option: a card's answer, right when it is the question's own */
   interface TrialOption { q: CnpeDrillQuestion; ok: boolean; }
   interface Trial {
@@ -202,6 +202,7 @@
   var hp = 0;                                         // the session's hearts; a page load heals
   var dlg: Dialogue | null = null;                    // { who, pages: [], i, done: fn }
   var posTimer = 0, keysWired = false, themeWired = false, dirty = true;
+  var walked = false;                                 // a step was taken: only then is the position worth a save
 
   /* ── the overworld ──────────────────────────────────────── */
   function tileAt(x: number, y: number) {
@@ -232,6 +233,7 @@
   }
   function savePos(now: boolean) {
     if (posTimer) { clearTimeout(posTimer); posTimer = 0; }
+    if (!walked) return;                              // opening the page is not an action
     var write = function () {
       var p = obj(g().pos);
       if (p && p.x === player.x && p.y === player.y) return;
@@ -246,7 +248,10 @@
     if (dlg) { advanceDialog(); return; }
     player.face = dx < 0 ? "l" : dx > 0 ? "r" : dy < 0 ? "u" : "d";
     var nx = player.x + dx, ny = player.y + dy;
-    if (walkable(nx, ny)) { player.x = nx; player.y = ny; savePos(false); }
+    // A blocked step turns you and nothing more: arriving is for a tile you
+    // reached, or leaving a town with a step into the sea would put you back in it.
+    if (!walkable(nx, ny)) { dirty = true; draw(); return; }
+    player.x = nx; player.y = ny; walked = true; savePos(false);
     dirty = true; draw();
     arrive();
   }
@@ -314,7 +319,12 @@
     if (dlg.ask) return;                              // the question waits for its buttons
     closeDialog();
   }
-  function closeDialog() { dlg = null; dialog.hidden = true; if (scene === "map") stage.focus(); }
+  function closeDialog() {
+    var done = dlg && dlg.done;
+    dlg = null; dialog.hidden = true;
+    if (scene === "map") stage.focus();
+    if (done) done();
+  }
 
   /* ── drawing ────────────────────────────────────────────── */
   function draw() {
@@ -725,17 +735,25 @@
     if (e.hit) return '<span class="hit">' + esc(e.hit) + "</span>";
     if (e.gain) return '<span class="' + (e.crit ? "crit" : "gain") + '">' + esc(e.gain) + "</span>";
     var out = esc(e.out || "");
-    if (window.CNPE_SYNTAX) { try { out = window.CNPE_SYNTAX.highlight(out, /^(argocd|flux|tkn|crossplane|cosign)/.test(e.cmd!) ? "bash" : "bash"); } catch (er) {} }
-    if (e.tell) {
-      var t = esc(e.tell), at = out.indexOf(t);
-      if (at >= 0) out = out.slice(0, at) + '<span class="tell">' + t + "</span>" + out.slice(at + t.length);
+    // The tell is cut out before the colouring and each run is coloured on its
+    // own: a keyword the highlighter wraps inside the tell would otherwise split
+    // it, and the mark would be silently dropped.
+    var t = e.tell ? esc(e.tell) : "", at = t ? out.indexOf(t) : -1;
+    var parts = at >= 0 ? [out.slice(0, at), t, out.slice(at + t.length)] : [out];
+    var syn = window.CNPE_SYNTAX;
+    if (syn) {
+      var hl = syn;                                     // narrowed once, for the closure below
+      try { parts = parts.map(function (p) { return hl.highlight(p, "bash"); }); } catch (er) {}
     }
+    out = at >= 0 ? parts[0] + '<span class="tell">' + parts[1] + "</span>" + parts[2] : parts[0];
     return '<span class="in">' + esc(e.cmd!) + "</span>\n" + out;
   }
   function actionBar() {
     var b = battle!, bar = el("div", "gm-acts");
     var mode = function (m: BattleMode, label: string, cls?: string) {
-      var x = btn(label, function () { b.mode = b.mode === m ? "menu" : m; paintBattle(); }, (b.mode === m ? "sel" : "") + (cls ? " " + cls : ""));
+      // opening or closing a menu abandons whatever a menu pick had seeded, so the
+      // next command typed by hand is scored as typed
+      var x = btn(label, function () { b.mode = b.mode === m ? "menu" : m; b.fromMenu = false; b.pending = null; paintBattle(); }, (b.mode === m ? "sel" : "") + (cls ? " " + cls : ""));
       bar.appendChild(x);
     };
     mode("inspect", "Inspect"); mode("fix", "Fix"); mode("item", "Item");
@@ -936,7 +954,7 @@
       var handled = true;
       if (e.key === "Escape") {
         if (scene === "map") { if (dlg) closeDialog(); else handled = false; }
-        else if (scene === "battle") { if (battle && battle.mode !== "menu" && battle.mode !== "typed") { battle.mode = "menu"; paintBattle(); } else handled = false; }
+        else if (scene === "battle") { if (battle && battle.mode !== "menu" && battle.mode !== "typed") { battle.mode = "menu"; battle.fromMenu = false; battle.pending = null; paintBattle(); } else handled = false; }
         else if (scene === "trial") handled = false;
         else if (scene === "town") leaveToMap();
         else handled = false;
@@ -954,8 +972,8 @@
       } else if (scene === "trial" && trial) {
         if (!trial.revealed && /^[1-4]$/.test(e.key) && trial.opts![+e.key - 1]) answerTrial(+e.key - 1);
         else if (trial.revealed && e.key === "Enter") nextTrial();
-        else handled = menuNav(e);
-      } else handled = menuNav(e);
+        else handled = menuNav(e) || /^[a-z]$/i.test(e.key);
+      } else handled = menuNav(e) || /^[a-z]$/i.test(e.key);   // a letter in any scene is not a page shortcut
       if (handled) { e.preventDefault(); e.stopPropagation(); }
     }, true);
   }
@@ -1024,21 +1042,34 @@
     readPalette();
     if (window.CNPE_THEME && !themeWired) {
       themeWired = true;
-      window.CNPE_THEME.onChange(function () { readPalette(); dirty = true; draw(); if (scene === "battle" && battle) paintBattle(); });
+      window.CNPE_THEME.onChange(function () {
+        readPalette(); dirty = true; draw();
+        // a live battle repaints so the monster takes the new palette; a finished
+        // one keeps its result card, and a half-typed command survives the repaint
+        if (scene === "battle" && battle && !battle.over) {
+          var inp = screen.querySelector<HTMLInputElement>(".gm-term input");
+          if (inp && inp.value) battle.pending = inp.value;
+          paintBattle();
+        }
+      });
     }
     // fonts arrive after first paint, and the town labels are text
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { dirty = true; draw(); });
   }
   function intro() {
     if (has("flags", "intro")) return;
-    tick("flags", "intro");
-    STARTER_TECH.forEach(function (id) { tick("learned", id); });
-    Object.keys(STARTER_ITEMS).forEach(function (id) { giveItem(id, STARTER_ITEMS[id]); });
-    save();
     say("A note pinned to the signpost", [
       "Five regions, one per exam domain, and a town for every section. All roads are open; the dungeons are not.",
       "In a town, talk to people: they teach the theory and hand you commands. Pass the town's trial and its dungeon opens. Inside is a fault, and you fight it with real commands.",
       "You start with <code>kubectl get</code>, <code>describe</code>, <code>events</code> and <code>logs</code>, and two hint scrolls. The rest you learn in the towns. Walk with the arrows or WASD; enter acts."]);
+    // The starter kit is written when the note is put down, which is the first
+    // action: opening the page writes nothing, as reading the console never has.
+    dlg!.done = function () {
+      if (!tick("flags", "intro")) return;
+      STARTER_TECH.forEach(function (id) { tick("learned", id); });
+      Object.keys(STARTER_ITEMS).forEach(function (id) { giveItem(id, STARTER_ITEMS[id]); });
+      save();
+    };
   }
 
   window.CNPE_GAME = {
