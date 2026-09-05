@@ -61,9 +61,12 @@ SAME.forEach(([want, forms]) => {
 });
 ok(S.normalize("") === "" && S.normalize("   ") === "" && S.normalize("$") === "", "a blank line normalises to nothing");
 ok(S.normalize("kubectl get pods -a") === "kubectl get pods -a", "-a and -A are different flags");
-ok(S.toolOf("kubectl get pods") === "kubectl" && S.toolOf("flux get ks") === "flux" && S.toolOf("argocd app get x") === "argo" &&
-   S.toolOf("kubectl argo rollouts get rollout x") === "argo" && S.toolOf("tkn pr list") === "tekton" && S.toolOf("crossplane beta trace x y") === "crossplane" &&
-   S.toolOf("kubectl get servicemonitors -A") === "platform" && S.toolOf("nonsense") === "nonsense", "toolOf names the family");
+[["kubectl get pods", "kubectl"], ["flux get ks", "flux"], ["argocd app get x", "argo"], ["kubectl argo rollouts get rollout x", "argo"],
+  ["tkn pr list", "tekton"], ["crossplane beta trace x y", "crossplane"], ["kubectl get servicemonitors -A", "platform"],
+  ["kubectl get kustomizations -A", "flux"], ["kubectl get pipelineruns -n drill-ci", "tekton"], ["nonsense", "nonsense"]].forEach(([cmd, want]) => {
+  const got = S.toolOf(cmd);
+  ok(got === want, "toolOf names the family: " + JSON.stringify(cmd) + " -> " + want + (got === want ? "" : ", got " + got));
+});
 
 /* ── the probes: what a player types, per scenario ─────────── */
 // evidence: one command per piece, in the scenario's order; fix; wrong; other: a
@@ -136,7 +139,10 @@ group("\n" + D.scenarios.length + " scenarios, each with a fight in it");
 ok(D.scenarios.length === 24, "twenty-four faults: the sixteen make break injects and eight of the quest's own");
 ok(new Set(D.scenarios.map(s => s.id)).size === D.scenarios.length, "no two share an id");
 ok(new Set(D.scenarios.map(s => s.name)).size === D.scenarios.length, "nor a monster's name");
-[1, 2, 3, 4, 5].forEach(d => ok(D.scenarios.filter(s => s.d === d).length >= 2, "domain " + d + " has dungeons of its own: " + D.scenarios.filter(s => s.d === d).map(s => s.id).join(", ")));
+[1, 2, 3, 4, 5].forEach(d => {
+  const mine = D.scenarios.filter(s => s.d === d);
+  ok(mine.length >= 2, "domain " + d + " has dungeons of its own: " + mine.map(s => s.id).join(", "));
+});
 
 D.scenarios.forEach(sc => {
   group("\n" + sc.id + ": " + sc.name);
@@ -243,14 +249,69 @@ ok(D.towns.every(t => t.npcs.length >= 3 && t.npcs.length <= 5 && t.npcs.every(n
 ok(D.towns.every(t => ids.has(t.dungeon)), "every town's door leads to a real fault");
 ok(D.scenarios.every(s => D.towns.some(t => t.dungeon === s.id)), "and every fault is behind some door");
 ok(Object.keys(D.techniques).every(k => D.techniques[k].cmd && D.techniques[k].about && D.techniques[k].tool), "every technique has a command, a line and a tool");
+// what pickTechnique() offers targets for and finishPick() fills in; anything
+// else would reach the prompt with a literal {placeholder} in it
+const FILLED = ["ns", "res", "pod", "kind", "sa", "app", "name", "image", "container"];
+const oddTech = Object.keys(D.techniques).filter(k => (D.techniques[k].cmd.match(/\{([a-z]+)\}/g) || []).some(m => FILLED.indexOf(m.slice(1, -1)) < 0));
+ok(!oddTech.length, "and only placeholders the battle fills in" + (oddTech.length ? ": " + oddTech.map(k => D.techniques[k].cmd).join(", ") : ""));
+// pickTechnique() offers one target and finishPick() fills one in, so a second
+// would reach the prompt as a literal {name} for the player to type over
+const TARGETS = ["res", "pod", "kind", "sa", "app", "name"];
+const twoTargets = Object.keys(D.techniques).filter(k => (D.techniques[k].cmd.match(/\{([a-z]+)\}/g) || []).filter(m => TARGETS.indexOf(m.slice(1, -1)) >= 0).length > 1);
+ok(!twoTargets.length, "and at most one target placeholder each, which is all the target menu asks for" + (twoTargets.length ? ": " + twoTargets.map(k => D.techniques[k].cmd).join(", ") : ""));
 ok(D.map.length > 40 && D.map.every(row => row.length === D.map[0].length), "the map is rectangular: " + D.map[0].length + "x" + D.map.length);
 ok(D.map.every(row => [...row].every(ch => D.tiles[ch])), "every map char is a tile");
 const at = (x, y) => D.map[y] && D.map[y][x];
 ok(D.towns.every(t => D.tiles[at(t.x, t.y)] === "town" && D.tiles[at(t.door.x, t.door.y)] === "door"), "every town and door sits on its tile");
 ok(D.regions.every(r => D.tiles[at(r.keep.x, r.keep.y)] === "keep") && D.tiles[at(D.finale.keep.x, D.finale.keep.y)] === "gate", "every keep and the gate too");
+// game.js indexes what stands on a tile by that tile, so two landmarks on one
+// would hide each other: the town you cannot enter, the door that opens the
+// wrong dungeon.
+const landmarks = [].concat(
+  D.towns.map(t => [t.x, t.y, t.name]), D.towns.map(t => [t.door.x, t.door.y, t.name + "'s door"]),
+  D.regions.map(r => [r.keep.x, r.keep.y, r.name + " keep"]), [[D.finale.keep.x, D.finale.keep.y, "the Exam gate"]]);
+const onTile = {};
+const shared = landmarks.filter(([x, y, what]) => {
+  const k = x + "," + y, was = onTile[k];
+  onTile[k] = what;
+  return !!was;
+}).map(([x, y, what]) => what + " at " + x + "," + y);
+ok(!shared.length, "no two landmarks share a tile: " + landmarks.length + " of them" + (shared.length ? ", but " + shared.join(", ") : ""));
+
+// Nothing may be walled off. The walk table mirrors game.js's; every kind the
+// map uses has to be in one of the two lists, so a new kind cannot slip through
+// this as walkable by default.
+const WALK = { grass: 1, flower: 1, road: 1, sand: 1, bridge: 1, town: 1, door: 1, keep: 1, gate: 1 };
+const BLOCKED = { water: 1, cliff: 1, tree: 1 };
+const kinds = [...new Set(Object.values(D.tiles))].sort();
+ok(kinds.every(k => WALK[k] || BLOCKED[k]), "every tile kind is one the walk table knows: " + kinds.join(", "));
+const W = D.map[0].length, H = D.map.length;
+const kindAt = (x, y) => (D.map[y] && D.map[y][x] ? D.tiles[D.map[y][x]] : "void");
+const reached = new Set([D.start.x + "," + D.start.y]), queue = [[D.start.x, D.start.y]];
+for (let q = 0; q < queue.length; q++) {
+  const [x, y] = queue[q];
+  [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]].forEach(([nx, ny]) => {
+    const k = nx + "," + ny;
+    if (nx < 0 || ny < 0 || nx >= W || ny >= H || reached.has(k) || !WALK[kindAt(nx, ny)]) return;
+    reached.add(k); queue.push([nx, ny]);
+  });
+}
+const stranded = landmarks.filter(([x, y]) => !reached.has(x + "," + y)).map(([, , what]) => what);
+ok(!stranded.length, "and every one can be walked to from the start" + (stranded.length ? ", except: " + stranded.join(", ") : ": " + reached.size + " tiles reachable"));
 ok(D.tiles[at(D.start.x, D.start.y)] === "grass" || D.tiles[at(D.start.x, D.start.y)] === "road", "you start on walkable ground");
 ok(D.levels.length >= 20 && D.levels[0] === 0 && D.levels.every((v, i) => i === 0 || v > D.levels[i - 1]), "the level ladder climbs: " + D.levels.length + " rungs");
 ok(glyphsOk(JSON.stringify(D)), "every character in the content is one the fonts carry");
+
+group("the shop and the pack");
+const itemIds = Object.keys(D.items);
+ok(itemIds.every(id => D.items[id].name && D.items[id].about), itemIds.length + " items, each with a name and a line");
+ok(itemIds.every(id => !("price" in D.items[id]) || D.items[id].price > 0), "and a price worth gold where it has one");
+// a cheat sheet prints its family's techniques, so a family with none would sell an empty page
+const families = [...new Set(Object.keys(D.techniques).map(k => D.techniques[k].tool))].sort();
+const emptySheets = itemIds.filter(id => /^sheet-/.test(id) && families.indexOf(id.slice(6)) < 0);
+ok(!emptySheets.length, "every cheat sheet names a tool family that has techniques" + (emptySheets.length ? ": " + emptySheets.join(", ") : ": " + families.join(", ")));
+ok(families.every(f => D.items["sheet-" + f]), "and every family has a sheet to buy: " + families.map(f => (D.items["sheet-" + f] ? "" : "no ") + f).join(", "));
+
 
 console.log("\n" + checks + " checks, " + failures + " failures");
 process.exitCode = failures ? 1 : 0;

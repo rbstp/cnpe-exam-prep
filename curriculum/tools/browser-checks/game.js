@@ -58,12 +58,27 @@ module.exports = async function (h) {
     });
     await page.keyboard.press(String(idx + 1));
   };
+  /** an action the terminal answers: run it, then wait for the log to grow rather
+      than for a guessed span of time. A fix ends the fight and the result card
+      takes the screen, which counts as an answer too.
+      @param {import('playwright').Page} page @param {() => Promise<void>} act */
+  const afterTurn = async (page, act) => {
+    const lines = () => page.evaluate(() => { const p = document.querySelector('.gm-term pre'); return p ? p.childElementCount : -1; });
+    const before = await lines();
+    await act();
+    await page.waitForFunction(n => { const p = document.querySelector('.gm-term pre'); return !p || p.childElementCount > n; }, before, { timeout: 5000 });
+  };
   /** @param {import('playwright').Page} page @param {string} cmd */
-  const type = async (page, cmd) => {
+  const type = (page, cmd) => afterTurn(page, async () => {
     await page.fill('.gm-term input', cmd);
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(60);
-  };
+  });
+  /** the trial's next question is up: its options are enabled again, or the trial is over
+      @param {import('playwright').Page} page */
+  const nextQuestion = page => page.waitForFunction(() => {
+    const o = document.querySelector('.gm-opt');
+    return !o || !(/** @type {HTMLButtonElement} */ (o).disabled);
+  }, null, { timeout: 5000 });
   /** @param {import('playwright').Page} page */
   const term = page => page.evaluate(() => document.querySelector('.gm-term pre').textContent);
   /** the camera as draw() clamps it, so a map tile can be found on the canvas: the
@@ -112,14 +127,14 @@ module.exports = async function (h) {
     assert((await page.locator('.gm-scene[data-scene="square"]').count()) === 1, 'over a strip of the town square');
     // d and g are page shortcuts (dashboard, drill); inside the game they are the game's
     await page.keyboard.press('d'); await page.keyboard.press('g');
-    await page.waitForTimeout(150);
+    await page.waitForTimeout(150);                  // nothing to wait for: the check is that neither key navigated
     assert(/game\.html/.test(page.url()) && /Portmouth/.test(await page.textContent('.gm-title')), 'a letter pressed in a town does not leave the page');
     await page.click('.gm-menu button:has-text("Trial")');
     await page.waitForSelector('.gm-opt');
     const n = await page.evaluate(() => document.querySelectorAll('.gm-opt').length);
     assert(n === 4, 'four options per question: ' + n);
     await answerRight(page);
-    await page.waitForTimeout(80);
+    await page.waitForSelector('.gm-opt.right');
     let s = await store(page);
     const recs = Object.keys(s.drill);
     assert(recs.length === 1 && recs[0].indexOf('1.1#') === 0 && s.drill[recs[0]].r === 1 && s.drill[recs[0]].ok === true,
@@ -128,7 +143,7 @@ module.exports = async function (h) {
     assert(dayCount(s.game, 'xp') === 5, 'five xp for the right answer: ' + dayCount(s.game, 'xp'));
     assert(await page.isVisible('.gm-opt.right'), 'the right option is marked');
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(60);
+    await nextQuestion(page);
     // miss the rest by picking an option that is not marked right; the trial fails and stays sealed
     for (let i = 1; i < 6; i++) {
       const done = await page.evaluate(() => !document.querySelector('.gm-opt'));
@@ -141,14 +156,93 @@ module.exports = async function (h) {
         return Array.from(document.querySelectorAll('.gm-opt')).findIndex(b => b.textContent.replace(/\s+/g, ' ').indexOf(want) < 0);
       });
       await page.keyboard.press(String(wrong + 1));
-      await page.waitForTimeout(60);
+      await page.waitForSelector('.gm-opt.right');
       await page.keyboard.press('Enter');
-      await page.waitForTimeout(60);
+      await nextQuestion(page);
     }
     s = await store(page);
     assert(!(s.game.towns && s.game.towns['1.1']), 'one right of six does not clear the trial');
     assert(Object.keys(s.drill).length === 6 && Object.keys(s.drill).filter(k => s.drill[k].ok === false).length === 5, 'six records, five misses: the drill will deal them again');
     assert(/Not this time/.test(await page.textContent('.gm-screen')), 'and the town says so');
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  });
+
+  /* 2b. the rest of the town: its people teach a technique once, the shop spends gold, the inn beds you down */
+  await group('the townsfolk teach, the shop sells and the inn rests you', async () => {
+    // ninety gold: enough for the Lens, never enough for a Cheat Sheet. The trial
+    // is cleared so the dungeon can open, which is where the inn's wound comes from.
+    const { ctx, page } = await fresh({ game: { flags: { intro: 1 }, towns: { '1.1': 1 }, gold: { e: { seed: 90 } } } });
+    await page.goto(url('game.html'));
+    await page.waitForSelector('.gm-stage canvas');
+    await skipIntro(page);
+    await page.keyboard.press('ArrowUp'); await page.keyboard.press('ArrowUp');
+    await page.waitForSelector('.gm-screen:not([hidden]) .gm-title');
+    const menu = page.locator('.gm-body > .gm-col').first();     // the town's own menu; the right column is what it opens
+    const line = (/** @type {string} */ what) => menu.locator('button:has-text("' + what + '")').textContent();
+    assert(/4 people · 3 new/.test(await line('Talk')), 'Portmouth has four people, three with something to teach: ' + await line('Talk'));
+    assert(/90g held/.test(await line('Shop')), 'and the shop line counts the gold you walked in with: ' + await line('Shop'));
+
+    await menu.locator('button:has-text("Talk")').click();
+    await page.waitForSelector('.gm-scene[data-scene="talk"]');
+    const people = page.locator('.gm-body > .gm-col').nth(1).locator('.gm-menu button');
+    assert((await people.count()) === 4, 'four people to talk to: ' + (await people.count()));
+    assert(/teaches kubectl get endpointslices/.test(await people.first().textContent()), 'and the first names what she teaches: ' + (await people.first().textContent()));
+
+    await people.first().click();
+    await page.waitForSelector('.teach');
+    let taught = await page.textContent('.teach');
+    assert(/^Learned: kubectl get endpointslices/.test(taught), 'she teaches it: ' + taught.slice(0, 60));
+    let s = await store(page);
+    assert(s.game.learned && s.game.learned['k-endpoints'] === 1, 'the technique is learned: ' + JSON.stringify(s.game.learned));
+    assert(dayCount(s.game, 'xp') === 5, 'five xp for learning it: ' + dayCount(s.game, 'xp'));
+    assert(/4 people · 2 new/.test(await line('Talk')), 'and the menu counts one fewer left to learn: ' + await line('Talk'));
+
+    // a second visit teaches nothing twice
+    await page.click('.gm-acts button:has-text("Others")');
+    await page.locator('.gm-body > .gm-col').nth(1).locator('.gm-menu button').first().click();
+    await page.waitForSelector('.teach');
+    taught = await page.textContent('.teach');
+    s = await store(page);
+    assert(/^You know this one: kubectl get endpointslices/.test(taught) && dayCount(s.game, 'xp') === 5,
+      'a second visit only reminds you, for no xp: ' + taught.slice(0, 40) + ', ' + dayCount(s.game, 'xp') + ' xp');
+
+    // the shop: what you can afford is buyable, what you cannot is not
+    await menu.locator('button:has-text("Shop")').click();
+    await page.waitForSelector('.gm-scene[data-scene="shop"]');
+    const lens = () => page.locator('.gm-item:has-text("Lens")').first();
+    assert(!(await lens().isDisabled()) && (await page.locator('.gm-item:has-text("Cheat Sheet: kubectl")').isDisabled()),
+      'the Lens at 60g is buyable on 90 gold; the Cheat Sheet at 120g is not');
+    await lens().click();
+    await page.waitForSelector('.gm-note.ok');
+    s = await store(page);
+    assert(/Bought Lens/.test(await page.textContent('.gm-note.ok')), 'buying it says so: ' + await page.textContent('.gm-note.ok'));
+    assert(dayCount(s.game.items.lens, 'g') === 1 && dayCount(s.game.gold, 's') === 60,
+      'one Lens in the pack, sixty gold spent: ' + JSON.stringify({ items: s.game.items, gold: s.game.gold }));
+    assert(/30g held/.test(await line('Shop')), 'and the menu counts what is left: ' + await line('Shop'));
+    assert(await lens().isDisabled(), 'the Lens is out of reach at thirty gold');
+    assert(!(await page.locator('.gm-item:has-text("Hint Scroll")').isDisabled()), 'a thirty-gold scroll is still exactly affordable');
+
+    // the inn heals, so first take a wound: a turn in the dungeon that surfaces
+    // nothing, then back up the stairs. Resting on full health would prove nothing.
+    assert(/you are rested/.test(await line('Inn')), 'the inn has nothing to offer a full health bar: ' + await line('Inn'));
+    await menu.locator('button:has-text("Dungeon")').click();
+    await page.waitForSelector('.gm-term input');
+    await type(page, 'kubectl get nodes');            // nothing this fault answers to: the enemy strikes
+    const hurt = await page.textContent('.gm-term pre');
+    assert(/Hollow Beacon strikes for 2\. Health 22 of 24\./.test(hurt), 'the fault bites: ' + (hurt.split('\n').filter(l => /strikes/.test(l))[0] || hurt.slice(-60)));
+    await page.click('.gm-acts button:has-text("Flee")');
+    await page.waitForSelector('.gm-scene[data-scene="square"]');
+    assert(/rest, heal/.test(await line('Inn')), 'and the inn has something to offer now: ' + await line('Inn'));
+    await menu.locator('button:has-text("Inn")').click();
+    await page.waitForSelector('.gm-scene[data-scene="inn"]');
+    assert(/You sleep\. The pager stays quiet\. Health restored to 24\./.test(await page.textContent('.gm-screen')),
+      'the inn heals you back to a level-one full: ' + (await page.textContent('.gm-note')));
+    assert(/you are rested/.test(await line('Inn')), 'and the menu agrees: ' + await line('Inn'));
+
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => /** @type {HTMLElement} */ (document.querySelector('.gm-screen')).hidden, null, { timeout: 5000 });
+    assert((await page.evaluate(() => window.CNPE_GAME.debug().x)) === 8, 'esc walks you back out onto the map');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   });
@@ -186,8 +280,7 @@ module.exports = async function (h) {
     await page.waitForSelector('.gm-term input');
     // an item: the scroll names the next thing to inspect and is used up
     await page.click('.gm-acts button:has-text("Item")');
-    await page.click('.gm-sub .gm-menu button:has-text("Hint Scroll")');
-    await page.waitForTimeout(60);
+    await afterTurn(page, () => page.click('.gm-sub .gm-menu button:has-text("Hint Scroll")'));
     assert(/The scroll reads/.test(await term(page)), 'the scroll speaks in the terminal');
     let s = await store(page);
     assert(dayCount(s.game.items.scroll, 'u') === 1, 'and one scroll is used: ' + JSON.stringify(s.game.items.scroll));
@@ -195,8 +288,7 @@ module.exports = async function (h) {
     await page.click('.gm-acts button:has-text("Inspect")');
     await page.click('.gm-sub .gm-menu button:has-text("kubectl get")');
     await page.waitForSelector('.gm-sub .hd:has-text("which one?")');
-    await page.click('.gm-sub .gm-menu button:has-text("pods")');
-    await page.waitForTimeout(80);
+    await afterTurn(page, () => page.click('.gm-sub .gm-menu button:has-text("pods")'));
     let t = await term(page);
     assert(/Evidence found \(1\/3\).*\+10 xp\./.test(t) && !/\+10 xp \(typed\)/.test(t), 'a menu pick earns the menu rate: 10 xp');
     // typed: the same family of command, at the typed rate
@@ -299,7 +391,7 @@ module.exports = async function (h) {
       await page.goto(url('game.html'));
       await page.waitForSelector('.gm-stage canvas');
       await skipIntro(page);
-      await page.waitForTimeout(150);
+      await page.evaluate(() => window.CNPE_GAME.debug().frame());   // the viewport settled; paint it now
       seen[theme] = await water(page);
       assert(seen[theme] !== '0,0,0', theme + ': the sea is painted, not black: ' + seen[theme]);
       const ink = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--ink').trim());
@@ -310,8 +402,9 @@ module.exports = async function (h) {
         await page.locator('.gm-stage').screenshot({ path: path.join(SHOTS, 'quest-' + theme + '.png') });
       }
       // the switch repaints without a reload
+      const r0 = await page.evaluate(() => window.CNPE_GAME.debug().terrainRenders);
       await page.evaluate(t => window.CNPE_THEME.set(t), theme === 'dark' ? 'light' : 'dark');
-      await page.waitForTimeout(100);
+      await page.waitForFunction(n => window.CNPE_GAME.debug().terrainRenders > n, r0, { timeout: 3000 });
       const after = await water(page);
       assert(after !== seen[theme], theme + ': switching the theme repaints the sea: ' + seen[theme] + ' -> ' + after);
       assert(page.errors.length === 0, theme + ': no console errors: ' + page.errors.join(' | '));
@@ -910,7 +1003,8 @@ module.exports = async function (h) {
         await page.waitForTimeout(500);                // longer than a beat: the one real-time look at a ticker that must not run
         assert((await page.evaluate(() => window.CNPE_GAME.debug().waterFrame)) === 0, tag + 'the water stays on its first frame');
         const f0 = await page.evaluate(() => window.CNPE_GAME.debug().frames);
-        await page.keyboard.press('ArrowLeft'); await page.waitForTimeout(100);
+        await page.keyboard.press('ArrowLeft');
+        await page.waitForFunction(n => window.CNPE_GAME.debug().frames > n, f0, { timeout: 3000 });
         const s = await page.evaluate(() => { const d = window.CNPE_GAME.debug(); return { frames: d.frames, face: d.face, walk: d.walkFrame }; });
         assert(s.frames > f0 && s.face === 'l', tag + 'a step still paints a frame and turns the player: ' + JSON.stringify(s));
       } else {
@@ -954,8 +1048,7 @@ module.exports = async function (h) {
     const hit = await page.evaluate(() => document.querySelector('.gm-enemy').getAttribute('data-fx'));
     assert(hit === 'hit', 'a fruitless turn plays the hit: ' + hit);
     await page.fill('.gm-term input', 'kubectl get');
-    await page.evaluate(() => window.CNPE_THEME.set('light'));
-    await page.waitForTimeout(120);
+    await page.evaluate(() => window.CNPE_THEME.set('light'));   // theme.js announces on the spot; the repaint is done when this returns
     const after = await page.evaluate(() => ({ mark: document.querySelector('.gm-term pre').getAttribute('data-mark'), value: /** @type {HTMLInputElement} */ (document.querySelector('.gm-term input')).value }));
     assert(after.mark === '1' && after.value === 'kubectl get', 'a theme switch repaints the sprite but keeps the terminal and the half-typed command');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
@@ -1143,13 +1236,15 @@ module.exports = async function (h) {
     // the fix, before any evidence: the monster falls, the next waits behind it
     await page.fill('.gm-term input', 'kubectl -n team-a scale deployment broken --replicas=1');
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(80);
+    // not afterTurn(): a chain's win defers the terminal's paint until the swap,
+    // and the swap is what this group is about. The fall starting is the state.
+    await page.waitForFunction(() => document.querySelector('.gm-enemy').getAttribute('data-fx') === 'win', null, { timeout: 5000 });
     const falling = await page.evaluate(() => ({ h3: document.querySelector('.gm-title h3').textContent, fx: document.querySelector('.gm-enemy').getAttribute('data-fx'),
       disabled: /** @type {HTMLInputElement} */ (document.querySelector('.gm-term input')).disabled, flee: /** @type {HTMLButtonElement} */ (document.querySelector('.gm-acts button.ghost')).disabled }));
     assert(falling.h3 === "Miser's Ledger" && falling.fx === 'win' && falling.disabled === true && falling.flee === false, 'the fallen monster stays on screen through its fall, the prompt shut, Flee still open (the keep goes on): ' + JSON.stringify(falling));
     // a repaint asked for during the fall waits: the screen is still the fallen one's
     await page.click('.gm-acts button:has-text("Inspect")');
-    await page.waitForTimeout(50);
+    await page.waitForTimeout(50);                   // nothing to wait for either: the check is that the screen did not swap
     const during = await page.evaluate(() => ({ h3: document.querySelector('.gm-title h3').textContent, sub: !!document.querySelector('.gm-sub') }));
     assert(during.h3 === "Miser's Ledger" && !during.sub, 'Inspect during the fall does not swap the screen early: ' + JSON.stringify(during));
     // a command typed against the fallen monster runs nothing
