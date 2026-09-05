@@ -523,8 +523,9 @@ interface CnpeGameDebug {
   /** partial repaints, one per landmark change, the tiles they touched, and their
       share of terrainMs */
   terrainPatches: number; tilesRepainted: number; patchMs: number;
-  /** the minimap: its backing store (the map's size times scale, whole device pixels per tile, behind the
-      CSS box game.css sets in --gm-mini-w and --gm-mini-h), and how many times it was rebuilt from the terrain */
+  /** the minimap: its backing store (the map's size times scale, whole device pixels per tile, behind the CSS
+      box whose width game.css sets in --gm-mini-w, the height following the map's aspect), and how many times it
+      was rebuilt from the terrain */
   minimap: { w: number; h: number; scale: number } | null; minimapBuilds: number;
   /** the canvas backing scale, and the device pixel ratio it was chosen for */
   scale: number; dpr: number;
@@ -538,9 +539,10 @@ interface CnpeGameDebug {
   waterFrame: number; walkFrame: number; face: string;
   /** the tile the player stands on, or is stepping onto */
   x: number; y: number;
-  /** a step is in flight; its pixel offset from the tile it ends on (whole pixels, which the sprite and the camera
-      share) and its sub-position (0 to 4; -1 standing) as of the last frame painted, so they and walkFrame are one
-      frame's (paint with frame() before reading them); and whether another step waits behind it */
+  /** walking: a step is in flight, and queued: another waits behind it, both live. offset and sub are as of the
+      last frame painted, so they and walkFrame are one frame's (paint with frame() before reading them): the
+      step's pixel offset from the tile it ends on, in whole pixels (the camera moves by the same offset wherever
+      the map's edge does not clamp it), and its sub-position, 0 to 4, or -1 standing */
   walking: boolean; offset: { x: number; y: number }; sub: number; queued: boolean;
   /** the camera as last drawn, in map pixels (null before the first frame), and whether it is easing back
       to the player after a scene, which it does over 180 ms through whole pixels and never during a step */

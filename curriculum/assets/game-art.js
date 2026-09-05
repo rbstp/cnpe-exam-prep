@@ -250,7 +250,8 @@
        Frame 0 stands, and is what the hero lands on. Frames 1 and 2 are the two
        halves of a stride: one leg forward with the near arm swung back, then the
        other. Frame 3 is the pass between them: the legs swinging past each other
-       under the body, which rides a pixel higher. game.js keys them to a step's
+       under the body, which rides a pixel higher, over the stride's wide shadow
+       so the ground does not flicker mid-step. game.js keys them to a step's
        five sub-positions as 1, 1, 3, 2, 2, so a tile is one full stride and a
        walk reads as left, pass, right, stand rather than the same hop. */
     var HERO = {
@@ -262,7 +263,7 @@
             ["................", ".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HSSSSSSH....", "....HSeSSeSH....", ".....SSSSSS.....", "......SSSS......",
                 "....TTTTTTTT....", "...TTTTTTTTTT...", "...STTTTTTTTS...", ".....TTTTTT.S...", ".....tttttt.....", "....BB....BB....", "..........BB....", "....xxxxxxxx...."],
             [".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HSSSSSSH....", "....HSeSSeSH....", ".....SSSSSS.....", "......SSSS......", "....TTTTTTTT....",
-                "...TTTTTTTTTT...", "...STTTTTTTTS...", "...S.TTTTTT.S...", ".....tttttt.....", ".....BB.BB......", ".....BB.BB......", "......B.B.......", ".....xxxxxx....."]
+                "...TTTTTTTTTT...", "...STTTTTTTTS...", "...S.TTTTTT.S...", ".....tttttt.....", ".....BB.BB......", ".....BB.BB......", "......B.B.......", "....xxxxxxxx...."]
         ],
         u: [
             ["................", ".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HHHHHHHH....", "....HHSSSSHH....", ".....SSSSSS.....", "......SSSS......",
@@ -272,7 +273,7 @@
             ["................", ".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HHHHHHHH....", "....HHSSSSHH....", ".....SSSSSS.....", "......SSSS......",
                 "....TTTTTTTT....", "...TTTTTTTTTT...", "...STTTTTTTTS...", ".....TTTTTT.S...", ".....tttttt.....", "....BB....BB....", "..........BB....", "....xxxxxxxx...."],
             [".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HHHHHHHH....", "....HHSSSSHH....", ".....SSSSSS.....", "......SSSS......", "....TTTTTTTT....",
-                "...TTTTTTTTTT...", "...STTTTTTTTS...", "...S.TTTTTT.S...", ".....tttttt.....", ".....BB.BB......", ".....BB.BB......", "......B.B.......", ".....xxxxxx....."]
+                "...TTTTTTTTTT...", "...STTTTTTTTS...", "...S.TTTTTT.S...", ".....tttttt.....", ".....BB.BB......", ".....BB.BB......", "......B.B.......", "....xxxxxxxx...."]
         ],
         l: [
             ["................", ".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HSSSSHHH....", "....HeSSSHHH....", ".....SSSSSH.....", "......SSSS......",
@@ -282,7 +283,7 @@
             ["................", ".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HSSSSHHH....", "....HeSSSHHH....", ".....SSSSSH.....", "......SSSS......",
                 ".....TTTTTTT....", "....TTTTTTTTT...", ".....TTTTTTTTS..", "......TTTTTT.S..", ".....tttttt.....", "....BBB...BB....", "....BBB...BB....", "....xxxxxxxx...."],
             [".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HSSSSHHH....", "....HeSSSHHH....", ".....SSSSSH.....", "......SSSS......", ".....TTTTTTT....",
-                "....TTTTTTTTT...", "....STTTTTTTT...", "....S.TTTTTT....", ".....tttttt.....", "......BBBB......", "......BBBB......", "......BBBB......", ".....xxxxxx....."]
+                "....TTTTTTTTT...", "....STTTTTTTT...", "....S.TTTTTT....", ".....tttttt.....", "......BBBB......", "......BBBB......", "......BBBB......", "....xxxxxxxx...."]
         ]
     };
     HERO.r = HERO.l.map(flip);

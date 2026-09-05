@@ -377,7 +377,8 @@ module.exports = async function (h) {
       await page.goto(url('game.html'));
       await page.waitForSelector('.gm-stage canvas');
       await skipIntro(page);
-      const at = () => page.evaluate(() => { const d = window.CNPE_GAME.debug(); return { x: d.x, y: d.y, walking: d.walking, off: d.offset, sub: d.sub, queued: d.queued, walk: d.walkFrame, face: d.face }; });
+      // paint, then read: offset, sub and walkFrame are the last frame's, and a starved animation frame must not stand in for one
+      const at = () => page.evaluate(() => { window.CNPE_GAME.debug().frame(); const d = window.CNPE_GAME.debug(); return { x: d.x, y: d.y, walking: d.walking, off: d.offset, sub: d.sub, queued: d.queued, walk: d.walkFrame, face: d.face }; });
       const before = await at();
       assert(before.x === 8 && before.y === 8 && !before.walking, tag + 'standing on the start tile: ' + JSON.stringify(before));
       // press, paint and read in the same task: the tile has changed, the sprite has not arrived
@@ -394,6 +395,7 @@ module.exports = async function (h) {
         await page.waitForTimeout(50);
         const part = await at();
         assert(part.walking && part.off.x < 0 && part.off.x > -16 && part.off.x % 1 === 0, tag + 'part way, the offset is whole pixels between the tiles: ' + JSON.stringify(part));
+        // this pins the table's contents from outside; that each sub-position falls where it should in time is 8b1's, under a driven clock
         assert(part.sub >= 0 && part.sub <= 4 && part.walk === [1, 1, 3, 2, 2][part.sub], tag + 'the walk cycle is keyed to the sub-position: a stride\'s half, the pass, the other half: ' + JSON.stringify(part));
         await page.waitForFunction(() => !window.CNPE_GAME.debug().walking, null, { timeout: 2000 }).catch(() => {});
         const done = await at();
@@ -619,9 +621,9 @@ module.exports = async function (h) {
       'the backing store is the map times a whole scale chosen for dpr 2: ' + JSON.stringify(m0) + ' for a ' + map.w + 'x' + map.h + ' map');
     // the stylesheet asks for pixelated and then crisp-edges; a browser reports whichever of the two it took
     assert(m0.box.w === 120 && m0.box.h === 80 && /^(pixelated|crisp-edges)$/.test(m0.rendering), 'behind a 120 by 80 CSS box, painted sharp: ' + JSON.stringify({ box: m0.box, rendering: m0.rendering }));
-    // the box is the stylesheet's custom property, which the engine reads for the backing store rather than mirroring in a constant
-    const prop = await page.evaluate(() => { const cs = getComputedStyle(document.querySelector('.gm-mini')); return { w: cs.getPropertyValue('--gm-mini-w').trim(), h: cs.getPropertyValue('--gm-mini-h').trim() }; });
-    assert(prop.w === m0.box.w + 'px' && prop.h === m0.box.h + 'px' && parseFloat(prop.w) === map.w && parseFloat(prop.h) === map.h, 'the box is --gm-mini-w by --gm-mini-h, a pixel a tile of the ' + map.w + 'x' + map.h + ' map: ' + JSON.stringify(prop));
+    // the box's width is the stylesheet's custom property and its height follows the map's aspect, a pixel a tile
+    const prop = await page.evaluate(() => getComputedStyle(document.querySelector('.gm-mini')).getPropertyValue('--gm-mini-w').trim());
+    assert(prop === m0.box.w + 'px' && parseFloat(prop) === map.w && m0.box.h === map.h, 'the box is --gm-mini-w wide and the map\'s aspect tall, a pixel a tile of the ' + map.w + 'x' + map.h + ' map: ' + JSON.stringify({ prop, box: m0.box }));
     assert(m0.builds === 1 && m0.frames > 1, 'built once with the terrain, while frames keep coming: ' + JSON.stringify(m0));
     // a minimap pixel is a tile: read the tile's top-left device pixel, and check the whole block is one colour
     const px = (/** @type {number} */ x, /** @type {number} */ y) => page.evaluate(({ x, y }) => {
@@ -724,6 +726,21 @@ module.exports = async function (h) {
     assert(steady.seen.length === 1 && steady.seen[0] === rgb(colours.warn) && steady.waterFrame === 0, 'reduced motion: the dot is on, and tick() moves nothing: ' + JSON.stringify(steady) + ' for ' + colours.warn);
     assert(still.page.errors.length === 0, 'no console errors: ' + still.page.errors.join(' | '));
     await still.ctx.close();
+    // the engine reads the width from the stylesheet, not from a constant of its own: on a phone-wide viewport the
+    // minimap is hidden and its canvas has no width, so the backing scale can only come from --gm-mini-w. Widen the
+    // property to four pixels a tile and remount, and the backing store follows it
+    const narrow = await fresh({ game: { flags: { intro: 1 }, pos: { x: 10, y: 6, t: 1 } } });
+    await narrow.page.setViewportSize({ width: 500, height: 800 });
+    await narrow.page.goto(url('game.html'));
+    await narrow.page.waitForSelector('.gm-stage canvas');
+    await skipIntro(narrow.page);
+    const hidden = await narrow.page.evaluate(() => { const d = window.CNPE_GAME.debug(); const c = /** @type {HTMLCanvasElement} */ (document.querySelector('.gm-mini canvas')); return { shown: c.clientWidth, scale: d.minimap && d.minimap.scale, dpr: d.dpr }; });
+    assert(hidden.shown === 0 && hidden.scale === Math.max(1, Math.min(4, Math.round(120 * hidden.dpr / map.w))), 'phone-wide, the minimap is hidden and its backing is chosen from the stylesheet\'s 120 px: ' + JSON.stringify(hidden));
+    await narrow.page.addStyleTag({ content: '.gm-mini { --gm-mini-w: 480px; }' });
+    const wide = await narrow.page.evaluate(() => { window.CNPE_GAME.unmount(); window.CNPE_GAME.mount(); const d = window.CNPE_GAME.debug(); return { scale: d.minimap && d.minimap.scale, w: d.minimap && d.minimap.w, dpr: d.dpr }; });
+    assert(wide.scale === Math.max(1, Math.min(4, Math.round(480 * wide.dpr / map.w))) && wide.w === map.w * wide.scale, 'widened to 480 px and remounted, the backing store follows the property: ' + JSON.stringify(wide));
+    assert(narrow.page.errors.length === 0, 'no console errors: ' + narrow.page.errors.join(' | '));
+    await narrow.ctx.close();
   });
 
   /* 8d2. the signpost: where next, in the where window, on the minimap and in the label; it moves on as things are done */

@@ -383,7 +383,7 @@
             move(q.dx, q.dy);
     }
     /** a scene change or an unmount ends a step where it was going, with no tween left to land, and nothing of it drawn */
-    function settleStep() { walk = null; queued = null; drawnOff = { x: 0, y: 0 }; drawnSub = -1; }
+    function settleStep() { walk = null; queued = null; drawnOff = { x: 0, y: 0 }; drawnSub = -1; walkFrame = 0; }
     // What standing on a tile means. Walking onto a town enters it; the doors and
     // the keeps ask first, because a battle is a commitment.
     function arrive() {
@@ -2088,9 +2088,9 @@
         } }));
         pad.appendChild(ab);
         host.appendChild(pad);
-        // the box the stylesheet gives the minimap, read once from its custom property now the stage is in the document
+        // the width the stylesheet gives the minimap, read once from its custom property now the stage is in the document
         // (a pixel a tile when a cached older game.css has none): fitMini() needs it while the canvas is hidden off the
-        // map and has no width
+        // map and has no width. The height is not a property: the canvas keeps the map's aspect, so its box follows
         miniBoxW = parseFloat(getComputedStyle(miniWin).getPropertyValue("--gm-mini-w")) || mapW;
         readPalette();
         fitCanvas();
@@ -2141,11 +2141,19 @@
         if (motionQuery) {
             var mq = motionQuery;
             // a step in flight when motion is reduced lands now: its tile is already taken, and landing is what the tile does
-            var onMotion = function () { reduceMotion = mq.matches; walkFrame = 0; if (reduceMotion) {
-                ease = null;
-                if (walk)
-                    landStep();
-            } syncAnim(); requestDraw(); };
+            var onMotion = function () {
+                reduceMotion = mq.matches;
+                if (reduceMotion) {
+                    ease = null;
+                    if (walk)
+                        landStep();
+                }
+                drawnOff = { x: 0, y: 0 };
+                drawnSub = -1;
+                walkFrame = 0; // standing, as the next frame will paint it: what debug() reports stays one frame's
+                syncAnim();
+                requestDraw();
+            };
             if (mq.addEventListener) {
                 mq.addEventListener("change", onMotion);
                 undo.push(function () { mq.removeEventListener("change", onMotion); });
@@ -2260,6 +2268,7 @@
             waterInView = 1;
             ambientInView = 0;
             dirty = true;
+            focused = false; // removing a focused element fires no blur
         },
         /** what the renderer is doing, for the browser checks and profiling */
         debug: function () {
