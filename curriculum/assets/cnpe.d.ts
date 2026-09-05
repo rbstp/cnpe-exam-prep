@@ -2,9 +2,9 @@
 
 /** One section (or exam/drill page) in the nav manifest. */
 interface CnpeNavEntry {
-  /** "1.1" through "5.6", or "EX" / "EX2" / "DR" for the domainless pages */
+  /** "1.1" through "5.6", or "EX" / "EX2" / "DR" / "GM" for the domainless pages */
   id: string;
-  /** owning domain 1-5; 0 for the exams and the drill */
+  /** owning domain 1-5; 0 for the exams, the drill and the quest */
   d: number;
   /** page path relative to curriculum/ */
   path: string;
@@ -90,6 +90,39 @@ interface CnpeExamState {
   running?: boolean;
 }
 
+/** One battle's record under store.game.wins[scenario id]. */
+interface CnpeGameWin {
+  /** times won */
+  n: number;
+  /** fewest turns a win took */
+  best?: number;
+  /** epoch ms of the latest win */
+  t?: number;
+}
+
+/** The quest's own progress (store.game). Counters are per-browser slot maps
+    read as the sum, like the day counters, so two browsers add up; ticks are
+    unions, because nothing in the game un-clears; the position carries its
+    stamp so the latest one wins. Readers tolerate junk in any slot. */
+interface CnpeGameState {
+  /** experience earned, per browser */
+  xp?: CnpeDayCount;
+  /** gold earned (e) and spent (s), per browser; held is the difference */
+  gold?: { e?: CnpeDayCount; s?: CnpeDayCount };
+  /** item id -> got (g) and used (u), per browser; held is the difference */
+  items?: Record<string, { g?: CnpeDayCount; u?: CnpeDayCount }>;
+  /** section id -> 1 once its trial is cleared */
+  towns?: Record<string, number>;
+  /** technique id -> 1 once an NPC taught it */
+  learned?: Record<string, number>;
+  /** scenario id -> the record of beating it */
+  wins?: Record<string, CnpeGameWin>;
+  /** intro seen, bosses beaten, the final: flag -> 1 */
+  flags?: Record<string, number>;
+  /** where the player stood, in tiles, and when */
+  pos?: { x: number; y: number; t: number };
+}
+
 /** The whole cnpe:v2 localStorage store. Readers tolerate junk in any slot. */
 interface CnpeStore {
   /** exercise key ("id#slug") → 1 verified / 0 not */
@@ -101,6 +134,8 @@ interface CnpeStore {
   drill: Record<string, CnpeDrillRecord>;
   drillmeta: CnpeDrillMeta;
   days: Record<string, CnpeDayCounts>;
+  /** the quest's progress; absent in a store from before the game */
+  game?: CnpeGameState;
   /** section id last read, for the resume button */
   last: string | null;
   /** epoch ms that pointer was set, so the newest read wins across browsers */
@@ -118,6 +153,8 @@ interface CnpeMergeCounts {
   exam: number;
   drill: number;
   days: number;
+  /** game fields that grew: counters, ticks, win records, the position */
+  game: number;
   /** 1 when the merge moved the resume pointer */
   last: number;
   /** ticks the merge cleared; always 0 without a base */
@@ -177,6 +214,10 @@ interface CnpeMergeApi {
   pruneDays(s: unknown, today?: string): number;
   /** days of history a store carries */
   KEEP: number;
+  /** merge src.game into store.game by the quest's rules; how many fields grew */
+  mergeGame(store: unknown, src: unknown): number;
+  /** whether a game bucket holds anything a player earned */
+  gameHasAnything(g: unknown): boolean;
   /** consecutive days with a heartbeat, counted back from today ("YYYY-MM-DD",
       defaulting to the clock), plus a best that drillmeta.best can only raise */
   streak(store: unknown, today?: string): { streak: number; best: number };
@@ -202,6 +243,8 @@ interface CnpeProgressApi {
   merge(src: unknown, base?: CnpeMergeBase): CnpeMergeCounts;
   /** called after every save, so the optional sync can mirror it */
   onSave(fn: () => void): void;
+  /** this browser's slot in the per-browser counters (the cnpe:dev id) */
+  slot(): string;
 }
 
 /** The command-block colouring (CNPE_SYNTAX). Escaped HTML in, escaped out. */
@@ -233,7 +276,219 @@ interface CnpeThemeApi {
   onChange(fn: (pref: string, resolved: string) => void): void;
 }
 
+/** One tile row of the overworld is a string; the chars index CNPE_GAME_DATA.tiles. */
+interface CnpeGameRegion {
+  /** domain number 1-5 */
+  d: number;
+  name: string;
+  /** the boss scenario ids this region's keep chains */
+  boss: string[];
+  /** where the keep's door sits */
+  keep: { x: number; y: number };
+}
+
+interface CnpeGameNpc {
+  name: string;
+  /** what they say, one entry per line box */
+  lines: string[];
+  /** the technique this NPC teaches, if any */
+  teaches?: string;
+}
+
+interface CnpeGameTown {
+  /** section id, e.g. "2.3"; the trial is that section's self-check cards */
+  sec: string;
+  name: string;
+  /** one line about the place, shown on entering */
+  blurb?: string;
+  x: number;
+  y: number;
+  npcs: CnpeGameNpc[];
+  /** the scenario behind this town's dungeon door */
+  dungeon: string;
+  /** where the door sits */
+  door: { x: number; y: number };
+}
+
+interface CnpeGameTechnique {
+  /** the command template; {ns} {res} {pod} {kind} {sa} {app} {name} are
+      filled from the scenario, capitals and trailing = are left to the player */
+  cmd: string;
+  /** a repair rather than an inspection: it sits in the Fix menu */
+  fix?: boolean;
+  /** what it is for, one line */
+  about: string;
+  /** the tool family, which the cheat sheets key on */
+  tool: string;
+}
+
+interface CnpeGameItem {
+  name: string;
+  about: string;
+  /** shop price in gold; 0 means not for sale */
+  price: number;
+  /** a permanent item is never used up */
+  permanent?: boolean;
+}
+
+/** One piece of evidence a battle wants found. */
+interface CnpeGameEvidence {
+  id: string;
+  /** regexes over the normalised command, any of which surfaces it */
+  match: string[];
+  /** what the cluster answers; absent, the generic handler's rendering of the
+      resource table is the answer, and the table carries the tell */
+  out?: string;
+  /** the tell-tale line, highlighted in the terminal when it shows */
+  tell?: string;
+  /** what the Hint Scroll says about it */
+  hint: string;
+}
+
+/** One event in a scenario's cluster: what `get events` lists and `describe` appends. */
+interface CnpeGameEvent {
+  type: string;
+  reason: string;
+  age: string;
+  from: string;
+  /** "Pod/broken-x", matched case-insensitively by describe */
+  obj: string;
+  msg: string;
+  /** defaults to the scenario's namespace */
+  ns?: string;
+}
+
+/** One resource in a scenario's fake cluster, for the generic handlers. */
+interface CnpeGameResource {
+  /** plural, lower-case, as the normaliser writes it */
+  kind: string;
+  name: string;
+  ns?: string;
+  /** the columns `get` prints beyond NAME, in the order the kind lists them */
+  cols?: string[];
+  /** extra columns for -o wide, and their headings */
+  wide?: string[];
+  wideCols?: string[];
+  /** labels and annotations, "k=v,k=v" */
+  labels?: string;
+  annotations?: string;
+  /** apiVersion and Kind for -o yaml, when the defaults are wrong */
+  api?: string;
+  kindName?: string;
+  /** what -o yaml prints after metadata, indented as written */
+  yaml?: string;
+  /** what describe prints between the header and the events */
+  desc?: string;
+  /** jsonpath -> value, for -o jsonpath */
+  fields?: Record<string, string>;
+  /** the workload a pod belongs to, for `logs deploy/x` */
+  owner?: string;
+  container?: string;
+  /** container logs, the previous container's logs, or the error logs gives */
+  logs?: string;
+  prevLogs?: string;
+  logsErr?: string;
+  /** exec fails, the container not being up */
+  notRunning?: boolean;
+  /** regex over the exec'd command -> its output */
+  exec?: Record<string, string>;
+  /** kubectl top's two columns */
+  top?: string[];
+  /** what `kubectl rollout status` prints for this workload */
+  rollout?: string;
+  /** for a Rollout, the argo rollouts plugin's view: phase, step, weight, and `get`'s tree */
+  canary?: { status?: string; step?: string; weight?: string; get?: string };
+  /** flux get's REVISION, SUSPENDED, READY, MESSAGE */
+  flux?: string[];
+  /** flux tree's body, flux reconcile's tail */
+  tree?: string;
+  reconcile?: string;
+  /** argocd app get/list's fields */
+  argo?: { dest?: string; repo?: string; path?: string; rev?: string; sync?: string; health?: string;
+    conditions?: string; condLines?: string; resources?: string; syncOut?: string; diff?: string };
+  /** crossplane beta trace's tree */
+  trace?: string;
+}
+
+interface CnpeGameScenario {
+  id: string;
+  /** the monster's name */
+  name: string;
+  /** owning domain 1-5 */
+  d: number;
+  /** 1 to 3; scales the enemy's hits and the reward */
+  difficulty: number;
+  /** the incident ticket */
+  ticket: string;
+  /** the truth, shown after the battle */
+  answer: string;
+  /** the namespace the generic handlers default to */
+  ns: string;
+  resources: CnpeGameResource[];
+  events?: CnpeGameEvent[];
+  /** subject (--as) -> resource -> verbs it may use, "*" for all */
+  canI?: Record<string, Record<string, string>>;
+  /** image references cosign verify accepts */
+  signed?: string[];
+  evidence: CnpeGameEvidence[];
+  /** regexes over the normalised command that repair the fault */
+  fix: string[];
+  /** what the cluster says to a correct fix */
+  fixOut: string;
+  /** regexes for the plausible wrong repairs, each with what happens */
+  wrong: { match: string[]; out: string }[];
+}
+
+interface CnpeGameData {
+  /** the overworld, one string per row */
+  map: string[];
+  /** char -> tile name the renderer draws */
+  tiles: Record<string, string>;
+  regions: CnpeGameRegion[];
+  towns: CnpeGameTown[];
+  techniques: Record<string, CnpeGameTechnique>;
+  items: Record<string, CnpeGameItem>;
+  scenarios: CnpeGameScenario[];
+  /** the final boss's pool and clock */
+  finale: { pool: string[]; pick: number; keep: { x: number; y: number } };
+  /** xp needed to reach each level; index 0 is level 1 */
+  levels: number[];
+  /** where a new game starts */
+  start: { x: number; y: number };
+}
+
+/** What one command did to a battle. */
+interface CnpeSimResult {
+  /** the terminal's answer, plain text */
+  out: string;
+  /** the evidence this command surfaced, if any */
+  evidence?: string;
+  /** the command repaired the fault */
+  fixed?: boolean;
+  /** the command was a plausible wrong repair */
+  wrong?: boolean;
+  /** the command changed nothing and answered nothing specific */
+  generic?: boolean;
+}
+
+/** The DOM-free command interpreter (CNPE_SIM), driven by tools/game-sim-test.mjs. */
+interface CnpeSimApi {
+  /** a command as the matchers see it: aliases expanded, namespace and output
+      flags in canonical form, pipes stripped */
+  normalize(cmd: string): string;
+  /** the scenario's answer to one command; found is the evidence ids already surfaced */
+  run(scenario: CnpeGameScenario, found: Record<string, number>, cmd: string): CnpeSimResult;
+  /** the command's tool family, which cheat sheets and typed bonuses key on */
+  toolOf(cmd: string): string;
+  /** a kind alias in its plural canonical form */
+  kindOf(k: string): string;
+}
+
 interface Window {
+  CNPE_GAME_DATA?: CnpeGameData;
+  CNPE_SIM?: CnpeSimApi;
+  /** the quest; mount() is idempotent per page, like the drill's */
+  CNPE_GAME?: { mount(): void };
   CNPE_NAV?: CnpeNavEntry[];
   CNPE_DOMAINS?: CnpeDomain[];
   CNPE_DRILL?: CnpeDrillQuestion[];

@@ -12,17 +12,18 @@ SITE="${1:?usage: check-site.sh <site-dir>}"
 SITE_DOMAIN="${SITE_DOMAIN:-cnpe.rbstp.dev}"
 SYNC_DOMAIN="${SYNC_DOMAIN:-sync.rbstp.dev}"
 
-for f in index.html mock-exam.html mock-exam-2.html drill.html console.html 404.html CNAME \
-         assets/style.css assets/app.js assets/nav.js assets/widgets.js \
+for f in index.html mock-exam.html mock-exam-2.html drill.html game.html console.html 404.html CNAME \
+         assets/style.css assets/game.css assets/app.js assets/nav.js assets/widgets.js \
          assets/theme.js assets/favicon.svg assets/drill-data.js assets/drill-index.js \
-         assets/drill.js assets/merge.js assets/syntax.js assets/sync.js; do
+         assets/drill.js assets/merge.js assets/syntax.js assets/sync.js \
+         assets/game.js assets/game-sim.js assets/game-data.js; do
   test -s "$SITE/$f" || { echo "missing or empty: $f"; exit 1; }
 done
 test -f "$SITE/.nojekyll" || { echo "missing: .nojekyll"; exit 1; }
 
-# 29 sections + index + 2 mock exams + drill + console + 404
+# 29 sections + index + 2 mock exams + drill + quest + console + 404
 n=$(find "$SITE" -name '*.html' | wc -l | tr -d ' ')
-test "$n" -eq 35 || { echo "expected 35 html files, found $n"; exit 1; }
+test "$n" -eq 36 || { echo "expected 36 html files, found $n"; exit 1; }
 
 # One content landmark per page. The authored pages, generated 404 and bundled
 # console take different build paths, so checking only a source template misses
@@ -62,15 +63,24 @@ while IFS= read -r f; do
   fi
 done < <(find "$SITE" -name '*.html')
 
-# Only the drill renders a card, so only the drill may pull the 67 KB bank.
+# Only the drill renders a card, and only the quest asks a trial from one, so
+# only those two may pull the 67 KB bank.
 grep -q 'assets/drill-index\.js' "$SITE/index.html" ||
   { echo "index.html does not load the drill index"; exit 1; }
 for f in index.html mock-exam.html mock-exam-2.html; do
   grep -q 'assets/drill-data\.js' "$SITE/$f" &&
     { echo "$f pulls the full drill bank; it only needs assets/drill-index.js"; exit 1; }
 done
-grep -q 'assets/drill-data\.js' "$SITE/drill.html" ||
-  { echo "drill.html does not load the drill bank"; exit 1; }
+for f in drill.html game.html; do
+  grep -q 'assets/drill-data\.js' "$SITE/$f" ||
+    { echo "$f does not load the drill bank"; exit 1; }
+done
+# The quest's three scripts and its stylesheet ship only with the quest.
+for f in index.html mock-exam.html mock-exam-2.html drill.html; do
+  grep -qE 'assets/game(-sim|-data)?\.(js|css)' "$SITE/$f" &&
+    { echo "$f loads the quest's assets; only game.html needs them"; exit 1; }
+done
+grep -q 'assets/game\.js' "$SITE/game.html" || { echo "game.html does not load the quest"; exit 1; }
 
 # Every asset a page pulls must carry its content stamp, and so must every font
 # the stylesheet pulls. Without one, Pages' ten-minute cache decides when a deploy

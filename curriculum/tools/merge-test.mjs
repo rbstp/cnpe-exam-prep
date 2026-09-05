@@ -25,7 +25,7 @@ const group = t => console.log(t);
 const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 const store = over => Object.assign(
-  { ex: {}, done: {}, exam: {}, exam2: {}, drill: {}, drillmeta: {}, days: {}, last: null }, over);
+  { ex: {}, done: {}, exam: {}, exam2: {}, drill: {}, drillmeta: {}, days: {}, game: {}, last: null }, over);
 const pad = n => (n < 10 ? "0" : "") + n;
 // One clock read for the whole run: calling new Date() per day would disagree
 // with TODAY for anything started in the last milliseconds before midnight.
@@ -592,8 +592,118 @@ group("the counts the callers paint from");
     done: { "2.1": 1 }, ex: { "1.1#a": 1 }, exam: { tasks: { 0: 1 } }, exam2: { tasks: { 1: 1 } },
     drill: { a: { r: 1, m: 0, ok: true, t: 1 } }, days: { [TODAY]: { c: 1 } },
   }, M.sets({ done: ["1.1"] }));
-  ok(eq(n, { done: 1, ex: 1, exam: 2, drill: 1, days: 1, last: 0, off: 1 }),
+  ok(eq(n, { done: 1, ex: 1, exam: 2, drill: 1, days: 1, game: 0, last: 0, off: 1 }),
     "one of each, and the tick the base says was removed: " + JSON.stringify(n));
+}
+
+/* ── the quest ───────────────────────────────────────────────── */
+group("\nthe quest's counters add up across browsers");
+{
+  const s = store({ game: { xp: { lap: 300 }, gold: { e: { lap: 120 }, s: { lap: 40 } } } });
+  const n = M.merge(s, { game: { xp: { ph: 200 }, gold: { e: { ph: 50 }, s: { ph: 10 } } } });
+  ok(M.countOf(s.game.xp) === 500, "xp earned here and there is the sum: " + M.countOf(s.game.xp));
+  ok(M.countOf(s.game.gold.e) === 170 && M.countOf(s.game.gold.s) === 50, "so is gold, earned and spent apart");
+  ok(n.game === 3, "three counters grew: " + JSON.stringify(n));
+  ok(M.merge(s, { game: { xp: { ph: 200 }, gold: { e: { ph: 50 }, s: { ph: 10 } } } }).game === 0,
+    "merging the same copy again adds nothing");
+  ok(M.countOf(s.game.xp) === 500, "and does not double it");
+  M.merge(s, { game: { xp: { lap: 100 } } });
+  ok(M.countOf(s.game.xp) === 500, "a slot never goes down: a lower count for a known browser is ignored");
+  const t = store({ game: { xp: 40 } });
+  M.merge(t, { game: { xp: { ph: 10 } } });
+  ok(M.countOf(t.game.xp) === 50, "a plain number is one unnamed slot, as with the days: " + JSON.stringify(t.game.xp));
+  // The held gold is what a browser may spend, and it reads the merged view, so
+  // spending can only ever race across two browsers offline at once.
+  const held = g => Math.max(0, M.countOf(g.gold && g.gold.e) - M.countOf(g.gold && g.gold.s));
+  ok(held(s.game) === 120, "held gold is earned less spent: " + held(s.game));
+  ok(held({ gold: { e: { a: 1 }, s: { a: 5, b: 9 } } }) === 0, "and never reads below zero");
+}
+
+group("items are got and used, per browser");
+{
+  const s = store({ game: { items: { scroll: { g: { lap: 3 }, u: { lap: 1 } } } } });
+  const n = M.merge(s, { game: { items: { scroll: { g: { ph: 2 } }, lens: { g: { ph: 1 }, u: { ph: 1 } } } } });
+  ok(M.countOf(s.game.items.scroll.g) === 5 && M.countOf(s.game.items.scroll.u) === 1, "got adds up, used stays");
+  ok(M.countOf(s.game.items.lens.g) === 1 && M.countOf(s.game.items.lens.u) === 1, "an item this browser never held arrives");
+  ok(n.game === 3, "three fields grew: " + n.game);
+  M.merge(s, { game: { items: { "not a key!": { g: { ph: 1 } }, toString: { g: { ph: 1 } }, bad: "junk", worse: { g: "junk" } } } });
+  ok(Object.keys(s.game.items).length === 2, "a junk id, a prototype name or a junk record is not an item");
+}
+
+group("trials, techniques and flags are unions");
+{
+  const s = store({ game: { towns: { "1.1": 1 }, learned: { "kubectl-describe": 1 } } });
+  const n = M.merge(s, { game: { towns: { "1.1": 1, "2.3": 1, "9.9": 0 }, learned: { "flux-get": 1 }, flags: { intro: 1 } } });
+  ok(s.game.towns["1.1"] === 1 && s.game.towns["2.3"] === 1, "a town cleared anywhere is cleared here");
+  ok(!("9.9" in s.game.towns), "a zero is not a tick, and nothing un-clears");
+  ok(s.game.learned["flux-get"] === 1 && s.game.flags.intro === 1, "techniques and flags likewise");
+  ok(n.game === 3, "three ticks landed: " + n.game);
+  ok(M.merge(s, { game: { towns: { "1.1": 1, "2.3": 1 } } }).game === 0, "the same ticks again add nothing");
+}
+
+group("a win keeps the most times, the fewest turns and the latest stamp");
+{
+  const s = store({ game: { wins: { image: { n: 2, best: 6, t: 100 } } } });
+  const n = M.merge(s, { game: { wins: { image: { n: 1, best: 4, t: 50 }, probe: { n: 1, best: 9, t: 70 } } } });
+  ok(eq(s.game.wins.image, { n: 2, best: 4, t: 100 }), "n takes the max, best the min, t the max: " + JSON.stringify(s.game.wins.image));
+  ok(eq(s.game.wins.probe, { n: 1, best: 9, t: 70 }), "a scenario this browser never beat arrives whole");
+  ok(n.game === 2, "two records grew: " + n.game);
+  ok(M.merge(s, { game: { wins: { image: { n: 2, best: 4, t: 100 } } } }).game === 0, "a matching record is not growth");
+  M.merge(s, { game: { wins: { image: { n: "junk", best: 0, t: -5 }, junk: 4 } } });
+  ok(eq(s.game.wins.image, { n: 2, best: 4, t: 100 }) && !("junk" in s.game.wins), "junk in a record lowers nothing");
+}
+
+group("where you stood: the latest stamp wins");
+{
+  const s = store({ game: { pos: { x: 3, y: 4, t: 200 } } });
+  M.merge(s, { game: { pos: { x: 9, y: 9, t: 100 } } });
+  ok(eq(s.game.pos, { x: 3, y: 4, t: 200 }), "an older position does not move you");
+  const n = M.merge(s, { game: { pos: { x: 9.7, y: 8, t: 300 } } });
+  ok(eq(s.game.pos, { x: 9, y: 8, t: 300 }) && n.game === 1, "a newer one does, on whole tiles: " + JSON.stringify(s.game.pos));
+  M.merge(s, { game: { pos: { x: -1, y: 8, t: 400 } } });
+  M.merge(s, { game: { pos: { x: 1e9, y: 8, t: 400 } } });
+  M.merge(s, { game: { pos: { x: 1, y: 1 } } });
+  ok(eq(s.game.pos, { x: 9, y: 8, t: 300 }), "off the map, or unstamped, is not a position");
+}
+
+group("the quest's guards");
+{
+  const s = store();
+  ["junk", 4, null, [], { xp: "junk", towns: [], wins: 7, pos: "here" }].forEach(function (junk) {
+    const n = M.merge(s, { game: junk });
+    ok(n.game === 0, "a game bucket that is " + JSON.stringify(junk) + " adds nothing");
+  });
+  const p = store();
+  M.merge(p, JSON.parse('{"game":{"towns":{"__proto__":{"polluted":1},"constructor":1,"1.1":1},' +
+    '"wins":{"__proto__":{"n":9}},"items":{"__proto__":{"g":{"a":1}}},"xp":{"__proto__":9,"lap":1}}}'));
+  ok({}.polluted === undefined && Object.prototype.polluted === undefined, "the prototype is untouched");
+  ok(p.game.towns["1.1"] === 1 && !Object.prototype.hasOwnProperty.call(p.game.towns, "constructor") &&
+     M.countOf(p.game.xp) === 1, "and the real keys in the same payload still land");
+  const wide = {};
+  for (let i = 0; i < 1000; i++) wide["t" + i] = 1;
+  const w = store();
+  M.merge(w, { game: { towns: wide } });
+  ok(Object.keys(w.game.towns).length === 400, "a union is bounded: " + Object.keys(w.game.towns).length);
+  const q = store({ game: {} });
+  M.merge(q, { game: { xp: {} } });
+  ok(eq(q.game, {}), "a merge that adds nothing leaves the bucket as it found it");
+  const r = store();
+  delete r.game;
+  M.merge(r, { game: { xp: { ph: 5 } } });
+  ok(M.countOf(r.game.xp) === 5, "a store without the bucket grows one");
+}
+
+group("a game-only store is worth a remote row");
+{
+  ok(!M.hasAnything(store()), "an empty store is not");
+  ok(!M.hasAnything(store({ game: { xp: {}, towns: {} } })), "nor is a game bucket with nothing in it");
+  ok(M.hasAnything(store({ game: { xp: { lap: 5 } } })), "xp earned is");
+  ok(M.hasAnything(store({ game: { towns: { "1.1": 1 } } })), "so is a trial cleared");
+  ok(M.hasAnything(store({ game: { learned: { x: 1 } } })), "or a technique learned");
+  ok(M.hasAnything(store({ game: { wins: { image: { n: 1 } } } })), "or a battle won");
+  ok(M.hasAnything({ game: { flags: { intro: 1 } } }), "or a flag, with nothing else in the store");
+  const w = M.wire(store({ game: { xp: { lap: 5 }, pos: { x: 1, y: 2, t: 3 } } }));
+  ok(eq(w.game, { xp: { lap: 5 }, pos: { x: 1, y: 2, t: 3 } }), "and the bucket travels whole");
 }
 
 /* ── the study streak ────────────────────────────────────────── */
