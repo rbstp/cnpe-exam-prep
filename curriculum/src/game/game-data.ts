@@ -13,6 +13,9 @@
 window.CNPE_GAME_DATA = (function (): CnpeGameData {
   "use strict";
 
+  /** a literal for use inside an evidence matcher: every regex metacharacter, the backslash included, escaped */
+  function rx(s: string): string { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
   var IMG = "ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine";
   var POD = "broken-6b7f9c4d8-x2k4p";
   var OLD_POD = "broken-5c8d7b6f9-q7m3n";
@@ -207,7 +210,7 @@ window.CNPE_GAME_DATA = (function (): CnpeGameData {
     evidence: [
       { id: "healthy", match: GET_PODS.concat(DESCRIBE_POD), tell: "Running", hint: "Everything reads healthy. That is the clue: the fault is not in the pod's lifecycle. Note whose identity the pod runs under." },
       { id: "logs", match: ["^kubectl logs \\S+ -n team-a", "^kubectl logs deployments broken -n team-a", "^kubectl exec \\S+ -n team-a( -c \\S+)? -- .*(curl|wget)"], tell: "403 Forbidden", hint: "The app is telling you what it cannot do. Read its logs." },
-      { id: "cani", match: ["^kubectl auth can-i \\S+ \\S+ -n team-a --as=" + SA.replace(/[.:]/g, "\\$&"), "^kubectl auth can-i -n team-a --as=" + SA.replace(/[.:]/g, "\\$&") + " --list", "^kubectl auth can-i --as=" + SA.replace(/[.:]/g, "\\$&") + " --list", "^kubectl get rolebindings(,\\S+)? -n team-a", "^kubectl describe rolebindings( \\S+)? -n team-a"], tell: "no", hint: "Ask the API server the question as the service account would: kubectl auth can-i ... --as=system:serviceaccount:team-a:app-sa." }
+      { id: "cani", match: ["^kubectl auth can-i \\S+ \\S+ -n team-a --as=" + rx(SA), "^kubectl auth can-i -n team-a --as=" + rx(SA) + " --list", "^kubectl auth can-i --as=" + rx(SA) + " --list", "^kubectl get rolebindings(,\\S+)? -n team-a", "^kubectl describe rolebindings( \\S+)? -n team-a"], tell: "no", hint: "Ask the API server the question as the service account would: kubectl auth can-i ... --as=system:serviceaccount:team-a:app-sa." }
     ],
     fix: ["^kubectl create rolebindings \\S+ -n team-a --(clusterrole=(view|edit|admin)|role=developer) --serviceaccount=team-a:app-sa"],
     fixOut: "rolebinding.rbac.authorization.k8s.io/app-sa-view created\n\n$ kubectl auth can-i list pods -n team-a --as=system:serviceaccount:team-a:app-sa\nyes\n\n$ kubectl -n team-a logs deploy/broken --tail=1\nsidecar: 200 OK, 1 pod listed",
@@ -569,7 +572,7 @@ window.CNPE_GAME_DATA = (function (): CnpeGameData {
     evidence: [
       { id: "notready", match: ["^kubectl get appenvironments(,\\S+)?( \\S+)? -n default", "^kubectl describe appenvironments drill-env -n default", "^kubectl get appenvironments drill-env -n default -o (yaml|json|jsonpath\\S*)"], tell: "False", hint: "The XR itself: Synced but not Ready is the composite waiting on something it composed." },
       { id: "forbidden", match: ["^crossplane beta trace appenvironments drill-env( -n default)?", "^kubectl get objects(,\\S+)?( \\S+)? -n default", "^kubectl describe objects( \\S+)? -n default", "^kubectl get objects \\S+ -n default -o (yaml|json|jsonpath\\S*)", "^kubectl logs \\S+ -n crossplane-system"].concat(["^kubectl (get|describe) events -n default"]), tell: "forbidden", hint: "Follow the composite down to what it composed: crossplane beta trace, or the Objects themselves. Their Synced condition carries the error." },
-      { id: "binding", match: ["^kubectl get clusterrolebindings", "^kubectl auth can-i \\S+ \\S+( -n \\S+)? --as=" + XP_SUBJ.replace(/[.:-]/g, "\\$&"), "^kubectl auth can-i --as=" + XP_SUBJ.replace(/[.:-]/g, "\\$&") + " --list", "^kubectl describe clusterrolebindings( \\S+)?"], tell: "crossplane:provider", hint: "The error names a service account in crossplane-system. List the ClusterRoleBindings for it: the one that granted it cluster-admin over the objects it creates is missing." }
+      { id: "binding", match: ["^kubectl get clusterrolebindings", "^kubectl auth can-i \\S+ \\S+( -n \\S+)? --as=" + rx(XP_SUBJ), "^kubectl auth can-i --as=" + rx(XP_SUBJ) + " --list", "^kubectl describe clusterrolebindings( \\S+)?"], tell: "crossplane:provider", hint: "The error names a service account in crossplane-system. List the ClusterRoleBindings for it: the one that granted it cluster-admin over the objects it creates is missing." }
     ],
     fix: ["^kubectl create clusterrolebindings \\S+ --clusterrole=cluster-admin --serviceaccount=crossplane-system:" + XP_SA + "$"],
     fixOut: "clusterrolebinding.rbac.authorization.k8s.io/crossplane-" + XP_SA + " created\n\n$ crossplane beta trace appenvironment drill-env -n default\nNAME                                            SYNCED   READY   STATUS\nAppEnvironment/drill-env (default)              True     True    Available\n├─ Object/drill-env-namespace (default)         True     True    Available\n├─ Object/drill-env-quota (default)             True     True    Available\n└─ Object/drill-env-limits (default)            True     True    Available\n\n$ kubectl get ns team-drill\nNAME         STATUS   AGE\nteam-drill   Active   9s",
