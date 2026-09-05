@@ -69,6 +69,8 @@
     /** every command typed this battle, oldest first; where the arrows stand in
         it (history.length when off the end); and the draft the arrows left */
     history: string[]; histAt: number; draft: string;
+    /** the tool family of the last command run, for the terminal's bar */
+    tool: string;
   }
   /** the battle screen's parts, built once a battle and updated in place */
   interface BattleDom {
@@ -138,8 +140,8 @@
   function totalBattles() { return D.scenarios.length + D.regions.length + 1; }
   function battlesWon() {
     var n = D.scenarios.filter(function (s) { return wins(s.id) > 0; }).length;
-    D.regions.forEach(function (r) { if (has("flags", "boss-" + r.d)) n++; });
-    if (has("flags", "final")) n++;
+    D.regions.forEach(function (r) { if (bossDown(r.d)) n++; });
+    if (examPassed()) n++;
     return n;
   }
   function paintTiles() {
@@ -187,9 +189,12 @@
     return b;
   }
   function navOf(sec: string) { return (window.CNPE_NAV || []).filter(function (n) { return n.id === sec; })[0]; }
+  /** the domain a section id names: the number before its dot */
+  function domainOfSec(sec: string) { return +sec.split(".")[0]; }
   function pageHref(path: string, id: string) { return window.CNPE_BUNDLE ? "#" + id : path; }
   function domainOf(d: number) { return (window.CNPE_DOMAINS || []).filter(function (x) { return x.n === d; })[0]; }
-  function scenario(id: string) { return D.scenarios.filter(function (s) { return s.id === id; })[0]; }
+  function scenario(id: string) { return scById[id]; }
+  function scenariosIn(d: number) { return scByDomain[d] || []; }
   function shuffle<T>(a: T[]) { for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
   // a deterministic hash for tile texture and monster shapes
   function hash(x: number, y: number) { var h = (x * 374761393 + y * 668265263) ^ 0x5bd1e995; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
@@ -256,6 +261,21 @@
   }
 
   /* ── the overworld ──────────────────────────────────────── */
+  // The landmarks and the scenarios never move once the data is loaded, so they
+  // are indexed at mount rather than scanned: what stands on a tile is asked for
+  // per tile by the terrain and by every frame, and a scan a town at a time was
+  // the answer.
+  var townTile: Record<number, CnpeGameTown> = {}, doorTile: Record<number, CnpeGameTown> = {};
+  var keepTile: Record<number, CnpeGameRegion> = {};
+  var scById: Record<string, CnpeGameScenario> = Object.create(null), scByDomain: Record<number, CnpeGameScenario[]> = {};
+  function indexData() {
+    townTile = {}; doorTile = {}; keepTile = {}; scById = Object.create(null); scByDomain = {};
+    D.towns.forEach(function (t) { townTile[t.y * mapW + t.x] = t; doorTile[t.door.y * mapW + t.door.x] = t; });
+    D.regions.forEach(function (r) { keepTile[r.keep.y * mapW + r.keep.x] = r; });
+    D.scenarios.forEach(function (s) { scById[s.id] = s; (scByDomain[s.d] || (scByDomain[s.d] = [])).push(s); });
+  }
+  /** a tile's index, or -1 off the map, where a row would otherwise run into the next one */
+  function tileKey(x: number, y: number) { return x < 0 || y < 0 || x >= mapW || y >= mapH ? -1 : y * mapW + x; }
   function tileAt(x: number, y: number) {
     var row = D.map[y];
     if (!row) return "void";
@@ -263,19 +283,23 @@
     return ch ? (D.tiles[ch] || "void") : "void";
   }
   function walkable(x: number, y: number) { return !!WALK[tileAt(x, y)]; }
-  function townAt(x: number, y: number) { return D.towns.filter(function (t) { return t.x === x && t.y === y; })[0] || null; }
-  function doorAt(x: number, y: number) { return D.towns.filter(function (t) { return t.door.x === x && t.door.y === y; })[0] || null; }
-  function keepAt(x: number, y: number) { return D.regions.filter(function (r) { return r.keep.x === x && r.keep.y === y; })[0] || null; }
+  function townAt(x: number, y: number) { return townTile[tileKey(x, y)] || null; }
+  function doorAt(x: number, y: number) { return doorTile[tileKey(x, y)] || null; }
+  function keepAt(x: number, y: number) { return keepTile[tileKey(x, y)] || null; }
   function gateAt(x: number, y: number) { return D.finale.keep.x === x && D.finale.keep.y === y; }
   /** the region a tile falls in: the nearest town's, which is what a road sign would say */
   function regionAt(x: number, y: number) {
     var best = null as CnpeGameTown | null, bd = 1e9;
     D.towns.forEach(function (t) { var d = Math.abs(t.x - x) + Math.abs(t.y - y); if (d < bd) { bd = d; best = t; } });
-    return best ? { region: D.regions.filter(function (r) { return r.d === +best!.sec.split(".")[0]; })[0], town: best, dist: bd } : null;
+    return best ? { region: D.regions.filter(function (r) { return r.d === domainOfSec(best!.sec); })[0], town: best, dist: bd } : null;
   }
   function dungeonOpen(t: CnpeGameTown) { return has("towns", t.sec); }
-  function keepOpen(r: CnpeGameRegion) { return D.scenarios.filter(function (s) { return s.d === r.d; }).every(function (s) { return wins(s.id) > 0; }); }
-  function gateOpen() { return D.regions.every(function (r) { return has("flags", "boss-" + r.d); }); }
+  /** the region's keep has fallen */
+  function bossDown(d: number) { return has("flags", "boss-" + d); }
+  /** the Exam has been sat and passed */
+  function examPassed() { return has("flags", "final"); }
+  function keepOpen(r: CnpeGameRegion) { return scenariosIn(r.d).every(function (s) { return wins(s.id) > 0; }); }
+  function gateOpen() { return D.regions.every(function (r) { return bossDown(r.d); }); }
 
   /* ── the signpost: where next ───────────────────────────── */
   /** where next, as a road sign would put it: the nearest tile still to be reached among the towns, each offering
@@ -295,9 +319,9 @@
       else if (!wins(t.dungeon)) offer(t.door.x, t.door.y, "the dungeon of " + t.name);
     });
     if (best) return best;
-    D.regions.forEach(function (r) { if (!has("flags", "boss-" + r.d) && keepOpen(r)) offer(r.keep.x, r.keep.y, "the " + r.name + " keep"); });
+    D.regions.forEach(function (r) { if (!bossDown(r.d) && keepOpen(r)) offer(r.keep.x, r.keep.y, "the " + r.name + " keep"); });
     if (best) return best;
-    if (!has("flags", "final") && gateOpen()) return { x: D.finale.keep.x, y: D.finale.keep.y, what: "the Exam gate" };
+    if (!examPassed() && gateOpen()) return { x: D.finale.keep.x, y: D.finale.keep.y, what: "the Exam gate" };
     return null;
   }
   /** the way to a goal: glyphs for the window (the d-pad's arrows, which the fonts carry), words for the label */
@@ -372,8 +396,10 @@
     var q = queued; queued = null;
     if (q && scene === "map" && !dlg) move(q.dx, q.dy);
   }
+  /** the step as a standing frame paints it, which is what debug() then reports */
+  function stand() { drawnOff = { x: 0, y: 0 }; drawnSub = -1; walkFrame = 0; }
   /** a scene change or an unmount ends a step where it was going, with no tween left to land, and nothing of it drawn */
-  function settleStep() { walk = null; queued = null; drawnOff = { x: 0, y: 0 }; drawnSub = -1; walkFrame = 0; }
+  function settleStep() { walk = null; queued = null; stand(); }
   // What standing on a tile means. Walking onto a town enters it; the doors and
   // the keeps ask first, because a battle is a commitment.
   function arrive() {
@@ -389,14 +415,14 @@
     }
     var k = keepAt(player.x, player.y);
     if (k) {
-      if (!keepOpen(k)) { say(k.name + " keep", ["The keep's gate holds. Clear every dungeon in " + k.name + " and it opens: " + D.scenarios.filter(function (s) { return s.d === k.d && !wins(s.id); }).map(function (s) { return s.name; }).join(", ") + " still stand."]); return; }
-      say(k.name + " keep", ["Two faults wait inside, one after the other: <b>" + k.boss.map(function (id) { return esc(scenario(id).name); }).join("</b> and <b>") + "</b>." + (has("flags", "boss-" + k.d) ? " You have beaten them before." : "") + " Enter the keep?"],
+      if (!keepOpen(k)) { say(k.name + " keep", ["The keep's gate holds. Clear every dungeon in " + k.name + " and it opens: " + scenariosIn(k.d).filter(function (s) { return !wins(s.id); }).map(function (s) { return s.name; }).join(", ") + " still stand."]); return; }
+      say(k.name + " keep", ["Two faults wait inside, one after the other: <b>" + k.boss.map(function (id) { return esc(scenario(id).name); }).join("</b> and <b>") + "</b>." + (bossDown(k.d) ? " You have beaten them before." : "") + " Enter the keep?"],
         function () { startBattle(k.boss.slice(), { boss: k }); }, true);
       return;
     }
     if (gateAt(player.x, player.y)) {
-      if (!gateOpen()) { say("The Exam", ["The gate is shut. Five keeps guard it; " + D.regions.filter(function (r) { return !has("flags", "boss-" + r.d); }).map(function (r) { return r.name; }).join(", ") + " still hold."]); return; }
-      say("The Exam", ["Beyond the gate, three faults drawn at random, on a shorter clock. Everything you learned, all at once." + (has("flags", "final") ? " You have passed before." : "") + " Sit the exam?"],
+      if (!gateOpen()) { say("The Exam", ["The gate is shut. Five keeps guard it; " + D.regions.filter(function (r) { return !bossDown(r.d); }).map(function (r) { return r.name; }).join(", ") + " still hold."]); return; }
+      say("The Exam", ["Beyond the gate, three faults drawn at random, on a shorter clock. Everything you learned, all at once." + (examPassed() ? " You have passed before." : "") + " Sit the exam?"],
         function () { startBattle(shuffle(D.finale.pool.slice()).slice(0, D.finale.pick), { final: true }); }, true);
     }
   }
@@ -410,7 +436,7 @@
       if (here) say("You look around", ["<b>" + esc(here.region.name) + "</b>. " + (here.dist ? esc(here.town.name) + " is " + here.dist + " steps away." : "")]);
     }
   }
-  function stars(n: number) { var s = ""; for (var i = 0; i < 3; i++) s += i < n ? "▲" : "▽"; return s.replace(/▽/g, "·"); }
+  function stars(n: number) { var s = ""; for (var i = 0; i < 3; i++) s += i < n ? "▲" : "·"; return s; }
 
   /* the dialogue window: one speaker, pages of text, an optional yes/no */
   function say(who: string, pages: string[], yes?: (() => void) | null, ask?: boolean) {
@@ -518,12 +544,11 @@
     regionOf = new Uint8Array(mapW * mapH);
     var seen = new Uint8Array(mapW * mapH);
     var queue: number[] = [];
-    D.towns.forEach(function (t) { var i = t.y * mapW + t.x; regionOf[i] = +t.sec.split(".")[0]; seen[i] = 1; queue.push(i); });
+    D.towns.forEach(function (t) { var i = t.y * mapW + t.x; regionOf[i] = domainOfSec(t.sec); seen[i] = 1; queue.push(i); });
     for (var q = 0; q < queue.length; q++) {
       var i = queue[q], x = i % mapW, y = (i - x) / mapW, d = regionOf[i];
-      var next = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
       for (var n = 0; n < 4; n++) {
-        var nx = next[n][0], ny = next[n][1];
+        var nx = x + (n === 0 ? 1 : n === 1 ? -1 : 0), ny = y + (n === 2 ? 1 : n === 3 ? -1 : 0);
         if (nx < 0 || ny < 0 || nx >= mapW || ny >= mapH) continue;
         var j = ny * mapW + nx, t = tileAt(nx, ny);
         if (seen[j] || t === "water" || t === "bridge" || t === "sand" || t === "gate") continue;
@@ -544,8 +569,8 @@
   function landmarkSig() {
     var s = "";
     for (var i = 0; i < D.towns.length; i++) s += has("towns", D.towns[i].sec) ? "1" : "0";
-    for (var j = 0; j < D.regions.length; j++) s += has("flags", "boss-" + D.regions[j].d) ? "1" : "0";
-    return s + (has("flags", "final") ? "F" : gateOpen() ? "O" : "S");
+    for (var j = 0; j < D.regions.length; j++) s += bossDown(D.regions[j].d) ? "1" : "0";
+    return s + (examPassed() ? "F" : gateOpen() ? "O" : "S");
   }
   /** the sprite for a map tile, in the beat's given frame */
   function tileSprite(mx: number, my: number, frame: number): HTMLCanvasElement | null {
@@ -562,8 +587,8 @@
       case "bridge": return ART.bridge(!(isWater(mx, my - 1) && isWater(mx, my + 1)));
       case "town": return ART.town(d);
       case "door": { var dr = doorAt(mx, my); return ART.door(d, !!(dr && dungeonOpen(dr))); }
-      case "keep": { var kp = keepAt(mx, my); return ART.keep(kp ? kp.d : d, !!(kp && has("flags", "boss-" + kp.d))); }
-      case "gate": return ART.gate(has("flags", "final") ? 2 : gateOpen() ? 1 : 0);
+      case "keep": { var kp = keepAt(mx, my); return ART.keep(kp ? kp.d : d, !!(kp && bossDown(kp.d))); }
+      case "gate": return ART.gate(examPassed() ? 2 : gateOpen() ? 1 : 0);
       default: return null;
     }
   }
@@ -620,8 +645,8 @@
     }
     k.globalAlpha = 1;
     D.towns.forEach(function (t) { k!.fillStyle = has("towns", t.sec) ? P.ok : P.paper; k!.fillRect(t.x, t.y, 1, 1); });
-    D.regions.forEach(function (r) { k!.fillStyle = has("flags", "boss-" + r.d) ? P.ok : P.warn; k!.fillRect(r.keep.x, r.keep.y, 1, 1); });
-    k.fillStyle = has("flags", "final") ? P.ok : P.viol; k.fillRect(D.finale.keep.x, D.finale.keep.y, 1, 1);
+    D.regions.forEach(function (r) { k!.fillStyle = bossDown(r.d) ? P.ok : P.warn; k!.fillRect(r.keep.x, r.keep.y, 1, 1); });
+    k.fillStyle = examPassed() ? P.ok : P.viol; k.fillRect(D.finale.keep.x, D.finale.keep.y, 1, 1);
     paintMini();
     stats.minimapBuilds++;
   }
@@ -734,8 +759,8 @@
     // banners over towns and keeps, so the map reads without a legend
     ctx.font = "8px CNPE Mono, ui-monospace, monospace"; ctx.textBaseline = "top";
     D.towns.forEach(function (t) { label(t.name, t.x * TILE - cx, t.y * TILE - cy, has("towns", t.sec) ? P.ok : P.paper); });
-    D.regions.forEach(function (r) { label(r.name + " keep", r.keep.x * TILE - cx, r.keep.y * TILE - cy, has("flags", "boss-" + r.d) ? P.ok : P.warn); });
-    label("The Exam", D.finale.keep.x * TILE - cx, D.finale.keep.y * TILE - cy, has("flags", "final") ? P.ok : P.viol);
+    D.regions.forEach(function (r) { label(r.name + " keep", r.keep.x * TILE - cx, r.keep.y * TILE - cy, bossDown(r.d) ? P.ok : P.warn); });
+    label("The Exam", D.finale.keep.x * TILE - cx, D.finale.keep.y * TILE - cy, examPassed() ? P.ok : P.viol);
     ctx.drawImage(ART.hero(player.face, walkFrame), px - cx, py - cy);
     var gl = nextGoal(), far = gl ? Math.abs(gl.x - player.x) + Math.abs(gl.y - player.y) : 0;
     drawMinimap(gl);
@@ -833,14 +858,14 @@
     paintTown(null);
   }
   function buildTown(t: CnpeGameTown): TownDom {
-    var nav = navOf(t.sec), dom = domainOf(+t.sec.split(".")[0]);
+    var nav = navOf(t.sec), dom = domainOf(domainOfSec(t.sec));
     screen.innerHTML = "";
     var root = el("div", "gm-town");
     var head = el("div", "gm-title", "<h3>" + esc(t.name) + '</h3><span class="sub">' + esc(t.sec) + " · " + esc(nav ? nav.title : "") + "</span>");
     var headRight = el("span", "right", esc(dom ? dom.name : ""));
     head.appendChild(headRight);
     root.appendChild(head);
-    var body = el("div", "gm-body"), left = el("div", "gm-col"), right = el("div", "gm-col");
+    var cols = columns(root), left = cols.left, right = cols.right;
     var menu = el("ul", "gm-menu"), items: Record<string, HTMLButtonElement> = {};
     var item = function (id: string, fn: () => void) { var li = el("li"); var b = btn("", fn); li.appendChild(b); menu.appendChild(li); items[id] = b; };
     item("talk", function () { paintTown(talkMenu(), "talk"); });
@@ -856,8 +881,6 @@
     });
     item("leave", function () { leaveToMap(); });
     left.appendChild(menu);
-    body.appendChild(left); body.appendChild(right);
-    root.appendChild(body);
     screen.appendChild(root);
     return { root: root, sec: t.sec, headRight: headRight, menu: menu, items: items, right: right, scene: "square" };
   }
@@ -866,7 +889,7 @@
     b.className = cls || "";
   }
   function paintTown(right: HTMLElement | null, sceneName?: string) {
-    var t = town!, nav = navOf(t.sec), dom = domainOf(+t.sec.split(".")[0]);
+    var t = town!, nav = navOf(t.sec), dom = domainOf(domainOfSec(t.sec));
     if (!tn || tn.root.parentNode !== screen || tn.sec !== t.sec) tn = buildTown(t);
     var v = tn;
     v.headRight.innerHTML = esc(dom ? dom.name : "") + (has("towns", t.sec) ? " · trial cleared ✓" : "");
@@ -880,7 +903,7 @@
     setItem(v.items.leave, "Leave", "esc");
     v.scene = sceneName || v.scene;
     v.right.innerHTML = "";
-    v.right.appendChild(backdrop(v.scene, +t.sec.split(".")[0]));
+    v.right.appendChild(backdrop(v.scene, domainOfSec(t.sec)));
     if (right) v.right.appendChild(right);
     else v.right.appendChild(el("div", "gm-lines", "<p>" + esc(t.blurb || ("The people here work on " + (nav ? nav.title.toLowerCase() : "the platform") + ".")) + "</p><p class=\"gm-note\">Talk to learn the ideas and the commands. Pass the trial to open the dungeon. Read the section itself when a question stumps you.</p>"));
     focusFirst(v.menu);
@@ -897,6 +920,13 @@
     if (k) { k.imageSmoothingEnabled = false; k.drawImage(ART.backdrop(c.getAttribute("data-scene") || "square", d, c.width, c.height), 0, 0); }
   }
   function note(msg: string, cls?: string) { return el("p", "gm-note " + (cls || ""), msg); }
+  /** the body of a screen: two columns in the root, filled by the caller */
+  function columns(root: HTMLElement) {
+    var body = el("div", "gm-body"), left = el("div", "gm-col"), right = el("div", "gm-col");
+    body.appendChild(left); body.appendChild(right);
+    root.appendChild(body);
+    return { left: left, right: right };
+  }
   function focusFirst(within: HTMLElement) { var b = within.querySelector<HTMLElement>("button, a, input"); if (b) b.focus(); }
 
   /** a technique's short name: the command up to its first placeholder or flag */
@@ -910,7 +940,7 @@
   }
   function talkMenu() {
     var wrap = el("div", "gm-col");
-    wrap.appendChild(el("div", "gm-sub .hd", "").firstChild ? el("div") : el("p", "gm-note", "Who do you talk to?"));
+    wrap.appendChild(el("p", "gm-note", "Who do you talk to?"));
     var menu = el("ul", "gm-menu");
     town!.npcs.forEach(function (n) {
       var li = el("li");
@@ -965,9 +995,16 @@
 
   /* ── the trial: the section's self-check cards, multiple choice ── */
   function deckFor(sec: string) { return (window.CNPE_DRILL || []).filter(function (q) { return q.sec === sec; }); }
-  function optionText(html: string) {
-    var t = text(html);
-    return t.length > 170 ? t.slice(0, 168).replace(/\s+\S*$/, "") + "…" : t;
+  /** a card's answer as an option reads it: the markup stripped, cut to a line or two.
+      Stripping it parses the markup, and a question draws its wrong answers from the
+      whole domain, so the answers are kept by card id: the cards never change, and a
+      trial asks for the same thirty of them once a question. */
+  var answerCache: Record<string, string> = Object.create(null);
+  function optionText(q: CnpeDrillQuestion) {
+    var hit = answerCache[q.id];
+    if (hit != null) return hit;
+    var t = text(q.a);
+    return (answerCache[q.id] = t.length > 170 ? t.slice(0, 168).replace(/\s+\S*$/, "") + "…" : t);
   }
   function startTrial() {
     var cards = shuffle(deckFor(town!.sec).slice());
@@ -988,12 +1025,13 @@
     var body = el("div", "gm-body one"), col = el("div", "gm-col");
     col.appendChild(el("p", "gm-q", q.q));
     if (!tr.opts) {
-      var others = shuffle(tr.pool.filter(function (o) { return o.id !== q.id && optionText(o.a) !== optionText(q.a); })).slice(0, 3);
+      var mine = optionText(q);
+      var others = shuffle(tr.pool.filter(function (o) { return o.id !== q.id && optionText(o) !== mine; })).slice(0, 3);
       tr.opts = shuffle([{ q: q, ok: true }].concat(others.map(function (o) { return { q: o, ok: false }; })));
     }
     var opts = el("div", "gm-opts");
     tr.opts.forEach(function (o, i) {
-      var b = btn('<span class="n">' + (i + 1) + "</span>" + esc(optionText(o.q.a)), function () { answerTrial(i); }, "gm-opt" + (tr.revealed ? (o.ok ? " right" : i === tr.picked ? " wrong" : "") : ""));
+      var b = btn('<span class="n">' + (i + 1) + "</span>" + esc(optionText(o.q)), function () { answerTrial(i); }, "gm-opt" + (tr.revealed ? (o.ok ? " right" : i === tr.picked ? " wrong" : "") : ""));
       if (tr.revealed) b.disabled = true;
       opts.appendChild(b);
     });
@@ -1047,7 +1085,8 @@
   function startBattle(chain: string[], opts: BattleOpts) {
     if (hp < 1) hp = maxHp();
     battle = { chain: chain, idx: 0, sc: scenario(chain[0]), found: {}, turn: 0, log: [], mode: "menu", opts: opts,
-      gained: 0, goldGained: 0, turnsTotal: 0, pick: null, history: [], histAt: 0, draft: "" };
+      gained: 0, goldGained: 0, turnsTotal: 0, pick: null, history: [], histAt: 0, draft: "",
+      tool: SIM.toolOf("kubectl") };                  // the terminal opens on kubectl, before any command of your own
     fx = null;                                        // a blow from a lost fight does not land on the next one's first frame
     setScene("battle");
     logSys("A " + (opts.boss ? "keep" : opts.final ? "gate" : "dungeon") + " battle begins: " + battle.sc.name + ". The ticket is above; the terminal is yours.");
@@ -1060,7 +1099,7 @@
     var root = el("div", "gm-battle");
     var title = el("div", "gm-title"), h3 = el("h3"), sub = el("span", "sub"), turn = el("span", "right");
     title.appendChild(h3); title.appendChild(sub); title.appendChild(turn); root.appendChild(title);
-    var body = el("div", "gm-body"), left = el("div", "gm-col"), right = el("div", "gm-col");
+    var cols = columns(root), left = cols.left, right = cols.right;
 
     var figure = el("div", "gm-enemy");
     var sprite = el("canvas") as HTMLCanvasElement; sprite.width = 96; sprite.height = 96; sprite.setAttribute("role", "img");
@@ -1126,8 +1165,6 @@
     });
     term.appendChild(form);
     right.appendChild(term);
-    body.appendChild(left); body.appendChild(right);
-    root.appendChild(body);
     screen.appendChild(root);
     return { root: root, h3: h3, sub: sub, turn: turn, figure: figure, sprite: sprite, nm: nm, lv: lv,
       guard: guard, guardLbl: guardLbl.lastChild as HTMLElement, hpWrap: hpWrap, hpBar: hpBar, hpLbl: hpLbl.lastChild as HTMLElement,
@@ -1187,7 +1224,7 @@
     t.subHost.innerHTML = "";
     var sub = subMenu();
     if (sub) t.subHost.appendChild(sub);
-    t.tool.textContent = SIM.toolOf(lastCmd() || "kubectl") || "terminal";
+    t.tool.textContent = b.tool || "terminal";
     t.found.textContent = "found " + nFound + "/" + nAll + " · " + b.gained + " xp this fight";
     if (b.log.length < t.rendered) { t.pre.innerHTML = ""; t.rendered = 0; }
     if (b.log.length > t.rendered) {
@@ -1210,7 +1247,12 @@
   /** an effect on the enemy's figure: the class runs the animation, data-fx records it */
   function play(e: HTMLElement, name: string) {
     e.classList.remove("fx-hit", "fx-stagger", "fx-win");
-    void e.offsetWidth;                                // restart the animation if the same one is still up
+    start(e, name);
+  }
+  /** put an effect's class on and record it; the reflow between the removal and this is what
+      restarts the animation when the same one is still up */
+  function start(e: HTMLElement, name: string) {
+    void e.offsetWidth;
     e.classList.add("fx-" + name);
     e.setAttribute("data-fx", name);
   }
@@ -1221,9 +1263,7 @@
   function pulse(e: HTMLElement, name: string, ms: number) {
     var run = fxRuns[name] = (fxRuns[name] || 0) + 1;
     e.classList.remove("fx-" + name);
-    void e.offsetWidth;                                // restart the animation if the same one is still up
-    e.classList.add("fx-" + name);
-    e.setAttribute("data-fx", name);
+    start(e, name);
     later(function () { if (fxRuns[name] === run) e.classList.remove("fx-" + name); }, ms);
   }
   /** a number that floats up and fades: the damage over the monster, the xp over the guard bar */
@@ -1236,7 +1276,6 @@
     f.addEventListener("animationend", lift);
     later(lift, 1400);                                 // reduced motion runs no animation, so the number is lifted by the clock
   }
-  function lastCmd() { for (var i = battle!.log.length - 1; i >= 0; i--) if (battle!.log[i].cmd) return battle!.log[i].cmd; return ""; }
   function renderLog(e: LogEntry) {
     if (e.sys) return '<span class="sys">' + esc(e.sys) + "</span>";
     if (e.hit) return '<span class="hit">' + esc(e.hit) + "</span>";
@@ -1310,7 +1349,7 @@
     var b = battle!, cmd = b.pick!.cmd;
     if (value !== null) cmd = cmd.replace(/\{(res|pod|kind|sa|app|name)\}/, value);
     // a cluster-scoped target takes no namespace; anything else takes its own
-    if (value !== null && ns === undefined && !/\{ns\}/.test(cmd) === false) cmd = cmd.replace(/ -n \{ns\}/, "");
+    if (value !== null && ns === undefined && /\{ns\}/.test(cmd)) cmd = cmd.replace(/ -n \{ns\}/, "");
     cmd = cmd.replace(/\{ns\}/g, ns || b.sc.ns);
     b.pick = null;
     var unfinished = /[A-Z]{3,}|=$|=\s|\{\}|\[\]|\{(res|pod|kind|sa|app|name|image|container)\}/.test(cmd);
@@ -1331,7 +1370,11 @@
       hp = Math.min(maxHp(), hp + Math.ceil(maxHp() / 2)); logSys("The elixir burns going down. Health " + hp + " of " + maxHp() + ".");
     } else if (/^sheet-/.test(id)) {
       var fam = id.slice(6);
-      var lines = Object.keys(D.techniques).filter(function (k) { return D.techniques[k].tool === fam; }).map(function (k) { return "  " + D.techniques[k].cmd.replace(/\{ns\}/g, sc.ns) + "   # " + D.techniques[k].about; });
+      var lines: string[] = [];
+      Object.keys(D.techniques).forEach(function (k) {
+        var tq = D.techniques[k];
+        if (tq.tool === fam) lines.push("  " + tq.cmd.replace(/\{ns\}/g, sc.ns) + "   # " + tq.about);
+      });
       logSys("Cheat sheet, " + fam + ":\n" + (lines.join("\n") || "  (no techniques in this family yet)"));
     }
     save();
@@ -1343,6 +1386,7 @@
     var b = battle!, sc = b.sc;
     if (b.over || swapPending) return;                // the card is up, or the next monster has not stood yet
     var r = SIM.run(sc, b.found, cmd);
+    b.tool = SIM.toolOf(cmd);                         // the bar's word, read once here rather than on every paint
     b.turn++; b.turnsTotal++;
     var entry: LogEntry = { cmd: cmd, out: r.out, tell: null };
     if (r.evidence) {
@@ -1567,7 +1611,7 @@
         // one keeps its result card; the terminal and its half-typed command stay
         if (scene === "battle" && battle && !battle.over) { if (bt) bt.scId = ""; paintBattle(); }
         // a town's menus follow the stylesheet on their own; only the scenery is painted, and focus stays where it was
-        if (scene === "town" && town && tn) { var sc = tn.right.querySelector<HTMLCanvasElement>(".gm-scene"); if (sc) paintBackdrop(sc, +town.sec.split(".")[0]); }
+        if (scene === "town" && town && tn) { var sc = tn.right.querySelector<HTMLCanvasElement>(".gm-scene"); if (sc) paintBackdrop(sc, domainOfSec(town.sec)); }
       };
       theme.onChange(onTheme);
       if (themeOff) undo.push(function () { theme.offChange(onTheme); });
@@ -1589,7 +1633,7 @@
       var onMotion = function () {
         reduceMotion = mq.matches;
         if (reduceMotion) { ease = null; if (walk) landStep(); }
-        drawnOff = { x: 0, y: 0 }; drawnSub = -1; walkFrame = 0;   // standing, as the next frame will paint it: what debug() reports stays one frame's
+        stand();                                      // standing, as the next frame will paint it: what debug() reports stays one frame's
         syncAnim(); requestDraw();
       };
       if (mq.addEventListener) { mq.addEventListener("change", onMotion); undo.push(function () { mq.removeEventListener("change", onMotion); }); }
@@ -1625,7 +1669,8 @@
       }
       scene = "map"; town = null; trial = null; battle = null; dlg = null; bt = null; tn = null; fx = null; swapPending = null;
       settleStep(); ease = null; focused = false; walked = false; lastLabel = ""; mounts++;
-      buildRegions();
+      buildRegions();                                 // sets mapW, which the tile index keys on
+      indexData();
       build();
       hp = maxHp();
       loadPos();
