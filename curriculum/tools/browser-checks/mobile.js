@@ -32,6 +32,14 @@ module.exports = async function (h) {
   const { url, fresh, assert, group, siteDir } = h;
   const PAGES = pagesIn(siteDir);
 
+  /* Every wait below is for a state, never for a span of time. For everything
+     measured here the state is the same one: the web fonts are in, since they
+     set every width on the page, and the browser has been through a frame
+     since, so a load or a resize has been laid out. */
+  /** @param {import('playwright').Page} page */
+  const laidOut = page => page.evaluate(() => document.fonts.ready.then(() =>
+    new Promise(r => { requestAnimationFrame(() => requestAnimationFrame(() => r(null))); })));
+
   /* A page wider than its own viewport is the phone failure that matters: the
      reader swipes sideways to reach the right-hand half of every paragraph.
      Wide content (diagrams, tables, code) is allowed to scroll, but inside its
@@ -71,7 +79,7 @@ module.exports = async function (h) {
     const bad = [];
     for (const p of PAGES) {
       await page.goto(url(p));
-      await page.waitForTimeout(120);
+      await laidOut(page);
       const o = await overflow(page);
       if (o.over) bad.push(p + ' by ' + o.over + 'px (' + o.culprits.join(' | ') + ')');
     }
@@ -94,7 +102,7 @@ module.exports = async function (h) {
     /** @param {number} w */
     const widths = async w => {
       await page.setViewportSize({ width: w, height: 900 });
-      await page.waitForTimeout(120);
+      await laidOut(page);
       return page.evaluate(() => {
         const r = (/** @type {Element | null} */ e) => e ? Math.round(e.getBoundingClientRect().width) : null;
         /* A block that hangs its content off a rule or a number owns that
@@ -135,7 +143,7 @@ module.exports = async function (h) {
     /* the answer hangs under the question rather than under the Q number, so on a
        phone the two have to share a left edge or the block reads as two columns */
     await page.setViewportSize({ width: 390, height: 900 });
-    await page.waitForTimeout(120);
+    await laidOut(page);
     const quiz = await page.evaluate(() => {
       const d = document.querySelector('details.quiz');
       d.setAttribute('open', '');
@@ -177,7 +185,7 @@ module.exports = async function (h) {
       const b = /** @type {HTMLElement} */ (document.querySelector('.searchbtn'));
       b.click();
     });
-    await page.waitForTimeout(250);
+    await page.waitForSelector('.overlay.open .palette');   // it opens on a class, with nothing to animate
     const pal = await page.evaluate(() => {
       const p = document.querySelector('.overlay.open .palette');
       if (!p) return null;
@@ -197,7 +205,8 @@ module.exports = async function (h) {
     const { ctx, page } = await fresh();
     await page.setViewportSize(SMALL);
     await page.goto(url('01-architecture/01-networking.html'));
-    await page.waitForTimeout(400);
+    await page.waitForSelector('.wpath.narrow .whop');      // widgets.js has built the chain
+    await laidOut(page);
     const fig = await page.evaluate(() => {
       const path = document.querySelector('.wpath.narrow');
       if (!path) return null;
@@ -220,7 +229,8 @@ module.exports = async function (h) {
     assert(fig && Math.abs(fig.hopMid - fig.arrMid) <= 1,
       'the connector is still centred on the box it joins: ' + (fig ? fig.hopMid + ' vs ' + fig.arrMid : ''));
     await page.goto(url('01-architecture/02-compute-right-sizing.html'));
-    await page.waitForTimeout(400);
+    await page.waitForSelector('.wctl');
+    await laidOut(page);
     const ctl = await page.evaluate(() => {
       const c = document.querySelector('.wctl');   // a slider row: label / track / value
       return c ? getComputedStyle(c).gridTemplateColumns.split(' ').length : -1;
@@ -235,18 +245,16 @@ module.exports = async function (h) {
     const { ctx, page } = await fresh();
     await page.setViewportSize(PHONE);
     await page.goto(url('drill.html'));
-    await page.waitForTimeout(400);
+    // the clicks wait for their own buttons, and the drill answers a key in the
+    // same task it arrives in: the card is up before the next press is sent
     await page.getByRole('button', { name: '40' }).first().click();
     await page.getByRole('button', { name: /Start a session/ }).click();
-    await page.waitForTimeout(250);
+    await page.waitForSelector('.drill-prog .track i');
+    await page.keyboard.press('Space');                     // reveal
+    await page.keyboard.press('2');                         // got it
     await page.keyboard.press('Space');
-    await page.waitForTimeout(120);
-    await page.keyboard.press('2');
-    await page.waitForTimeout(120);
-    await page.keyboard.press('Space');
-    await page.waitForTimeout(120);
-    await page.keyboard.press('1');
-    await page.waitForTimeout(200);
+    await page.keyboard.press('1');                         // missed
+    await laidOut(page);
 
     const bar = await page.evaluate(() => {
       const cells = document.querySelectorAll('.drill-prog .track i');

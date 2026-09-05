@@ -178,6 +178,12 @@
             ok: v("--ok"), okLit: v("--ok-lit"), bad: v("--bad"), badLit: v("--bad-lit"), viol: v("--viol"), info: v("--info") };
         ART.theme(P); // every sprite is repainted from these on its next use
         terrainStale = true; // and the whole terrain with them, on the next frame
+        // Off the map (a town, a battle) that frame does not come until the map does,
+        // and until then a sweep would spend its budget painting the new palette into
+        // a terrain the repaint will clear, and hand the minimap a two-toned map on
+        // its way. Stop it; the repaint starts a sweep of its own.
+        cancelSweep();
+        dropComposites();
     }
     /* ── state ──────────────────────────────────────────────── */
     let host;
@@ -534,7 +540,8 @@
     var motionQuery = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
     var reduceMotion = !!(motionQuery && motionQuery.matches);
     var sizeObs = null;
-    var stats = { frames: 0, drawMs: 0, terrainRenders: 0, terrainMs: 0, terrainPatches: 0, tilesRepainted: 0, patchMs: 0, minimapBuilds: 0 };
+    var stats = { frames: 0, drawMs: 0, terrainRenders: 0, terrainMs: 0, terrainSlices: 0, terrainSliceMs: 0,
+        terrainPatches: 0, tilesRepainted: 0, patchMs: 0, minimapBuilds: 0, composes: 0, composeMs: 0, tileBlits: 0 };
     var mini = null, miniBase = null; // the minimap, and the map under its dot and its frame
     var miniScale = 1, miniBoxW = 0; // whole device pixels per minimap pixel (a tile), chosen for the screen like the map's; the CSS width game.css gives the canvas, read once at build
     var focused = false; // the stage has focus: its border and the minimap's frame take the accent
@@ -660,9 +667,91 @@
             k.fillRect(x * TILE, y * TILE, TILE, TILE);
         }
     }
-    /** the whole map, once, and again only for a new palette */
+    /* The whole map is 9,600 tiles and some 90 ms of drawImage, and it was paid in
+       one go: a second of dropped frames on the load and on every theme switch,
+       with the map on the ground colour until the last tile landed. A render
+       paints the tiles the camera can see and leaves the rest to a sweep, a slice
+       of tiles an animation frame, so the map is up in the frame that asked for it
+       and the rest of the cost lands in the frames after it. A frame that reads
+       tiles the sweep has not reached paints those itself first, so walking never
+       outruns it; the minimap, which is the whole terrain scaled to a pixel a
+       tile, is built when the last tile lands. */
+    var cellDone = new Uint8Array(0); // the tiles of the terrain this render has painted
+    var cellsLeft = 0; // how many it has not
+    var sweepAt = 0; // where the sweep left off; the tiles a frame painted ahead of it are skipped
+    var sweepId = 0; // the animation frame the next slice runs on
+    var SLICE_MS = 8; // what one slice may spend, so the frame it lands in still makes its deadline
+    function cancelSweep() { if (sweepId) {
+        cancelAnimationFrame(sweepId);
+        sweepId = 0;
+    } }
+    /** what a slice of the render cost, and the minimap once the last tile has landed */
+    function slice(t0) {
+        var dt = performance.now() - t0;
+        stats.terrainMs += dt;
+        stats.terrainSlices++;
+        if (dt > stats.terrainSliceMs)
+            stats.terrainSliceMs = dt;
+        // no composition can hold a tile a slice has just filled: a frame paints the
+        // tiles it is about to read before it composes them
+        // buildMinimap paints the ground and nothing over it, and the last slice
+        // usually lands in a sweep rather than in draw(), which would have put the
+        // dot, the frame and the ring back: put them back here, or a still map under
+        // reduced motion shows the ground alone until the next key.
+        if (!cellsLeft) {
+            cancelSweep();
+            buildMinimap();
+            drawMinimap();
+        }
+    }
+    /** the tiles of [x0, x1) by [y0, y1) this render has not painted, painted now: what a frame needs, whatever the sweep has reached */
+    function paintCells(x0, y0, x1, y1) {
+        var k = terrain && terrain.getContext("2d");
+        if (!k || !cellsLeft)
+            return;
+        var t0 = performance.now(), n = 0;
+        for (var y = Math.max(0, y0), yn = Math.min(mapH, y1); y < yn; y++) {
+            for (var x = Math.max(0, x0), xn = Math.min(mapW, x1); x < xn; x++) {
+                var i = y * mapW + x;
+                if (cellDone[i])
+                    continue;
+                paintTile(k, x, y);
+                cellDone[i] = 1;
+                cellsLeft--;
+                n++;
+            }
+        }
+        if (n)
+            slice(t0);
+    }
+    /** the rest of the map, a slice of tiles a frame until it is whole */
+    function sweep() {
+        sweepId = 0;
+        var k = terrain && terrain.getContext("2d");
+        if (!k || !cellsLeft)
+            return;
+        var t0 = performance.now(), n = 0, end = mapW * mapH;
+        while (sweepAt < end) {
+            if (!cellDone[sweepAt]) {
+                var x = sweepAt % mapW;
+                paintTile(k, x, (sweepAt - x) / mapW);
+                cellDone[sweepAt] = 1;
+                cellsLeft--;
+                n++;
+                if (!(n & 63) && performance.now() - t0 >= SLICE_MS) {
+                    sweepAt++;
+                    break;
+                }
+            }
+            sweepAt++;
+        }
+        if (n)
+            slice(t0);
+        if (cellsLeft)
+            sweepId = requestAnimationFrame(sweep);
+    }
+    /** the whole map, once, and again only for a new palette: what the camera sees now, the rest over the frames after */
     function renderTerrain() {
-        var t0 = performance.now();
         if (!terrain) {
             terrain = document.createElement("canvas");
             terrain.width = mapW * TILE;
@@ -670,18 +759,23 @@
         }
         var k = terrain.getContext("2d");
         if (!k)
-            return;
+            return; // before the sweep is cancelled: a render that cannot start must not strand one
+        cancelSweep();
         k.imageSmoothingEnabled = false;
         k.fillStyle = P.sunk;
         k.fillRect(0, 0, terrain.width, terrain.height);
-        for (var y = 0; y < mapH; y++)
-            for (var x = 0; x < mapW; x++)
-                paintTile(k, x, y);
+        cellDone = new Uint8Array(mapW * mapH);
+        cellsLeft = mapW * mapH;
+        sweepAt = 0;
         terrainSig = landmarkSig();
         terrainStale = false;
+        dropComposites(); // every composition was drawn over the old palette
         stats.terrainRenders++;
-        stats.terrainMs += performance.now() - t0;
-        buildMinimap();
+        var c = lastCam || camera(player.x * TILE, player.y * TILE);
+        var tx = Math.floor(c.x / TILE), ty = Math.floor(c.y / TILE);
+        paintCells(tx, ty, tx + CW, ty + CH); // what the frame this render is for will show, before it shows it
+        if (cellsLeft)
+            sweepId = requestAnimationFrame(sweep);
     }
     /** only the landmarks whose state changed: a door that opened, a keep that fell, the gate */
     function patchTerrain(sig) {
@@ -703,13 +797,14 @@
             paintTile(k, D.finale.keep.x, D.finale.keep.y);
             n++;
         }
-        terrainSig = sig;
+        terrainSig = sig; // and with it the key every composition and the counts are held under
         var dt = performance.now() - t0;
         stats.terrainPatches++;
         stats.tilesRepainted += n;
         stats.terrainMs += dt;
         stats.patchMs += dt;
-        buildMinimap(); // a cleared town turns green on it
+        if (!cellsLeft)
+            buildMinimap(); // a cleared town turns green on it; a sweep still running builds it at its end
     }
     /** the minimap's ground: the terrain scaled to a pixel a tile, each region's
         tint over its land, the towns, the keeps and the gate in their state's colour */
@@ -852,6 +947,87 @@
         miniDot.x = x;
         miniDot.y = y;
     }
+    /* ── what moves, composed rather than blitted tile by tile ── */
+    // A frame used to end in one ctx.drawImage per animated tile in view: a
+    // hundred of them on a coastal screen, and the bulk of what an animated frame
+    // cost, paid again on every paint though the tiles under them had not moved.
+    // Each frame of the beat has its own viewport-sized canvas instead, the
+    // terrain and that frame's water, flowers, smoke and torches composed into it
+    // once; a paint is the single blit of that. The canvas is a tile wider and
+    // taller than the viewport, so the camera's offset inside a tile is a source
+    // offset into the same composition: a step's whole tween reads one, and a
+    // still map composes three and then never again.
+    var CW = VW + 1, CH = VH + 1; // the composition, in tiles: the viewport and a tile of slack for the camera's offset
+    var comp = []; // one per frame of the beat, built on demand: reduced motion only ever builds frame 0's
+    var compKey = []; // what each holds: the camera's tile and the landmark signature, so a tile crossed or a door opened drops it
+    var viewCount = { key: "", water: 0, ambient: 0 }; // waterInView and ambientInView for a camera tile and viewport, which only those can change
+    /** every composition is stale: a repaint of the terrain under them */
+    function dropComposites() { compKey = []; viewCount.key = ""; }
+    /** what moves on a tile, which is both what to draw over it and whether it is a
+        reason to paint at all: 0 nothing, 1 the water, 2 a flower, 3 a town's smoke,
+        4 an open door's torches. One switch, so a new kind cannot reach the frame
+        without reaching the beat's reasons to paint it. */
+    var A_WATER = 1, A_FLOWER = 2, A_PUFF = 3, A_TORCH = 4;
+    function animAt(mx, my) {
+        switch (tileAt(mx, my)) {
+            case "water": return A_WATER;
+            case "flower": return A_FLOWER;
+            case "town": return A_PUFF;
+            case "door": {
+                var dr = doorAt(mx, my);
+                return dr && dungeonOpen(dr) ? A_TORCH : 0;
+            }
+            default: return 0;
+        }
+    }
+    /** the sprite that kind shows in the beat's given frame, over what the terrain holds (which is frame 0's water
+        and flowers): null where the terrain already has it. The smoke and the torches are overlays, drawn in every frame */
+    function animSprite(kind, mx, my, frame) {
+        switch (kind) {
+            case A_WATER: return frame ? ART.water(shoreMask(mx, my), frame) : null;
+            case A_FLOWER: return frame ? ART.flower(Math.floor(hash(mx, my) * 4), regionOf[my * mapW + mx] || 0, frame) : null;
+            case A_PUFF: return ART.ambient("puff", frame);
+            case A_TORCH: return ART.ambient("torch", frame);
+            default: return null;
+        }
+    }
+    /** the beat's given frame at the camera's tile: the composition held for it, or a new one */
+    function composite(frame, tx0, ty0) {
+        var c = comp[frame];
+        if (!c) {
+            c = comp[frame] = document.createElement("canvas");
+            c.width = CW * TILE;
+            c.height = CH * TILE;
+        }
+        var key = tx0 + "," + ty0 + "," + terrainSig;
+        if (compKey[frame] === key)
+            return c;
+        var k = c.getContext("2d");
+        if (!k)
+            return c;
+        var t0 = performance.now(), n = 0;
+        k.setTransform(1, 0, 0, 1, 0, 0);
+        k.imageSmoothingEnabled = false;
+        k.fillStyle = P.sunk;
+        k.fillRect(0, 0, c.width, c.height);
+        // the terrain under it, clipped at the map's far edge, where the camera is clamped and the slack is never read
+        var sw = Math.min(CW * TILE, terrain.width - tx0 * TILE), sh = Math.min(CH * TILE, terrain.height - ty0 * TILE);
+        if (sw > 0 && sh > 0)
+            k.drawImage(terrain, tx0 * TILE, ty0 * TILE, sw, sh, 0, 0, sw, sh);
+        for (var y = 0; y < CH; y++)
+            for (var x = 0; x < CW; x++) {
+                var mx = tx0 + x, my = ty0 + y, s = animSprite(animAt(mx, my), mx, my, frame);
+                if (s) {
+                    k.drawImage(s, x * TILE, y * TILE);
+                    n++;
+                }
+            }
+        compKey[frame] = key;
+        stats.composes++;
+        stats.tileBlits += n;
+        stats.composeMs += performance.now() - t0;
+        return c;
+    }
     /** paint on the next animation frame; several requests in one frame are one paint */
     function requestDraw() {
         dirty = true;
@@ -900,39 +1076,31 @@
         else
             lastCam = { x: cx, y: cy };
         var tx0 = Math.floor(cx / TILE), ty0 = Math.floor(cy / TILE), ox = cx - tx0 * TILE, oy = cy - ty0 * TILE;
+        paintCells(tx0, ty0, tx0 + CW, ty0 + CH); // tiles the sweep has not reached yet, which this frame is about to read
         ctx.setTransform(scale, 0, 0, scale, 0, 0);
         ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(terrain, cx, cy, W, H, 0, 0, W, H);
-        // what moves, over the first frame the terrain holds: the water and the
-        // flowers in another frame, the smoke over a town, the torches on an open door
-        waterInView = 0;
-        ambientInView = 0;
+        // the terrain and what moves over it, composed once for this frame of the
+        // beat at this tile of the camera: the offset inside the tile is where the
+        // blit reads from, so a step's tween and every beat after the first are one
+        ctx.drawImage(composite(animFrame, tx0, ty0), ox, oy, W, H, 0, 0, W, H);
+        // and how much of what moves is in view, which is what the beat asks before
+        // it paints at all: the tiles, not the blits, and only when they can differ
         var cols = VW + (ox ? 1 : 0), rows = VH + (oy ? 1 : 0);
-        for (var y = 0; y < rows; y++)
-            for (var x = 0; x < cols; x++) {
-                var mx = tx0 + x, my = ty0 + y, t = tileAt(mx, my), sx = x * TILE - ox, sy = y * TILE - oy;
-                if (t === "water") {
-                    waterInView++;
-                    if (animFrame)
-                        ctx.drawImage(ART.water(shoreMask(mx, my), animFrame), sx, sy);
+        var vkey = tx0 + "," + ty0 + "," + cols + "," + rows + "," + terrainSig;
+        if (viewCount.key !== vkey) {
+            var water = 0, ambient = 0;
+            for (var y = 0; y < rows; y++)
+                for (var x = 0; x < cols; x++) {
+                    var kind = animAt(tx0 + x, ty0 + y);
+                    if (kind === A_WATER)
+                        water++;
+                    else if (kind)
+                        ambient++;
                 }
-                else if (t === "flower") {
-                    ambientInView++;
-                    if (animFrame)
-                        ctx.drawImage(ART.flower(Math.floor(hash(mx, my) * 4), regionOf[my * mapW + mx] || 0, animFrame), sx, sy);
-                }
-                else if (t === "town") {
-                    ambientInView++;
-                    ctx.drawImage(ART.ambient("puff", animFrame), sx, sy);
-                }
-                else if (t === "door") {
-                    var dr = doorAt(mx, my);
-                    if (dr && dungeonOpen(dr)) {
-                        ambientInView++;
-                        ctx.drawImage(ART.ambient("torch", animFrame), sx, sy);
-                    }
-                }
-            }
+            viewCount = { key: vkey, water: water, ambient: ambient };
+        }
+        waterInView = viewCount.water;
+        ambientInView = viewCount.ambient;
         // banners over towns and keeps, so the map reads without a legend
         ctx.font = "8px CNPE Mono, ui-monospace, monospace";
         ctx.textBaseline = "top";
@@ -2292,11 +2460,17 @@
             undo = [];
             settleStep();
             ease = null;
+            cancelSweep();
+            cellDone = new Uint8Array(0);
+            cellsLeft = 0;
+            sweepAt = 0;
             terrain = null;
             miniBase = null;
             mini = null;
             terrainStale = true;
             terrainSig = "";
+            comp = [];
+            dropComposites();
             dlg = null;
             battle = null;
             trial = null;
@@ -2320,8 +2494,10 @@
         /** what the renderer is doing, for the browser checks and profiling */
         debug: function () {
             return { frames: stats.frames, drawMs: stats.drawMs, terrainRenders: stats.terrainRenders, terrainMs: stats.terrainMs,
+                terrainSlices: stats.terrainSlices, terrainSliceMs: stats.terrainSliceMs, terrainPending: cellsLeft,
                 terrain: terrain ? { w: terrain.width, h: terrain.height } : null,
                 terrainPatches: stats.terrainPatches, tilesRepainted: stats.tilesRepainted, patchMs: stats.patchMs,
+                composes: stats.composes, composeMs: stats.composeMs, tileBlits: stats.tileBlits,
                 minimap: mini ? { w: mini.width, h: mini.height, scale: miniScale } : null, minimapBuilds: stats.minimapBuilds,
                 scale: scale, dpr: dprSeen,
                 anim: !!animTimer, reduceMotion: reduceMotion, waterFrame: animFrame, walkFrame: walkFrame, face: player.face,
@@ -2331,6 +2507,11 @@
                 waterInView: waterInView, ambientInView: ambientInView,
                 mounted: !!host, mounts: mounts, listeners: undo.length, timers: timers.length,
                 frame: paintNow,
+                // the rest of the map now rather than over the frames after: a check that
+                // reads the terrain or the minimap drives the sweep to its end instead of
+                // waiting on it, and a driven clock has no animation frames to sweep on
+                sweep: function () { if (host)
+                    paintCells(0, 0, mapW, mapH); },
                 tick: tickBeat, settle: settle };
         }
     };

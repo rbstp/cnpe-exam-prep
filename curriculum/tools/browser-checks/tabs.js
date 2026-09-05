@@ -35,6 +35,31 @@ module.exports = async function (h) {
   });
   /** @param {import('playwright').Page} p */
   const writes = p => p.evaluate(() => window.__writes);
+  /* The one thing between two tabs is the storage event, and the events one tab
+     fires reach another in the order they were written. So the way to know a tab
+     has answered everything the other did — including the answers to its answers
+     — is to write one more thing and wait for that to land: a state, not a span
+     of time. The marker is a key of its own, which the console's own listener
+     drops and countWrites does not count. */
+  /** @param {import('playwright').Page} p */
+  const marker = p => p.evaluate(() => {
+    const w = /** @type {*} */ (window);
+    if (w.__mark !== undefined) return;
+    w.__mark = 0;
+    addEventListener('storage', e => { if (e.key === 'cnpe:mark') w.__mark++; });
+  });
+  /** every write `from` has made has reached `to`, and `to` has run its answer to it
+   * @param {import('playwright').Page} from @param {import('playwright').Page} to */
+  const drain = async (from, to) => {
+    await marker(to);
+    const n = await to.evaluate(() => /** @type {*} */ (window).__mark);
+    await from.evaluate(() => localStorage.setItem('cnpe:mark', String(Math.random())));
+    await to.waitForFunction(k => /** @type {*} */ (window).__mark > k, n, { timeout: 4000 });
+  };
+  /** both tabs have said everything they had to say to each other, twice over,
+   * so what either writes next it writes of its own accord
+   * @param {import('playwright').Page} a @param {import('playwright').Page} b */
+  const settled = async (a, b) => { await drain(a, b); await drain(b, a); await drain(a, b); await drain(b, a); };
 
   /* 1. a tick made in one tab reaches the other, and repaints it */
   await group('a tick made in one tab lands in the other', async () => {
@@ -124,7 +149,11 @@ module.exports = async function (h) {
       s.drill = {}; s.drillmeta = {}; s.days = {}; s.last = null; delete s.lastAt;
       window.CNPE_PROGRESS.save();
     });
-    await page.waitForTimeout(400);   // long enough for a storage event and an answer to it
+    // The tab holding the copy keeps it: a key the wipe removed is not a key set
+    // to 0, so the merge has nothing to take. What it must not do is write it
+    // back, and that it would do while answering the event — so wait for the
+    // event to be answered rather than for a span of time.
+    await settled(two, page);
     const left = await page.evaluate(() => JSON.parse(localStorage.getItem('cnpe:v2')).done);
     assert(Object.keys(left).length === 0, 'the store on the disk is still empty: ' + JSON.stringify(left));
     const errs = page.errors.concat(two.errors);
@@ -143,7 +172,7 @@ module.exports = async function (h) {
       s.drill = {}; s.drillmeta = {}; s.days = {}; s.last = null; delete s.lastAt;
       window.CNPE_PROGRESS.save();
     });
-    await page.waitForTimeout(400);
+    await settled(two, page);         // the wipe is answered, resume pointer and all
     const left = await page.evaluate(() => JSON.parse(localStorage.getItem('cnpe:v2')));
     assert(Object.keys(left.done).length === 0, 'the store on the disk is still empty: ' + JSON.stringify(left.done));
     assert(!left.last, 'and the pointer that tab still holds was not written back: ' + JSON.stringify(left.last));
@@ -158,12 +187,17 @@ module.exports = async function (h) {
     await page.goto(url('mock-exam.html'));
     await page.click('#t-start');                       // the exam tab starts the clock
     const two = await tab(ctx, 'index.html');           // this one loads it running
-    await page.waitForTimeout(1200);
+    // the one wait here that is really about time passing: the clock has to bank a
+    // whole second for the assertion below to say anything. Wait for the paper's own
+    // clock to count two of them off, which is a state, rather than for a span of it
+    await page.waitForFunction(() => {
+      const t = document.getElementById('clock').textContent.replace(/\s+/g, '');
+      return t !== '120:00' && t !== '119:59';
+    }, null, { timeout: 5000 });
     await page.click('#t-start');                       // and pauses, banking the time
     assert(await within(two, () => window.CNPE_PROGRESS.get().exam.running === false),
       'the dashboard tab takes the paused clock rather than keeping the running one');
-    await two.evaluate(() => window.CNPE_PROGRESS.save());
-    await two.waitForTimeout(300);
+    await two.evaluate(() => window.CNPE_PROGRESS.save());   // which writes the store on the spot
     const left = await two.evaluate(() => JSON.parse(localStorage.getItem('cnpe:v2')).exam);
     assert(left.running === false && Math.round(left.spent) >= 1,
       'and its save leaves the banked time alone: ' + JSON.stringify({ running: left.running, spent: Math.round(left.spent) }));
@@ -187,7 +221,7 @@ module.exports = async function (h) {
     await two.goto(url('index.html'));
     await tick(two, '1.1', 1);
     await within(page, () => window.CNPE_PROGRESS.get().done['1.1'] === 1);
-    await page.waitForTimeout(500);
+    await settled(two, page);
     assert((await writes(two)) === 1, 'the tab that ticked wrote once: ' + await writes(two));
     assert((await writes(page)) === 0, 'the tab that took it wrote not at all: ' + await writes(page));
     const errs = page.errors.concat(two.errors);
@@ -209,7 +243,7 @@ module.exports = async function (h) {
     assert(await within(page, () => window.CNPE_PROGRESS.get().last === '1.3'),
       'the tab left behind takes the section opened after it');
     const a = await writes(page), b = await writes(two);
-    await page.waitForTimeout(700);
+    await settled(page, two);
     assert((await writes(page)) === a && (await writes(two)) === b,
       'and the writes stop: ' + [a, await writes(page)] + ' then ' + [b, await writes(two)]);
     assert(a <= 2 && b <= 2, 'each tab wrote only what its own visit learned: ' + a + ', ' + b);
@@ -227,13 +261,13 @@ module.exports = async function (h) {
     await countWrites(page);
     // A first visit learns the exercise keys and that this is where you are.
     await page.goto(url(SECTION));
-    await page.waitForTimeout(300);
+    await page.waitForFunction(() => window.CNPE_PROGRESS.get().last === '2.1', null, { timeout: 4000 });
     const first = await writes(page);
     assert(first > 0 && first <= 2, 'a first visit writes what it learned: ' + first);
     // A second knows all of it, and a save wakes every other tab to merge it.
     await page.evaluate(() => { window.__writes = 0; });
     await page.reload();
-    await page.waitForTimeout(300);
+    await page.waitForSelector('.finish button.tbtn');   // the visit is built, and whatever it learned it has written
     assert((await writes(page)) === 0, 'rereading it wrote nothing: ' + await writes(page));
 
     /** @param {import('playwright').Page} p */
@@ -252,7 +286,7 @@ module.exports = async function (h) {
       await page.waitForFunction(
         a => window.CNPE_PROGRESS.get().done['1.1'] === a, on, { timeout: 4000 });
     }
-    await page.waitForTimeout(300);
+    await settled(two, page);
     assert(JSON.stringify(await strips(page)) === '{"pager":1,"finish":1}',
       'still one of each after four cross-tab ticks: ' + JSON.stringify(await strips(page)));
     const err8 = page.errors.concat(two.errors);
@@ -292,7 +326,7 @@ module.exports = async function (h) {
     await page.goto(url('01-architecture/01-networking.html'));
     // reconcile short-circuits on unmoved bytes, and a write that threw does not
     // move them, so the tick lives only in memory until something notices.
-    const out = await page.evaluate(async () => {
+    const out = await page.evaluate(() => {
       const real = Storage.prototype.setItem;
       Storage.prototype.setItem = function (k) {
         if (k === 'cnpe:v2') { const e = new Error('quota'); e.name = 'QuotaExceededError'; throw e; }
@@ -302,8 +336,7 @@ module.exports = async function (h) {
       const onDisk = () => (JSON.parse(localStorage.getItem('cnpe:v2') || '{}').done || {})['1.1'];
       const refused = onDisk();
       Storage.prototype.setItem = real;
-      document.dispatchEvent(new Event('visibilitychange'));
-      await new Promise(r => setTimeout(r, 150));
+      document.dispatchEvent(new Event('visibilitychange'));   // which reconciles, and writes, before it returns
       return { memory: window.CNPE_PROGRESS.get().done['1.1'], refused, retried: onDisk() };
     });
     assert(out.memory === 1, 'the tick is in memory: ' + out.memory);

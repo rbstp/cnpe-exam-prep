@@ -520,9 +520,17 @@ interface CnpeGameDebug {
   /** whole-map terrain renders (the first paint and every theme switch), the
       milliseconds spent painting the terrain in all, and the cache's size */
   terrainRenders: number; terrainMs: number; terrain: { w: number; h: number } | null;
+  /** a render paints what the camera sees and sweeps the rest a slice of tiles a frame: how many slices it took,
+      the longest one's milliseconds (what the frame it landed in paid), and the tiles still to paint, 0 when
+      the map is whole. A check that reads the terrain, the minimap or terrainMs waits for this to reach 0 */
+  terrainSlices: number; terrainSliceMs: number; terrainPending: number;
   /** partial repaints, one per landmark change, the tiles they touched, and their
       share of terrainMs */
   terrainPatches: number; tilesRepainted: number; patchMs: number;
+  /** the viewport compositions: how many were built (the terrain and one frame of the beat's water, flowers,
+      smoke and torches, for one tile of the camera), the milliseconds they took, and the animated tiles they
+      blitted in all. A paint reads one and blits nothing per tile, so these stand still while frames climb */
+  composes: number; composeMs: number; tileBlits: number;
   /** the minimap: its backing store (the map's size times scale, whole device pixels per tile, behind the CSS
       box whose width game.css sets in --gm-mini-w, the height following the map's aspect), and how many times it
       was rebuilt from the terrain */
@@ -557,6 +565,10 @@ interface CnpeGameDebug {
   mounted: boolean; mounts: number; listeners: number; timers: number;
   /** paint now, without waiting for the next animation frame */
   frame(): void;
+  /** paint the rest of the map now, rather than over the frames after this one: what the sweep would do, done.
+      A check that reads the terrain, the minimap or terrainMs drives this and reads, rather than waiting on
+      terrainPending, and a check on a driven clock has no animation frames for the sweep to run on at all. */
+  sweep(): void;
   /** Test hooks, so the browser checks drive time rather than wait on it; both do nothing outside a mount.
       tick() advances the beat one frame, as the ticker does every 420 ms, without touching the ticker
       itself (nothing under reduced motion, which has no beat); a frame is requested if anything animated
