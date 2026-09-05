@@ -16,7 +16,7 @@ for f in index.html mock-exam.html mock-exam-2.html drill.html game.html console
          assets/style.css assets/game.css assets/app.js assets/nav.js assets/widgets.js \
          assets/theme.js assets/favicon.svg assets/drill-data.js assets/drill-index.js \
          assets/drill.js assets/merge.js assets/syntax.js assets/sync.js \
-         assets/game.js assets/game-sim.js assets/game-data.js; do
+         assets/game.js assets/game-sim.js assets/game-data.js assets/game-art.js; do
   test -s "$SITE/$f" || { echo "missing or empty: $f"; exit 1; }
 done
 test -f "$SITE/.nojekyll" || { echo "missing: .nojekyll"; exit 1; }
@@ -75,12 +75,14 @@ for f in drill.html game.html; do
   grep -q 'assets/drill-data\.js' "$SITE/$f" ||
     { echo "$f does not load the drill bank"; exit 1; }
 done
-# The quest's three scripts and its stylesheet ship only with the quest.
+# The quest's four scripts and its stylesheet ship only with the quest.
 for f in index.html mock-exam.html mock-exam-2.html drill.html; do
-  grep -qE 'assets/game(-sim|-data)?\.(js|css)' "$SITE/$f" &&
+  grep -qE 'assets/game(-sim|-data|-art)?\.(js|css)' "$SITE/$f" &&
     { echo "$f loads the quest's assets; only game.html needs them"; exit 1; }
 done
-grep -q 'assets/game\.js' "$SITE/game.html" || { echo "game.html does not load the quest"; exit 1; }
+for f in game.js game-sim.js game-data.js game-art.js; do
+  grep -q "assets/$f" "$SITE/game.html" || { echo "game.html does not load assets/$f"; exit 1; }
+done
 
 # Every asset a page pulls must carry its content stamp, and so must every font
 # the stylesheet pulls. Without one, Pages' ten-minute cache decides when a deploy

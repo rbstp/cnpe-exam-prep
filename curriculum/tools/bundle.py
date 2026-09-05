@@ -126,6 +126,9 @@ window.CNPE_EXAM_KEYS = %s;
 %s
 </script>
 <script>
+%s
+</script>
+<script>
 (function () {
   var view = document.getElementById("main");
   function keyFromHash() {
@@ -189,6 +192,7 @@ window.CNPE_EXAM_KEYS = %s;
     read("assets/drill.js"),
     read("assets/game-data.js"),
     read("assets/game-sim.js"),
+    read("assets/game-art.js"),
     read("assets/game.js"),
 )
 
