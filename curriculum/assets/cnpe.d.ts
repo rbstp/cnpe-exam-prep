@@ -520,6 +520,10 @@ interface CnpeGameDebug {
   /** whole-map terrain renders (the first paint and every theme switch), the
       milliseconds spent painting the terrain in all, and the cache's size */
   terrainRenders: number; terrainMs: number; terrain: { w: number; h: number } | null;
+  /** a render paints what the camera sees and sweeps the rest a slice of tiles a frame: how many slices it took,
+      the longest one's milliseconds (what the frame it landed in paid), and the tiles still to paint, 0 when
+      the map is whole. A check that reads the terrain, the minimap or terrainMs waits for this to reach 0 */
+  terrainSlices: number; terrainSliceMs: number; terrainPending: number;
   /** partial repaints, one per landmark change, the tiles they touched, and their
       share of terrainMs */
   terrainPatches: number; tilesRepainted: number; patchMs: number;

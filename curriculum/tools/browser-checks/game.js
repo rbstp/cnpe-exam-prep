@@ -435,6 +435,8 @@ module.exports = async function (h) {
     const ms0 = await page.evaluate(() => window.CNPE_GAME.debug().terrainMs);
     await page.evaluate(() => window.CNPE_THEME.set('light'));
     await page.waitForFunction(() => window.CNPE_GAME.debug().terrainRenders === 2, null, { timeout: 3000 }).catch(() => {});
+    // a render is sliced over the frames after the one it was for: what it cost is only whole once the last tile has landed
+    await page.waitForFunction(() => window.CNPE_GAME.debug().terrainPending === 0, null, { timeout: 5000 }).catch(() => {});
     const themed = await page.evaluate(() => { const x = window.CNPE_GAME.debug(); return { renders: x.terrainRenders, patches: x.terrainPatches, ms: x.terrainMs }; });
     assert(themed.renders === 2 && themed.patches === 0, 'the theme switch repaints the whole terrain cache: ' + JSON.stringify(themed));
     const themeMs = themed.ms - ms0;
@@ -458,6 +460,60 @@ module.exports = async function (h) {
       return { at: [v.x, v.y], open: open[0] + ',' + open[1] + ',' + open[2], seen: p[0] + ',' + p[1] + ',' + p[2] };
     }, { v, door: DOOR });
     assert(patched.open === patched.seen, 'and the map shows the open door there: ' + JSON.stringify(patched));
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  });
+
+  /* 8a. the render is sliced: the frame it is for paints what the camera sees, and the rest of the map is swept
+     in over the frames after it, so no frame pays for all 9,600 tiles at once */
+  await group('a render paints what the camera sees now and sweeps the rest of the map in', async () => {
+    const { ctx, page } = await fresh(null, { theme: 'dark' });
+    await page.goto(url('game.html'));
+    await page.waitForSelector('.gm-stage canvas');
+    await skipIntro(page);
+    await page.waitForFunction(() => window.CNPE_GAME.debug().terrainPending === 0, null, { timeout: 5000 });
+    // the switch and the frame it is for, in one task, so the sweep cannot have run: that frame paints the
+    // camera's tiles and no more, and the map — not the ground colour under it — is what it shows
+    const first = await page.evaluate(() => {
+      const g = () => window.CNPE_GAME.debug();
+      const hex = getComputedStyle(document.documentElement).getPropertyValue('--ink-sunk').trim().replace('#', '');
+      const sunk = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16)).join(',');   // the ground the terrain is cleared to, before a tile lands on it
+      const before = { renders: g().terrainRenders, slices: g().terrainSlices, builds: g().minimapBuilds };
+      window.CNPE_THEME.set('light');
+      g().frame();
+      const d = g(), c = /** @type {HTMLCanvasElement} */ (document.querySelector('.gm-stage canvas'));
+      const p = c.getContext('2d').getImageData((c.width / 2) | 0, (c.height / 2) | 0, 1, 1).data;
+      return { before, renders: d.terrainRenders, slices: d.terrainSlices, pending: d.terrainPending,
+        builds: d.minimapBuilds, tiles: window.CNPE_GAME_DATA.map.length * window.CNPE_GAME_DATA.map[0].length,
+        middle: p[0] + ',' + p[1] + ',' + p[2], sunk };
+    });
+    assert(first.renders === first.before.renders + 1 && first.slices === first.before.slices + 1,
+      'the palette repaints the terrain, and the frame it repaints for pays one slice of it: ' + JSON.stringify(first));
+    assert(first.pending > 0 && first.pending < first.tiles,
+      'most of the map is still to paint when that frame is up: ' + first.pending + ' tiles of ' + first.tiles);
+    assert(first.middle !== first.sunk && first.builds === first.before.builds,
+      'what the camera sees is painted all the same, and the minimap waits for the whole map: ' + JSON.stringify(first));
+    // the sweep finishes it by itself, a slice a frame, and the minimap is built from the map it leaves
+    await page.waitForFunction(() => window.CNPE_GAME.debug().terrainPending === 0, null, { timeout: 5000 });
+    const done = await page.evaluate(() => { const d = window.CNPE_GAME.debug(); return { slices: d.terrainSlices, longest: d.terrainSliceMs, ms: d.terrainMs, builds: d.minimapBuilds, pending: d.terrainPending }; });
+    const render = { slices: done.slices - first.before.slices, longest: done.longest };
+    assert(render.slices >= 3 && done.builds === first.before.builds + 1,
+      'the sweep pays for the rest over the frames after, and builds the minimap once the last tile lands: ' + JSON.stringify({ render, builds: done.builds }));
+    assert(done.longest * 2 < done.ms, 'and no one slice is half of what a whole render costs: longest ' + done.longest.toFixed(1) + ' ms of ' + done.ms.toFixed(1) + ' ms in all');
+    // the tiles a frame paints are its camera's, not the map's beginning: the same holds in the middle of the map
+    await standAt(page, 60, 40);
+    const there = await page.evaluate(() => {
+      const g = () => window.CNPE_GAME.debug();
+      window.CNPE_THEME.set('light');
+      g().frame();
+      const d = g(), c = /** @type {HTMLCanvasElement} */ (document.querySelector('.gm-stage canvas'));
+      const p = c.getContext('2d').getImageData((c.width / 2) | 0, (c.height / 2) | 0, 1, 1).data;
+      const hex = getComputedStyle(document.documentElement).getPropertyValue('--ink-sunk').trim().replace('#', '');
+      return { pending: d.terrainPending, middle: p[0] + ',' + p[1] + ',' + p[2], sunk: [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16)).join(','), at: [d.x, d.y] };
+    });
+    assert(there.at.join() === '60,40' && there.pending > 0 && there.middle !== there.sunk,
+      'a camera in the middle of the map paints its own tiles before it reads them, the rest still to sweep: ' + JSON.stringify(there));
+    await page.waitForFunction(() => window.CNPE_GAME.debug().terrainPending === 0, null, { timeout: 5000 });
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   });

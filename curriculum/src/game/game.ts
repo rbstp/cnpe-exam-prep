@@ -492,8 +492,8 @@
   var motionQuery = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
   var reduceMotion = !!(motionQuery && motionQuery.matches);
   var sizeObs: ResizeObserver | null = null;
-  var stats = { frames: 0, drawMs: 0, terrainRenders: 0, terrainMs: 0, terrainPatches: 0, tilesRepainted: 0, patchMs: 0, minimapBuilds: 0,
-    composes: 0, composeMs: 0, tileBlits: 0 };
+  var stats = { frames: 0, drawMs: 0, terrainRenders: 0, terrainMs: 0, terrainSlices: 0, terrainSliceMs: 0,
+    terrainPatches: 0, tilesRepainted: 0, patchMs: 0, minimapBuilds: 0, composes: 0, composeMs: 0, tileBlits: 0 };
   var mini: HTMLCanvasElement | null = null, miniBase: HTMLCanvasElement | null = null;   // the minimap, and the map under its dot and its frame
   var miniScale = 1, miniBoxW = 0;                    // whole device pixels per minimap pixel (a tile), chosen for the screen like the map's; the CSS width game.css gives the canvas, read once at build
   var focused = false;                                // the stage has focus: its border and the minimap's frame take the accent
@@ -598,19 +598,77 @@
     if (s) k.drawImage(s, x * TILE, y * TILE);
     else { k.fillStyle = P.sunk; k.fillRect(x * TILE, y * TILE, TILE, TILE); }
   }
-  /** the whole map, once, and again only for a new palette */
+  /* The whole map is 9,600 tiles and some 90 ms of drawImage, and it was paid in
+     one go: a second of dropped frames on the load and on every theme switch,
+     with the map on the ground colour until the last tile landed. A render
+     paints the tiles the camera can see and leaves the rest to a sweep, a slice
+     of tiles an animation frame, so the map is up in the frame that asked for it
+     and the rest of the cost lands in the frames after it. A frame that reads
+     tiles the sweep has not reached paints those itself first, so walking never
+     outruns it; the minimap — the whole terrain scaled to a pixel a tile — is
+     built when the last tile lands. */
+  var cellDone: Uint8Array = new Uint8Array(0);       // the tiles of the terrain this render has painted
+  var cellsLeft = 0;                                  // how many it has not
+  var sweepAt = 0;                                    // where the sweep left off; the tiles a frame painted ahead of it are skipped
+  var sweepId = 0;                                    // the animation frame the next slice runs on
+  var SLICE_MS = 8;                                   // what one slice may spend, so the frame it lands in still makes its deadline
+  function cancelSweep() { if (sweepId) { cancelAnimationFrame(sweepId); sweepId = 0; } }
+  /** what a slice of the render cost, and the minimap once the last tile has landed */
+  function slice(t0: number) {
+    var dt = performance.now() - t0;
+    stats.terrainMs += dt; stats.terrainSlices++;
+    if (dt > stats.terrainSliceMs) stats.terrainSliceMs = dt;
+    // no composition can hold a tile a slice has just filled: a frame paints the
+    // tiles it is about to read before it composes them
+    if (!cellsLeft) { cancelSweep(); buildMinimap(); }
+  }
+  /** the tiles of [x0, x1) by [y0, y1) this render has not painted, painted now: what a frame needs, whatever the sweep has reached */
+  function paintCells(x0: number, y0: number, x1: number, y1: number) {
+    var k = terrain && terrain.getContext("2d");
+    if (!k || !cellsLeft) return;
+    var t0 = performance.now(), n = 0;
+    for (var y = Math.max(0, y0), yn = Math.min(mapH, y1); y < yn; y++) {
+      for (var x = Math.max(0, x0), xn = Math.min(mapW, x1); x < xn; x++) {
+        var i = y * mapW + x;
+        if (cellDone[i]) continue;
+        paintTile(k, x, y); cellDone[i] = 1; cellsLeft--; n++;
+      }
+    }
+    if (n) slice(t0);
+  }
+  /** the rest of the map, a slice of tiles a frame until it is whole */
+  function sweep() {
+    sweepId = 0;
+    var k = terrain && terrain.getContext("2d");
+    if (!k || !cellsLeft) return;
+    var t0 = performance.now(), n = 0, end = mapW * mapH;
+    while (sweepAt < end) {
+      if (!cellDone[sweepAt]) {
+        var x = sweepAt % mapW;
+        paintTile(k, x, (sweepAt - x) / mapW); cellDone[sweepAt] = 1; cellsLeft--; n++;
+        if (!(n & 63) && performance.now() - t0 >= SLICE_MS) { sweepAt++; break; }
+      }
+      sweepAt++;
+    }
+    if (n) slice(t0);
+    if (cellsLeft) sweepId = requestAnimationFrame(sweep);
+  }
+  /** the whole map, once, and again only for a new palette: what the camera sees now, the rest over the frames after */
   function renderTerrain() {
-    var t0 = performance.now();
+    cancelSweep();
     if (!terrain) { terrain = document.createElement("canvas"); terrain.width = mapW * TILE; terrain.height = mapH * TILE; }
     var k = terrain.getContext("2d");
     if (!k) return;
     k.imageSmoothingEnabled = false;
     k.fillStyle = P.sunk; k.fillRect(0, 0, terrain.width, terrain.height);
-    for (var y = 0; y < mapH; y++) for (var x = 0; x < mapW; x++) paintTile(k, x, y);
+    cellDone = new Uint8Array(mapW * mapH); cellsLeft = mapW * mapH; sweepAt = 0;
     terrainSig = landmarkSig(); terrainStale = false;
     dropComposites();                                  // every composition was drawn over the old palette
-    stats.terrainRenders++; stats.terrainMs += performance.now() - t0;
-    buildMinimap();
+    stats.terrainRenders++;
+    var c = lastCam || camera(player.x * TILE, player.y * TILE);
+    var tx = Math.floor(c.x / TILE), ty = Math.floor(c.y / TILE);
+    paintCells(tx, ty, tx + CW, ty + CH);              // what the frame this render is for will show, before it shows it
+    if (cellsLeft) sweepId = requestAnimationFrame(sweep);
   }
   /** only the landmarks whose state changed: a door that opened, a keep that fell, the gate */
   function patchTerrain(sig: string) {
@@ -623,7 +681,7 @@
     terrainSig = sig;                                  // and with it the key every composition and the counts are held under
     var dt = performance.now() - t0;
     stats.terrainPatches++; stats.tilesRepainted += n; stats.terrainMs += dt; stats.patchMs += dt;
-    buildMinimap();                                    // a cleared town turns green on it
+    if (!cellsLeft) buildMinimap();                    // a cleared town turns green on it; a sweep still running builds it at its end
   }
   /** the minimap's ground: the terrain scaled to a pixel a tile, each region's
       tint over its land, the towns, the keeps and the gate in their state's colour */
@@ -803,6 +861,7 @@
     }
     if (lastCam) { lastCam.x = cx; lastCam.y = cy; } else lastCam = { x: cx, y: cy };
     var tx0 = Math.floor(cx / TILE), ty0 = Math.floor(cy / TILE), ox = cx - tx0 * TILE, oy = cy - ty0 * TILE;
+    paintCells(tx0, ty0, tx0 + CW, ty0 + CH);         // tiles the sweep has not reached yet, which this frame is about to read
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
     ctx.imageSmoothingEnabled = false;
     // the terrain and what moves over it, composed once for this frame of the
@@ -1758,6 +1817,7 @@
       timers.forEach(function (t) { clearTimeout(t.id); }); timers = [];
       undo.forEach(function (fn) { fn(); }); undo = [];
       settleStep(); ease = null;
+      cancelSweep(); cellDone = new Uint8Array(0); cellsLeft = 0; sweepAt = 0;
       terrain = null; miniBase = null; mini = null; terrainStale = true; terrainSig = "";
       comp = []; dropComposites();
       dlg = null; battle = null; trial = null; town = null; bt = null; tn = null; fx = null; swapPending = null;
@@ -1770,6 +1830,7 @@
     /** what the renderer is doing, for the browser checks and profiling */
     debug: function (): CnpeGameDebug {
       return { frames: stats.frames, drawMs: stats.drawMs, terrainRenders: stats.terrainRenders, terrainMs: stats.terrainMs,
+        terrainSlices: stats.terrainSlices, terrainSliceMs: stats.terrainSliceMs, terrainPending: cellsLeft,
         terrain: terrain ? { w: terrain.width, h: terrain.height } : null,
         terrainPatches: stats.terrainPatches, tilesRepainted: stats.tilesRepainted, patchMs: stats.patchMs,
         composes: stats.composes, composeMs: stats.composeMs, tileBlits: stats.tileBlits,
