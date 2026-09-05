@@ -274,6 +274,8 @@ interface CnpeThemeApi {
   set(next: string): void;
   cycle(): void;
   onChange(fn: (pref: string, resolved: string) => void): void;
+  /** stop telling this function; the same reference that was given to onChange */
+  offChange(fn: (pref: string, resolved: string) => void): void;
 }
 
 /** One tile row of the overworld is a string; the chars index CNPE_GAME_DATA.tiles. */
@@ -493,7 +495,7 @@ interface CnpeArtApi {
   keep(region: number, cleared: boolean): HTMLCanvasElement;
   /** 0 shut, 1 open, 2 passed */
   gate(state: number): HTMLCanvasElement;
-  /** face is u d l r; frame alternates as you walk */
+  /** face is u d l r; frame 0 stands, 1 and 2 are the two halves of a stride (one leg forward, then the other) */
   hero(face: string, frame: number): HTMLCanvasElement;
   /** a 32 by 32 monster at the given pixel scale (default 3, so 96 px) */
   enemy(family: string, scale?: number): HTMLCanvasElement;
@@ -521,20 +523,25 @@ interface CnpeGameDebug {
   /** partial repaints, one per landmark change, the tiles they touched, and their
       share of terrainMs */
   terrainPatches: number; tilesRepainted: number; patchMs: number;
-  /** the minimap: its size, and how many times it was rebuilt from the terrain */
-  minimap: { w: number; h: number } | null; minimapBuilds: number;
+  /** the minimap: its backing store (the map's size times scale, whole device pixels per tile,
+      behind a 120 by 80 CSS box), and how many times it was rebuilt from the terrain */
+  minimap: { w: number; h: number; scale: number } | null; minimapBuilds: number;
   /** the canvas backing scale, and the device pixel ratio it was chosen for */
   scale: number; dpr: number;
   /** the beat that moves the water, the flowers, the smoke and the torches is running */
   anim: boolean;
   /** the visitor asked for reduced motion */
   reduceMotion: boolean;
-  /** the beat's frame (the water's, as it always was), the walk cycle's, and the way the player faces */
+  /** the beat's frame (the water's, as it always was), the walk cycle's (0 standing, 1 or 2 the half of a
+      stride the step in flight leads with; consecutive steps alternate), and the way the player faces */
   waterFrame: number; walkFrame: number; face: string;
   /** the tile the player stands on, or is stepping onto */
   x: number; y: number;
   /** a step is in flight: its pixel offset from the tile it ends on, and whether another waits behind it */
   walking: boolean; offset: { x: number; y: number }; queued: boolean;
+  /** the camera as last drawn, in map pixels (null before the first frame), and whether it is easing back
+      to the player after a scene, which it does over 180 ms through whole pixels and never during a step */
+  camera: { x: number; y: number } | null; cameraEase: boolean;
   /** how many animated tiles the last frame found in view: water, and the rest */
   waterInView: number; ambientInView: number;
   /** the quest is mounted, how many times it has been, and the listeners,
@@ -542,6 +549,14 @@ interface CnpeGameDebug {
   mounted: boolean; mounts: number; listeners: number; timers: number;
   /** paint now, without waiting for the next animation frame */
   frame(): void;
+  /** Test hooks, so the browser checks drive time rather than wait on it; both do nothing outside a mount.
+      tick() advances the beat one frame, as the ticker does every 420 ms, without touching the ticker
+      itself (nothing under reduced motion, which has no beat); a frame is requested if anything animated
+      is in view, else only the minimap's dot is redrawn, so follow it with frame() to see the result. */
+  tick(): void;
+  /** fire every pending one-shot timer (a result card's delay, a floating number's or an effect's clock
+      fallback, a fall's fallback), oldest first, then the swap a keep's next monster waits on, all now */
+  settle(): void;
 }
 
 /** What one command did to a battle. */
