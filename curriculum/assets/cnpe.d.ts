@@ -331,27 +331,76 @@ interface CnpeGameEvidence {
   id: string;
   /** regexes over the normalised command, any of which surfaces it */
   match: string[];
-  /** what the cluster answers, escaped HTML-free text */
-  out: string;
+  /** what the cluster answers; absent, the generic handler's rendering of the
+      resource table is the answer, and the table carries the tell */
+  out?: string;
+  /** the tell-tale line, highlighted in the terminal when it shows */
+  tell?: string;
   /** what the Hint Scroll says about it */
   hint: string;
 }
 
+/** One event in a scenario's cluster: what `get events` lists and `describe` appends. */
+interface CnpeGameEvent {
+  type: string;
+  reason: string;
+  age: string;
+  from: string;
+  /** "Pod/broken-x", matched case-insensitively by describe */
+  obj: string;
+  msg: string;
+  /** defaults to the scenario's namespace */
+  ns?: string;
+}
+
 /** One resource in a scenario's fake cluster, for the generic handlers. */
 interface CnpeGameResource {
+  /** plural, lower-case, as the normaliser writes it */
   kind: string;
   name: string;
   ns?: string;
   /** the columns `get` prints beyond NAME, in the order the kind lists them */
   cols?: string[];
-  /** extra describe/yaml text */
-  detail?: string;
-  /** labels for --show-labels and selectors */
+  /** extra columns for -o wide, and their headings */
+  wide?: string[];
+  wideCols?: string[];
+  /** labels and annotations, "k=v,k=v" */
   labels?: string;
-  /** container logs for a pod */
+  annotations?: string;
+  /** apiVersion and Kind for -o yaml, when the defaults are wrong */
+  api?: string;
+  kindName?: string;
+  /** what -o yaml prints after metadata, indented as written */
+  yaml?: string;
+  /** what describe prints between the header and the events */
+  desc?: string;
+  /** jsonpath -> value, for -o jsonpath */
+  fields?: Record<string, string>;
+  /** the workload a pod belongs to, for `logs deploy/x` */
+  owner?: string;
+  container?: string;
+  /** container logs, the previous container's logs, or the error logs gives */
   logs?: string;
-  /** previous container's logs */
   prevLogs?: string;
+  logsErr?: string;
+  /** exec fails, the container not being up */
+  notRunning?: boolean;
+  /** regex over the exec'd command -> its output */
+  exec?: Record<string, string>;
+  /** kubectl top's two columns */
+  top?: string[];
+  /** `rollout status`, or for a Rollout the argo rollouts plugin's view */
+  rollout?: string | { status?: string; step?: string; weight?: string; get?: string };
+  /** flux get's REVISION, SUSPENDED, READY, MESSAGE */
+  flux?: string[];
+  /** flux tree's body, flux reconcile's tail */
+  tree?: string;
+  reconcile?: string;
+  /** argocd app get/list's fields */
+  argo?: { dest?: string; repo?: string; path?: string; rev?: string; sync?: string; health?: string;
+    conditions?: string; condLines?: string; resources?: string; syncOut?: string; diff?: string };
+  /** crossplane beta trace's tree */
+  trace?: string;
 }
 
 interface CnpeGameScenario {
@@ -369,7 +418,11 @@ interface CnpeGameScenario {
   /** the namespace the generic handlers default to */
   ns: string;
   resources: CnpeGameResource[];
-  events?: string[];
+  events?: CnpeGameEvent[];
+  /** subject (--as) -> resource -> verbs it may use, "*" for all */
+  canI?: Record<string, Record<string, string>>;
+  /** image references cosign verify accepts */
+  signed?: string[];
   evidence: CnpeGameEvidence[];
   /** regexes over the normalised command that repair the fault */
   fix: string[];
@@ -420,6 +473,8 @@ interface CnpeSimApi {
   run(scenario: CnpeGameScenario, found: Record<string, number>, cmd: string): CnpeSimResult;
   /** the command's tool family, which cheat sheets and typed bonuses key on */
   toolOf(cmd: string): string;
+  /** a kind alias in its plural canonical form */
+  kindOf(k: string): string;
 }
 
 interface Window {
