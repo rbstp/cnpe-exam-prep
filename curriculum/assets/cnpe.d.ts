@@ -495,7 +495,7 @@ interface CnpeArtApi {
   keep(region: number, cleared: boolean): HTMLCanvasElement;
   /** 0 shut, 1 open, 2 passed */
   gate(state: number): HTMLCanvasElement;
-  /** face is u d l r; frame 0 stands, 1 and 2 are the two halves of a stride (one leg forward, then the other) */
+  /** face is u d l r; frame 0 stands, 1 and 2 are the two halves of a stride (one leg forward, then the other), 3 the pass between them */
   hero(face: string, frame: number): HTMLCanvasElement;
   /** a 32 by 32 monster at the given pixel scale (default 3, so 96 px) */
   enemy(family: string, scale?: number): HTMLCanvasElement;
@@ -523,8 +523,9 @@ interface CnpeGameDebug {
   /** partial repaints, one per landmark change, the tiles they touched, and their
       share of terrainMs */
   terrainPatches: number; tilesRepainted: number; patchMs: number;
-  /** the minimap: its backing store (the map's size times scale, whole device pixels per tile,
-      behind a 120 by 80 CSS box), and how many times it was rebuilt from the terrain */
+  /** the minimap: its backing store (the map's size times scale, whole device pixels per tile, behind the CSS
+      box whose width game.css sets in --gm-mini-w, the height following the map's aspect), and how many times it
+      was rebuilt from the terrain */
   minimap: { w: number; h: number; scale: number } | null; minimapBuilds: number;
   /** the canvas backing scale, and the device pixel ratio it was chosen for */
   scale: number; dpr: number;
@@ -532,16 +533,23 @@ interface CnpeGameDebug {
   anim: boolean;
   /** the visitor asked for reduced motion */
   reduceMotion: boolean;
-  /** the beat's frame (the water's, as it always was), the walk cycle's (0 standing, 1 or 2 the half of a
-      stride the step in flight leads with; consecutive steps alternate), and the way the player faces */
+  /** the beat's frame (the water's, as it always was), the walk cycle's (0 standing, 1 and 2 the two halves of a
+      stride, 3 the pass between them: a step shows 1, 1, 3, 2, 2 over its five sub-positions and lands on 0),
+      and the way the player faces */
   waterFrame: number; walkFrame: number; face: string;
   /** the tile the player stands on, or is stepping onto */
   x: number; y: number;
-  /** a step is in flight: its pixel offset from the tile it ends on, and whether another waits behind it */
-  walking: boolean; offset: { x: number; y: number }; queued: boolean;
+  /** walking: a step is in flight, and queued: another waits behind it, both live. offset and sub are as of the
+      last frame painted, so they and walkFrame are one frame's (paint with frame() before reading them): the
+      step's pixel offset from the tile it ends on, in whole pixels (the camera moves by the same offset wherever
+      the map's edge does not clamp it), and its sub-position, 0 to 4, or -1 standing */
+  walking: boolean; offset: { x: number; y: number }; sub: number; queued: boolean;
   /** the camera as last drawn, in map pixels (null before the first frame), and whether it is easing back
       to the player after a scene, which it does over 180 ms through whole pixels and never during a step */
   camera: { x: number; y: number } | null; cameraEase: boolean;
+  /** the signpost: where next (the nearest town with its trial or dungeon to do, then an open keep, then the
+      gate) as a tile and a phrase, or null once the exam is passed */
+  goal: { x: number; y: number; what: string } | null;
   /** how many animated tiles the last frame found in view: water, and the rest */
   waterInView: number; ambientInView: number;
   /** the quest is mounted, how many times it has been, and the listeners,

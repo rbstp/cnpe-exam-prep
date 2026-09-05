@@ -277,6 +277,36 @@
   function keepOpen(r: CnpeGameRegion) { return D.scenarios.filter(function (s) { return s.d === r.d; }).every(function (s) { return wins(s.id) > 0; }); }
   function gateOpen() { return D.regions.every(function (r) { return has("flags", "boss-" + r.d); }); }
 
+  /* ── the signpost: where next ───────────────────────────── */
+  /** where next, as a road sign would put it: the nearest tile still to be reached among the towns, each offering
+      its trial until that is cleared and its dungeon door until that is won (so a town you stand in offers its own
+      door, three tiles off, unless another town's trial is nearer); when none is left, the nearest keep that stands
+      open; then the Exam gate; nothing once the exam is passed. Shown in the where window with the steps and the
+      way, ringed on the minimap, and said in the canvas's label. */
+  interface Goal { x: number; y: number; what: string; }
+  function nextGoal(): Goal | null {
+    var best: Goal | null = null, bd = 1e9;
+    var offer = function (x: number, y: number, what: string) {
+      var d = Math.abs(x - player.x) + Math.abs(y - player.y);
+      if (d < bd) { bd = d; best = { x: x, y: y, what: what }; }
+    };
+    D.towns.forEach(function (t) {
+      if (!has("towns", t.sec)) offer(t.x, t.y, "the trial in " + t.name);
+      else if (!wins(t.dungeon)) offer(t.door.x, t.door.y, "the dungeon of " + t.name);
+    });
+    if (best) return best;
+    D.regions.forEach(function (r) { if (!has("flags", "boss-" + r.d) && keepOpen(r)) offer(r.keep.x, r.keep.y, "the " + r.name + " keep"); });
+    if (best) return best;
+    if (!has("flags", "final") && gateOpen()) return { x: D.finale.keep.x, y: D.finale.keep.y, what: "the Exam gate" };
+    return null;
+  }
+  /** the way to a goal: glyphs for the window (the d-pad's arrows, which the fonts carry), words for the label */
+  function wayTo(gl: Goal, words: boolean) {
+    var dx = gl.x - player.x, dy = gl.y - player.y;
+    if (words) { var ns = dy < 0 ? "north" : dy > 0 ? "south" : "", ew = dx > 0 ? "east" : dx < 0 ? "west" : ""; return ns && ew ? ns + "-" + ew : ns || ew; }
+    return (dy < 0 ? "▲" : dy > 0 ? "▼" : "") + (dx > 0 ? "▶" : dx < 0 ? "◀" : "");
+  }
+
   function loadPos() {
     var p = obj(g().pos);
     if (p && walkable(+p.x, +p.y)) { player.x = +p.x; player.y = +p.y; }
@@ -296,14 +326,17 @@
 
   // A step is a short tween: the player's tile changes at once (it is what the
   // store, the checks and arrive() read), and the sprite and the camera slide
-  // over from the tile before it across STEP_MS, in STEP_SUBS whole-pixel
-  // sub-positions, on the animation frame. A step asked for while one is in
-  // flight waits for it and starts the moment it lands, so a held key walks
+  // over from the tile before it across STEP_MS, through whole pixels on every
+  // animation frame. The walk cycle is keyed to the step's STEP_SUBS
+  // sub-positions: one half of a stride through the first two, the pass through
+  // the third, the other half through the last two, and the hero lands standing
+  // (WALK_CYCLE names ART.hero's frame for each). A step asked for while one is
+  // in flight waits for it and starts the moment it lands, so a held key walks
   // tile by tile and never skips one. Under reduced motion the step is instant.
-  var STEP_MS = 120, STEP_SUBS = 5;
-  var walk: { fx: number; fy: number; t0: number; stride: number } | null = null;   // the step in flight: from (fx, fy) to the player's tile, leading with one leg or the other
+  var STEP_MS = 120, STEP_SUBS = 5, WALK_CYCLE = [1, 1, 3, 2, 2];
+  var walk: { fx: number; fy: number; t0: number } | null = null;   // the step in flight: from (fx, fy) to the player's tile
   var queued: { dx: number; dy: number } | null = null;             // the step waiting behind it
-  var stride = 0;                                                   // which leg the next step leads with: flipped per step, so a walk goes left, right, left
+  var drawnOff = { x: 0, y: 0 }, drawnSub = -1;                     // the step as the last frame painted it: the sprite's offset, and the sub-position (-1 standing); what debug() reports, so its offset, sub-position and walk frame are one frame's
   function move(dx: number, dy: number) {
     if (scene !== "map") return;
     if (dlg) { advanceDialog(); return; }
@@ -315,19 +348,19 @@
     if (!walkable(nx, ny)) { requestDraw(); return; }
     var fx0 = player.x, fy0 = player.y;
     player.x = nx; player.y = ny; walked = true; savePos(false);
-    stride ^= 1;
     ease = null;                                      // the camera is the step's now: an ease never runs through one
     if (reduceMotion) { requestDraw(); arrive(); return; }
-    walk = { fx: fx0, fy: fy0, t0: performance.now(), stride: stride };
+    walk = { fx: fx0, fy: fy0, t0: performance.now() };
     requestDraw();
   }
-  /** how far the step in flight has come, in whole sub-positions: 0 at the tile it left, 1 on the tile it ends on */
+  /** how far the step in flight has come: 0 at the tile it left, 1 on the tile it ends on */
   function stepProgress(now: number) {
     if (!walk) return 1;
-    var p = (now - walk.t0) / STEP_MS;
-    return p >= 1 ? 1 : Math.floor(p * STEP_SUBS) / STEP_SUBS;
+    return Math.min(1, (now - walk.t0) / STEP_MS);
   }
-  /** the sprite's pixel offset from the tile the step ends on */
+  /** the sub-position that progress falls in, 0 to STEP_SUBS - 1: the walk cycle's key */
+  function stepSub(p: number) { return Math.min(STEP_SUBS - 1, Math.floor(p * STEP_SUBS)); }
+  /** the sprite's, and so the camera's, pixel offset from the tile the step ends on: whole pixels, for this frame */
   function stepOffset(p: number) {
     if (!walk || p >= 1) return { x: 0, y: 0 };
     return { x: Math.round((walk.fx - player.x) * (1 - p) * TILE), y: Math.round((walk.fy - player.y) * (1 - p) * TILE) };
@@ -339,8 +372,8 @@
     var q = queued; queued = null;
     if (q && scene === "map" && !dlg) move(q.dx, q.dy);
   }
-  /** a scene change or an unmount ends a step where it was going, with no tween left to land */
-  function settleStep() { walk = null; queued = null; }
+  /** a scene change or an unmount ends a step where it was going, with no tween left to land, and nothing of it drawn */
+  function settleStep() { walk = null; queued = null; drawnOff = { x: 0, y: 0 }; drawnSub = -1; walkFrame = 0; }
   // What standing on a tile means. Walking onto a town enters it; the doors and
   // the keeps ask first, because a battle is a commitment.
   function arrive() {
@@ -435,9 +468,11 @@
   var sizeObs: ResizeObserver | null = null;
   var stats = { frames: 0, drawMs: 0, terrainRenders: 0, terrainMs: 0, terrainPatches: 0, tilesRepainted: 0, patchMs: 0, minimapBuilds: 0 };
   var mini: HTMLCanvasElement | null = null, miniBase: HTMLCanvasElement | null = null;   // the minimap, and the map under its dot and its frame
-  var miniScale = 1, MINI_CSS_W = 120;                // whole device pixels per minimap pixel (a tile), chosen for the screen like the map's; the box game.css gives the canvas
+  var miniScale = 1, miniBoxW = 0;                    // whole device pixels per minimap pixel (a tile), chosen for the screen like the map's; the CSS width game.css gives the canvas, read once at build
+  var focused = false;                                // the stage has focus: its border and the minimap's frame take the accent
   var miniDot = { x: -1, y: -1 };                     // where the dot was last painted, to lift it
   var miniFrame = { x: -1, y: -1 };                   // the viewport frame's top-left tile as last painted, to lift it
+  var miniGoal = { x: -1, y: -1 };                    // the signpost's ring as last painted, to lift it
   var lastLabel = "";                                 // the canvas's aria-label as last written
   // Coming back to the map, the camera eases from where it last stood to the
   // player over EASE_MS, through whole pixels, on the same frames as a step;
@@ -603,7 +638,7 @@
     var m = miniCtx();
     if (!m) return;
     m.clearRect(0, 0, mapW, mapH); m.drawImage(miniBase!, 0, 0);
-    miniDot.x = -1; miniDot.y = -1; miniFrame.x = -1; miniFrame.y = -1;
+    miniDot.x = -1; miniDot.y = -1; miniFrame.x = -1; miniFrame.y = -1; miniGoal.x = -1; miniGoal.y = -1;
   }
   /** the ground back under a rectangle of the minimap, clipped to the map, so a lift at its edge stretches nothing */
   function restoreMini(m: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
@@ -611,10 +646,10 @@
     if (x1 <= x0 || y1 <= y0) return;
     m.drawImage(miniBase!, x0, y0, x1 - x0, y1 - y0, x0, y0, x1 - x0, y1 - y0);
   }
-  /** the backing store behind the minimap's 120 by 80 CSS pixels: whole device pixels per tile, like fitCanvas() */
+  /** the backing store behind the minimap's CSS box: whole device pixels per tile, like fitCanvas() */
   function fitMini() {
     if (!mini) return;
-    var dpr = window.devicePixelRatio || 1, cssW = mini.clientWidth || MINI_CSS_W;   // hidden off the map, it has no width: the stylesheet's stands in
+    var dpr = window.devicePixelRatio || 1, cssW = mini.clientWidth || miniBoxW;   // hidden off the map, it has no width: the stylesheet's stands in
     var s = Math.max(1, Math.min(4, Math.round(cssW * dpr / mapW)));
     if (s === miniScale && mini.width === mapW * s) return;
     miniScale = s; mini.width = mapW * s; mini.height = mapH * s;   // sizing clears it
@@ -623,19 +658,30 @@
   /** what moves on the minimap: the viewport's frame, one pixel wide around the tiles the map shows, and the
       player's dot, blinking on the beat; each is lifted from where it last was (the ground put back from
       miniBase) and put down again, so the map under them is never rebuilt for it */
-  function drawMinimap() {
+  function drawMinimap(goal?: Goal | null) {
     var m = miniCtx();
     if (!m) return;
+    var gl = goal === undefined ? nextGoal() : goal;   // draw() has it already; the beat's own call asks
     if (miniFrame.x >= 0) {
       restoreMini(m, miniFrame.x, miniFrame.y, VW, 1); restoreMini(m, miniFrame.x, miniFrame.y + VH - 1, VW, 1);
       restoreMini(m, miniFrame.x, miniFrame.y, 1, VH); restoreMini(m, miniFrame.x + VW - 1, miniFrame.y, 1, VH);
     }
+    if (miniGoal.x >= 0) restoreMini(m, miniGoal.x - 2, miniGoal.y - 2, 5, 5);
     if (miniDot.x >= 0) restoreMini(m, miniDot.x - 1, miniDot.y - 1, 3, 3);
     var c = lastCam || camera(player.x * TILE, player.y * TILE);
     var fx = Math.round(c.x / TILE), fy = Math.round(c.y / TILE);
-    m.fillStyle = P.paper;                            // the windows' rule: the frame is a window onto the map
+    m.fillStyle = focused ? P.accent : P.paper;       // the windows' rule, the frame being a window onto the map; the accent while the stage has focus, as its border does
     m.fillRect(fx, fy, VW, 1); m.fillRect(fx, fy + VH - 1, VW, 1); m.fillRect(fx, fy, 1, VH); m.fillRect(fx + VW - 1, fy, 1, VH);
     miniFrame.x = fx; miniFrame.y = fy;
+    // the signpost's ring: a hollow five by five in the accent around where next, on the beat's odd frame (the dot
+    // has the even two of the three); steady under reduced motion. It never covers the tile it points at, and it
+    // is painted before the dot, so where you stand wins where the two meet. Every tile it can ring lies two or
+    // more tiles inside the map's edge (the border is sea), so the unclipped fillRect never runs off the canvas.
+    if (gl && (reduceMotion || (animFrame & 1))) {
+      m.fillStyle = P.accent;
+      m.fillRect(gl.x - 2, gl.y - 2, 5, 1); m.fillRect(gl.x - 2, gl.y + 2, 5, 1); m.fillRect(gl.x - 2, gl.y - 1, 1, 3); m.fillRect(gl.x + 2, gl.y - 1, 1, 3);
+    }
+    if (gl) { miniGoal.x = gl.x; miniGoal.y = gl.y; } else { miniGoal.x = -1; miniGoal.y = -1; }
     var x = player.x, y = player.y;
     if (reduceMotion || !(animFrame & 1)) {
       m.fillStyle = P.ink; m.fillRect(x - 1, y - 1, 3, 3);
@@ -658,7 +704,8 @@
     if (!terrain || terrainStale) renderTerrain();
     else { var sig = landmarkSig(); if (sig !== terrainSig) patchTerrain(sig); }
     var p = stepProgress(t0), off = stepOffset(p);
-    walkFrame = walk && p < 0.5 ? 1 + walk.stride : 0;   // the stride's half through the first half of the step, standing after
+    drawnOff = off; drawnSub = walk && p < 1 ? stepSub(p) : -1;
+    walkFrame = drawnSub < 0 ? 0 : WALK_CYCLE[drawnSub];   // stride, pass, stride over the sub-positions; standing on landing
     var px = player.x * TILE + off.x, py = player.y * TILE + off.y;
     var cam = camera(px, py), cx = cam.x, cy = cam.y;
     if (ease && (walk || reduceMotion)) ease = null;  // a step owns the camera; reduced motion has no ease
@@ -690,15 +737,22 @@
     D.regions.forEach(function (r) { label(r.name + " keep", r.keep.x * TILE - cx, r.keep.y * TILE - cy, has("flags", "boss-" + r.d) ? P.ok : P.warn); });
     label("The Exam", D.finale.keep.x * TILE - cx, D.finale.keep.y * TILE - cy, has("flags", "final") ? P.ok : P.viol);
     ctx.drawImage(ART.hero(player.face, walkFrame), px - cx, py - cy);
-    drawMinimap();
+    var gl = nextGoal(), far = gl ? Math.abs(gl.x - player.x) + Math.abs(gl.y - player.y) : 0;
+    drawMinimap(gl);
     var here = regionAt(player.x, player.y);
     var what = tileAt(player.x, player.y);
     var tw = townAt(player.x, player.y), dd = doorAt(player.x, player.y), kp = keepAt(player.x, player.y);
     var where = here ? here.region.name + (tw ? " · " + tw.name : dd ? " · dungeon of " + dd.name : kp ? " · the keep" : gateAt(player.x, player.y) ? " · the Exam gate" : "") : "";
-    var aria = "Overworld map. You stand on " + what + " in " + where + ". " + (here && here.dist ? here.town.name + " is " + here.dist + " steps away." : "");
-    if (aria !== lastLabel) { lastLabel = aria; whereEl.textContent = where; canvas.setAttribute("aria-label", aria); }
+    var steps = function (n: number) { return n + (n === 1 ? " step" : " steps"); };
+    var aria = "Overworld map. You stand on " + what + " in " + where + ". " + (here && here.dist ? here.town.name + " is " + steps(here.dist) + " away. " : "") +
+      (gl ? "Next: " + gl.what + (far ? ", " + steps(far) + " " + wayTo(gl, true) + "." : ", here.") : "The exam is passed; the map is yours.");
+    if (aria !== lastLabel) {
+      lastLabel = aria;
+      whereEl.innerHTML = esc(where) + (gl ? '<span class="nx">next: ' + esc(gl.what) + (far ? " · " + far + " " + wayTo(gl, false) : " · here") + "</span>" : "");
+      canvas.setAttribute("aria-label", aria);
+    }
     stats.frames++; stats.drawMs += performance.now() - t0;
-    if (walk) { if (p >= 1) landStep(); else requestDraw(); }   // the step in flight: land it, or paint the next sub-position
+    if (walk) { if (p >= 1) landStep(); else requestDraw(); }   // the step in flight: land it, or paint its next frame
     else if (ease) requestDraw();                     // the camera still on its way
   }
   /** a pixel banner: ink on a rim, a pointer toward the tile, the name in its state's colour; px, py the tile's top-left on the canvas */
@@ -1450,9 +1504,11 @@
     ctx = canvas.getContext("2d") as CanvasRenderingContext2D;   // draw() still checks for a null one
     stage.appendChild(canvas);
     hud = el("div", "gm-win gm-hud"); stage.appendChild(hud);
-    whereEl = el("div", "gm-win gm-where"); stage.appendChild(whereEl);
+    // the right-hand column: the where window (with the signpost under it) and the minimap under that, however tall the window runs
+    var side = el("div", "gm-side"); stage.appendChild(side);
+    whereEl = el("div", "gm-win gm-where"); side.appendChild(whereEl);
     miniWin = el("div", "gm-win gm-mini"); miniWin.setAttribute("aria-hidden", "true");
-    mini = el("canvas") as HTMLCanvasElement; mini.width = mapW; mini.height = mapH; miniWin.appendChild(mini); stage.appendChild(miniWin);
+    mini = el("canvas") as HTMLCanvasElement; mini.width = mapW; mini.height = mapH; miniWin.appendChild(mini); side.appendChild(miniWin);
     dialog = el("div", "gm-win gm-dialog"); dialog.hidden = true; dialog.setAttribute("role", "dialog"); stage.appendChild(dialog);
     screen = el("div", "gm-screen"); screen.hidden = true; stage.appendChild(screen);
     screen.addEventListener("animationend", function (e) { if (e.target === screen) screen.classList.remove("fx-flash"); });
@@ -1460,8 +1516,9 @@
     live.style.cssText = "position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)";
     stage.appendChild(live);
     host.appendChild(stage);
-    stage.addEventListener("focus", function () { stage.classList.add("gm-focus"); });
-    stage.addEventListener("blur", function () { stage.classList.remove("gm-focus"); });
+    // the frame on the minimap follows the border into the accent, so both are repainted
+    stage.addEventListener("focus", function () { stage.classList.add("gm-focus"); focused = true; requestDraw(); });
+    stage.addEventListener("blur", function () { stage.classList.remove("gm-focus"); focused = false; requestDraw(); });
     // a click on the map is a step toward where you clicked, and takes focus
     canvas.addEventListener("click", function (e) {
       stage.focus();
@@ -1490,6 +1547,10 @@
     pad.appendChild(ab);
     host.appendChild(pad);
 
+    // the width the stylesheet gives the minimap, read once from its custom property now the stage is in the document
+    // (a pixel a tile when a cached older game.css has none): fitMini() needs it while the canvas is hidden off the
+    // map and has no width. The height is not a property: the canvas keeps the map's aspect, so its box follows
+    miniBoxW = parseFloat(getComputedStyle(miniWin).getPropertyValue("--gm-mini-w")) || mapW;
     readPalette();
     fitCanvas();
     // the theme's listener, held like the rest of the mount's and let go by unmount(). A cached
@@ -1525,7 +1586,12 @@
     if (motionQuery) {
       var mq = motionQuery;
       // a step in flight when motion is reduced lands now: its tile is already taken, and landing is what the tile does
-      var onMotion = function () { reduceMotion = mq.matches; walkFrame = 0; if (reduceMotion) { ease = null; if (walk) landStep(); } syncAnim(); requestDraw(); };
+      var onMotion = function () {
+        reduceMotion = mq.matches;
+        if (reduceMotion) { ease = null; if (walk) landStep(); }
+        drawnOff = { x: 0, y: 0 }; drawnSub = -1; walkFrame = 0;   // standing, as the next frame will paint it: what debug() reports stays one frame's
+        syncAnim(); requestDraw();
+      };
       if (mq.addEventListener) { mq.addEventListener("change", onMotion); undo.push(function () { mq.removeEventListener("change", onMotion); }); }
       else if (mq.addListener) { mq.addListener(onMotion); undo.push(function () { mq.removeListener(onMotion); }); }
     }
@@ -1558,7 +1624,7 @@
         return;
       }
       scene = "map"; town = null; trial = null; battle = null; dlg = null; bt = null; tn = null; fx = null; swapPending = null;
-      walk = null; queued = null; ease = null; stride = 0; walked = false; lastLabel = ""; mounts++;
+      settleStep(); ease = null; focused = false; walked = false; lastLabel = ""; mounts++;
       buildRegions();
       build();
       hp = maxHp();
@@ -1587,19 +1653,19 @@
       host.classList.remove("gm");
       host.innerHTML = "";
       host = null as unknown as HTMLElement;
-      scene = "map"; animFrame = 0; walkFrame = 0; waterInView = 1; ambientInView = 0; dirty = true;
+      scene = "map"; animFrame = 0; walkFrame = 0; waterInView = 1; ambientInView = 0; dirty = true; focused = false;   // removing a focused element fires no blur
     },
     /** what the renderer is doing, for the browser checks and profiling */
     debug: function (): CnpeGameDebug {
-      var off = stepOffset(stepProgress(performance.now()));
       return { frames: stats.frames, drawMs: stats.drawMs, terrainRenders: stats.terrainRenders, terrainMs: stats.terrainMs,
         terrain: terrain ? { w: terrain.width, h: terrain.height } : null,
         terrainPatches: stats.terrainPatches, tilesRepainted: stats.tilesRepainted, patchMs: stats.patchMs,
         minimap: mini ? { w: mini.width, h: mini.height, scale: miniScale } : null, minimapBuilds: stats.minimapBuilds,
         scale: scale, dpr: dprSeen,
         anim: !!animTimer, reduceMotion: reduceMotion, waterFrame: animFrame, walkFrame: walkFrame, face: player.face,
-        x: player.x, y: player.y, walking: !!walk, offset: off, queued: !!queued,
+        x: player.x, y: player.y, walking: !!walk, offset: { x: drawnOff.x, y: drawnOff.y }, sub: drawnSub, queued: !!queued,
         camera: lastCam ? { x: lastCam.x, y: lastCam.y } : null, cameraEase: !!ease,
+        goal: host && D && window.CNPE_PROGRESS ? nextGoal() : null,   // a mount that found no assets has no store to read
         waterInView: waterInView, ambientInView: ambientInView,
         mounted: !!host, mounts: mounts, listeners: undo.length, timers: timers.length,
         frame: paintNow,

@@ -1,6 +1,6 @@
 /* The quest: the store it writes, the trial it shares with the drill, the doors
    it opens, a battle fought in its terminal, and the renderer under it: the
-   step tween and its walk cycle, the camera's ease back to the player, the
+   step tween, the walk cycle keyed to its sub-positions and the camera sliding with it, the camera's ease back to the player, the
    terrain cache and its patches, the living tiles, the minimap with its frame,
    and what a visit to the bundle's #GM route leaves behind. game-sim-test.mjs
    covers every scenario's commands in node; this drives the page around them.
@@ -377,48 +377,35 @@ module.exports = async function (h) {
       await page.goto(url('game.html'));
       await page.waitForSelector('.gm-stage canvas');
       await skipIntro(page);
-      const at = () => page.evaluate(() => { const d = window.CNPE_GAME.debug(); return { x: d.x, y: d.y, walking: d.walking, off: d.offset, queued: d.queued, walk: d.walkFrame, face: d.face }; });
+      // paint, then read: offset, sub and walkFrame are the last frame's, and a starved animation frame must not stand in for one
+      const at = () => page.evaluate(() => { window.CNPE_GAME.debug().frame(); const d = window.CNPE_GAME.debug(); return { x: d.x, y: d.y, walking: d.walking, off: d.offset, sub: d.sub, queued: d.queued, walk: d.walkFrame, face: d.face }; });
       const before = await at();
       assert(before.x === 8 && before.y === 8 && !before.walking, tag + 'standing on the start tile: ' + JSON.stringify(before));
-      // press and read in the same task: the tile has changed, the sprite has not arrived
+      // press, paint and read in the same task: the tile has changed, the sprite has not arrived
       const mid = await page.evaluate(() => {
         document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+        window.CNPE_GAME.debug().frame();
         const d = window.CNPE_GAME.debug();
-        return { x: d.x, y: d.y, walking: d.walking, off: d.offset, face: d.face };
+        return { x: d.x, y: d.y, walking: d.walking, off: d.offset, sub: d.sub, face: d.face };
       });
       if (reduced) {
-        assert(mid.x === 9 && !mid.walking && mid.off.x === 0 && mid.off.y === 0 && mid.face === 'r', tag + 'the step is instant: ' + JSON.stringify(mid));
+        assert(mid.x === 9 && !mid.walking && mid.off.x === 0 && mid.off.y === 0 && mid.sub === -1 && mid.face === 'r', tag + 'the step is instant: ' + JSON.stringify(mid));
       } else {
-        assert(mid.x === 9 && mid.y === 8 && mid.walking && mid.off.x === -16 && mid.off.y === 0, tag + 'the tile is taken at once and the sprite starts a tile behind it: ' + JSON.stringify(mid));
+        assert(mid.x === 9 && mid.y === 8 && mid.walking && mid.off.x === -16 && mid.off.y === 0 && mid.sub === 0, tag + 'the tile is taken at once and the sprite starts a tile behind it: ' + JSON.stringify(mid));
         await page.waitForTimeout(50);
         const part = await at();
         assert(part.walking && part.off.x < 0 && part.off.x > -16 && part.off.x % 1 === 0, tag + 'part way, the offset is whole pixels between the tiles: ' + JSON.stringify(part));
-        assert((part.off.x <= -10) === (part.walk !== 0), tag + 'the walk cycle is keyed to the tween: a stride through its first half, standing after: ' + JSON.stringify(part));
+        // this pins the table's contents from outside; that each sub-position falls where it should in time is 8b1's, under a driven clock
+        assert(part.sub >= 0 && part.sub <= 4 && part.walk === [1, 1, 3, 2, 2][part.sub], tag + 'the walk cycle is keyed to the sub-position: a stride\'s half, the pass, the other half: ' + JSON.stringify(part));
         await page.waitForFunction(() => !window.CNPE_GAME.debug().walking, null, { timeout: 2000 }).catch(() => {});
         const done = await at();
-        assert(done.x === 9 && done.y === 8 && !done.walking && done.off.x === 0 && done.off.y === 0 && done.walk === 0, tag + 'the tween ends on the exact tile, standing: ' + JSON.stringify(done));
-        // the walk cycle: three frames a facing, and consecutive steps lead with the other leg
-        const strides = await page.evaluate(() => {
+        assert(done.x === 9 && done.y === 8 && !done.walking && done.off.x === 0 && done.off.y === 0 && done.walk === 0 && done.sub === -1, tag + 'the tween ends on the exact tile, standing: ' + JSON.stringify(done));
+        // the walk cycle's frames: standing, the two halves of a stride and the pass, four a facing and all different
+        const frames = await page.evaluate(() => {
           const A = window.CNPE_ART, url = (/** @type {number} */ f) => A.hero('r', f).toDataURL();
-          const distinct = new Set([url(0), url(1), url(2)]).size, wraps = url(3) === url(0) && url(-1) === url(2);
-          const press = () => document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
-          // press and paint in the same task: the step is at its start, inside the stride's half
-          press(); window.CNPE_GAME.debug().frame();
-          const first = window.CNPE_GAME.debug().walkFrame;
-          return { distinct, wraps, first, check: A.check() };
+          return { distinct: new Set([url(0), url(1), url(2), url(3)]).size, wraps: url(4) === url(0) && url(-1) === url(3), check: A.check() };
         });
-        assert(strides.distinct === 3 && strides.wraps && strides.check.length === 0, tag + 'the hero has three distinct frames a facing, and the index wraps: ' + JSON.stringify(strides));
-        await page.waitForFunction(() => !window.CNPE_GAME.debug().walking, null, { timeout: 2000 }).catch(() => {});
-        const second = await page.evaluate(() => {
-          const landed = window.CNPE_GAME.debug().walkFrame;
-          document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
-          window.CNPE_GAME.debug().frame();
-          return { landed, mid: window.CNPE_GAME.debug().walkFrame, x: window.CNPE_GAME.debug().x };
-        });
-        assert(second.landed === 0 && [1, 2].indexOf(strides.first) >= 0 && [1, 2].indexOf(second.mid) >= 0 && second.mid !== strides.first,
-          tag + 'two consecutive steps show different mid-step frames, and the hero lands standing between them: ' + JSON.stringify({ first: strides.first, second }));
-        await page.waitForFunction(() => !window.CNPE_GAME.debug().walking, null, { timeout: 2000 }).catch(() => {});
-        assert((await at()).x === 11, tag + 'and stands on the third tile east: ' + JSON.stringify(await at()));
+        assert(frames.distinct === 4 && frames.wraps && frames.check.length === 0, tag + 'the hero has four distinct frames a facing, and the index wraps: ' + JSON.stringify(frames));
         // a step asked for in flight waits and lands on the next tile, never skipping one
         const two = await page.evaluate(() => {
           const press = () => document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
@@ -426,16 +413,50 @@ module.exports = async function (h) {
           const d = window.CNPE_GAME.debug();
           return { x: d.x, walking: d.walking, queued: d.queued };
         });
-        assert(two.x === 12 && two.walking && two.queued, tag + 'three presses in one tween: one step taken, one queued: ' + JSON.stringify(two));
+        assert(two.x === 10 && two.walking && two.queued, tag + 'three presses in one tween: one step taken, one queued: ' + JSON.stringify(two));
         await page.waitForFunction(() => { const d = window.CNPE_GAME.debug(); return !d.walking && !d.queued; }, null, { timeout: 2000 }).catch(() => {});
         const landed = await at();
-        assert(landed.x === 13 && !landed.walking && !landed.queued, tag + 'and the queued step lands one tile on, and no further: ' + JSON.stringify(landed));
+        assert(landed.x === 11 && !landed.walking && !landed.queued, tag + 'and the queued step lands one tile on, and no further: ' + JSON.stringify(landed));
         const label = await page.getAttribute('.gm-stage canvas', 'aria-label');
         assert(/You stand on grass/.test(label || ''), tag + 'the canvas describes the tile landed on: ' + label);
       }
       assert(page.errors.length === 0, tag + 'no console errors: ' + page.errors.join(' | '));
       await ctx.close();
     }
+  });
+
+  /* 8b1. the step under a driven clock, so every sub-position is read at its middle: the walk cycle over the five
+     (stride, pass, stride, landing standing), and the sprite and the camera sliding through whole pixels rounded
+     on every frame, a pixel or two at a time, rather than in five jumps of a fifth of a tile. From (60, 40) the
+     camera is unclamped, so it has to move with the step. */
+  await group('a step walks stride, pass, stride, and the camera slides a pixel or two a frame', async () => {
+    const { ctx, page } = await fresh({ game: { flags: { intro: 1 }, pos: { x: 60, y: 40, t: 1 } } }, { clockAt: new Date() });
+    await page.goto(url('game.html'));
+    await page.waitForSelector('.gm-stage canvas');
+    await skipIntro(page);
+    /** paint now, then read the step: the clock is paused, so a press and a read see the same instant */
+    const read = () => page.evaluate(() => { window.CNPE_GAME.debug().frame(); const d = window.CNPE_GAME.debug(); return { x: d.x, sub: d.sub, walk: d.walkFrame, off: d.offset.x, cam: d.camera.x, walking: d.walking }; });
+    const press = () => page.evaluate(() => document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })));
+    const c0 = (await read()).cam;
+    await press();
+    const seq = [await read()];
+    for (let i = 0; i < 6; i++) { await page.clock.runFor(i ? 24 : 12); seq.push(await read()); }   // 12, 36, 60, 84, 108 ms: the middle of each sub-position; then 132, past the landing
+    const subs = seq.map(s => s.sub), walks = seq.map(s => s.walk), offs = seq.map(s => s.off), cams = seq.map(s => s.cam);
+    assert(subs.join() === '0,0,1,2,3,4,-1' && walks.join() === '1,1,1,3,2,2,0' && seq[6].x === 61 && !seq[6].walking,
+      'the walk cycle over the sub-positions: a stride\'s half through two, the pass through one, the other half through two, standing on the tile: ' + JSON.stringify({ subs, walks }));
+    assert(offs.join() === '-16,-14,-11,-8,-5,-2,0', 'the sprite\'s offset is rounded to whole pixels for the frame, not to a fifth of a tile: ' + offs.join());
+    // the step is from (60, 40) to (61, 40), so the camera goes a tile east of c0, sharing the sprite's offset on the way
+    assert(c0 === 720 && cams.every((c, i) => c === c0 + 16 + offs[i]), 'and the camera is the sprite\'s: it slides with it and lands on the exact camera a tile on: ' + JSON.stringify({ c0, cams }));
+    // sampled every 8 ms across the next step, the camera never jumps: a pixel or two at a time, forward only
+    await press();
+    /** @type {number[]} */
+    const path = [(await read()).cam];
+    for (let t = 8; t <= 128; t += 8) { await page.clock.runFor(8); path.push((await read()).cam); }
+    const deltas = path.slice(1).map((c, i) => c - path[i]);
+    assert(deltas.every(d => d >= 0 && d <= 2) && new Set(path).size >= 12 && path[0] === c0 + 16 && path[path.length - 1] === c0 + 32,
+      'the camera advances a pixel or two every 8 ms and ends another tile on: ' + path.join());
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
   });
 
   /* 8b2. the camera: coming back to the map it eases from where it last stood to the player, through whole
@@ -587,7 +608,8 @@ module.exports = async function (h) {
   /* 8d. the minimap: built from the terrain once, tinted per region, the towns cleared in green, the player a dot
      that blinks, a frame around the tiles in view, and a backing store scaled for the screen behind a 120x80 box */
   await group('the minimap is built from the terrain, only its dot and frame move, and it is sharp on HiDPI', async () => {
-    const { ctx, page } = await fresh({ game: { towns: { '1.1': 1 }, flags: { intro: 1 }, pos: { x: 10, y: 6, t: 1 } } }, { dpr: 2 });
+    // Portmouth's dungeon is won too, or the signpost would ring its door at (11, 6) over the tiles read around the dot
+    const { ctx, page } = await fresh({ game: { towns: { '1.1': 1 }, wins: { 'svc-selector': { n: 1, best: 5, t: 1 } }, flags: { intro: 1 }, pos: { x: 10, y: 6, t: 1 } } }, { dpr: 2 });
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(url('game.html'));
     await page.waitForSelector('.gm-stage canvas');
@@ -600,6 +622,9 @@ module.exports = async function (h) {
       'the backing store is the map times a whole scale chosen for dpr 2: ' + JSON.stringify(m0) + ' for a ' + map.w + 'x' + map.h + ' map');
     // the stylesheet asks for pixelated and then crisp-edges; a browser reports whichever of the two it took
     assert(m0.box.w === 120 && m0.box.h === 80 && /^(pixelated|crisp-edges)$/.test(m0.rendering), 'behind a 120 by 80 CSS box, painted sharp: ' + JSON.stringify({ box: m0.box, rendering: m0.rendering }));
+    // the box's width is the stylesheet's custom property and its height follows the map's aspect, a pixel a tile
+    const prop = await page.evaluate(() => getComputedStyle(document.querySelector('.gm-mini')).getPropertyValue('--gm-mini-w').trim());
+    assert(prop === m0.box.w + 'px' && parseFloat(prop) === map.w && m0.box.h === map.h, 'the box is --gm-mini-w wide and the map\'s aspect tall, a pixel a tile of the ' + map.w + 'x' + map.h + ' map: ' + JSON.stringify({ prop, box: m0.box }));
     assert(m0.builds === 1 && m0.frames > 1, 'built once with the terrain, while frames keep coming: ' + JSON.stringify(m0));
     // a minimap pixel is a tile: read the tile's top-left device pixel, and check the whole block is one colour
     const px = (/** @type {number} */ x, /** @type {number} */ y) => page.evaluate(({ x, y }) => {
@@ -608,7 +633,7 @@ module.exports = async function (h) {
       for (let i = 4; i < d.length; i += 4) if (d[i] + ',' + d[i + 1] + ',' + d[i + 2] !== first) return 'mixed:' + first;
       return first;
     }, { x, y });
-    const colours = await page.evaluate(() => { const cs = getComputedStyle(document.documentElement); const v = (/** @type {string} */ n) => cs.getPropertyValue(n).trim(); return { ok: v('--ok'), paper: v('--paper'), warn: v('--warn'), ink: v('--ink') }; });
+    const colours = await page.evaluate(() => { const cs = getComputedStyle(document.documentElement); const v = (/** @type {string} */ n) => cs.getPropertyValue(n).trim(); return { ok: v('--ok'), paper: v('--paper'), warn: v('--warn'), ink: v('--ink'), accent: v('--accent') }; });
     const rgb = (/** @type {string} */ hex) => { const h = hex.replace('#', ''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)).join(','); };
     assert((await px(8, 6)) === rgb(colours.ok), 'Portmouth, cleared, is a green pixel, whole at the backing scale: ' + (await px(8, 6)) + ' for ' + colours.ok);
     const mill = await page.evaluate(() => window.CNPE_GAME_DATA.towns[1]);
@@ -621,11 +646,24 @@ module.exports = async function (h) {
       return { d1: at(20, 12), d5: at(100, 60) };
     });
     assert(tints.d1.join() !== tints.d5.join(), 'two regions are tinted differently: ' + JSON.stringify(tints));
-    // the viewport's frame: from (10, 6) the camera is clamped to the map's corner, so the frame is tiles 0..29 by 0..18
+    // the viewport's frame: from (10, 6) the camera is clamped to the map's corner, so the frame is tiles 0..29 by 0..18.
+    // The stage has focus (skipIntro leaves it there), so the frame is in the accent, like the stage's border
+    const focused = () => page.evaluate(() => /** @type {HTMLElement} */ (document.querySelector('.gm-stage')).classList.contains('gm-focus'));
+    // the focus repaints on the next animation frame: paint now, so the read is of the frame the focus asked for
+    await page.evaluate(() => window.CNPE_GAME.debug().frame());
     const v0 = await view(page);
-    const frame0 = { tl: await px(v0.cx, v0.cy), tr: await px(v0.cx + 29, v0.cy), bl: await px(v0.cx, v0.cy + 18), br: await px(v0.cx + 29, v0.cy + 18), top: await px(v0.cx + 15, v0.cy), left: await px(v0.cx, v0.cy + 9), inside: await px(v0.cx + 1, v0.cy + 1) };
-    assert(v0.cx === 0 && v0.cy === 0 && [frame0.tl, frame0.tr, frame0.bl, frame0.br, frame0.top, frame0.left].every(c => c === rgb(colours.paper)) && frame0.inside !== rgb(colours.paper),
-      'a one-pixel frame in the windows\' paper colour marks the 30 by 19 tiles in view, hollow inside: ' + JSON.stringify(frame0));
+    const frame0 = { focus: await focused(), tl: await px(v0.cx, v0.cy), tr: await px(v0.cx + 29, v0.cy), bl: await px(v0.cx, v0.cy + 18), br: await px(v0.cx + 29, v0.cy + 18), top: await px(v0.cx + 15, v0.cy), left: await px(v0.cx, v0.cy + 9), inside: await px(v0.cx + 1, v0.cy + 1) };
+    assert(v0.cx === 0 && v0.cy === 0 && frame0.focus && [frame0.tl, frame0.tr, frame0.bl, frame0.br, frame0.top, frame0.left].every(c => c === rgb(colours.accent)) && frame0.inside !== rgb(colours.accent),
+      'a one-pixel frame marks the 30 by 19 tiles in view, hollow inside, in the accent while the stage has focus: ' + JSON.stringify(frame0));
+    // the frame follows the stage's border out of the accent and back: paper without focus, as the windows' rules are
+    await page.evaluate(() => /** @type {HTMLElement} */ (document.activeElement).blur());
+    await page.evaluate(() => window.CNPE_GAME.debug().frame());
+    const blurred = { focus: await focused(), tl: await px(v0.cx, v0.cy), br: await px(v0.cx + 29, v0.cy + 18), left: await px(v0.cx, v0.cy + 9) };
+    assert(!blurred.focus && [blurred.tl, blurred.br, blurred.left].every(c => c === rgb(colours.paper)), 'blurred, the frame is the windows\' paper: ' + JSON.stringify(blurred));
+    await page.focus('.gm-stage');
+    await page.evaluate(() => window.CNPE_GAME.debug().frame());
+    const refocused = { focus: await focused(), tl: await px(v0.cx, v0.cy), br: await px(v0.cx + 29, v0.cy + 18) };
+    assert(refocused.focus && refocused.tl === rgb(colours.accent) && refocused.br === rgb(colours.accent), 'focused again, the accent again: ' + JSON.stringify(refocused));
     // the dot blinks on the beat, without rebuilding the map under it: three beats by hand, in one task
     const dot = await page.evaluate(() => {
       const c = /** @type {HTMLCanvasElement} */ (document.querySelector('.gm-mini canvas')), k = c.getContext('2d'), s = window.CNPE_GAME.debug().minimap.scale;
@@ -659,16 +697,17 @@ module.exports = async function (h) {
     // and a step east slides the frame one tile; the ground colours are read first, from here, where no frame covers them
     const ground = { corner: await px(45, 31), edge: await px(45, 40) };
     await standAt(page, 60, 40);
+    await page.evaluate(() => window.CNPE_GAME.debug().frame());   // the focus skipIntro gave the stage has its frame painted
     const v1 = await view(page);
-    const frame1 = { at: [v1.cx, v1.cy], corner: await px(45, 31), edge: await px(45, 40), right: await px(74, 40), inside: await px(46, 40) };
-    assert(v1.cx === 45 && v1.cy === 31 && frame1.corner === rgb(colours.paper) && frame1.edge === rgb(colours.paper) && frame1.right === rgb(colours.paper) && frame1.inside !== rgb(colours.paper),
+    const frame1 = { at: [v1.cx, v1.cy], focus: await focused(), corner: await px(45, 31), edge: await px(45, 40), right: await px(74, 40), inside: await px(46, 40) };
+    assert(v1.cx === 45 && v1.cy === 31 && frame1.focus && frame1.corner === rgb(colours.accent) && frame1.edge === rgb(colours.accent) && frame1.right === rgb(colours.accent) && frame1.inside !== rgb(colours.accent),
       'from (60, 40) the frame stands at tiles 45..74 by 31..49: ' + JSON.stringify(frame1));
     await page.keyboard.press('ArrowRight');
     await page.waitForFunction(() => !window.CNPE_GAME.debug().walking, null, { timeout: 2000 }).catch(() => {});
     await page.evaluate(() => window.CNPE_GAME.debug().frame());
     const v2 = await view(page);
     const frame2 = { at: [v2.cx, v2.cy], corner: await px(46, 31), edge: await px(46, 40), right: await px(75, 40), wasCorner: await px(45, 31), wasEdge: await px(45, 40), builds: await page.evaluate(() => window.CNPE_GAME.debug().minimapBuilds) };
-    assert(v2.cx === 46 && frame2.corner === rgb(colours.paper) && frame2.edge === rgb(colours.paper) && frame2.right === rgb(colours.paper), 'a step east moves the frame one tile: ' + JSON.stringify(frame2));
+    assert(v2.cx === 46 && frame2.corner === rgb(colours.accent) && frame2.edge === rgb(colours.accent) && frame2.right === rgb(colours.accent), 'a step east moves the frame one tile: ' + JSON.stringify(frame2));
     assert(frame2.wasCorner === ground.corner && frame2.wasEdge === ground.edge && frame2.builds === 1, 'and the column it left shows the ground again, with no rebuild: ' + JSON.stringify({ frame2, ground }));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
@@ -686,6 +725,92 @@ module.exports = async function (h) {
       return { seen: Array.from(seen), waterFrame: window.CNPE_GAME.debug().waterFrame };
     });
     assert(steady.seen.length === 1 && steady.seen[0] === rgb(colours.warn) && steady.waterFrame === 0, 'reduced motion: the dot is on, and tick() moves nothing: ' + JSON.stringify(steady) + ' for ' + colours.warn);
+    assert(still.page.errors.length === 0, 'no console errors: ' + still.page.errors.join(' | '));
+    await still.ctx.close();
+    // the engine reads the width from the stylesheet, not from a constant of its own: on a phone-wide viewport the
+    // minimap is hidden and its canvas has no width, so the backing scale can only come from --gm-mini-w. Widen the
+    // property to four pixels a tile and remount, and the backing store follows it
+    const narrow = await fresh({ game: { flags: { intro: 1 }, pos: { x: 10, y: 6, t: 1 } } });
+    await narrow.page.setViewportSize({ width: 500, height: 800 });
+    await narrow.page.goto(url('game.html'));
+    await narrow.page.waitForSelector('.gm-stage canvas');
+    await skipIntro(narrow.page);
+    const hidden = await narrow.page.evaluate(() => { const d = window.CNPE_GAME.debug(); const c = /** @type {HTMLCanvasElement} */ (document.querySelector('.gm-mini canvas')); return { shown: c.clientWidth, scale: d.minimap && d.minimap.scale, dpr: d.dpr }; });
+    assert(hidden.shown === 0 && hidden.scale === Math.max(1, Math.min(4, Math.round(120 * hidden.dpr / map.w))), 'phone-wide, the minimap is hidden and its backing is chosen from the stylesheet\'s 120 px: ' + JSON.stringify(hidden));
+    await narrow.page.addStyleTag({ content: '.gm-mini { --gm-mini-w: 480px; }' });
+    const wide = await narrow.page.evaluate(() => { window.CNPE_GAME.unmount(); window.CNPE_GAME.mount(); const d = window.CNPE_GAME.debug(); return { scale: d.minimap && d.minimap.scale, w: d.minimap && d.minimap.w, dpr: d.dpr }; });
+    assert(wide.scale === Math.max(1, Math.min(4, Math.round(480 * wide.dpr / map.w))) && wide.w === map.w * wide.scale, 'widened to 480 px and remounted, the backing store follows the property: ' + JSON.stringify(wide));
+    assert(narrow.page.errors.length === 0, 'no console errors: ' + narrow.page.errors.join(' | '));
+    await narrow.ctx.close();
+  });
+
+  /* 8d2. the signpost: where next, in the where window, on the minimap and in the label; it moves on as things are done */
+  await group('the signpost points to the trial, then the dungeon, then the nearest town left, and rings it on the minimap', async () => {
+    /** @param {import('playwright').Page} page */
+    const sign = page => page.evaluate(() => { window.CNPE_GAME.debug().frame(); const d = window.CNPE_GAME.debug(); const w = document.querySelector('.gm-where'); return { goal: d.goal, where: w.firstChild ? w.firstChild.textContent : '', nx: (w.querySelector('.nx') || { textContent: '' }).textContent, label: document.querySelector('.gm-stage canvas').getAttribute('aria-label') }; });
+    /** the ring's pixels around a tile, and the tile itself, read at the backing scale; with beats, that many beats
+        by hand first, each painted and read in this one task, so the beat's phase is known and the live ticker
+        cannot slip a frame in between (as the dot's check above does)
+        @param {import('playwright').Page} page @param {number} x @param {number} y @param {number} [beats] */
+    const ring = (page, x, y, beats) => page.evaluate(({ x, y, beats }) => {
+      const c = /** @type {HTMLCanvasElement} */ (document.querySelector('.gm-mini canvas')), k = c.getContext('2d'), s = window.CNPE_GAME.debug().minimap.scale;
+      const at = (/** @type {number} */ px, /** @type {number} */ py) => { const p = k.getImageData(px * s, py * s, 1, 1).data; return p[0] + ',' + p[1] + ',' + p[2]; };
+      const read = () => { window.CNPE_GAME.debug().frame(); return { tl: at(x - 2, y - 2), br: at(x + 2, y + 2), left: at(x - 2, y), top: at(x, y - 2), inner: at(x - 1, y), centre: at(x, y), below: at(x, y + 2), odd: (window.CNPE_GAME.debug().waterFrame & 1) === 1 }; };
+      /** @type {ReturnType<typeof read>[]} */
+      const out = [read()];
+      for (let i = 0; i < (beats || 0); i++) { window.CNPE_GAME.debug().tick(); out.push(read()); }
+      return out;
+    }, { x, y, beats: beats || 0 });
+    const rgb = (/** @type {string} */ hex) => { const h = hex.replace('#', ''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)).join(','); };
+    // a fresh start two tiles under Portmouth: its trial is the first thing to do
+    const { ctx, page } = await fresh({ game: { flags: { intro: 1 }, pos: { x: 8, y: 8, t: 1 } } });
+    await page.goto(url('game.html'));
+    await page.waitForSelector('.gm-stage canvas');
+    await skipIntro(page);
+    const colours = await page.evaluate(() => { const cs = getComputedStyle(document.documentElement); const v = (/** @type {string} */ n) => cs.getPropertyValue(n).trim(); return { accent: v('--accent'), paper: v('--paper'), warn: v('--warn') }; });
+    let s = await sign(page);
+    assert(!!s.goal && s.goal.x === TOWN.x && s.goal.y === TOWN.y && s.goal.what === 'the trial in Portmouth', 'from the start the signpost points to Portmouth\'s trial: ' + JSON.stringify(s.goal));
+    assert(s.nx === 'next: the trial in Portmouth · 2 ▲' && /Substrate Downs/.test(s.where), 'the where window says so, with the steps and the way: ' + JSON.stringify(s.nx));
+    assert(/Next: the trial in Portmouth, 2 steps north\./.test(s.label || ''), 'and the canvas says it in words: ' + s.label);
+    // the ring: a hollow five by five in the accent around the town on the beat's odd frame, gone on the even ones the dot takes
+    const frames = await ring(page, TOWN.x, TOWN.y, 2);
+    const on = frames.filter(f => f.odd), off = frames.filter(f => !f.odd);
+    assert(on.length === 1 && off.length === 2, 'three beats by hand: one odd frame, two even: ' + JSON.stringify(frames.map(f => f.odd)));
+    assert(on.every(f => [f.tl, f.br, f.left, f.top].every(c => c === rgb(colours.accent)) && f.inner !== rgb(colours.accent) && f.centre === rgb(colours.paper)),
+      'on the odd frame the ring is the accent, hollow, and the town\'s own pixel shows through it: ' + JSON.stringify(on[0]));
+    assert(off.every(f => [f.tl, f.br, f.left, f.top].every(c => c !== rgb(colours.accent))), 'on the even frames the ring is lifted and the ground shows: ' + JSON.stringify(off[0]));
+    // the trial cleared, the signpost moves on to the dungeon door
+    await page.evaluate(() => { const st = window.CNPE_PROGRESS.get(); st.game.towns = { '1.1': 1 }; window.CNPE_PROGRESS.save(); });
+    s = await sign(page);
+    assert(!!s.goal && s.goal.x === DOOR.x && s.goal.y === DOOR.y && s.nx === 'next: the dungeon of Portmouth · 5 ▲▶', 'cleared, it points to the dungeon door, north-east: ' + JSON.stringify({ goal: s.goal, nx: s.nx }));
+    assert(/Next: the dungeon of Portmouth, 5 steps north-east\./.test(s.label || ''), 'in words too: ' + s.label);
+    // the dungeon won, the nearest town still to do is next; standing in that town, it is "here"
+    await page.evaluate(() => { const st = window.CNPE_PROGRESS.get(); st.game.wins = { 'svc-selector': { n: 1, best: 5, t: 1 } }; window.CNPE_PROGRESS.save(); });
+    const nearest = await page.evaluate(/** @returns {{ x: number, y: number, name: string, d: number } | null} */ () => { const D = window.CNPE_GAME_DATA; /** @type {{ x: number, y: number, name: string, d: number } | null} */ let best = null; let bd = 1e9; D.towns.forEach(t => { if (t.sec === '1.1') return; const d = Math.abs(t.x - 8) + Math.abs(t.y - 8); if (d < bd) { bd = d; best = { x: t.x, y: t.y, name: t.name, d: bd }; } }); return best; });
+    if (!nearest) throw new Error('the map has one town');
+    s = await sign(page);
+    assert(!!s.goal && s.goal.x === nearest.x && s.goal.y === nearest.y && s.goal.what === 'the trial in ' + nearest.name && new RegExp(' · ' + nearest.d + ' ').test(s.nx),
+      'won, it points to the nearest town left, ' + nearest.name + ': ' + JSON.stringify({ goal: s.goal, nx: s.nx }));
+    await standAt(page, nearest.x, nearest.y);           // a reload puts you on the tile without entering the town: only a step or enter does that
+    s = await sign(page);
+    assert(s.nx === 'next: the trial in ' + nearest.name + ' · here' && /Next: the trial in .*, here\./.test(s.label || ''), 'standing there, the signpost reads here: ' + JSON.stringify(s.nx));
+    // everything done: no signpost, no ring, and the label says so
+    await page.evaluate(() => { const st = window.CNPE_PROGRESS.get(); const D = window.CNPE_GAME_DATA; st.game.towns = {}; D.towns.forEach(t => { st.game.towns[t.sec] = 1; }); st.game.wins = {}; D.scenarios.forEach(sc => { st.game.wins[sc.id] = { n: 1, best: 1, t: 1 }; }); st.game.flags = { intro: 1, final: 1 }; D.regions.forEach(r => { st.game.flags['boss-' + r.d] = 1; }); window.CNPE_PROGRESS.save(); });
+    s = await sign(page);
+    assert(s.goal === null && s.nx === '' && /The exam is passed/.test(s.label || ''), 'with the exam passed there is nowhere left to point: ' + JSON.stringify({ goal: s.goal, nx: s.nx }));
+    const gone = (await ring(page, nearest.x, nearest.y))[0];
+    assert([gone.tl, gone.br, gone.left, gone.top].every(c => c !== rgb(colours.accent)), 'and the ring is lifted for good: ' + JSON.stringify(gone));
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+    // reduced motion: the ring holds steady, like the dot
+    const still = await fresh({ game: { flags: { intro: 1 }, pos: { x: 8, y: 8, t: 1 } } }, { reducedMotion: 'reduce' });
+    await still.page.goto(url('game.html'));
+    await still.page.waitForSelector('.gm-stage canvas');
+    await skipIntro(still.page);
+    const steady = (await ring(still.page, TOWN.x, TOWN.y, 1))[1];
+    assert([steady.tl, steady.br, steady.left, steady.top].every(c => c === rgb(colours.accent)), 'reduced motion: the ring is on and stays through a beat asked for by hand: ' + JSON.stringify(steady));
+    // the player stands two tiles under the town, on the ring's bottom row: the dot is painted last, so where you stand wins
+    assert(steady.below === rgb(colours.warn), 'where the dot and the ring meet, the dot shows: ' + JSON.stringify(steady));
     assert(still.page.errors.length === 0, 'no console errors: ' + still.page.errors.join(' | '));
     await still.ctx.close();
   });
