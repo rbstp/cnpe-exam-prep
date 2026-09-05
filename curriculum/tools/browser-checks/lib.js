@@ -58,11 +58,12 @@ function makeHarness(browser, siteDir) {
   /* seedStore lands in cnpe:v2 before the page under test loads. */
   /**
    * @param {*} [seedStore] anything goes: the junk-tolerance checks seed garbage on purpose
-   * @param {{ theme?: string, clockAt?: Date }} [opts]
+   * @param {{ theme?: string, clockAt?: Date, dpr?: number, reducedMotion?: 'reduce' | 'no-preference' }} [opts]
    */
   async function fresh(seedStore, opts) {
     opts = opts || {};
-    const ctx = await browser.newContext();
+    // dpr is the device pixel ratio the page sees; reducedMotion emulates the visitor's motion preference
+    const ctx = await browser.newContext({ deviceScaleFactor: opts.dpr, reducedMotion: opts.reducedMotion });
     const page = await ctx.newPage();
     page.errors = [];
     page.on('pageerror', e => page.errors.push('pageerror: ' + e.message));

@@ -457,6 +457,71 @@ interface CnpeGameData {
   start: { x: number; y: number };
 }
 
+/** The theme's colours, read live from the stylesheet's custom properties by
+    game.js and handed to the art so every sprite is painted in the current theme. */
+interface CnpeGamePalette {
+  ink: string; sunk: string; s1: string; s2: string; s3: string;
+  rule: string; rule2: string; paper: string; paper2: string; paper3: string;
+  accent: string; accentDim: string; accentLit: string; warn: string; warnDim: string;
+  ok: string; okLit: string; bad: string; badLit: string; viol: string; info: string;
+}
+
+/** The quest's art (CNPE_ART, assets/game-art.js): palette-indexed pixel grids
+    painted to small canvases on demand and cached per theme. Tile masks name
+    the neighbours of a different kind: N=1 E=2 S=4 W=8 for road and cliff,
+    and the eight-way N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128 for the shore. */
+interface CnpeArtApi {
+  /** the tile size in pixels, 16 */
+  TILE: number;
+  /** how many frames the water has */
+  FRAMES: number;
+  /** the fault families that have an enemy sprite */
+  FAMILIES: string[];
+  /** repaint everything from this palette from now on; drops the sprite cache */
+  theme(p: CnpeGamePalette): void;
+  grass(variant: number, region: number): HTMLCanvasElement;
+  flower(variant: number, region: number): HTMLCanvasElement;
+  road(variant: number, region: number, mask: number): HTMLCanvasElement;
+  sand(variant: number, region: number): HTMLCanvasElement;
+  tree(variant: number, region: number): HTMLCanvasElement;
+  cliff(variant: number, region: number, mask: number): HTMLCanvasElement;
+  water(mask: number, frame: number): HTMLCanvasElement;
+  bridge(vertical: boolean): HTMLCanvasElement;
+  town(region: number): HTMLCanvasElement;
+  door(region: number, open: boolean): HTMLCanvasElement;
+  keep(region: number, cleared: boolean): HTMLCanvasElement;
+  /** 0 shut, 1 open, 2 passed */
+  gate(state: number): HTMLCanvasElement;
+  /** face is u d l r; frame alternates as you walk */
+  hero(face: string, frame: number): HTMLCanvasElement;
+  /** a 32 by 32 monster at the given pixel scale (default 3, so 96 px) */
+  enemy(family: string, scale?: number): HTMLCanvasElement;
+  /** the fault family a scenario belongs to: workload, networking, storage,
+      gitops, ci, crossplane, observability or security */
+  familyOf(scenarioId: string, domain: number): string;
+  /** a strip of scenery for a town menu: square, talk, inn or shop */
+  backdrop(scene: string, region: number, w: number, h: number): HTMLCanvasElement;
+  /** names of grids that are not the size they claim; empty when the art is sound */
+  check(): string[];
+}
+
+/** What CNPE_GAME.debug() reports, for the browser checks and profiling. */
+interface CnpeGameDebug {
+  /** frames painted, and the milliseconds they took in all */
+  frames: number; drawMs: number;
+  /** whole-map terrain renders, their milliseconds, and the cache's size */
+  terrainRenders: number; terrainMs: number; terrain: { w: number; h: number } | null;
+  /** the canvas backing scale, and the device pixel ratio it was chosen for */
+  scale: number; dpr: number;
+  /** the water ticker is running */
+  anim: boolean;
+  /** the visitor asked for reduced motion */
+  reduceMotion: boolean;
+  waterFrame: number; walkFrame: number; face: string;
+  /** paint now, without waiting for the next animation frame */
+  frame(): void;
+}
+
 /** What one command did to a battle. */
 interface CnpeSimResult {
   /** the terminal's answer, plain text */
@@ -488,7 +553,8 @@ interface Window {
   CNPE_GAME_DATA?: CnpeGameData;
   CNPE_SIM?: CnpeSimApi;
   /** the quest; mount() is idempotent per page, like the drill's */
-  CNPE_GAME?: { mount(): void };
+  CNPE_GAME?: { mount(): void; debug?(): CnpeGameDebug };
+  CNPE_ART?: CnpeArtApi;
   CNPE_NAV?: CnpeNavEntry[];
   CNPE_DOMAINS?: CnpeDomain[];
   CNPE_DRILL?: CnpeDrillQuestion[];
