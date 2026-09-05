@@ -180,7 +180,7 @@
         terrainStale = true; // and the whole terrain with them, on the next frame
         // Off the map (a town, a battle) that frame does not come until the map does,
         // and until then a sweep would spend its budget painting the new palette into
-        // a terrain the repaint will clear — and hand the minimap a two-toned map on
+        // a terrain the repaint will clear, and hand the minimap a two-toned map on
         // its way. Stop it; the repaint starts a sweep of its own.
         cancelSweep();
         dropComposites();
@@ -674,8 +674,8 @@
        of tiles an animation frame, so the map is up in the frame that asked for it
        and the rest of the cost lands in the frames after it. A frame that reads
        tiles the sweep has not reached paints those itself first, so walking never
-       outruns it; the minimap — the whole terrain scaled to a pixel a tile — is
-       built when the last tile lands. */
+       outruns it; the minimap, which is the whole terrain scaled to a pixel a
+       tile, is built when the last tile lands. */
     var cellDone = new Uint8Array(0); // the tiles of the terrain this render has painted
     var cellsLeft = 0; // how many it has not
     var sweepAt = 0; // where the sweep left off; the tiles a frame painted ahead of it are skipped
@@ -948,9 +948,9 @@
         miniDot.y = y;
     }
     /* ── what moves, composed rather than blitted tile by tile ── */
-    // A frame used to end in one ctx.drawImage per animated tile in view — a
+    // A frame used to end in one ctx.drawImage per animated tile in view: a
     // hundred of them on a coastal screen, and the bulk of what an animated frame
-    // cost — paid again on every paint though the tiles under them had not moved.
+    // cost, paid again on every paint though the tiles under them had not moved.
     // Each frame of the beat has its own viewport-sized canvas instead, the
     // terrain and that frame's water, flowers, smoke and torches composed into it
     // once; a paint is the single blit of that. The canvas is a tile wider and
