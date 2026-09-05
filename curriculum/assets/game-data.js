@@ -20,7 +20,7 @@ window.CNPE_GAME_DATA = (function () {
   /** the team-a namespace and its tenancy objects, as examples/multitenancy/team-a.yaml lays them down
       @param {string} enforce @return {CnpeGameResource[]} */
   function tenancy(enforce) {
-    return [
+    return /** @type {CnpeGameResource[]} */ ([
       { kind: "namespaces", name: "team-a", cols: ["Active", "12d"],
         labels: "kubernetes.io/metadata.name=team-a,pod-security.kubernetes.io/audit=restricted,pod-security.kubernetes.io/enforce=" + enforce + ",pod-security.kubernetes.io/warn=restricted,tenant=team-a" },
       { kind: "resourcequotas", name: "team-a-quota", ns: "team-a", cols: ["12d", "limits.cpu: 0/4, limits.memory: 0/8Gi, pods: 1/20, requests.cpu: 25m/2, requests.memory: 32Mi/4Gi", ""],
@@ -35,10 +35,10 @@ window.CNPE_GAME_DATA = (function () {
       { kind: "roles", name: "developer", ns: "team-a", cols: ["2026-08-24T09:12:04Z"] },
       { kind: "rolebindings", name: "developer", ns: "team-a", cols: ["Role/developer", "12d"],
         desc: "Role:\n  Kind:  Role\n  Name:  developer\nSubjects:\n  Kind  Name   Namespace\n  ----  ----   ---------\n  User  dev-a" }
-    ];
+    ]);
   }
   /** the tenant's DNS policy, whole or with the DNS egress rule stripped
-      @param {boolean} broken */
+      @param {boolean} broken @return {CnpeGameResource} */
   function dnsPolicy(broken) {
     return { kind: "networkpolicies", name: "allow-dns-and-same-namespace", ns: "team-a", cols: ["<none>", "12d"],
       desc: "Spec:\n  PodSelector:     <none> (Allowing the specific traffic to all pods in this namespace)\n  Allowing ingress traffic:\n    To Port: <any> (traffic allowed to all ports)\n    From:\n      PodSelector: <none>\n  Allowing egress traffic:\n    To Port: <any> (traffic allowed to all ports)\n    To:\n      PodSelector: <none>" +
@@ -54,14 +54,14 @@ window.CNPE_GAME_DATA = (function () {
   function workload(o) {
     var rs = o.rsName || "broken-6b7f9c4d8", pn = o.podName || POD;
     var tpl = o.tpl || ("  containers:\n  - image: " + IMG + "\n    name: nginx-unprivileged\n    ports:\n    - containerPort: 8080\n    resources:\n      requests:\n        cpu: 25m\n        memory: 32Mi\n    securityContext:\n      allowPrivilegeEscalation: false\n      capabilities:\n        drop:\n        - ALL\n  securityContext:\n    runAsNonRoot: true\n    seccompProfile:\n      type: RuntimeDefault");
-    var out = [
+    var out = /** @type {CnpeGameResource[]} */ ([
       { kind: "deployments", name: "broken", ns: "team-a", labels: "app=broken", cols: [o.ready, o.upd, o.avail, "1h"], api: "apps/v1",
         desc: "Selector:               app=broken\nReplicas:               " + (o.dep || "1 desired | 1 updated | 1 total | 0 available | 1 unavailable") + "\nStrategyType:           RollingUpdate\nPod Template:\n  Labels:  app=broken\n" + tpl.split("\n").join("\n  ") + "\nConditions:\n  Type           Status  Reason\n  ----           ------  ------\n" + (o.conds || "  Available      False   MinimumReplicasUnavailable\n  Progressing    True    ReplicaSetUpdated") + "\nNewReplicaSet:   " + rs + " (1/1 replicas created)",
         yaml: "spec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: broken\n  template:\n    metadata:\n      labels:\n        app: broken\n    spec:\n    " + tpl.split("\n").join("\n    ") + "\nstatus:\n  conditions:\n" + (o.conds || "  Available      False   MinimumReplicasUnavailable\n  Progressing    True    ReplicaSetUpdated").split("\n").map(function (l) { var p = l.trim().split(/\s+/); return "  - type: " + p[0] + "\n    status: \"" + p[1] + "\"\n    reason: " + p[2]; }).join("\n"),
         rollout: 'Waiting for deployment "broken" rollout to finish: 0 of 1 updated replicas are available...\nerror: timed out waiting for the condition' },
       { kind: "replicasets", name: rs, ns: "team-a", labels: "app=broken,pod-template-hash=" + rs.split("-")[1], cols: ["1", o.rsReady === "0" && o.podCols[1] === "-" ? "0" : "1", o.rsReady, "1h"], api: "apps/v1",
         desc: "Selector:       app=broken,pod-template-hash=" + rs.split("-")[1] + "\nControlled By:  Deployment/broken\nReplicas:       1 current / 1 desired\nPods Status:    " + (o.rsReady === "1" ? "1 Running" : "0 Running") + " / " + (o.podCols[1] === "Pending" || o.podCols[1] === "ContainerCreating" ? "1 Waiting" : "0 Waiting") + " / 0 Succeeded / 0 Failed" }
-    ];
+    ]);
     if (o.podCols[1] !== "-") {
       out.push({ kind: "pods", name: pn, ns: "team-a", labels: "app=broken,pod-template-hash=" + rs.split("-")[1], cols: o.podCols, owner: "broken", container: "nginx-unprivileged",
         wide: ["10.244.1." + (o.podCols[1] === "Pending" ? "<none>" : "37"), o.podCols[1] === "Pending" ? "<none>" : "cnpe-worker"], wideCols: ["IP", "NODE"],
@@ -77,10 +77,11 @@ window.CNPE_GAME_DATA = (function () {
   var DESCRIBE_POD = ["^kubectl describe pods( broken\\S*)? -n team-a", "^kubectl get pods broken\\S* -n team-a -o (yaml|json)"];
 
   /* ── the workload faults: make break's team-a drill ──────── */
+  /** @type {CnpeGameScenario[]} */
   var SCENARIOS = [];
 
   SCENARIOS.push({
-    id: "image", name: "Phantom Tag", d: 4, difficulty: 1, ns: "team-a",
+    id: "image", name: "Phantom Tag", d: 2, difficulty: 1, ns: "team-a",
     ticket: WORKLOAD_TICKET,
     answer: "deploy/broken was pointed at image tag 'does-not-exist'. Pods sit in ErrImagePull/ImagePullBackOff. Fix: set the image back to a tag that exists.",
     resources: tenancy("baseline").concat([dnsPolicy(false)], workload({
@@ -257,7 +258,7 @@ window.CNPE_GAME_DATA = (function () {
   });
 
   SCENARIOS.push({
-    id: "netpol", name: "Silent Resolver", d: 1, difficulty: 3, ns: "team-a",
+    id: "netpol", name: "Silent Resolver", d: 4, difficulty: 3, ns: "team-a",
     ticket: WORKLOAD_TICKET + " The pod is Running, but every outbound call from it fails with 'could not resolve host'.",
     answer: "the DNS egress rule was stripped from NetworkPolicy allow-dns-and-same-namespace. With default-deny in place the pod runs but resolves nothing; only an in-pod nslookup shows it. Fix: restore the rule (re-apply examples/multitenancy/team-a.yaml).",
     resources: tenancy("baseline").concat([dnsPolicy(true)], workload({
@@ -528,6 +529,7 @@ window.CNPE_GAME_DATA = (function () {
   /* ── platform APIs: Crossplane ────────────────────────────── */
   var XP_SA = "provider-kubernetes-a1b2c3d4e5f6";
   var XP_SUBJ = "system:serviceaccount:crossplane-system:" + XP_SA;
+  /** @param {string} xr @param {string} kind @param {string} name @param {boolean} ok @return {CnpeGameResource} */
   function composed(xr, kind, name, ok) {
     return { kind: "objects", name: xr + "-" + name, ns: "default", api: "kubernetes.m.crossplane.io/v1alpha1", cols: [kind, "default", ok ? "True" : "False", ok ? "True" : "False", "20m"],
       labels: "crossplane.io/composite=" + xr,
@@ -696,10 +698,11 @@ window.CNPE_GAME_DATA = (function () {
 
   /* ── the quest's own faults, so every domain has dungeons ─── */
   var WEB_POD = "web-7d4f8c9b6-n3k7p", WEB_POD2 = "web-7d4f8c9b6-r8m2q";
+  /** @param {string} labels @return {CnpeGameResource[]} */
   function webPods(labels) {
     return [WEB_POD, WEB_POD2].map(function (n) {
-      return { kind: "pods", name: n, ns: "team-a", cols: ["1/1", "Running", "0", "2h"], labels: labels + ",pod-template-hash=7d4f8c9b6", owner: "web", container: "web",
-        wide: ["10.244.1." + (n === WEB_POD ? "51" : "52"), "cnpe-worker"], wideCols: ["IP", "NODE"], logs: "/docker-entrypoint.sh: Configuration complete; ready for start up", exec: { "8080": "HTTP/1.1 200 OK" } };
+      return /** @type {CnpeGameResource} */ ({ kind: "pods", name: n, ns: "team-a", cols: ["1/1", "Running", "0", "2h"], labels: labels + ",pod-template-hash=7d4f8c9b6", owner: "web", container: "web",
+        wide: ["10.244.1." + (n === WEB_POD ? "51" : "52"), "cnpe-worker"], wideCols: ["IP", "NODE"], logs: "/docker-entrypoint.sh: Configuration complete; ready for start up", exec: { "8080": "HTTP/1.1 200 OK" } });
     });
   }
   SCENARIOS.push({
@@ -1008,7 +1011,390 @@ window.CNPE_GAME_DATA = (function () {
       { match: ["^cosign sign registry\\.lab\\.local/team-a/api:1\\.4\\.1"], out: "Pushing signature to: registry.lab.local/team-a/api\n(1.4.1 was already signed; 1.4.2 is the one admission refuses)" }
     ]
   });
-  var MAP = [], TILES = {}, REGIONS = [], TOWNS = [], TECHNIQUES = {}, ITEMS = {}, FINALE = { pool: [], pick: 3, keep: { x: 0, y: 0 } }, LEVELS = [0], START = { x: 0, y: 0 };
+
+  /* ── techniques: the command families the townsfolk teach ──── */
+  /* {ns} is the battle's namespace; {res} {pod} {kind} {sa} {app} {name} open a
+     target list; a word in CAPITALS or a trailing = is left for the player to
+     finish in the prompt. fix: true puts it in the Fix menu. */
+  /** @type {Record<string, CnpeGameTechnique>} */
+  var TECHNIQUES = {
+    "k-get": { cmd: "kubectl get {kind} -n {ns}", about: "list a kind: the state column is the first read of any incident", tool: "kubectl" },
+    "k-describe": { cmd: "kubectl describe {res} -n {ns}", about: "one object in full, with its events at the bottom", tool: "kubectl" },
+    "k-events": { cmd: "kubectl get events -n {ns} --sort-by=.lastTimestamp", about: "the namespace's timeline, newest last", tool: "kubectl" },
+    "k-logs": { cmd: "kubectl logs {pod} -n {ns}", about: "what the container says for itself", tool: "kubectl" },
+    "k-logs-prev": { cmd: "kubectl logs {pod} -n {ns} --previous", about: "a crashed container's last words", tool: "kubectl" },
+    "k-yaml": { cmd: "kubectl get {res} -n {ns} -o yaml", about: "the whole object: spec and status, nothing summarised", tool: "kubectl" },
+    "k-wide": { cmd: "kubectl get {kind} -n {ns} -o wide", about: "the extra columns: node, IP, images", tool: "kubectl" },
+    "k-labels": { cmd: "kubectl get {kind} -n {ns} --show-labels", about: "labels beside names, for matching selectors by eye", tool: "kubectl" },
+    "k-endpoints": { cmd: "kubectl get endpointslices -n {ns}", about: "who a Service actually sends to, address by address", tool: "kubectl" },
+    "k-exec-dns": { cmd: "kubectl exec {pod} -n {ns} -- nslookup kubernetes.default", about: "resolve a name from inside the pod", tool: "kubectl" },
+    "k-exec-http": { cmd: "kubectl exec {pod} -n {ns} -- wget -qO- localhost:8080", about: "knock on the container's own port from inside", tool: "kubectl" },
+    "k-top": { cmd: "kubectl top pods -n {ns}", about: "live CPU and memory per pod, from metrics-server", tool: "kubectl" },
+    "k-nodes": { cmd: "kubectl describe nodes", about: "capacity, allocatable and what is already requested", tool: "kubectl" },
+    "k-quota": { cmd: "kubectl describe resourcequotas -n {ns}", about: "used against hard, one line per resource", tool: "kubectl" },
+    "k-netpol": { cmd: "kubectl get networkpolicies -n {ns} -o yaml", about: "every policy selecting the namespace's pods, rule by rule", tool: "kubectl" },
+    "k-sc": { cmd: "kubectl get storageclasses", about: "provisioner, reclaim policy, binding mode and expansion in one line", tool: "kubectl" },
+    "k-hpa": { cmd: "kubectl describe horizontalpodautoscalers -n {ns}", about: "the autoscaler's conditions say what it could not compute", tool: "kubectl" },
+    "k-ns-labels": { cmd: "kubectl get namespaces {name} --show-labels", about: "a namespace's labels: tenancy, Pod Security, selectors", tool: "kubectl" },
+    "k-cani": { cmd: "kubectl auth can-i --list -n {ns} --as={sa}", about: "ask the API server what a subject may do", tool: "kubectl" },
+    "k-rb": { cmd: "kubectl get rolebindings -n {ns}", about: "who is bound to what, in this namespace", tool: "kubectl" },
+    "k-crb": { cmd: "kubectl get clusterrolebindings", about: "the cluster-wide grants, controllers' included", tool: "kubectl" },
+    "k-explain": { cmd: "kubectl explain {kind}", about: "the field reference, version-correct for this cluster", tool: "kubectl" },
+    "k-rollout": { cmd: "kubectl rollout status {res} -n {ns}", about: "is the rollout progressing, or stuck", tool: "kubectl" },
+    "argo-get": { cmd: "argocd app get {app}", about: "sync status, health, conditions and the resource tree", tool: "argo" },
+    "argo-list": { cmd: "argocd app list", about: "every Application, its two status axes and its target", tool: "argo" },
+    "argo-diff": { cmd: "argocd app diff {app}", about: "rendered manifests against live objects", tool: "argo" },
+    "ro-get": { cmd: "kubectl argo rollouts get rollouts {name} -n {ns}", about: "the rollout's steps, revisions and analysis runs as a tree", tool: "argo" },
+    "ar-get": { cmd: "kubectl get analysisruns -n {ns}", about: "the canary's measurements, and their verdict", tool: "argo" },
+    "flux-ks": { cmd: "flux get kustomizations", about: "revision, suspended, ready and message per Kustomization", tool: "flux" },
+    "flux-src": { cmd: "flux get sources git", about: "what the source controller last fetched", tool: "flux" },
+    "flux-tree": { cmd: "flux tree kustomizations {name}", about: "what a Kustomization applied, object by object", tool: "flux" },
+    "tkn-list": { cmd: "tkn pipelineruns list -n {ns}", about: "every run with its status and reason", tool: "tekton" },
+    "tkn-desc": { cmd: "tkn pipelineruns describe {name} -n {ns}", about: "one run: message, taskruns, skipped tasks", tool: "tekton" },
+    "tkn-tasks": { cmd: "kubectl get tasks -n {ns}", about: "the Tasks a Pipeline can reference", tool: "tekton" },
+    "xp-trace": { cmd: "crossplane beta trace {res} -n {ns}", about: "the composite and everything it composed, with conditions", tool: "crossplane" },
+    "xp-objects": { cmd: "kubectl get objects -n {ns}", about: "provider-kubernetes's composed Objects, synced and ready", tool: "crossplane" },
+    "k-vpol": { cmd: "kubectl get validatingpolicies", about: "Kyverno's cluster-wide policies", tool: "platform" },
+    "k-ivpol": { cmd: "kubectl get imagevalidatingpolicies -o yaml", about: "the image verification policies and their keys", tool: "platform" },
+    "k-smon": { cmd: "kubectl get servicemonitors -A --show-labels", about: "every scrape declaration and the labels the operator selects on", tool: "platform" },
+    "k-prom": { cmd: "kubectl get prometheuses -n monitoring -o yaml", about: "the Prometheus object's own selectors", tool: "platform" },
+    "k-rules": { cmd: "kubectl get prometheusrules -A --show-labels", about: "every rule file, and whether Prometheus would load it", tool: "platform" },
+    "k-otel": { cmd: "kubectl get opentelemetrycollectors -n {ns} -o yaml", about: "the collector's receivers, processors and exporters", tool: "platform" },
+    "k-es": { cmd: "kubectl get externalsecrets -n {ns}", about: "each ExternalSecret's store, status and readiness", tool: "platform" },
+    "cosign-verify": { cmd: "cosign verify --key k8s://drill-ci/cosign-key IMAGE", about: "does a signature exist for this image, under this key", tool: "platform" },
+    /* repairs */
+    "f-set-image": { cmd: "kubectl set image deployments {name} -n {ns} CONTAINER=IMAGE", about: "point a Deployment at another image", tool: "kubectl", fix: true },
+    "f-set-res": { cmd: "kubectl set resources deployments {name} -n {ns} --requests=cpu=,memory=", about: "change what a container asks for", tool: "kubectl", fix: true },
+    "f-patch": { cmd: "kubectl patch {res} -n {ns} --type merge -p '{}'", about: "merge a fragment into an object", tool: "kubectl", fix: true },
+    "f-json-patch": { cmd: "kubectl patch {res} -n {ns} --type json -p '[{\"op\":\"remove\",\"path\":\"\"}]'", about: "remove or replace one path in an object", tool: "kubectl", fix: true },
+    "f-scale": { cmd: "kubectl scale deployments {name} -n {ns} --replicas=", about: "change a workload's replica count", tool: "kubectl", fix: true },
+    "f-label": { cmd: "kubectl label {res} -n {ns} KEY=VALUE --overwrite", about: "set a label; KEY- removes it", tool: "kubectl", fix: true },
+    "f-annotate": { cmd: "kubectl annotate {res} -n {ns} KEY-", about: "remove an annotation; KEY=VALUE sets one", tool: "kubectl", fix: true },
+    "f-delete": { cmd: "kubectl delete {res} -n {ns}", about: "remove an object the cluster is better off without", tool: "kubectl", fix: true },
+    "f-create-cm": { cmd: "kubectl create configmaps NAME -n {ns} --from-literal=KEY=VALUE", about: "make the ConfigMap a pod is waiting on", tool: "kubectl", fix: true },
+    "f-rb": { cmd: "kubectl create rolebinding NAME -n {ns} --clusterrole=ROLE --serviceaccount={ns}:SA", about: "grant a subject a role in one namespace", tool: "kubectl", fix: true },
+    "f-crb": { cmd: "kubectl create clusterrolebinding NAME --clusterrole=ROLE --serviceaccount=NAMESPACE:SA", about: "grant a subject a role everywhere; rarely the right default", tool: "kubectl", fix: true },
+    "f-run": { cmd: "kubectl run NAME -n {ns} --image=busybox:1.36 --restart=Never -- sleep 3600", about: "start a pod, for a probe or as a first consumer", tool: "kubectl", fix: true },
+    "f-argo-set": { cmd: "argocd app set {app} --revision main", about: "move an Application's target revision", tool: "argo", fix: true },
+    "f-ro-retry": { cmd: "kubectl argo rollouts retry rollouts {name} -n {ns}", about: "run an aborted rollout again", tool: "argo", fix: true },
+    "f-flux-resume": { cmd: "flux resume kustomizations {name}", about: "wake a suspended Kustomization", tool: "flux", fix: true },
+    "f-flux-reconcile": { cmd: "flux reconcile kustomizations {name} --with-source", about: "reconcile now, source first", tool: "flux", fix: true },
+    "f-tkn-start": { cmd: "tkn pipelines start {name} -n {ns}", about: "a fresh PipelineRun; completed runs are immutable", tool: "tekton", fix: true },
+    "f-create-task": { cmd: "kubectl create tasks NAME -n {ns}", about: "create the Task a Pipeline references", tool: "tekton", fix: true },
+    "f-cosign-sign": { cmd: "cosign sign --key k8s://drill-ci/cosign-key IMAGE", about: "sign an image with the platform key", tool: "platform", fix: true }
+  };
+
+  /* ── items ─────────────────────────────────────────────────── */
+  /** @type {Record<string, CnpeGameItem>} */
+  var ITEMS = {
+    scroll: { name: "Hint Scroll", about: "Names the next thing to inspect.", price: 30 },
+    lens: { name: "Lens", about: "Reveals one piece of evidence outright, for no xp.", price: 60 },
+    elixir: { name: "Elixir", about: "Restores half your health, mid-fight.", price: 40 },
+    "sheet-kubectl": { name: "Cheat Sheet: kubectl", about: "Prints every kubectl technique's syntax in the terminal. Permanent.", price: 120, permanent: true },
+    "sheet-argo": { name: "Cheat Sheet: Argo", about: "argocd and the rollouts plugin, syntax on demand. Permanent.", price: 120, permanent: true },
+    "sheet-flux": { name: "Cheat Sheet: Flux", about: "flux get, tree, resume and reconcile. Permanent.", price: 120, permanent: true },
+    "sheet-tekton": { name: "Cheat Sheet: Tekton", about: "tkn and the Tekton kinds. Permanent.", price: 120, permanent: true },
+    "sheet-crossplane": { name: "Cheat Sheet: Crossplane", about: "trace and the composed Objects. Permanent.", price: 120, permanent: true },
+    "sheet-platform": { name: "Cheat Sheet: platform", about: "Prometheus operator kinds, Kyverno policies, External Secrets, cosign. Permanent.", price: 120, permanent: true }
+  };
+
+  /* ── the level ladder: xp needed for each level, index 0 is level 1 ── */
+  var LEVELS = [];
+  for (var lv = 0; lv < 30; lv++) LEVELS.push(Math.round(60 * Math.pow(lv, 1.55)));
+
+  /* ── the overworld: authored by tools' mapgen, a fixed piece of content ── */
+  /** @type {Record<string, string>} */
+  var TILES = {".": "grass", ",": "flower", "#": "road", "~": "water", "^": "cliff", "T": "tree", "t": "town", "d": "door", "K": "keep", "G": "gate", "=": "bridge", "s": "sand"};
+  var MAP = [
+    "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+    "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+    "~~.TT.......................T.....,......~......T........T..T...........TT.TT...~..........T,.....,.......T......,....~~",
+    "~~..............T..............T...T.....~.,......T.......TT.......T............~...........................,....T....~~",
+    "~~.....................T...............T.~T.........,.......................T...~...........T...T....................T~~",
+    "~~............T......T,..................~.............T......t##d##########....~..........T............t##d#####.....~~",
+    "~~......t##d##############t##d####.^^^,..~.....t##d############...~~.......#..T,~.T...t##d###############.....,.#.....~~",
+    "~~......#............,....#......#^^^^^..~......................~~~~~......#....~..............,................#.....~~",
+    "~~T.T.T.#.,...............#,.....#^^^^^..~....T,................~~~~~.T...T#....~......T.....................T..#.....~~",
+    "~~.....T........T.........#.T..,.#.^^^^..~..T...............T...~~~~~......#....~TT.......,....TT..~~~..........#,..T.~~",
+    "~~.....T......TT.T.......T#......#.T^^..,~...................T...~~.T...T..#....~....,....T.T.T...~~~~~...TT....#.....~~",
+    "~~.......T...TT...........#......#.......~..................T..............#....~.T.T.....T......~~~~~~.TT...T..#....T~~",
+    "~~T....T...........T......#......#.......~......###########################t##d#=######...T......~~~~~~~........#T....~~",
+    "~~............,........T..#....T.#.......~......#..............,................~.....#........T.~~~~~~.........#.....~~",
+    "~~.....,.T.T.....T..T.....#..T...#..T....~......#....,.......T..................~.,...############=====#########t##d..~~",
+    "~~,......T.......,........#.T....#.......~......#...TT..T.........T...,.........~.T..T#T..T........~~~.....T..T.......~~",
+    "~~.......T.T............T.#......#.......~......#..,..............T.............~.T...#.....................T.......T.~~",
+    "~~......,.....###################t##d####=#######,............,.................~.....#..............T...T...T.TT...T.~~",
+    "~~............t##d#######.#..............~......#......,.....T......T....T......~.,.,.#........T......T...,T..........~~",
+    "~~.,.T..T...............#.#..............~...,..t##d#############.......T..T...T~.....t##d###########..........TT..T,.~~",
+    "~~......,T...TT....TT.T.#.#..............~...............T....T.#.....T....T....~.,.................#........T..^^....~~",
+    "~~.,T....T..............#,#.....,........~.T...TT......T########t##d......T.....~T..........,..,....#......,.,^^^^^...~~",
+    "~~.............T..T..T..#.#..T...........~.....T..TT..T.#.....T.#..............,~.T......,..########t##d....T.^^^^^..T~~",
+    "~~..........T.........,.#T#TTT.........,.~T.....T.T.....#.T.....#...........T...~.T......TT.#..T...........T...^^^.T..~~",
+    "~~,...T,T.........T.....#.#..............~...,..........#,.T...T#.......T.......~...T......T#.T.T..............^^.....~~",
+    "~~......,.T...T.........#.#T.~~~,........~.......T.....T#.....,.#..........T....~.....T.....#.....T........T........T.~~",
+    "~~..T....T..............#.#.~~~~~........~...........T..#.,.....#.......^^..TT..~...........#.........T.,.....T.......~~",
+    "~~.....,...^^...........#.#~~~~~~~....T..~TT..T.T^^^....#T...T..#.TT..^^^^..,..T~........^^T#.........................~~",
+    "~~.......T^^^^^......T..#.#~~~~~~~.......~.T.T..^^^^^...#.T.T...#...T.^^^^^....T~....,TT^^^^#...T......T...,.....T....~~",
+    "~~.......^^^^^^.........#.#.~~~~~T.......~....T^^^^^^^,.#,......#.....^^^^......~......^^^^^#^..T.,...................~~",
+    "~~T...TT.^^^^^^^..T.....#.#.~~~~~..T.,.T.~.....^^^^^^^.T#.......#.......^^....T.~......^^^^^#^........T.T..T,......T,.~~",
+    "~~....T...^^^^^.........t##d#===####..T..~.....^^^^^^...#.....T.#......T........~T.....^^^^.#.............,.T........T~~",
+    "~~........^^^^^....T......#........K.,..T~....T.^^^^^...t##d###############.....~.....T.^^^.t##d###############.......~~",
+    "~~.T.......^^^............#.............T~.....T.^^^....#.......#.........K..T..~TT.......^.#........T..T.....K......T~~",
+    "~~.T.......T..............#...T,..T......~..............#.....T.#,..T...........~...........#.............,T..........~~",
+    "~~..T.....................#..T..,........~..............#T.T....#......,...T.T..~.....TT....#.........................~~",
+    "~~..,T...............T..T.#.........T..T.~..........T...#.T.TT..#.,........T....~T..T.......#..........T..............~~",
+    "~~.........TTT...T..T.....#.T............~..T,..........#T..#..T#TT..T.......T.T~...........#.....T.............T.T...~~",
+    "~~....................,..T#....T........................#sss#sss#..T.,...T..T..........T..T.#......T,..T....T,....T...~~",
+    "~~~~~~~~~~~~~~~~~~~~~~~~~~=~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#sssGsss=~~~~~~~~~~~~~~~~~~~~~~~~~~~=~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+    "~~~~~~~~~~~~~~~~~~~~~~~~~~=~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#sss#sss=~~~~~~~~~~~~~~~~~~~~~~~~~~~=~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+    "~~.T....T..,...........T..#................T.....,......#sss#sss#..........T....T,.TT.......#..T,.....,.....T...TT,...~~",
+    "~~....T.................T.#.T..T.T......,..............T#T..#T..#.........TT.....T.....T....#......T.T,.T...T......T..~~",
+    "~~...........T.........T..#TT....T............T.###################......T.T..T.............#..TT....T..TT..T.........~~",
+    "~~.,T.....T.,TT...T..T....#...TT.......,T.......#########..~~...#####...,...T.........T.#####.......T....T..T.........~~",
+    "~~.,.........T...T..,.....#TT........T.......,..#........T.~~...TT#.#.....T....,........#....T......T.................~~",
+    "~~......t##d###############....T................#..........~~.....##t##d################t##d################t##d.T....~~",
+    "~~T.......################t##d##################t##d...T,..~~..T..#.......T...T.......,.........,.....T.T........T....~~",
+    "~~.....^^^#..T........TT.......T.......,..............T..,.~~.....#.T.....................T.................^^^^^..T..~~",
+    "~~,T..T^^^#.........T....T....,T............,,T.........T..~~..T..#.............,..T..T...........T.T..T,...^^^^^^....~~",
+    "~~,...^^^^#.....T.............T.....TT.T.T....T....T.......~~.....#........T.......,......T.T...........T,.^^^^^^^....~~",
+    "~~..T..^^^#............T................T...T......,..,....~~....T#.T..................T....TT....T...T,.,..^^^^^.....~~",
+    "~~......^^#..T...........TT.TT.........TT...T.......T.....T~~.T.T.#T..........T.T....T......................^^^^^....T~~",
+    "~~........#......................,...............^^^.......~~,..T.#.........T........^^^...........TT.T....TT.^^T,....~~",
+    "~~........#............T.......,.T...........TT.^^^^.......~~.T...#.....,T........T,T^^^.....................T.....T..~~",
+    "~~........#...TT...T......T..............,......^^^^^.....T~~.....#..............,..^^^^^...T......T..................~~",
+    "~~........#..T..........................T....T...^^^^......~~..,..#..................^^^^..T.......,...T.......T......~~",
+    "~~......T.#......................,T.....,..T......^^..T....~~..T..#.T.T.TT...........^^,TT............................~~",
+    "~~........#.......T...............T.T......................~~T..T.#.....T..............T....T........................T~~",
+    "~~..T.....#.......,..................T........T........T...~~.....#...........T..,...........,.........T........T....,~~",
+    "~~T.......t##d#################.....T....T....,.....,....,#==#####t##d#################..........,...............T.T..~~",
+    "~~.T,................,........#.......TT.......T.TT.......#~~...,.......T.............#............................T..~~",
+    "~~.,TTT...TT............,.....t##d###############.........#~~..T..T.TT................t##d################t##d#.TTT...~~",
+    "~~.T..T...........T,.~~~T,....#.....T...........#.T......T#~~.........T.............T.........T..T............#.......~~",
+    "~~......T.......T...~~~~~T....#..........T......#.........#~~..........T..........TT.....,....T.......TTT.....#...T...~~",
+    "~~....,............~~~~~~~....#......,...T.,....#....T....#~~............T...T..T....,........T..T...T....,...#T..,T..~~",
+    "~~..T.T...#########=======######################t##d#######~~........................,...,.T...~~.............#T......~~",
+    "~~........#......T.~~~~~~~....#......,.T........#..........~~......T.....T.....T.........T..~~~~~~......T...,.#.......~~",
+    "~~......T.#.T.......~~~~~.....#...............T.#.........T~~.....T.TT,.TT.....T......T,,...~~~~~~~.,...T.....#...T.T.~~",
+    "~~........#.......T..~~~.TT...#..T.....^^T......#.......TTT~~..........T.......T............~~~~~~~~.T..T.....#.,.....~~",
+    "~~......T.#...,......TT.......###################..T......T~~.............^^....,.......,..~~~~~~~~~......T,..#....TT.~~",
+    "~~...T....#...............TT.....,....^^^^^^T..............~~T...........^^^^^..,.....,....~~~~~~~~~....T.T...#.......~~",
+    "~~........#........,..............T..^^^^^^^..T............~~....T.......^^^^^.........T....~~~~~~~T.......T..#.......~~",
+    "~~T...T...K..,T........T..............^^^^^^...............~~.......T...T.^^^^T.............~~~~~~....T...T...K...T...~~",
+    "~~............T.......,......T.TT.....^^^^^.T...T.T..T.....~~T...,...T.....^.T..............,.~~.........T.........T..~~",
+    "~~........,...T,.......,,............T..^^TT........TTT..T.~~.T..,......T.............................T......T.T..T...~~",
+    "~~................T.....TT..............T..,......T,,T.T...~~.......T........T...T................,.......TT..,.......~~",
+    "~~.T...........T....T...T................T.............T...~~.........................T.........,T........T........T..~~",
+    "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+    "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+  ];
+  /** @type {CnpeGameRegion[]} */
+  var REGIONS = [
+    { d: 1, name: "Substrate Downs", boss: ["quota", "hpa-unknown"], keep: { x: 35, y: 32 } },
+    { d: 2, name: "Reconcile Reach", boss: ["argocd-rev", "canary-analysis"], keep: { x: 74, y: 33 } },
+    { d: 3, name: "Compositor Heights", boss: ["xp-provider-rbac", "xr-paused"], keep: { x: 110, y: 33 } },
+    { d: 4, name: "Signal Fens", boss: ["otel-exporter", "netpol"], keep: { x: 10, y: 73 } },
+    { d: 5, name: "Warden's March", boss: ["image-unsigned", "kyverno-deny"], keep: { x: 110, y: 73 } }
+  ];
+  // where each town and its dungeon door sit; the towns below read this
+  var POS = {"1.1":{"x":8,"y":6,"door":{"x":11,"y":6}},"1.2":{"x":26,"y":6,"door":{"x":29,"y":6}},"1.3":{"x":33,"y":17,"door":{"x":36,"y":17}},"1.4":{"x":14,"y":18,"door":{"x":17,"y":18}},"1.5":{"x":24,"y":31,"door":{"x":27,"y":31}},"2.1":{"x":47,"y":6,"door":{"x":50,"y":6}},"2.2":{"x":62,"y":5,"door":{"x":65,"y":5}},"2.3":{"x":75,"y":12,"door":{"x":78,"y":12}},"2.4":{"x":48,"y":19,"door":{"x":51,"y":19}},"2.5":{"x":64,"y":21,"door":{"x":67,"y":21}},"2.6":{"x":56,"y":32,"door":{"x":59,"y":32}},"3.1":{"x":86,"y":6,"door":{"x":89,"y":6}},"3.2":{"x":104,"y":5,"door":{"x":107,"y":5}},"3.3":{"x":112,"y":14,"door":{"x":115,"y":14}},"3.4":{"x":86,"y":19,"door":{"x":89,"y":19}},"3.5":{"x":100,"y":22,"door":{"x":103,"y":22}},"3.6":{"x":92,"y":32,"door":{"x":95,"y":32}},"4.1":{"x":8,"y":46,"door":{"x":11,"y":46}},"4.2":{"x":26,"y":47,"door":{"x":29,"y":47}},"4.3":{"x":48,"y":47,"door":{"x":51,"y":47}},"4.4":{"x":10,"y":60,"door":{"x":13,"y":60}},"4.5":{"x":30,"y":62,"door":{"x":33,"y":62}},"4.6":{"x":48,"y":66,"door":{"x":51,"y":66}},"5.1":{"x":68,"y":46,"door":{"x":71,"y":46}},"5.2":{"x":88,"y":46,"door":{"x":91,"y":46}},"5.3":{"x":108,"y":46,"door":{"x":111,"y":46}},"5.4":{"x":66,"y":60,"door":{"x":69,"y":60}},"5.5":{"x":86,"y":62,"door":{"x":89,"y":62}},"5.6":{"x":106,"y":62,"door":{"x":109,"y":62}}};
+  var FINALE = { pool: SCENARIOS.map(function (s) { return s.id; }), pick: 3, keep: { x: 60, y: 39 } };
+  var START = { x: 8, y: 8 };
+
+  /* ── the towns: one per section, their people distilled from its panels ── */
+  /** @param {string} sec @param {string} name @param {string} dungeon @param {string} blurb @param {CnpeGameNpc[]} npcs @return {CnpeGameTown} */
+  function town(sec, name, dungeon, blurb, npcs) {
+    var p = POS[sec];
+    return { sec: sec, name: name, blurb: blurb, x: p.x, y: p.y, door: p.door, dungeon: dungeon, npcs: npcs };
+  }
+  /** @param {string} name @param {string[]} lines @param {string} [teaches] @return {CnpeGameNpc} */
+  function npc(name, lines, teaches) { var n = { name: name, lines: lines }; if (teaches) n.teaches = teaches; return n; }
+
+  /** @type {CnpeGameTown[]} */
+  var TOWNS = [
+    /* ── Substrate Downs: domain 1 ── */
+    town("1.1", "Portmouth", "svc-selector", "A harbour town where every road ends at a Service. The wiring here is what everything else stands on.", [
+      npc("Harbourmaster Selda", ["A Service is not the thing that makes a Service work. The <code>EndpointSlice</code> behind it is, and the selector that fills it.", "A Service with no ready endpoints resolves fine and then refuses connections. Check in order: selector matches pod labels, pods are Ready, then the slice itself.", "<code>kubectl get endpointslices -l kubernetes.io/service-name=X</code> beats describe: it shows ready, serving and terminating per address."], "k-endpoints"),
+      npc("Ropewalker Ines", ["Four rules of the network model: every pod gets its own routable IP, no NAT pod to pod, agents reach pods on their node, a pod sees its own IP as others do. The CNI is whatever makes those true.", "When those rules do not hold, nothing above them behaves. So the first fork in any network diagnosis is: CNI problem, or Service problem?", "Labels beside names is how you match a selector by eye. Learn to read <code>--show-labels</code> quickly."], "k-labels"),
+      npc("Old Resolver Bram", ["Names are <code>svc.ns.svc.cluster.local</code>, served by CoreDNS behind a Service still called kube-dns. Pods get <code>ndots:5</code>, so short names cost several lookups.", "DNS fails quietly. Every pod Running, every probe green, and nothing resolves. No listing shows it. You find it by making something try: an nslookup from inside the pod."], "k-exec-dns"),
+      npc("Gatewright Tamsin", ["NetworkPolicies select pods, never Services. A pod is isolated the moment any policy selects it for a direction. Rules are additive allow-lists: there is no deny, so you tighten only by removing.", "An <code>ipBlock</code> naming a ClusterIP never matches: DNAT rewrites the destination to a pod IP before policy is evaluated. That one fact explains a whole family of 'my policy does nothing' tickets.", "Gateway API splits the roles Ingress mashed together, and grades your work with conditions: Accepted, Programmed, ResolvedRefs. Read those three before guessing."])
+    ]),
+    town("1.2", "Millrace", "hpa-unknown", "Water wheels and CPU cycles. Two numbers per container decide everything here: what you request and what you are limited to.", [
+      npc("Miller Osk", ["A request is a claim against the scheduler's arithmetic. A limit is a ceiling the kernel enforces at runtime. Nothing reconciles the two afterwards, which is how a node can be 30% used and 100% requested at once.", "The scheduler sums requests against allocatable, never live usage. A node at 5% CPU with every millicore requested is completely full."], "k-nodes"),
+      npc("Throttled Pell", ["CPU is compressible: past the limit, CFS stops giving you cycles until the next period. Latency stalls that look like network problems are throttling; <code>container_cpu_cfs_throttled_periods_total</code> is where the truth lives.", "Memory is incompressible. There is no slow down, only the OOM kill. In a crash-looping Deployment the evidence is in <code>lastState.terminated.reason</code>, not <code>state</code>; read the wrong field and you will swear there was no OOM.", "<code>kubectl top</code> is the live view: what a pod uses now, from metrics-server. Compare it with what it asked for."], "k-top"),
+      npc("Scheduler Wren", ["Under memory pressure the kubelet evicts pods whose usage exceeds their requests first, then by priority, then by how far over they are. QoS class is a consequence of that first test, not an input.", "Taints repel, tolerations only permit; nothing attracts. Pair a taint with nodeAffinity to dedicate a pool. And read the node labels before writing a spread constraint against a key no node carries."]),
+      npc("Autoscaler Dree", ["The HPA scales replicas on a metric; the VPA rewrites requests; the cluster autoscaler adds nodes. Three scalers, three jobs. Do not ask one to do another's.", "A percentage of a request needs a request. An HPA targeting CPU utilisation on a container with no CPU request reports <code>&lt;unknown&gt;</code> forever, and its conditions say exactly why.", "<code>kubectl describe hpa</code>: the ScalingActive condition names what could not be computed."], "k-hpa")
+    ]),
+    town("1.3", "Vaultbrook", "pvc-pending", "Cellars and claims. Three objects, one relationship, and four states you will be asked to explain.", [
+      npc("Cellarer Maud", ["A PersistentVolume is real storage. A PersistentVolumeClaim is a request for one. A StorageClass is the recipe, and its provisioner names the code that cooks it. Dynamic provisioning is the assumed default.", "<code>kubectl get sc</code> first, every time: provisioner, reclaim policy, binding mode and expansion in one line. Then <code>kubectl get pvc -A</code> for anything not Bound."], "k-sc"),
+      npc("Patient Ilse", ["A claim on a <code>WaitForFirstConsumer</code> class stays Pending until a pod that uses it is scheduled. That is not a fault. It is the class considering topology so the volume lands where the pod can reach it.", "PVC Pending with no events is WaitForFirstConsumer with no pod yet. PVC Pending with a provisioning error is a controller-side message. Pod stuck ContainerCreating with a mount error is node-side. Three states, three causes."]),
+      npc("Finalizer Grett", ["<code>pvc-protection</code> blocks deleting a claim a pod mounts; <code>pv-protection</code> blocks deleting a bound PV. The fix is never to strip the finalizer. Remove the consumer and let the controller clean up.", "RWX is a property of the backing storage, not a wish. Requesting it does not turn a local disk into a shared filesystem. RWOP is the strict one: exactly one pod, enforced by the scheduler."]),
+      npc("Backup Warden Coll", ["StatefulSets exist for stable identity and stable storage: every replica gets its own PVC, and deleting the set keeps them, so scaling back up reattaches the old data.", "GitOps rebuilds manifests, never the contents of a PV. Snapshots, a backup tool like Velero, or the operator's own backup story fill that gap. Delete for ephemeral tenant work, Retain for anything whose loss ends in a postmortem."])
+    ]),
+    town("1.4", "Fencehold", "quota", "Fences around every plot. A namespace is a folder; a tenant is a namespace with a stack of controls attached.", [
+      npc("Reeve Anselm", ["ResourceQuota caps the namespace total: requests, limits, object counts, storage per class. A quota naming <code>requests.cpu</code> rejects any pod that fails to declare one.", "Quota is enforced by admission against a usage cache, so the failure appears one level down: the Deployment applies fine, the ReplicaSet logs 'exceeded quota', replicas stall. Describe the ReplicaSet, not the Deployment.", "<code>kubectl describe quota</code>: used against hard, one line per resource. Whichever line binds is the answer."], "k-quota"),
+      npc("LimitRanger Bea", ["LimitRange fills in per-container defaults and bounds, so a bare pod arrives at the quota check with numbers attached. Mutating admission runs before validating admission: LimitRanger injects, then quota and policy validate.", "Being able to name the refusing control from one line of error text is the difference between fixing the right object and guessing."]),
+      npc("Fencer Dov", ["Default-deny plus explicit allows. team-a allows same-namespace traffic and DNS to kube-dns, nothing else. Additive allow-lists mean a missing rule looks exactly like a rule that was never there.", "A cross-namespace call needs an egress allow on the caller's side and an ingress allow on the callee's. Read every policy that selects the pod, rule by rule."], "k-netpol"),
+      npc("Ladder-keeper Sunniva", ["Multi-tenancy is a ladder, not a switch: namespaces with quota, policy and RBAC; then dedicated node pools by taint; then virtual clusters; then separate clusters. Each rung costs idle capacity.", "A PriorityClass decides who is evicted when the cluster is full. Platform components should outrank tenant workloads: a tenant that can preempt your metrics stack can blind you.", "The default ServiceAccount should have nothing attached, and quota should cap what costs money outside the cluster: LoadBalancers, PVCs, NodePorts."])
+    ]),
+    town("1.5", "Ledgerton", "resources", "A counting house. Cost is max(request, usage) times price times hours, sliced every way OpenCost can slice it.", [
+      npc("Accountant Voss", ["For each container: <code>cost = max(request, usage) × unit price × hours</code>, summed over CPU, memory, storage and network, attributed to namespace, label or owner. Everything OpenCost shows is that expression.", "Why is my namespace expensive when nothing runs? Because request won the max. Requests, not usage, drive spend."]),
+      npc("Right-sizer Quill", ["The loop is the competency: measure usage, compare with requests per container, adjust, then confirm nothing degraded. Right-sizing that introduces throttling or OOM kills is worse than the waste it removed.", "Memory to roughly peak plus headroom. CPU to a sane request with a generous or absent limit. Then <code>kubectl set resources</code>, or better, the manifest in git.", "A request no node can satisfy is a Pending pod forever. The scheduler's FailedScheduling event lists why every node refused."], "f-set-res"),
+      npc("Bin-packer Hal", ["Idle capacity is unrequested space on nodes you bought whole. OpenCost can show it separately or spread it across tenants. Separate makes the platform team accountable for packing; spread makes tenants feel the true cost. Neither is wrong.", "Object sprawl bills whether or not traffic flows: LoadBalancers, PVs, snapshots, forgotten namespaces. That is why quota is a cost tool, not just fairness.", "Right-size the pods, then right-size the nodes. Say it in that order."]),
+      npc("Metrics Clerk Oda", ["OpenCost joins pod and node inventory with Prometheus series and a price list. A broken scrape shows up as missing cost, not as an error. 'Why is this namespace zero' is a Prometheus problem.", "<code>kubectl cost --opencost</code>: forget the flag and it looks for Kubecost and fails in a way that looks like OpenCost is broken. Use <code>--window 1d</code> for stable numbers."])
+    ]),
+
+    /* ── Reconcile Reach: domain 2 ── */
+    town("2.1", "Commitvale", "tekton-trigger", "Every change here arrives as a commit. The valley reconciles, forever, whether you watch or not.", [
+      npc("Archivist Lenne", ["Four nouns: declarative, versioned and immutable, pulled automatically, continuously reconciled. Graders like those words; learn them and you can rebuild the sentences.", "A change made with kubectl edit does not fail. It gets reverted on the next loop if self-heal is on, or reported as drift if not. 'Why did my manual fix disappear' is the canonical ticket."]),
+      npc("Pull-agent Ferro", ["CI pushing manifests needs cluster credentials outside the cluster and only knows the state at deploy time. A pull-based agent keeps credentials in-cluster and never stops comparing.", "CI builds and tests and, at most, opens a pull request that bumps an image tag. CD is the agent reconciling git. A Jenkins job running kubectl apply against production fails all four properties: say all four.", "A webhook is how a git event reaches a pipeline. When webhooks stop landing, the receiver's pod and its permissions are the first two things to read."], "tkn-list"),
+      npc("Overlay-smith Brann", ["Kustomize layers patches over a base with no templating: what you see is YAML all the way down, and <code>kustomize build</code> shows exactly what will be applied. Helm renders from values and is a release manager too.", "Never push an overlay you have not built locally. <code>kustomize build</code> and <code>helm template</code> work offline in the exam terminal.", "Plain Secrets cannot live in git. Sealed Secrets encrypt for git; External Secrets keeps pointers in git and truth in a store; SOPS encrypts values the agent decrypts."]),
+      npc("Watchman Tobe", ["Failure modes to recognise on sight: two controllers on one resource is an infinite war; a manual fix disappears because self-heal did its job; prune deletes production when you delete a file; immutable fields need delete and recreate.", "Stale but green: suspended reconciliation, a lost webhook, a long interval. Everything healthy and nothing current. Always check when it last synced before believing a green dashboard."])
+    ]),
+    town("2.2", "Argo Harbor", "argocd-rev", "Ships named Application, each with two flags: sync status and health status. Know both, and know which pod's logs to read.", [
+      npc("Pilot Marisol", ["Two status axes. Sync says whether live matches git; health says whether what is live is working. Every combination means something different and has one right first move.", "Git said run a broken image, and the cluster faithfully runs it broken: Synced and Degraded. Clicking sync again does nothing. The fix is a commit.", "<code>argocd app get</code> shows both axes, the conditions and the resource tree. Conditions are where a compare failure speaks."], "argo-get"),
+      npc("Revision Clerk Hux", ["For targetRevision, HEAD or a branch means whatever moves there; a tag or SHA means immutable. A ref that does not exist means a ComparisonError: nothing renders, so nothing syncs, and sync status reads Unknown.", "When a task says the app will not sync, the first fork is: did rendering fail in the repo-server, or did applying fail in the controller? The message tells you which pod's logs to read.", "<code>argocd app set --revision</code> moves the target; <code>--refresh</code> forces a re-compare, <code>--hard-refresh</code> drops the manifest cache too."], "f-argo-set"),
+      npc("Wave-caller Dima", ["Manual sync waits for a human. <code>automated.selfHeal</code> reverts live drift. <code>automated.prune</code> deletes what vanished from git: without it a renamed resource lives forever, with it a deleted file deletes production.", "Sync runs in phases, and in waves within the Sync phase: lower <code>sync-wave</code> first, and Argo waits for each wave to be healthy. Hooks are ordinary manifests annotated PreSync, Sync, PostSync."]),
+      npc("Fleet Admiral Roque", ["An AppProject is a policy boundary: which repos, which destinations, which kinds. App-of-apps is one Application whose manifests are Applications. An ApplicationSet stamps them out from generators: list, clusters, git, scmProvider, pullRequest.", "Read a generator block and predict exactly which Applications will exist. That is the testable skill.", "<code>argocd app list</code>: every app, both axes, the target revision. The whole fleet in one table."], "argo-list")
+    ]),
+    town("2.3", "Fluxmoor", "flux-suspend", "A toolkit of small controllers on a wide moor. Sources fetch, appliers apply, and a suspended one just sleeps.", [
+      npc("Source-keeper Yrsa", ["Flux is small controllers composed by reference: a GitRepository fetches, a Kustomization applies a path from it, a HelmRelease installs a chart. One source can feed many Kustomizations.", "<code>flux get sources git</code> tells you what the source controller last fetched. If the revision is fresh and nothing applied, the fault is downstream."], "flux-src"),
+      npc("Moorwarden Cael", ["<code>flux get kustomizations</code> has a SUSPENDED column. A suspended Kustomization is skipped entirely: no drift correction, no prune, no error. Its Ready condition is a memory of the last run.", "Never delete a suspended Kustomization: its prune finalizer only runs on reconcile. Resume it first.", "<code>flux resume kustomization X</code> wakes it, or patch <code>spec.suspend</code> back to false."], "flux-ks"),
+      npc("Translator Piet", ["Flux's Kustomization is kustomize.toolkit.fluxcd.io and points at a directory. Kustomize's Kustomization is kustomize.config.k8s.io and lives in that directory. Exam tasks love that ambiguity.", "The translation table: Application is Kustomization plus GitRepository; sync waves are dependsOn; selfHeal is the default; prune is a field. Practise crossing it both ways."], "f-flux-resume"),
+      npc("Tree-reader Solvi", ["<code>flux tree kustomization X</code> lists what a Kustomization applied, object by object. An object missing from the cluster shows up right there.", "<code>flux reconcile kustomization X --with-source</code> reconciles now, source first. On a suspended one it does nothing, and says so."], "flux-tree")
+    ]),
+    town("2.4", "Pipewright", "tekton-task", "Pipes and steps. Every failure you will ever debug here is a container in a pod that exited non-zero.", [
+      npc("Master Pipewright Aldo", ["A Task is steps, containers sharing one pod. A Pipeline sequences Tasks. Running either means a TaskRun or a PipelineRun. That is the whole object model.", "A Pipeline referencing a Task that does not exist fails instantly with reason <code>CouldntGetTask</code>. The run's Succeeded condition carries the message and the missing name.", "<code>tkn pipelinerun describe</code>: the message, the taskruns, the skipped tasks. <code>kubectl get pipelinerun -o jsonpath='{.status.conditions[0].message}'</code> is the scriptable form."], "tkn-desc"),
+      npc("Journeyman Kip", ["Params have types and defaults. Results are small and travel through status: a digest or a count, never a log. Workspaces are bound at run time by the PipelineRun.", "Tasks with no runAfter and no shared results run in parallel. Consuming a result creates an implicit dependency; if order matters, say it with runAfter.", "<code>kubectl get tasks</code> shows what a Pipeline can reference. Compare the list with the refs."], "tkn-tasks"),
+      npc("Trigger-hand Nessa", ["Three CRDs turn a push into a run: an EventListener receives the webhook, a TriggerBinding extracts fields, a TriggerTemplate stamps out the PipelineRun. Interceptors filter and verify before anything runs.", "The listener pod runs as a ServiceAccount and lists Triggers resources on start. Take away its RoleBinding and it crashloops with 'forbidden' in its logs, over and over."]),
+      npc("Kaniko Rin", ["The pipeline pushes to <code>kind-registry:5000</code> from inside the cluster, where localhost is the pod itself. From the host the same store is localhost:5001. Know which name works from where.", "Every step is a container named step-NAME in the TaskRun's pod, so <code>kubectl logs POD -c step-build</code> works when tkn is unhelpful. Completed runs are immutable: fix the definition, then start a fresh run."], "f-tkn-start")
+    ]),
+    town("2.5", "Canary Cross", "canary-analysis", "A crossroads where two versions serve at once. The question is always: what actually shifts the traffic?", [
+      npc("Signalman Ivo", ["Argo Rollouts without a traffic provider approximates a canary by replica count: 20% weight is 20% of the pods, and the split is statistical. With a mesh or Gateway API the split is a route weight, exact and independent of replicas.", "A Rollout is a Deployment with a richer strategy. It owns a stable ReplicaSet and a canary one, which is why <code>kubectl get rs</code> during a rollout is so legible.", "<code>kubectl argo rollouts get rollout</code> draws the tree: revisions, ReplicaSets, AnalysisRuns, each with its status."], "ro-get"),
+      npc("Oracle Beatrix", ["An analysis step runs an AnalysisTemplate: a metric provider, a query, a success condition, error limits. Every measurement lands in an AnalysisRun, and a run that errors aborts the rollout.", "Choose metrics the user feels: success rate and latency over the canary's own series. An analysis that measures the stable version will happily promote a broken release.", "<code>kubectl get analysisruns</code>, then describe the newest: the error message names the address it could not reach."], "ar-get"),
+      npc("Flagger Ottilie", ["Flagger inverts the model: you author a plain Deployment, and its Canary resource generates the primary Deployment, the Services and the routing, then shifts real traffic. Between rollouts your Deployment sits at 0/0 and that is the system working.", "A canary with no traffic produces no metrics. Flagger's load-test webhook is what makes an analysis measurable."]),
+      npc("Retry-master Gus", ["Fix the template, then retry: <code>kubectl argo rollouts retry rollout X</code>. Retrying against the same broken address fails the same way.", "Cannot afford double capacity: canary. Need instant rollback and a clean cutover: blue-green. Per-user comparison: A/B, which needs L7. And if you abort without reverting git, the next sync re-applies the bad image."], "f-ro-retry")
+    ]),
+    town("2.6", "Driftwatch", "image", "A watchtower over the reach. Bucket first, then descend: the expensive mistake is fixing in the wrong layer.", [
+      npc("Watch Captain Hedda", ["Four buckets. Synced and Degraded: the controller did its job, fix the commit. Sync fails outright: the API server rejected something, read its message. Controller trouble: repo, credentials, its own RBAC. Stale but green: nothing current.", "Say the bucket out loud before you touch anything. It costs three seconds and it stops you editing live state when the problem is a commit."]),
+      npc("Image-reader Tancred", ["Synced plus Degraded is a bad image tag, an impossible request, a missing ConfigMap key, a probe that cannot pass. Pod events carry the real error: ImagePullBackOff, CreateContainerConfigError, FailedScheduling.", "<code>kubectl get deploy -o yaml</code> shows the template as it is, tag and all. Compare it with the events, and the fix writes itself."], "k-yaml"),
+      npc("Drift-hunter Mab", ["With self-heal on, drift self-corrects and the question becomes what keeps recreating this thing. Owner references or the <code>app.kubernetes.io/instance</code> label prove it. With self-heal off, <code>argocd app diff</code> is the tool.", "Compare rendered manifests with live objects rather than reading source YAML: <code>argocd app manifests</code> catches overlay mistakes that review misses."], "argo-diff"),
+      npc("Set-image Roald", ["A wrong tag is fixed where it lives: the Deployment's template. <code>kubectl set image deploy/X container=image:tag</code> does it; deleting the pod only makes another from the same template.", "In GitOps the real fix is the commit, and the live edit is drift the controller will revert. Know which one you are doing, and say so."], "f-set-image")
+    ]),
+
+    /* ── Compositor Heights: domain 3 ── */
+    town("3.1", "Thinvale", "xr-paused", "The thinnest viable town. Vocabulary and judgement live here, and the paper's own words are the answer key.", [
+      npc("Elder Corvin", ["A platform is an integrated collection of capabilities, defined and presented according to the needs of its users. The key word is users: a product with internal customers, not an infrastructure inventory.", "Thinnest Viable Platform: the smallest layer that provides consistency and accelerates delivery, kept small on purpose. Platform teams build interfaces; they should not rebuild capabilities."]),
+      npc("Pathfinder Elke", ["A golden path is a templated composition of well-integrated code and capabilities, documentation included. Paved, not mandatory.", "Self-service: a user requests a capability and receives it automatically, no human in the loop. Every tool in this region is a different way to deliver that property.", "Capability is the thing offered; the interface is how. A portal over a ticket queue is a nicer ticket queue."]),
+      npc("Contract Scribe Nils", ["Designing an API is five decisions: abstraction level, validation at admission, status reporting, deliberate versioning, documentation in the schema. Write the ten-line YAML your user will type before you write the schema.", "A platform API without a meaningful READY column is user-hostile, and the support burden lands on you.", "<code>kubectl explain KIND</code> is the documentation your users will actually read, because it is where they already work."], "k-explain"),
+      npc("Maturity Assessor Ada", ["Provisional, operational, scalable, optimizing. Tickets and a shared spreadsheet is operational at best.", "Anti-patterns to name: the platform as a gate, the leaky abstraction, the mandated platform, the rebuilt wheel."])
+    ]),
+    town("3.2", "Schemastead", "xp-provider-rbac", "A town of scribes. A CRD exists without a controller: typed, validated, RBAC-aware, documented, and doing nothing at all.", [
+      npc("Scribe Halvard", ["A CRD is group plus names plus scope plus versions. The metadata name must be exactly <code>plural.group</code>; getting that wrong is the most common first error.", "Deprecating a version means served true with storage moved on; removing it means served false. Different schemas need conversion: None or a Webhook."]),
+      npc("Validator Ysolde", ["The schema is OpenAPI v3: types, required, enum, pattern, ranges, defaults. <code>x-kubernetes-validations</code> adds CEL rules with human messages: cross-field constraints, immutability with <code>self == oldSelf</code>.", "Anything not in the schema is silently pruned on write. Users say 'my setting is ignored'; the truth is it was never stored."]),
+      npc("Status-keeper Ferdi", ["<code>subresources.status</code> splits /status into its own endpoint: writes to the main resource ignore status, writes to /status ignore the rest. The classic 'my controller's status writes vanish' is the subresource working.", "<code>additionalPrinterColumns</code> decide what kubectl get shows. Wait for the Established condition before using a new kind."]),
+      npc("Explorer Bo", ["Three commands operate an operator you have never met: <code>kubectl api-resources | grep TOOL</code> for the nouns, <code>kubectl explain KIND --recursive</code> for the schema, <code>kubectl get crd NAME -o yaml</code> for columns and validation.", "Crossplane's XRD and kro's ResourceGraphDefinition generate CRDs for you: the same thing you hand-write here, produced by a higher-level API."], "k-get")
+    ]),
+    town("3.3", "Loopwell", "xr-paused", "A well that never stops turning. Observe, compare, step, write status, requeue.", [
+      npc("Loop-tender Marek", ["A controller watches a kind and runs the same function for each object: observe actual state, compare with desired, take one step, write status, requeue. It acts on the state it finds, not the event that woke it.", "Missed events cost nothing, duplicates are harmless, and the loop is safe to restart. That is level-based reconciliation, and it is why deleting things is so often safe."]),
+      npc("Condition Reader Alva", ["Conditions are typed: type, status, reason in CamelCase, message for you, lastTransitionTime, observedGeneration. Ready is the summary; the others say which phase is stuck.", "If observedGeneration lags metadata.generation, the controller has not processed your edit and status describes a previous spec. Check it first; almost nobody does.", "<code>kubectl describe</code> puts conditions and annotations on one screen. A paused annotation and a ReconcilePaused reason are two lines apart."], "k-describe"),
+      npc("Owner-tracer Jory", ["Operator-created resources carry ownerReferences. That answers what keeps recreating this thing, drives cascade deletion, and lets you rebuild the object tree without documentation.", "A deletion stuck in Terminating has a finalizer, and a controller doing teardown, or dead. Find whose finalizer and why its controller is not running. Stripping it leaks whatever the teardown owned."]),
+      npc("Level-setter Gwen", ["Operator capability levels: basic install, seamless upgrades, full lifecycle, deep insights, auto-pilot. A yardstick when a scenario asks whether to adopt an operator or run something yourself.", "A dead controller means nothing converges. A dead webhook with failurePolicy Fail means nothing it matches can be written. Different failure modes; know which one you are looking at."])
+    ]),
+    town("3.4", "Stepstone", "xp-provider-rbac", "Stepping stones across a stream: run to completion, not converge forever.", [
+      npc("Ferryman Osric", ["A workflow runs to completion; a controller converges forever. That distinction is the whole decision table: stamp this out once when asked is a workflow, keep this true for three years is an operator.", "The controller here watches the argo and default namespaces. A Workflow created elsewhere sits untouched forever and looks exactly like a broken controller."]),
+      npc("Template-keeper Ines", ["A Workflow is an entrypoint and templates: container, script, resource, dag, steps. Parameters flow between tasks through outputs; when gates branches; withItems fans out.", "A WorkflowTemplate with typed, defaulted, documented parameters is an API. A Workflow with hard-coded values is a script you happened to run in a pod."]),
+      npc("Forbidden Fenn", ["Workflow pods run as a ServiceAccount. A resource template that creates namespaces needs cluster-scoped rights that default does not have. A Forbidden error inside a workflow node is an RBAC problem, not a workflow problem.", "Every workflow ServiceAccount needs create and patch on <code>workflowtaskresults.argoproj.io</code>, or a perfectly correct workflow fails before your real permission problem surfaces.", "<code>kubectl auth can-i --list --as=system:serviceaccount:NS:SA</code> asks the API server the question the pod is asking."], "k-cani"),
+      npc("Grader Pim", ["Grade a provisioning task twice: the workflow reached Succeeded, and the objects it was supposed to create exist with the right content. A green workflow that produced nothing is still a failure.", "Idempotency is your job: resource templates with action apply, or a when guard on an existence check. Workflows do not reconcile."])
+    ]),
+    town("3.5", "Crossplain", "xp-provider-rbac", "A wide plain where an XRD promises, a Composition fulfils, and an XR is the ten lines a developer types.", [
+      npc("Composer Idunn", ["XRD is the API you promise. Composition is the recipe: a pipeline of functions producing composed resources. XR is an instance a developer creates. Crossplane generates the CRD and reconciles each XR forever.", "Failure bubbles bottom-up: a composed resource fails, its condition says why, the XR's Ready goes False with a summary. The read path is XR conditions, then composed resource conditions, then the underlying object's error.", "<code>crossplane beta trace KIND NAME</code> draws the composite and everything it composed, with Synced and Ready per row."], "xp-trace"),
+      npc("Provider-wright Sefton", ["Providers are controllers for external APIs; Functions are pipeline steps. A ProviderConfig tells a provider how to authenticate. Step zero of any diagnosis: every package Installed and Healthy.", "provider-kubernetes acts on the cluster with its own ServiceAccount's rights. Take away the ClusterRoleBinding and every composed Object fails to observe with 'forbidden' in its Synced condition.", "<code>kubectl get objects</code> shows the composed Objects: which kind, which ProviderConfig, synced, ready."], "xp-objects"),
+      npc("Version-keeper Runa", ["This is Crossplane v2: namespaced XRs, no claims, the pipeline in the Composition. A namespaced XR uses the namespaced Object variant, kubernetes.m.crossplane.io, authenticated by ClusterProviderConfig.", "<code>kubectl explain composition.spec</code> settles a version-skew argument in three seconds."]),
+      npc("Pause-warden Teo", ["The <code>crossplane.io/paused: true</code> annotation stops reconciliation entirely: Synced False, reason ReconcilePaused, and no spec change reaches the composed resources.", "Removing an annotation is <code>kubectl annotate KIND NAME key-</code>, with the trailing dash. Editing the composed resources by hand is drift the next reconcile erases."], "f-annotate")
+    ]),
+    town("3.6", "Goldpath", "xr-paused", "A paved road from a form to a running workload. Each hop is a thing that can break.", [
+      npc("Orchestrator Kel", ["kro occupies Crossplane's niche with less apparatus: one ResourceGraphDefinition declares a schema and the resources it expands to, with CEL wiring the fields. No providers, no functions, no packages.", "Both sentences are true: same result, one file, no providers; and no provider ecosystem, no connection secrets, alpha-grade stability."]),
+      npc("Portal-keeper Sanne", ["Backstage is the portal half: a software catalog, software templates with a scaffolder, TechDocs, plugins. A template commits to git, an ApplicationSet notices, an app deploys.", "Narrate the chain hop by hop: template action, generator filter, generated Application's destination, the workload itself. Each hop is a thing you may be asked about.", "<code>kubectl get KIND -o wide</code> shows the extra columns: node, IP, images. The cheapest way to see what a hop actually produced."], "k-wide"),
+      npc("Decider Frode", ["Three questions choose the engine. Forever or once? An API object, a schedule, a git event, or a human? A developer writing YAML, clicking a form, or another system?", "When two engines both work, say so and pick the thinnest one. That is the TVP instinct applied to your own tooling."]),
+      npc("Brace-smith Ulla", ["Keep kro's substitutions in block style. Inside flow braces the expression's own brace closes the map early and the whole manifest fails to parse with a message that points nowhere.", "kro's API moves. <code>kubectl explain resourcegraphdefinition.spec</code> is the arbiter when the manifest disagrees with your version."])
+    ]),
+
+    /* ── Signal Fens: domain 4 ── */
+    town("4.1", "Scrapeholm", "servicemonitor-labels", "An island of targets. What to scrape is declared, not configured, and a selector decides who is heard.", [
+      npc("Scraper Ingrid", ["Prometheus scrapes endpoints on an interval into a local TSDB. Each series is a name plus labels, and every distinct label combination is a series: cardinality is the resource you manage.", "A ServiceMonitor says scrape the endpoints of Services matching these labels, on this port name, at this path. A PodMonitor does it without a Service. It selects Services by label, never pods.", "<code>kubectl get servicemonitors -A --show-labels</code>: every declaration and the labels the operator selects on."], "k-smon"),
+      npc("Selector Ansgar", ["Prometheus only picks up ServiceMonitors matching its own serviceMonitorSelector. On a stock install that is the release label. A perfect monitor without it is silently ignored: no error, no event, no target.", "Read the Prometheus object's selector before blaming the monitor. The namespace selector is the second half of the same trap.", "<code>kubectl get prometheus -n monitoring -o yaml</code>: the selectors are in the spec."], "k-prom"),
+      npc("Port-namer Liv", ["Port name, not number. The monitor's endpoints[].port is the Service's port name. An unnamed port cannot be referenced, and the monitor matches while scraping nothing.", "Four causes of a missing target: the selector, the port name, no endpoints behind the Service, RBAC or network policy in the way. Diagnosis order: Status, Targets, then <code>up{job=...}</code>, then those four."]),
+      npc("Query-writer Sten", ["<code>rate</code> first, then <code>sum by</code>. A range selector makes a range vector, required by rate and forbidden everywhere else. <code>absent(x)</code> is how you alert on a metric that stopped existing.", "<code>count(up == 0)</code> is the cluster's own health check. Any 'is monitoring healthy' question starts there."])
+    ]),
+    town("4.2", "Bellmarsh", "alert-never-fires", "A marsh with a bell tower. Thresholds and durations are Prometheus; grouping and routing are Alertmanager.", [
+      npc("Bell-ringer Osk", ["A PrometheusRule holds groups of rules. An alerting rule is an expression plus <code>for</code>, labels for routing and annotations for humans. Inactive, then Pending while for elapses, then Firing.", "Pending alerts appear on the Alerts page and nowhere else. They have not been sent. Add evaluation interval plus for plus group_wait before concluding alerting is broken.", "<code>kubectl get prometheusrules -A --show-labels</code>: which rule files exist, and which carry the label the ruleSelector wants."], "k-rules"),
+      npc("Rule-selector Maren", ["Rules are only evaluated if they match the Prometheus object's ruleSelector. An unmatched rule produces no evaluation and no error. Yet another place where a selector silently decides.", "Ask Prometheus itself what it loaded: its rules API, or the rulefiles ConfigMap the operator renders. If your group is not there, no threshold matters."]),
+      npc("Router Bjarne", ["Routing happens first: an alert descends the route tree to the most specific match, and that route decides the group and the timers. Only then do inhibition, silences and de-duplication run.", "Silences mute notification, never truth. Inhibition suppresses alerts when a related, more severe one fires. The Watchdog fires always: a dead man's switch for the pipeline itself."]),
+      npc("Symptom-seeker Wen", ["Alert on symptoms the user feels, not on every cause. If nobody would act at 3am it is a dashboard panel. A <code>runbook_url</code> annotation is the cheapest reliability improvement there is.", "Burn-rate alerting, fast and slow windows, pages on error budget consumption instead of arbitrary thresholds. Even the phrase multi-window multi-burn-rate says you have read the material."])
+    ]),
+    town("4.3", "Lanternquay", "config", "Lanterns along a quay. Dashboards ship as code here, and logs are stored by label, not by content.", [
+      npc("Provisioner Hilde", ["Grafana dashboards are provisioned, not clicked together: a sidecar watches ConfigMaps labelled <code>grafana_dashboard: \"1\"</code> and loads the JSON inside. That is why forty dashboards exist without anyone making them.", "Lead with the symptom. RED for services, USE for resources, the four golden signals if you prefer. Template over variables so one dashboard serves every tenant."]),
+      npc("Log-keeper Amund", ["Loki indexes labels, not content: streams are stored against a small label set and content matching scans at query time. Every query starts from a label selector. Label cardinality is what you must keep small.", "Collection is Alloy tailing pods through the kubelet and pushing to Loki. A running Loki with no shipper looks healthy and holds nothing."]),
+      npc("Stern Watcher Kaja", ["<code>kubectl logs --previous</code> is the only way to read a crashed container's last words. stern tails many pods at once. Loki is for an hour ago across the fleet; kubectl is for right now.", "A container that never started has no logs at all. ContainerCreating for minutes means the kubelet cannot finish setting the pod up, and the reason is in the events."], "k-logs-prev"),
+      npc("Question-asker Rurik", ["Metrics answer how much and how often, cheaply, over long windows. Logs answer what exactly happened to this one thing. Traces answer where in the request path it went wrong.", "Find the error message is a log question. How many failed is a metric question. Which hop was slow is a trace question. Knowing which you are asking picks the tool."])
+    ]),
+    town("4.4", "Spanbridge", "otel-exporter", "A bridge of spans. A trace is only a trace if context propagated, and the collector is where the platform team decides what happens to it.", [
+      npc("Bridge-keeper Signe", ["A trace is one request's journey; a span is one timed operation within it, with a trace ID, its own span ID and a parent. A trace is a tree, and the root span is the entry point.", "Context propagation links spans across services: the caller injects <code>traceparent</code>, the callee extracts it. Broken propagation looks like many single-span traces, none joined."]),
+      npc("Collector Vidar", ["The collector is the platform's control point: receivers take telemetry in, processors batch and redact, exporters send it on. A pipeline is those three lists, and spans leave through the exporters list.", "A pipeline whose only exporter is debug logs every span and sends it nowhere. The app says it sent, the collector says it received, and Jaeger stays empty.", "<code>kubectl get opentelemetrycollector -o yaml</code>: read the service.pipelines block before anything else."], "k-otel"),
+      npc("Address-keeper Nora", ["The in-cluster OTLP endpoints are <code>otel-collector.tracing.svc:4317</code> for gRPC and 4318 for HTTP. Memorise the shape svc.ns.svc:port; every tracing task starts by knowing the address.", "Jaeger's collector listens on the same ports next door. If the destination exists and is idle, the fault is in what points at it."]),
+      npc("Injector Halla", ["Auto-instrumentation is an annotation on the pod template that makes a webhook inject the language agent at admission. Annotate the Deployment's own metadata and nothing happens; annotate running pods and nothing happens until they restart.", "Those two mistakes account for most 'the annotation does nothing' reports, and both are one-line fixes once you know where to look."])
+    ]),
+    town("4.5", "Doramere", "probe", "A lake with four gauges. Delivery performance says how well software reaches production; platform effectiveness says how well the platform serves its users.", [
+      npc("Gauge-keeper Arvid", ["The DORA four: deployment frequency, lead time, change failure rate, time to restore. Platform effectiveness is fulfillment latency, adoption, time to first contribution, satisfaction. A platform can ship fast and still be miserable to use.", "Argo CD exposes its metrics, but Prometheus does not scrape them until you add a ServiceMonitor. The wiring is the exercise; the PromQL is five lines."]),
+      npc("Counter Ebba", ["<code>argocd_app_sync_total</code> with a phase label gives deployment frequency and change failure rate. <code>argocd_app_info</code> carries sync and health as labels, so how many apps are unhealthy is a count over it.", "Deployment frequency from syncs is an approximation: a self-heal of an unchanged app is not a deployment. Say the approximation you are making and what would make it exact."]),
+      npc("Readiness Warden Tove", ["Deployment metrics say the platform ships fast. Restart rates, unavailable replicas and pending pods say whether it runs what it shipped. Answer 'how would you measure this' with both halves.", "Running is not Ready. A readiness probe that never passes leaves a pod Running with 0/1 forever, and the Service drains it. The events say what the probe knocked on.", "<code>kubectl exec POD -- wget -qO- localhost:8080</code>: knock on the port yourself, from inside, and compare with the port the probe uses."], "k-exec-http"),
+      npc("Rollout Watcher Per", ["<code>kubectl rollout status</code> tells you whether a rollout is progressing or stuck waiting on replicas that never become available. It is the same question a Deployment's Available condition answers.", "A probe against the wrong port is fixed in the template: correct the port, or remove the probe, with a JSON patch."], "k-rollout")
+    ]),
+    town("4.6", "Pagerfield", "netpol", "A field where the pager goes off. Under a clock, the difference between five minutes and twenty is a method you follow.", [
+      npc("Incident Commander Ragna", ["Blast radius first: what is broken and what still works. One namespace or all? Timeline second: what changed. Then descend one resource at a time: describe, events, logs, previous logs, exec. Resist skipping levels.", "Fix the cause, then prove recovery with the same signal that showed the failure. If a failing curl found it, the incident ends with that curl succeeding.", "<code>kubectl get events --sort-by=.lastTimestamp</code> is the timeline. Most incidents turn out to be a recent change."], "k-events"),
+      npc("Quiet Pod Dagny", ["Running but broken is the hardest row. It is where kubectl get pods stops helping and network, identity and config tooling starts.", "The netpol drill strips the DNS egress rule. Every pod Running, every probe green, nothing resolves. No pod listing shows it. Only an nslookup from inside, and then the policy's rules, do."]),
+      npc("Postmortem Scribe Lars", ["Five lines you can write in five minutes: symptom with a timestamp, blast radius, root cause as a mechanism not a culprit, the fix including what turned out irrelevant, proof of recovery with the follow-up that prevents recurrence.", "MTTD, MTTA, MTTR, error budget, toil. Blameless, mechanism-focused, short enough that you will actually write it."]),
+      npc("Node Nurse Edda", ["When the fault is the node: cordon stops new pods landing, drain evicts the rest respecting PodDisruptionBudgets, which is why it hangs, and uncordon puts it back.", "First restore service, then fix the cause properly. Two different actions with two different urgencies. Say which one you are doing.", "Two commands you have known since the first town: <code>kubectl get</code> for the state column, and <code>kubectl logs</code> for what the container says. Under a clock, they are still where you start."], "k-logs")
+    ]),
+
+    /* ── Warden's March: domain 5 ── */
+    town("5.1", "Bindgate", "rbac", "A gate with a ledger of bindings. Every Forbidden error decomposes the same way: subject, verb, resource, namespace.", [
+      npc("Gatekeeper Aurelie", ["Every RBAC rule is an allow; there is no deny. Your permission set is the union of matching rules, so debugging RBAC is always find the missing rule or the missing binding.", "A RoleBinding can reference a ClusterRole and grant it in one namespace only. That is how you define developer once and bind it per tenant. A ClusterRoleBinding grants everywhere and is almost always the wrong default.", "<code>kubectl get rolebindings -n NS</code>: who is bound to what, here. The one that is missing is the whole answer."], "k-rb"),
+      npc("Verb-splitter Casimir", ["get, list and watch are separate verbs. Granting get and expecting kubectl get pods to work is a classic mistake. Subresources are their own strings: pods/log, pods/exec, deployments/scale.", "Built-ins: view reads without secrets, edit writes without RBAC, admin manages RBAC in the namespace, cluster-admin is everything. Least privilege says bind the smallest one that works.", "<code>kubectl create rolebinding NAME --clusterrole=view --serviceaccount=NS:SA -n NS</code>: the shape of most fixes in this march."], "f-rb"),
+      npc("Token-keeper Mira", ["ServiceAccounts are objects and how software gets identity: system:serviceaccount:NS:NAME. Modern tokens are short-lived, audience-bound and projected. Set automountServiceAccountToken false on pods that never call the API.", "Users and groups are asserted by authentication and are not objects, which is why <code>--as=dev-a</code> works for testing without dev-a existing anywhere."]),
+      npc("Secret-keeper Yves", ["A stock Secret is base64, not encryption. Anyone with get secrets has the plaintext. Sealed Secrets encrypt for git; External Secrets keeps pointers in git and truth in a store, with rotation and audit.", "A SecretStore declares where secrets live and how to authenticate, usually a ServiceAccount. An ExternalSecret declares what to materialise. Read its conditions: a failure names the store, the key, or the auth error.", "<code>kubectl get externalsecrets</code>: store, refresh interval, status, ready. SecretSyncedError is the start of the trail."], "k-es")
+    ]),
+    town("5.2", "Wardenhall", "kyverno-deny", "The hall of admission. Mutate first, then validate, and every webhook is an availability dependency of the API server.", [
+      npc("Pipeline Marshal Ottar", ["The request pipeline: authentication, authorization, mutating admission, schema validation, validating admission, then etcd. Validating policies see the object after mutation, so a mutation can satisfy a validation the user never wrote.", "Admission applies at write time only. Tightening a policy never touches existing objects; you need an audit or a report for those."]),
+      npc("Policy-scribe Ilka", ["Kyverno speaks two dialects: classic ClusterPolicy with validate, mutate, generate and verifyImages rules, and the newer ValidatingPolicy and ImageValidatingPolicy in CEL. Gatekeeper is a ConstraintTemplate in Rego plus Constraints. ValidatingAdmissionPolicy is native CEL.", "A denial arrives in the apply error, verbatim. For a Deployment it lands one level down, as a FailedCreate event on the ReplicaSet.", "<code>kubectl get validatingpolicies</code>: the cluster-wide policies, and which one the event named."], "k-vpol"),
+      npc("Rollout Choreographer Dag", ["Ship in Audit, read the reports to find every existing offender, fix or exempt them, then flip to Deny. PolicyReports exist for exactly that middle step.", "failurePolicy Fail means an unreachable webhook blocks the write: secure, and able to freeze the cluster if the policy pods die. Ignore means writes proceed unchecked. There is only a deliberate choice."]),
+      npc("Remover Hanne", ["The fix for a policy that should not exist is to delete the policy, not the engine. Taking the admission controller down opens the whole cluster.", "<code>kubectl delete KIND NAME</code> removes an object the cluster is better off without. Make sure it is the right one: the platform's own audit policies look similar."], "f-delete")
+    ]),
+    town("5.3", "Baselin", "pss-restricted", "A walled town with three gates: privileged, baseline, restricted. Baseline stops you being dangerous; restricted forces you to be safe.", [
+      npc("Profile-keeper Hjalmar", ["Privileged allows everything. Baseline blocks known escalations: host namespaces, privileged containers, most capabilities. Restricted requires runAsNonRoot, a seccomp profile, allowPrivilegeEscalation false and dropping ALL capabilities.", "PSP was removed. If a scenario mentions it, the answer is PSS, or a policy engine for anything PSS cannot express."]),
+      npc("Label-reader Sigrun", ["The modes are namespace labels, set independently: <code>pod-security.kubernetes.io/enforce</code> rejects at admission, audit annotates the log, warn prints to the client. A version suffix pins the profile.", "<code>kubectl get ns X --show-labels</code> shows the whole grammar in one line. Enforce used to say baseline; when it says restricted, every new pod must be restricted-shaped."], "k-ns-labels"),
+      npc("Indirection Sage Thora", ["PSS evaluates pods. A Deployment whose template violates the profile is created successfully and then fails to make pods. The evidence is on the ReplicaSet, one level below where you were looking. Same indirection as quota.", "Enforcement is admission-time. Tightening a label does not evict existing violators; they run until their next write. Which is why the dry-run preview exists."]),
+      npc("Context-smith Eyvind", ["Restricted wants four things in the securityContext, and a patch that gives it three still fails. Put them all in: <code>runAsNonRoot</code>, <code>seccompProfile</code>, <code>allowPrivilegeEscalation: false</code>, <code>capabilities.drop: [ALL]</code>.", "Or set the label back to what the tenancy model said. Flipping a tenant namespace to privileged is a fix that removes the control."], "f-label")
+    ]),
+    town("5.4", "Auditmoor", "image-unsigned", "A moor of ledgers. Who did what to what, what is inside the thing we shipped, and which controls are we failing right now.", [
+      npc("Recorder Brynja", ["A policy file tells the API server what to record and at what level: None, Metadata, Request, RequestResponse. Rules match in order, first hit wins: drop the noise, elevate the sensitive, catch the rest at Metadata.", "If the audit policy file the apiserver points at is missing, the API server does not start at all. An audit misconfiguration can present as a completely dead cluster."]),
+      npc("SBOM-keeper Leif", ["An SBOM lists components and versions. It is not a vulnerability report; you join it against a CVE database, which is why one generated at build time stays useful after new CVEs land.", "CycloneDX and SPDX are the two formats; which is a compatibility question, not a quality one. When the next log4shell drops, you query your SBOMs instead of rescanning the world."]),
+      npc("Report-reader Frida", ["Trivy Operator rescans continuously and materialises results as CRs: VulnerabilityReports, SBOMReports, ConfigAuditReports, ClusterComplianceReports. Compliance as queryable API objects rather than PDF attachments.", "kubectl, RBAC, GitOps and dashboards all work on your compliance data for free once it is an object."]),
+      npc("Verifier Odd", ["Three different documents, one trust story: provenance says how it was built, an SBOM says what is inside, a signature says who vouches for it.", "<code>cosign verify --key KEY IMAGE</code>: does a signature exist for this exact digest under this key? No matching signatures is the whole answer to a refused deploy."], "cosign-verify")
+    ]),
+    town("5.5", "Cipherford", "eso-store-auth", "A ford where every crossing shows a certificate. Who is this workload, cryptographically? The ServiceAccount is the identity.", [
+      npc("Tunnel-keeper Yngve", ["Istio ambient has no sidecars: a per-node ztunnel wraps traffic in mTLS over HBONE using per-workload certificates from istiod. Enrolment is one label on the namespace.", "The identities inside are SPIFFE IDs: <code>spiffe://cluster.local/ns/NS/sa/SA</code>. Note what that is built from: the ServiceAccount is the identity."]),
+      npc("Strict Warden Asta", ["Installing a mesh does not encrypt everything. PERMISSIVE accepts mTLS and plaintext so you can migrate. You must apply STRICT, and prove it by having a plaintext connection refused.", "L4 rules, which identity may connect, work with ztunnel alone. L7 rules need a waypoint proxy, the opt-in tier."]),
+      npc("Attestor Gudrun", ["SPIFFE is the standard, SPIRE the implementation. An SVID proves the identity, fetched over a Unix socket: no network call, no secret to mount, automatic rotation. The agent attests the node, then each workload by its ServiceAccount and labels.", "Mesh for transparent mTLS between services. SPIRE alone when workloads must authenticate to something outside with short-lived credentials and no static secrets."]),
+      npc("Store-minder Eskil", ["A SecretStore that authenticates as a ServiceAccount is only as able as that account's bindings in the namespace it reads from. A 403 in the store's condition is an RBAC fix in another namespace, not a secrets fix.", "<code>kubectl get clusterrolebindings</code> shows the cluster-wide grants, controllers' own included. When a controller loses one, everything it touches fails with forbidden at once."], "k-crb")
+    ]),
+    town("5.6", "Signet", "image-unsigned", "A town of seals. Five controls sit between a git push and a running pod, and each catches a failure class the others cannot.", [
+      npc("Scanner Marit", ["In the pipeline a Trivy task with <code>--exit-code 1 --severity HIGH,CRITICAL</code> is a gate: it stops a bad image before it exists. In the cluster the operator is surveillance for CVEs published after you shipped. Teams that only scan in CI are blind to every CVE younger than their last deploy.", "A gate that always fails gets disabled. Keep an auditable ignore file with expiry dates rather than a loosened threshold."]),
+      npc("Signer Torvald", ["cosign signs an image digest with a key and pushes the signature to the registry beside the image. The thing signed is the digest, which is why tags are mutable but signed supply chains are not.", "Keyless mode: a CI identity gets a short-lived certificate from Fulcio and the signature is recorded in Rekor, a public transparency log. Fulcio, Rekor, OIDC: know the three names.", "<code>cosign sign --key k8s://drill-ci/cosign-key IMAGE</code> signs with the platform key the policy trusts. A pipeline that skipped its sign step ships an image admission will refuse."], "f-cosign-sign"),
+      npc("Enforcer Solveig", ["Without enforcement, signing is decoration. An ImageValidatingPolicy holds the key, intercepts pod creation, resolves each image, checks its signature, rejects on failure. It can also mutate the reference to its digest.", "The fix for a refused image is to sign it, not to weaken the policy that caught it.", "<code>kubectl get imagevalidatingpolicies -o yaml</code>: which images it matches, which key it verifies against."], "k-ivpol"),
+      npc("Registry-keeper Jorun", ["The pipeline pushes to kind-registry:5000 from inside the cluster; the policy fetches the signature from inside too. Know which name works from where.", "Compare the release run with the hotfix run: both succeeded, one skipped its sign task. tkn shows skipped tasks and the when expression that skipped them."])
+    ])
+  ];
 
   return {
     map: MAP, tiles: TILES, regions: REGIONS, towns: TOWNS, techniques: TECHNIQUES, items: ITEMS,

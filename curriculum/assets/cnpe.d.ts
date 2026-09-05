@@ -299,6 +299,8 @@ interface CnpeGameTown {
   /** section id, e.g. "2.3"; the trial is that section's self-check cards */
   sec: string;
   name: string;
+  /** one line about the place, shown on entering */
+  blurb?: string;
   x: number;
   y: number;
   npcs: CnpeGameNpc[];
@@ -309,8 +311,11 @@ interface CnpeGameTown {
 }
 
 interface CnpeGameTechnique {
-  /** the command family the player picks from the battle menu */
+  /** the command template; {ns} {res} {pod} {kind} {sa} {app} {name} are
+      filled from the scenario, capitals and trailing = are left to the player */
   cmd: string;
+  /** a repair rather than an inspection: it sits in the Fix menu */
+  fix?: boolean;
   /** what it is for, one line */
   about: string;
   /** the tool family, which the cheat sheets key on */
