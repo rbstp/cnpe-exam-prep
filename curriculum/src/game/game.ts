@@ -220,7 +220,7 @@
   var battle: Battle | null = null;
   var hp = 0;                                         // the session's hearts; a page load heals
   var dlg: Dialogue | null = null;                    // { who, pages: [], i, done: fn }
-  var posTimer = 0, dirty = true;
+  var posTimer = 0, dirty = true, themeOnce = false;
   var bt: BattleDom | null = null;                    // the battle screen, while one is built
   /** a keep's next monster waiting for the last one's fall: paints are deferred and the prompt shut until it fires */
   var swapPending: { t: BattleDom; fire: () => void } | null = null;
@@ -435,7 +435,7 @@
   var sizeObs: ResizeObserver | null = null;
   var stats = { frames: 0, drawMs: 0, terrainRenders: 0, terrainMs: 0, terrainPatches: 0, tilesRepainted: 0, patchMs: 0, minimapBuilds: 0 };
   var mini: HTMLCanvasElement | null = null, miniBase: HTMLCanvasElement | null = null;   // the minimap, and the map under its dot and its frame
-  var miniScale = 1;                                  // whole device pixels per minimap pixel (a tile), chosen for the screen like the map's
+  var miniScale = 1, MINI_CSS_W = 120;                // whole device pixels per minimap pixel (a tile), chosen for the screen like the map's; the box game.css gives the canvas
   var miniDot = { x: -1, y: -1 };                     // where the dot was last painted, to lift it
   var miniFrame = { x: -1, y: -1 };                   // the viewport frame's top-left tile as last painted, to lift it
   var lastLabel = "";                                 // the canvas's aria-label as last written
@@ -614,7 +614,7 @@
   /** the backing store behind the minimap's 120 by 80 CSS pixels: whole device pixels per tile, like fitCanvas() */
   function fitMini() {
     if (!mini) return;
-    var dpr = window.devicePixelRatio || 1, cssW = mini.clientWidth || mapW;
+    var dpr = window.devicePixelRatio || 1, cssW = mini.clientWidth || MINI_CSS_W;   // hidden off the map, it has no width: the stylesheet's stands in
     var s = Math.max(1, Math.min(4, Math.round(cssW * dpr / mapW)));
     if (s === miniScale && mini.width === mapW * s) return;
     miniScale = s; mini.width = mapW * s; mini.height = mapH * s;   // sizing clears it
@@ -649,6 +649,8 @@
     if (!rafId && host && scene === "map") rafId = requestAnimationFrame(frame);
   }
   function frame() { rafId = 0; draw(); }
+  /** paint now: the frame pending, if any, is cancelled first, or two would run side by side */
+  function paintNow() { if (rafId) { cancelAnimationFrame(rafId); rafId = 0; } dirty = true; draw(); }
   function draw() {
     if (!ctx || !host || scene !== "map" || !dirty) return;
     dirty = false;
@@ -726,7 +728,7 @@
   }
   function tickAnim() { animTimer = 0; beat(); syncAnim(); }
   /** one beat by hand, the ticker left as it is: a test hook. Nothing under reduced motion, which has no beat. */
-  function tickBeat() { if (!host || reduceMotion) return; beat(); }
+  function tickBeat() { if (!host || reduceMotion || scene !== "map") return; beat(); }
   /** the backing store: whole device pixels per art pixel, so the art stays sharp on any screen */
   function fitCanvas() {
     if (!host) return;
@@ -759,7 +761,9 @@
     canvas.style.visibility = onMap ? "" : "hidden";
     hud.hidden = !onMap; whereEl.hidden = !onMap; miniWin.hidden = !onMap;
     stage.classList.toggle("gm-map", onMap);
-    if (onMap) { screen.innerHTML = ""; bt = null; tn = null; swapPending = null; startEase(); requestDraw(); paintHud(); savePos(true); }
+    // a battle's flash is the battle's: its record does not follow the screen into the next scene
+    screen.classList.remove("fx-flash"); screen.removeAttribute("data-fx");
+    if (onMap) { screen.innerHTML = ""; bt = null; tn = null; swapPending = null; fitMini(); startEase(); requestDraw(); paintHud(); savePos(true); }
     else { dialog.hidden = true; dlg = null; settleStep(); }
     syncAnim();
   }
@@ -1349,6 +1353,8 @@
     b.over = true;
     b.log.push({ hit: "You black out." });
     save();
+    fx = null;                                        // the figure goes with the screen's contents; the blow lands on the edge that stays
+    pulse(screen, "flash", 400);
     resultCard(false);
   }
   function flee() {
@@ -1486,11 +1492,15 @@
 
     readPalette();
     fitCanvas();
-    // the theme's listener, held like the rest of the mount's and let go by unmount()
-    if (window.CNPE_THEME) {
+    // the theme's listener, held like the rest of the mount's and let go by unmount(). A cached
+    // theme.js from before offChange() cannot let one go: then it is wired once for the page,
+    // as before, and does nothing while the quest is unmounted.
+    // (the type says offChange is always there; a cached script is what the check is for)
+    var themeOff = window.CNPE_THEME && (window.CNPE_THEME as Partial<CnpeThemeApi>).offChange;
+    if (window.CNPE_THEME && (themeOff || !themeOnce)) {
       var theme = window.CNPE_THEME;
       var onTheme = function () {
-        if (!host) return;                            // a cached theme.js from before offChange() still tells an unmounted quest
+        if (!host) return;
         readPalette(); requestDraw();
         // a live battle repaints so the monster takes the new palette; a finished
         // one keeps its result card; the terminal and its half-typed command stay
@@ -1499,7 +1509,8 @@
         if (scene === "town" && town && tn) { var sc = tn.right.querySelector<HTMLCanvasElement>(".gm-scene"); if (sc) paintBackdrop(sc, +town.sec.split(".")[0]); }
       };
       theme.onChange(onTheme);
-      undo.push(function () { if (theme.offChange) theme.offChange(onTheme); });
+      if (themeOff) undo.push(function () { theme.offChange(onTheme); });
+      else themeOnce = true;
     }
     // fonts arrive after first paint, and the town labels are text
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { requestDraw(); });
@@ -1555,7 +1566,7 @@
       keys();
       paintTiles(); paintHud();
       setScene("map");
-      frame();                                        // the first frame now, not on the next tick: the page opens painted
+      paintNow();                                     // the first frame now, not on the next tick: the page opens painted
       intro();
     },
     /** take the quest down: the animation frame, the beat, every timer, observer
@@ -1591,7 +1602,7 @@
         camera: lastCam ? { x: lastCam.x, y: lastCam.y } : null, cameraEase: !!ease,
         waterInView: waterInView, ambientInView: ambientInView,
         mounted: !!host, mounts: mounts, listeners: undo.length, timers: timers.length,
-        frame: function () { if (rafId) { cancelAnimationFrame(rafId); rafId = 0; } dirty = true; draw(); },
+        frame: paintNow,
         tick: tickBeat, settle: settle };
     }
   };

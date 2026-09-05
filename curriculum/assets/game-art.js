@@ -273,9 +273,9 @@
             ["................", ".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HSSSSHHH....", "....HeSSSHHH....", ".....SSSSSH.....", "......SSSS......",
                 ".....TTTTTTT....", "....TTTTTTTTT...", "....STTTTTTTT...", "....S.TTTTTT....", ".....tttttt.....", ".....BBB.BB.....", ".....BBB.BB.....", ".....xxxxxx....."],
             ["................", ".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HSSSSHHH....", "....HeSSSHHH....", ".....SSSSSH.....", "......SSSS......",
-                ".....TTTTTTT....", "....TTTTTTTTT...", "....STTTTTTTT...", "....S.TTTTTT....", ".....tttttt.....", "....BB...BBB....", "....BB...BBB....", "....xxxxxxxx...."],
+                ".....TTTTTTT....", "....TTTTTTTTT...", "...S.TTTTTTTT...", "...S..TTTTTT....", ".....tttttt.....", "....BB...BBB....", "....BB...BBB....", "....xxxxxxxx...."],
             ["................", ".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HSSSSHHH....", "....HeSSSHHH....", ".....SSSSSH.....", "......SSSS......",
-                ".....TTTTTTT....", "....TTTTTTTTT...", "....TTTTTTTTS...", "......TTTTTT.S..", ".....tttttt.....", "....BBB...BB....", "....BBB...BB....", "....xxxxxxxx...."]
+                ".....TTTTTTT....", "....TTTTTTTTT...", ".....TTTTTTTTS..", "......TTTTTT.S..", ".....tttttt.....", "....BBB...BB....", "....BBB...BB....", "....xxxxxxxx...."]
         ]
     };
     HERO.r = HERO.l.map(flip);

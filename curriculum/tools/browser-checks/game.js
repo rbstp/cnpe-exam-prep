@@ -659,8 +659,8 @@ module.exports = async function (h) {
     const ground = { corner: await px(45, 31), edge: await px(45, 40) };
     await standAt(page, 60, 40);
     const v1 = await view(page);
-    const frame1 = { at: [v1.cx, v1.cy], corner: await px(45, 31), edge: await px(45, 40), right: await px(74, 40), inside: await px(46, 40), old: await px(0, 0) };
-    assert(v1.cx === 45 && v1.cy === 31 && frame1.corner === rgb(colours.paper) && frame1.edge === rgb(colours.paper) && frame1.right === rgb(colours.paper) && frame1.inside !== rgb(colours.paper) && frame1.old !== rgb(colours.paper),
+    const frame1 = { at: [v1.cx, v1.cy], corner: await px(45, 31), edge: await px(45, 40), right: await px(74, 40), inside: await px(46, 40) };
+    assert(v1.cx === 45 && v1.cy === 31 && frame1.corner === rgb(colours.paper) && frame1.edge === rgb(colours.paper) && frame1.right === rgb(colours.paper) && frame1.inside !== rgb(colours.paper),
       'from (60, 40) the frame stands at tiles 45..74 by 31..49: ' + JSON.stringify(frame1));
     await page.keyboard.press('ArrowRight');
     await page.waitForFunction(() => !window.CNPE_GAME.debug().walking, null, { timeout: 2000 }).catch(() => {});
@@ -760,9 +760,12 @@ module.exports = async function (h) {
     const dropped = await page.evaluate(() => { const w = /** @type {any} */ (window), d = window.CNPE_GAME.debug(); return { terrain: d.terrain, minimap: d.minimap, listeners: d.listeners, timers: d.timers, theme: w.__theme }; });
     assert(dropped.terrain === null && dropped.minimap === null, 'and unmount drops the terrain and minimap caches: ' + JSON.stringify(dropped));
     assert(dropped.listeners === 0 && dropped.timers === 0 && dropped.theme.held === 1 && dropped.theme.off === dropped.theme.on - 1, 'nothing held after the last unmount, the theme handler included: ' + JSON.stringify(dropped));
-    // and the hooks are no-ops when nothing is mounted
-    await page.evaluate(() => { window.CNPE_GAME.debug().tick(); window.CNPE_GAME.debug().settle(); });
-    assert(!(await page.evaluate(() => window.CNPE_GAME.debug().mounted)), 'tick() and settle() do nothing outside a mount');
+    // and the hooks are no-ops when nothing is mounted: the beat, the frame count and the timers are as they were
+    const hooks = await page.evaluate(() => {
+      const w = /** @type {any} */ (window), pick = () => { const d = window.CNPE_GAME.debug(); return { waterFrame: d.waterFrame, frames: d.frames, timers: d.timers, raf: w.__pending.raf.size }; };
+      const before = pick(); window.CNPE_GAME.debug().tick(); window.CNPE_GAME.debug().settle(); return { before, after: pick() };
+    });
+    assert(JSON.stringify(hooks.before) === JSON.stringify(hooks.after), 'tick() and settle() do nothing outside a mount: ' + JSON.stringify(hooks));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   });
@@ -875,7 +878,22 @@ module.exports = async function (h) {
         const rgb = (/** @type {string} */ hex) => { const h = hex.replace('#', ''); return 'rgb(' + [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)).join(', ') + ')'; };
         assert(hit.anim === 'gm-edge' && hit.shadow.indexOf(rgb(hit.bad)) >= 0 && /inset/.test(hit.shadow), tag + 'the edge flashes an inset shadow in --bad: ' + JSON.stringify(hit));
       }
-      // lifted: by animationend on the clock's own time, or by the clock fallback settle() fires now; data-fx stays for the record
+      if (!reduced) {
+        // the animation's end lifts the class, the clock still pending behind it; an end reported by a child (a float) is not the element's own
+        const ended = await page.evaluate(() => {
+          const bar = /** @type {HTMLElement} */ (document.querySelector('.gm-bar:not(.hp)')), scr = /** @type {HTMLElement} */ (document.querySelector('.gm-screen'));
+          const end = (/** @type {Element} */ e) => e.dispatchEvent(new AnimationEvent('animationend', { bubbles: true, animationName: 'x' }));
+          const timers0 = window.CNPE_GAME.debug().timers;
+          end(bar.querySelector('.gm-float') || bar.firstElementChild);
+          const child = { bar: /fx-shake/.test(bar.className), screen: /fx-flash/.test(scr.className) };
+          end(bar); end(scr);
+          return { timers0, child, bar: bar.className, screen: scr.className, timers: window.CNPE_GAME.debug().timers, barFx: bar.getAttribute('data-fx'), screenFx: scr.getAttribute('data-fx') };
+        });
+        assert(ended.child.bar && ended.child.screen, tag + 'a child\'s animationend, bubbling up, lifts neither class: ' + JSON.stringify(ended.child));
+        assert(!/fx-shake/.test(ended.bar) && !/fx-flash/.test(ended.screen) && ended.timers === ended.timers0 && ended.timers > 0 && ended.barFx === 'shake' && ended.screenFx === 'flash',
+          tag + 'the element\'s own animationend lifts its class with the clock still pending, data-fx kept: ' + JSON.stringify(ended));
+      }
+      // the clock: settle() fires the fallbacks now, which lift the classes (reduced motion has no animation to end) and the numbers; data-fx stays for the record
       const lifted = await page.evaluate(() => {
         window.CNPE_GAME.debug().settle();
         const bar = /** @type {HTMLElement} */ (document.querySelector('.gm-bar:not(.hp)')), scr = /** @type {HTMLElement} */ (document.querySelector('.gm-screen'));
@@ -885,10 +903,15 @@ module.exports = async function (h) {
         tag + 'the clock lifts both classes and the numbers, data-fx keeps the record: ' + JSON.stringify(lifted));
       const t = (await state()).term;
       assert(/Evidence found \(1\/3\): the enemy staggers\. \+12 xp \(typed\)\./.test(t) && /strikes for \d+\. Health \d+ of \d+\./.test(t), tag + 'the terminal text is as it was');
+      // the record is the battle's: fleeing to the town clears it from the screen, which outlives the battle
+      await page.click('.gm-acts button:has-text("Flee")');
+      await page.waitForSelector('.gm-menu button:has-text("Dungeon")');
+      const cleared = await page.evaluate(() => { const scr = document.querySelector('.gm-screen'); return { fx: scr.getAttribute('data-fx'), cls: scr.className }; });
+      assert(cleared.fx === null && !/fx-flash/.test(cleared.cls), tag + 'leaving the battle clears the flash and its record from the screen: ' + JSON.stringify(cleared));
       assert(page.errors.length === 0, tag + 'no console errors: ' + page.errors.join(' | '));
       await ctx.close();
     }
-    // on the clock: the classes come off by themselves when the animations end
+    // on the clock: the classes come off by themselves, and the killing blow flashes the edge of a screen the card then takes
     const { ctx, page } = await fresh({ game: { towns: { '1.1': 1 }, flags: { intro: 1 }, learned: { 'k-get': 1 }, pos: { x: 10, y: 6, t: 1 } } });
     await page.goto(url('game.html'));
     await page.waitForSelector('.gm-stage canvas');
@@ -900,7 +923,13 @@ module.exports = async function (h) {
     await type(page, 'kubectl -n team-a get svc');
     await page.waitForFunction(() => !/fx-shake/.test(document.querySelector('.gm-bar:not(.hp)').className) && !/fx-flash/.test(document.querySelector('.gm-screen').className), null, { timeout: 2000 }).catch(() => {});
     const own = await page.evaluate(() => ({ bar: document.querySelector('.gm-bar:not(.hp)').className, screen: document.querySelector('.gm-screen').className, timers: window.CNPE_GAME.debug().timers }));
-    assert(!/fx-shake/.test(own.bar) && !/fx-flash/.test(own.screen), 'on the clock, animationend lifts both classes on its own: ' + JSON.stringify(own));
+    assert(!/fx-shake/.test(own.bar) && !/fx-flash/.test(own.screen), 'on the clock, both classes come off by themselves: ' + JSON.stringify(own));
+    for (let i = 0; i < 40; i++) {
+      if (await page.locator('.gm-result').count()) break;
+      await type(page, 'kubectl -n team-a get svc');
+    }
+    const last = await page.evaluate(() => { const scr = document.querySelector('.gm-screen'); return { fx: scr.getAttribute('data-fx'), card: !!document.querySelector('.gm-result h4.lose') }; });
+    assert(last.card && last.fx === 'flash', 'the blow that ends the fight flashes the edge behind the defeat card: ' + JSON.stringify(last));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   });
