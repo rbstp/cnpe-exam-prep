@@ -33,6 +33,13 @@ module.exports = async function (h) {
       await b.click();
     }
     await page.focus('.gm-stage');
+    // A render paints the camera's tiles and sweeps the rest in over the frames
+    // after, so the terrain, the minimap and terrainMs are only whole once the
+    // last tile has landed. Drive that to its end rather than waiting on it —
+    // every group below reads one of the three, and one of them runs on a driven
+    // clock, which has no animation frames for a sweep. 8a, which is about the
+    // sweep, makes its own half-painted render afterwards and lets it finish.
+    await page.evaluate(() => window.CNPE_GAME.debug().sweep());
   };
   /** @param {import('playwright').Page} page @param {number} x @param {number} y */
   const standAt = async (page, x, y) => {
@@ -504,16 +511,48 @@ module.exports = async function (h) {
     await standAt(page, 60, 40);
     const there = await page.evaluate(() => {
       const g = () => window.CNPE_GAME.debug();
+      const slices = g().terrainSlices;
       window.CNPE_THEME.set('light');
       g().frame();
       const d = g(), c = /** @type {HTMLCanvasElement} */ (document.querySelector('.gm-stage canvas'));
       const p = c.getContext('2d').getImageData((c.width / 2) | 0, (c.height / 2) | 0, 1, 1).data;
       const hex = getComputedStyle(document.documentElement).getPropertyValue('--ink-sunk').trim().replace('#', '');
-      return { pending: d.terrainPending, middle: p[0] + ',' + p[1] + ',' + p[2], sunk: [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16)).join(','), at: [d.x, d.y] };
+      return { slices: d.terrainSlices - slices, pending: d.terrainPending, middle: p[0] + ',' + p[1] + ',' + p[2], sunk: [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16)).join(','), at: [d.x, d.y] };
     });
     assert(there.at.join() === '60,40' && there.pending > 0 && there.middle !== there.sunk,
       'a camera in the middle of the map paints its own tiles before it reads them, the rest still to sweep: ' + JSON.stringify(there));
+    // and it is the render that paints them, in the one slice it pays: a render
+    // that painted the map's beginning instead would leave the frame to pay a second
+    assert(there.slices === 1, 'the render paints where the camera is, not where the map begins: ' + there.slices + ' slice for that frame');
     await page.waitForFunction(() => window.CNPE_GAME.debug().terrainPending === 0, null, { timeout: 5000 });
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  });
+
+  /* 8a2. the minimap the sweep leaves behind has to be whole. It is built from the terrain at the end of a
+     slice, which paints the ground and nothing over it, and that slice usually lands in an animation frame of
+     the sweep's rather than in a draw() that would put the dot, the viewport frame and the ring back. */
+  await group('the minimap the sweep builds comes up with the dot and the frame on it', async () => {
+    const { ctx, page } = await fresh({ game: { flags: { intro: 1 }, pos: { x: 60, y: 40, t: 1 } } }, { reducedMotion: 'reduce' });
+    await page.goto(url('game.html'));
+    await page.waitForSelector('.gm-stage canvas');
+    const rgb = (/** @type {string} */ hex) => { const h = hex.replace('#', ''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)).join(','); };
+    const colours = await page.evaluate(() => { const cs = getComputedStyle(document.documentElement); const v = (/** @type {string} */ n) => cs.getPropertyValue(n).trim(); return { warn: v('--warn'), ink: v('--ink'), paper: v('--paper') }; });
+    // no frame() and no sweep() here: the sweep runs on its own animation frames,
+    // and under reduced motion there is no beat to come round and repaint after it
+    await page.waitForFunction(() => window.CNPE_GAME.debug().terrainPending === 0 && window.CNPE_GAME.debug().minimapBuilds > 0, null, { timeout: 5000 });
+    const built = await page.evaluate(() => {
+      const c = /** @type {HTMLCanvasElement} */ (document.querySelector('.gm-mini canvas')), k = c.getContext('2d');
+      const d = window.CNPE_GAME.debug(), s = d.minimap.scale;
+      const at = (/** @type {number} */ x, /** @type {number} */ y) => { const p = k.getImageData(x * s, y * s, 1, 1).data; return p[0] + ',' + p[1] + ',' + p[2]; };
+      return { at: [d.x, d.y], builds: d.minimapBuilds, frames: d.frames, pending: d.terrainPending,
+        centre: at(d.x, d.y), rim: at(d.x - 1, d.y - 1), corner: at(45, 31), inside: at(46, 40) };
+    });
+    assert(built.at.join() === '60,40' && built.builds === 1, 'the sweep built the minimap once, from (60, 40): ' + JSON.stringify(built));
+    assert(built.centre === rgb(colours.warn) && built.rim === rgb(colours.ink),
+      'the player is on it, a warn centre in an ink rim, with no frame painted after the build: ' + JSON.stringify(built));
+    assert(built.corner === rgb(colours.paper) && built.inside !== rgb(colours.paper),
+      'and the viewport frame is back around the tiles the map shows: ' + JSON.stringify(built));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   });
@@ -794,17 +833,25 @@ module.exports = async function (h) {
       return null;
     });
     assert(!!spot, 'the map has a run of open tiles away from its edges to walk: ' + JSON.stringify(spot));
+    if (!spot) { await ctx.close(); return; }         // assert counts, it does not throw: the walk below would
     await standAt(page, spot.x, spot.y);
     const from = await page.evaluate(() => { const d = window.CNPE_GAME.debug(); d.frame(); const e = window.CNPE_GAME.debug(); return { composes: e.composes, frames: e.frames, x: e.x, cam: e.camera.x }; });
+    const t0 = Date.now();
     for (let i = 0; i < 6; i++) {
       await page.keyboard.press('ArrowRight');
       await page.waitForFunction(() => !window.CNPE_GAME.debug().walking, null, { timeout: 3000 }).catch(() => {});
     }
+    const took = Date.now() - t0;
     const to = await page.evaluate(() => { const d = window.CNPE_GAME.debug(); d.frame(); const e = window.CNPE_GAME.debug(); return { composes: e.composes, frames: e.frames, x: e.x, cam: e.camera.x }; });
-    const walked = { steps: to.x - from.x, tiles: (to.cam - from.cam) / 16, frames: to.frames - from.frames, composes: to.composes - from.composes };
+    // Every composition has one of two causes: the camera entered a tile, or the
+    // beat turned to a frame this tile has not been composed in. So the bound is
+    // the tiles crossed plus the beats the walk had room for — measured, not
+    // guessed, or a loaded runner fails a renderer that behaved perfectly.
+    const beats = Math.floor(took / 420) + 1;
+    const walked = { steps: to.x - from.x, tiles: (to.cam - from.cam) / 16, frames: to.frames - from.frames, composes: to.composes - from.composes, took, beats };
     assert(walked.steps === 6 && walked.tiles === 6, 'six steps east, the camera over six tiles with them: ' + JSON.stringify(walked));
     assert(walked.frames >= 12, 'the tween paints several frames a step: ' + JSON.stringify(walked));
-    assert(walked.composes <= walked.tiles + 3, 'and composes at most once a tile crossed, whatever the beat did meanwhile: ' + JSON.stringify(walked));
+    assert(walked.composes <= walked.tiles + beats, 'and composes at most once a tile crossed and once a beat, not once a frame: ' + JSON.stringify(walked));
     // a repaint of the terrain drops all three: the next turn of the beat composes them again, over the new palette
     const r0 = await page.evaluate(() => { const d = window.CNPE_GAME.debug(); return { renders: d.terrainRenders, composes: d.composes }; });
     await page.evaluate(() => window.CNPE_THEME.set('light'));

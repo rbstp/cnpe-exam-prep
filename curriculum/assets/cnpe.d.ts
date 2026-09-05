@@ -565,6 +565,10 @@ interface CnpeGameDebug {
   mounted: boolean; mounts: number; listeners: number; timers: number;
   /** paint now, without waiting for the next animation frame */
   frame(): void;
+  /** paint the rest of the map now, rather than over the frames after this one: what the sweep would do, done.
+      A check that reads the terrain, the minimap or terrainMs drives this and reads, rather than waiting on
+      terrainPending — and a check on a driven clock has no animation frames for the sweep to run on at all. */
+  sweep(): void;
   /** Test hooks, so the browser checks drive time rather than wait on it; both do nothing outside a mount.
       tick() advances the beat one frame, as the ticker does every 420 ms, without touching the ticker
       itself (nothing under reduced motion, which has no beat); a frame is requested if anything animated

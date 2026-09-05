@@ -5,11 +5,9 @@
 module.exports = async function (h) {
   const { url, fresh, assert, group } = h;
 
-  /* Every wait below is for a state, never for a span of time: the mark the spy
-     moves, the rail the width takes away, or a frame gone by, which is what
-     "laid out and painted" means for a scroll or a resize. */
-  /** @param {import('playwright').Page} page */
-  const frame = page => page.evaluate(() => new Promise(r => { requestAnimationFrame(() => requestAnimationFrame(() => r(null))); }));
+  /* Every wait below is for a state — the mark the spy moves, or the rail the
+     width takes away — bar one, which waits out the spy's own throttle window
+     and says so where it stands. */
   /** the rail's mark reads `want`, or anything but it when `want` is prefixed with "!"
       @param {import('playwright').Page} page @param {string} want */
   const mark = (page, want) => page.waitForFunction(
@@ -23,7 +21,7 @@ module.exports = async function (h) {
   const railGone = page => page.waitForFunction(() => {
     const t = document.querySelector('#toc');
     return !t || getComputedStyle(t).display === 'none' || !t.getBoundingClientRect().width;
-  }, null, { timeout: 4000 }).catch(() => {});
+  }, null, { timeout: 4000 }).then(() => true, () => false);
 
   async function freshWithClipboard() {
     const { ctx, page } = await fresh();
@@ -127,9 +125,15 @@ module.exports = async function (h) {
     // spy leaves the mark alone while the column is gone, so widening back has to
     // re-read; nothing else will, since the reader has not scrolled since.
     await page.setViewportSize({ width: 1000, height: 900 });
-    await railGone(page);                              // the column is gone: from here the spy leaves the mark alone
+    assert(await railGone(page), 'at 1000px the column is gone, which is what this width is for');
     await to(0);
-    await frame(page);                                 // and the scroll it ignores has been laid out
+    /* app.js throttles the spy at 120 ms and a scroll inside that window defers a
+       trailing call, so this is the one wait here that is really a duration: the
+       throttle's own window, waited out while the column is still away. Without it
+       that deferred call can land after the widen and put the mark back for the
+       scroll's sake, and the resize this check is about goes untested. */
+    await page.waitForTimeout(200);
+    assert(await marked() === deep, 'and while it is gone the mark stays where the reader left it: ' + JSON.stringify(await marked()));
     await page.setViewportSize({ width: 1400, height: 900 });
     await mark(page, first);
     assert(await marked() === first,
