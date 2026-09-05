@@ -92,6 +92,7 @@ module.exports = async function (h) {
     await page.keyboard.press('ArrowUp'); await page.keyboard.press('ArrowUp');
     await page.waitForSelector('.gm-screen:not([hidden]) .gm-title');
     assert(/Portmouth/.test(await page.textContent('.gm-title')), 'two steps north is Portmouth');
+    assert((await page.locator('.gm-scene[data-scene="square"]').count()) === 1, 'over a strip of the town square');
     // d and g are page shortcuts (dashboard, drill); inside the game they are the game's
     await page.keyboard.press('d'); await page.keyboard.press('g');
     await page.waitForTimeout(150);
@@ -299,5 +300,101 @@ module.exports = async function (h) {
       await ctx.close();
     }
     assert(seen.dark !== seen.light, 'and the two themes paint it differently');
+  });
+
+  /* 8. the renderer: the whole map is cached offscreen, the canvas backing is whole device pixels, the theme and the landmarks repaint the cache */
+  await group('the terrain is cached once and repainted when the palette or a door changes', async () => {
+    const { ctx, page } = await fresh(null, { theme: 'dark', dpr: 2 });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto(url('game.html'));
+    await page.waitForSelector('.gm-stage canvas');
+    await skipIntro(page);
+    const art = await page.evaluate(() => window.CNPE_ART.check());
+    assert(art.length === 0, 'every sprite grid is the size it claims' + (art.length ? ': ' + art.join(', ') : ''));
+    const d = await page.evaluate(() => { const x = window.CNPE_GAME.debug(); return { terrain: x.terrain, terrainRenders: x.terrainRenders, frames: x.frames, scale: x.scale, dpr: x.dpr }; });
+    const map = await page.evaluate(() => ({ w: window.CNPE_GAME_DATA.map[0].length * 16, h: window.CNPE_GAME_DATA.map.length * 16 }));
+    assert(!!d.terrain && d.terrain.w === map.w && d.terrain.h === map.h, 'the offscreen terrain holds the whole map: ' + JSON.stringify(d.terrain));
+    assert(d.terrainRenders === 1 && d.frames >= 1, 'painted once at load, and frames drawn from it: ' + JSON.stringify(d));
+    const backing = await page.evaluate(() => { const c = /** @type {HTMLCanvasElement} */ (document.querySelector('.gm-stage canvas')); return { w: c.width, h: c.height }; });
+    assert(d.dpr === 2 && d.scale >= 2 && backing.w === 480 * d.scale && backing.h === 304 * d.scale, 'the backing store is a whole number of device pixels per art pixel: ' + JSON.stringify({ scale: d.scale, backing }));
+    await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowLeft');
+    await page.waitForTimeout(120);
+    assert((await page.evaluate(() => window.CNPE_GAME.debug().terrainRenders)) === 1, 'walking blits the cache rather than repainting it');
+    await page.evaluate(() => window.CNPE_THEME.set('light'));
+    await page.waitForFunction(() => window.CNPE_GAME.debug().terrainRenders === 2, null, { timeout: 3000 });
+    assert(true, 'the theme switch repaints the terrain cache');
+    await page.evaluate(() => { const s = window.CNPE_PROGRESS.get(); s.game.towns = { '1.1': 1 }; window.CNPE_PROGRESS.save(); });
+    await page.keyboard.press('ArrowRight');
+    await page.waitForFunction(() => window.CNPE_GAME.debug().terrainRenders === 3, null, { timeout: 3000 });
+    assert(true, 'a door opening repaints the landmarks');
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  });
+
+  /* 9. the water moves on its own beat, and not at all for a visitor who asked for reduced motion */
+  await group('the water animates, and reduced motion stills it', async () => {
+    for (const reduced of [false, true]) {
+      const tag = reduced ? 'reduced motion: ' : 'motion: ';
+      const { ctx, page } = await fresh(null, { reducedMotion: reduced ? 'reduce' : 'no-preference' });
+      await page.goto(url('game.html'));
+      await page.waitForSelector('.gm-stage canvas');
+      await skipIntro(page);
+      const a = await page.evaluate(() => { const d = window.CNPE_GAME.debug(); return { anim: d.anim, reduce: d.reduceMotion, wf: d.waterFrame }; });
+      if (reduced) {
+        assert(a.reduce === true && a.anim === false, tag + 'no ticker runs: ' + JSON.stringify(a));
+        await page.waitForTimeout(1000);
+        assert((await page.evaluate(() => window.CNPE_GAME.debug().waterFrame)) === 0, tag + 'the water stays on its first frame');
+        const f0 = await page.evaluate(() => window.CNPE_GAME.debug().frames);
+        await page.keyboard.press('ArrowLeft'); await page.waitForTimeout(100);
+        const s = await page.evaluate(() => { const d = window.CNPE_GAME.debug(); return { frames: d.frames, face: d.face, walk: d.walkFrame }; });
+        assert(s.frames > f0 && s.face === 'l', tag + 'a step still paints a frame and turns the player: ' + JSON.stringify(s));
+      } else {
+        assert(a.reduce === false && a.anim === true, tag + 'the water ticker runs on the map: ' + JSON.stringify(a));
+        await page.waitForFunction(() => window.CNPE_GAME.debug().waterFrame !== 0, null, { timeout: 3000 });
+        assert(true, tag + 'and the water reaches another frame');
+        await page.keyboard.press('ArrowUp'); await page.keyboard.press('ArrowUp');
+        await page.waitForSelector('.gm-screen:not([hidden]) .gm-title');
+        await page.waitForTimeout(500);
+        assert((await page.evaluate(() => window.CNPE_GAME.debug().anim)) === false, tag + 'in a town the ticker stops');
+      }
+      assert(page.errors.length === 0, tag + 'no console errors: ' + page.errors.join(' | '));
+      await ctx.close();
+    }
+  });
+
+  /* 10. the battle screen: a sprite per fault family, a terminal that grows in place, blows that show */
+  await group('the battle screen updates in place and shows the fault', async () => {
+    const { ctx, page } = await fresh({ game: { towns: { '1.1': 1 }, flags: { intro: 1 }, learned: { 'k-get': 1 }, pos: { x: 10, y: 6, t: 1 } } });
+    await page.goto(url('game.html'));
+    await page.waitForSelector('.gm-stage canvas');
+    await skipIntro(page);
+    await page.keyboard.press('ArrowRight');
+    await page.click('.gm-dialog button:has-text("Yes")');
+    await page.waitForSelector('.gm-term input');
+    const fam = await page.getAttribute('.gm-enemy canvas', 'data-family');
+    assert(fam === 'networking', 'Hollow Beacon, a Service with no endpoints, is a networking fault: ' + fam);
+    assert(/networking fault/.test(await page.getAttribute('.gm-enemy canvas', 'aria-label') || ''), 'and the sprite says so');
+    const painted = await page.evaluate(() => { const c = /** @type {HTMLCanvasElement} */ (document.querySelector('.gm-enemy canvas')); const d = c.getContext('2d').getImageData(0, 0, 96, 96).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) n++; return n; });
+    assert(painted > 1500, 'the sprite is drawn: ' + painted + ' opaque pixels');
+    await page.evaluate(() => { document.querySelector('.gm-term input').setAttribute('data-mark', '1'); document.querySelector('.gm-term pre').setAttribute('data-mark', '1'); });
+    const guard0 = await page.evaluate(() => /** @type {HTMLElement} */ (document.querySelector('.gm-bar:not(.hp) i')).style.width);
+    await type(page, 'kubectl -n team-a describe svc web');
+    const kept = await page.evaluate(() => ({
+      input: document.querySelector('.gm-term input').getAttribute('data-mark'), pre: document.querySelector('.gm-term pre').getAttribute('data-mark'),
+      value: /** @type {HTMLInputElement} */ (document.querySelector('.gm-term input')).value, fx: document.querySelector('.gm-enemy').getAttribute('data-fx'),
+      guard: /** @type {HTMLElement} */ (document.querySelector('.gm-bar:not(.hp) i')).style.width }));
+    assert(kept.input === '1' && kept.pre === '1', 'the terminal and its prompt are the same elements after a turn');
+    assert(kept.value === '', 'and the prompt is cleared for the next command');
+    assert(kept.fx === 'stagger' && kept.guard !== guard0, 'evidence staggers the enemy and drops its guard: ' + guard0 + ' -> ' + kept.guard);
+    await type(page, 'kubectl -n team-a get svc');
+    const hit = await page.evaluate(() => document.querySelector('.gm-enemy').getAttribute('data-fx'));
+    assert(hit === 'hit', 'a fruitless turn plays the hit: ' + hit);
+    await page.fill('.gm-term input', 'kubectl get');
+    await page.evaluate(() => window.CNPE_THEME.set('light'));
+    await page.waitForTimeout(120);
+    const after = await page.evaluate(() => ({ mark: document.querySelector('.gm-term pre').getAttribute('data-mark'), value: /** @type {HTMLInputElement} */ (document.querySelector('.gm-term input')).value }));
+    assert(after.mark === '1' && after.value === 'kubectl get', 'a theme switch repaints the sprite but keeps the terminal and the half-typed command');
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
   });
 };
