@@ -246,12 +246,13 @@
         ".vvvaaaaaaaavvv.", ".vvvaaaaaaaavvv.", ".vvvaaaaaaaavvv.", ".vvvaaaaaaaavvv.", ".vvvaaaaaaaavvv.", "xxxxxxxxxxxxxxxx", "................", "................"];
     var GATE_BARS = ["................", "................", "................", ".....A..A..A....", ".....A..A..A....", ".....A..A..A....", ".....A..A..A....", ".....A..A..A....",
         ".....A..A..A....", ".....A..A..A....", ".....A..A..A....", ".....A..A..A....", ".....A..A..A....", "................", "................", "................"];
-    /* ── the player: four facings, three frames each ─────────
+    /* ── the player: four facings, four frames each ──────────
        Frame 0 stands, and is what the hero lands on. Frames 1 and 2 are the two
        halves of a stride: one leg forward with the near arm swung back, then the
-       other. game.js shows one of them through the first half of a step and
-       alternates between them from step to step, so a walk reads as left, right,
-       left rather than the same hop. */
+       other. Frame 3 is the pass between them: the legs swinging past each other
+       under the body, which rides a pixel higher. game.js keys them to a step's
+       five sub-positions as 1, 1, 3, 2, 2, so a tile is one full stride and a
+       walk reads as left, pass, right, stand rather than the same hop. */
     var HERO = {
         d: [
             ["................", ".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HSSSSSSH....", "....HSeSSeSH....", ".....SSSSSS.....", "......SSSS......",
@@ -259,7 +260,9 @@
             ["................", ".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HSSSSSSH....", "....HSeSSeSH....", ".....SSSSSS.....", "......SSSS......",
                 "....TTTTTTTT....", "...TTTTTTTTTT...", "...STTTTTTTTS...", "...S.TTTTTT.....", ".....tttttt.....", "....BB....BB....", "....BB..........", "....xxxxxxxx...."],
             ["................", ".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HSSSSSSH....", "....HSeSSeSH....", ".....SSSSSS.....", "......SSSS......",
-                "....TTTTTTTT....", "...TTTTTTTTTT...", "...STTTTTTTTS...", ".....TTTTTT.S...", ".....tttttt.....", "....BB....BB....", "..........BB....", "....xxxxxxxx...."]
+                "....TTTTTTTT....", "...TTTTTTTTTT...", "...STTTTTTTTS...", ".....TTTTTT.S...", ".....tttttt.....", "....BB....BB....", "..........BB....", "....xxxxxxxx...."],
+            [".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HSSSSSSH....", "....HSeSSeSH....", ".....SSSSSS.....", "......SSSS......", "....TTTTTTTT....",
+                "...TTTTTTTTTT...", "...STTTTTTTTS...", "...S.TTTTTT.S...", ".....tttttt.....", ".....BB.BB......", ".....BB.BB......", "......B.B.......", ".....xxxxxx....."]
         ],
         u: [
             ["................", ".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HHHHHHHH....", "....HHSSSSHH....", ".....SSSSSS.....", "......SSSS......",
@@ -267,7 +270,9 @@
             ["................", ".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HHHHHHHH....", "....HHSSSSHH....", ".....SSSSSS.....", "......SSSS......",
                 "....TTTTTTTT....", "...TTTTTTTTTT...", "...STTTTTTTTS...", "...S.TTTTTT.....", ".....tttttt.....", "....BB....BB....", "....BB..........", "....xxxxxxxx...."],
             ["................", ".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HHHHHHHH....", "....HHSSSSHH....", ".....SSSSSS.....", "......SSSS......",
-                "....TTTTTTTT....", "...TTTTTTTTTT...", "...STTTTTTTTS...", ".....TTTTTT.S...", ".....tttttt.....", "....BB....BB....", "..........BB....", "....xxxxxxxx...."]
+                "....TTTTTTTT....", "...TTTTTTTTTT...", "...STTTTTTTTS...", ".....TTTTTT.S...", ".....tttttt.....", "....BB....BB....", "..........BB....", "....xxxxxxxx...."],
+            [".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HHHHHHHH....", "....HHSSSSHH....", ".....SSSSSS.....", "......SSSS......", "....TTTTTTTT....",
+                "...TTTTTTTTTT...", "...STTTTTTTTS...", "...S.TTTTTT.S...", ".....tttttt.....", ".....BB.BB......", ".....BB.BB......", "......B.B.......", ".....xxxxxx....."]
         ],
         l: [
             ["................", ".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HSSSSHHH....", "....HeSSSHHH....", ".....SSSSSH.....", "......SSSS......",
@@ -275,11 +280,13 @@
             ["................", ".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HSSSSHHH....", "....HeSSSHHH....", ".....SSSSSH.....", "......SSSS......",
                 ".....TTTTTTT....", "....TTTTTTTTT...", "...S.TTTTTTTT...", "...S..TTTTTT....", ".....tttttt.....", "....BB...BBB....", "....BB...BBB....", "....xxxxxxxx...."],
             ["................", ".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HSSSSHHH....", "....HeSSSHHH....", ".....SSSSSH.....", "......SSSS......",
-                ".....TTTTTTT....", "....TTTTTTTTT...", ".....TTTTTTTTS..", "......TTTTTT.S..", ".....tttttt.....", "....BBB...BB....", "....BBB...BB....", "....xxxxxxxx...."]
+                ".....TTTTTTT....", "....TTTTTTTTT...", ".....TTTTTTTTS..", "......TTTTTT.S..", ".....tttttt.....", "....BBB...BB....", "....BBB...BB....", "....xxxxxxxx...."],
+            [".....HHHHHH.....", "....HHHHHHHH....", "....HHHHHHHH....", "....HSSSSHHH....", "....HeSSSHHH....", ".....SSSSSH.....", "......SSSS......", ".....TTTTTTT....",
+                "....TTTTTTTTT...", "....STTTTTTTT...", "....S.TTTTTT....", ".....tttttt.....", "......BBBB......", "......BBBB......", "......BBBB......", ".....xxxxxx....."]
         ]
     };
     HERO.r = HERO.l.map(flip);
-    var HERO_FRAMES = 3; // standing, then the two halves of a stride
+    var HERO_FRAMES = 4; // standing, the two halves of a stride, the pass between them
     /** skin and hair that read in both themes: the warm colours pulled toward the light and the dark end */
     function skin() { return lighten(P.warn, 0.55); }
     function hair() { return darken(P.warnDim, 0.35); }
@@ -655,10 +662,14 @@
             [["bridge", BRIDGE], ["town", TOWN], ["door-sealed", DOOR_SEALED], ["door-open", DOOR_OPEN], ["gate", GATE], ["gate-bars", GATE_BARS], ["cliff-s", CLIFF_S], ["cliff-w", CLIFF_W]].forEach(function (x) { sq(x[0], x[1], TILE); });
             Object.keys(PROPS).forEach(function (n) { sq("prop-" + n, PROPS[n], TILE); });
             Object.keys(HERO).forEach(function (f) { HERO[f].forEach(function (g, i) { sq("hero-" + f + i, g, TILE); }); });
-            // every facing has the standing frame and both halves of a stride, and the three differ, or the walk would hop
+            // every facing has the standing frame, both halves of a stride and the pass, and the four all differ, or the walk would hop
             Object.keys(HERO).forEach(function (f) {
-                var fr = HERO[f];
-                if (fr.length !== HERO_FRAMES || fr[0].join() === fr[1].join() || fr[0].join() === fr[2].join() || fr[1].join() === fr[2].join())
+                var fr = HERO[f], same = false;
+                for (var a = 0; a < fr.length; a++)
+                    for (var b = a + 1; b < fr.length; b++)
+                        if (fr[a].join() === fr[b].join())
+                            same = true;
+                if (fr.length !== HERO_FRAMES || same)
                     bad.push("hero-frames-" + f);
             });
             FAMILIES.forEach(function (f) { sq("enemy-" + f, ENEMIES[f], 32); });

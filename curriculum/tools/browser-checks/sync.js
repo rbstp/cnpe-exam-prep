@@ -624,7 +624,9 @@ module.exports = async function (h) {
       },
     });
     await s.go();
-    await s.page.waitForFunction(() => window.CNPE_SYNC && window.CNPE_SYNC.signedIn());
+    // the label is what is read, so wait for it: signedIn() is true from the first paint, while the pull that
+    // turns "Syncing…" into "Synced … to @octocat" is still in flight
+    await s.page.waitForFunction(() => { const b = /** @type {HTMLElement | null} */ (document.querySelector('.syncbtn')); return !!b && /Synced/.test(b.title); });
     let b = await topOf(s.page);
     assert(b.on, 'signed in it carries the .on state');
     assert(/Synced .* to @octocat/.test(b.title), 'and names the account in its label: ' + JSON.stringify(b.title));
