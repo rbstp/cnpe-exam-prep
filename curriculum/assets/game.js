@@ -16,9 +16,9 @@
     if (!M || !M.countOf || !M.dayKey)
         return; // a cached older merge.js: the page stays static
     // mount() checks both before anything runs; the casts spare every reader a guard
-    var D = window.CNPE_GAME_DATA, SIM = window.CNPE_SIM;
+    var D = window.CNPE_GAME_DATA, SIM = window.CNPE_SIM, ART = window.CNPE_ART;
     var TILE = 16, VW = 30, VH = 19; // the viewport, in tiles
-    var W = VW * TILE, H = VH * TILE, SCALE = 2; // logical pixels, and the canvas backing factor
+    var W = VW * TILE, H = VH * TILE; // logical pixels; the backing scale is chosen for the screen in fitCanvas()
     var GOAL = 10; // the drill's daily goal, mirrored so a trial can earn it
     var XP_ANSWER = 5, XP_TRIAL = 50, XP_EVIDENCE = 10, XP_WIN = 100, XP_BOSS = 300, XP_FINAL = 1000;
     var GOLD_TRIAL = 20, GOLD_WIN = 30, GOLD_BOSS = 100, GOLD_FINAL = 500;
@@ -170,6 +170,8 @@
             rule: v("--rule"), rule2: v("--rule-2"), paper: v("--paper"), paper2: v("--paper-2"), paper3: v("--paper-3"),
             accent: v("--accent"), accentDim: v("--accent-dim"), accentLit: v("--accent-lit"), warn: v("--warn"), warnDim: v("--warn-dim"),
             ok: v("--ok"), okLit: v("--ok-lit"), bad: v("--bad"), badLit: v("--bad-lit"), viol: v("--viol"), info: v("--info") };
+        ART.theme(P); // every sprite is repainted from these on its next use
+        terrainSig = ""; // and the terrain with them
     }
     /* ── state ──────────────────────────────────────────────── */
     let host;
@@ -185,6 +187,9 @@
     var hp = 0; // the session's hearts; a page load heals
     var dlg = null; // { who, pages: [], i, done: fn }
     var posTimer = 0, keysWired = false, themeWired = false, dirty = true;
+    var bt = null; // the battle screen, while one is built
+    var tn = null; // the town screen, while one is built
+    var fx = null; // the effect the next battle paint plays: hit, stagger, win
     var walked = false; // a step was taken: only then is the position worth a save
     /* ── the overworld ──────────────────────────────────────── */
     function tileAt(x, y) {
@@ -253,16 +258,15 @@
         // A blocked step turns you and nothing more: arriving is for a tile you
         // reached, or leaving a town with a step into the sea would put you back in it.
         if (!walkable(nx, ny)) {
-            dirty = true;
-            draw();
+            requestDraw();
             return;
         }
         player.x = nx;
         player.y = ny;
         walked = true;
         savePos(false);
-        dirty = true;
-        draw();
+        step();
+        requestDraw();
         arrive();
     }
     // What standing on a tile means. Walking onto a town enters it; the doors and
@@ -366,232 +370,256 @@
             done();
     }
     /* ── drawing ────────────────────────────────────────────── */
+    // The overworld is two layers. The terrain, every tile of the whole map, is
+    // painted once into an offscreen canvas and painted again only when the
+    // palette or a landmark's state changes. A frame blits the viewport out of
+    // it, then draws what moves: the water's current frame, the banners, the
+    // player. Frames are requested and painted on the next animation frame, so
+    // a held key coalesces and a still map costs nothing.
+    var terrain = null, terrainSig = "";
+    var mapW = 0, mapH = 0;
+    var regionOf = new Uint8Array(0); // the domain each tile belongs to; 0 on the open sea
+    var scale = 2, dprSeen = 1; // whole device pixels per art pixel, chosen for the screen
+    var rafId = 0, animTimer = 0, idleTimer = 0, waterFrame = 0, walkFrame = 0, waterInView = 1;
+    var ANIM_MS = 420; // the water's beat
+    var motionQuery = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
+    var reduceMotion = !!(motionQuery && motionQuery.matches);
+    var stats = { frames: 0, drawMs: 0, terrainRenders: 0, terrainMs: 0 };
+    function camera() {
+        return { x: Math.max(0, Math.min(mapW - VW, player.x - Math.floor(VW / 2))), y: Math.max(0, Math.min(mapH - VH, player.y - Math.floor(VH / 2))) };
+    }
+    /** water for the shoreline's purposes: the sea, a bridge over it, and the void past the edge */
+    function isWater(x, y) { var t = tileAt(x, y); return t === "water" || t === "bridge" || t === "void"; }
+    function isRoadLike(x, y) { var t = tileAt(x, y); return t === "road" || t === "bridge" || t === "town" || t === "door" || t === "keep" || t === "gate"; }
+    function isCliff(x, y) { return tileAt(x, y) === "cliff"; }
+    /** N=1 E=2 S=4 W=8, set where the neighbour is not the same kind */
+    function edgeMask(x, y, same) {
+        return (same(x, y - 1) ? 0 : 1) | (same(x + 1, y) ? 0 : 2) | (same(x, y + 1) ? 0 : 4) | (same(x - 1, y) ? 0 : 8);
+    }
+    /** N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128, set where the neighbour is land */
+    function shoreMask(x, y) {
+        return (isWater(x, y - 1) ? 0 : 1) | (isWater(x + 1, y - 1) ? 0 : 2) | (isWater(x + 1, y) ? 0 : 4) | (isWater(x + 1, y + 1) ? 0 : 8) |
+            (isWater(x, y + 1) ? 0 : 16) | (isWater(x - 1, y + 1) ? 0 : 32) | (isWater(x - 1, y) ? 0 : 64) | (isWater(x - 1, y - 1) ? 0 : 128);
+    }
+    /** which region each tile is in, for its colours: the region of the town
+        nearest by land, flooding out from every town at once and never across
+        water, so the tint changes at the rivers and the strait rather than in the
+        middle of a meadow. The sand around the Exam gate belongs to no region. */
+    function buildRegions() {
+        mapW = D.map[0].length;
+        mapH = D.map.length;
+        regionOf = new Uint8Array(mapW * mapH);
+        var seen = new Uint8Array(mapW * mapH);
+        var queue = [];
+        D.towns.forEach(function (t) { var i = t.y * mapW + t.x; regionOf[i] = +t.sec.split(".")[0]; seen[i] = 1; queue.push(i); });
+        for (var q = 0; q < queue.length; q++) {
+            var i = queue[q], x = i % mapW, y = (i - x) / mapW, d = regionOf[i];
+            var next = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
+            for (var n = 0; n < 4; n++) {
+                var nx = next[n][0], ny = next[n][1];
+                if (nx < 0 || ny < 0 || nx >= mapW || ny >= mapH)
+                    continue;
+                var j = ny * mapW + nx, t = tileAt(nx, ny);
+                if (seen[j] || t === "water" || t === "bridge" || t === "sand" || t === "gate")
+                    continue;
+                seen[j] = 1;
+                regionOf[j] = d;
+                queue.push(j);
+            }
+        }
+        for (var y2 = 0; y2 < mapH; y2++)
+            for (var x2 = 0; x2 < mapW; x2++) {
+                var k = y2 * mapW + x2;
+                if (seen[k] || isWater(x2, y2))
+                    continue;
+                var t2 = tileAt(x2, y2);
+                if (t2 === "sand" || t2 === "gate")
+                    continue; // the gate's island stays neutral
+                var here = regionAt(x2, y2); // an islet with no town: the nearest town's, as the signpost says
+                regionOf[k] = here ? here.region.d : 0;
+            }
+    }
+    /** what the terrain was painted with: the doors, keeps and gate can change state */
+    function landmarkSig() {
+        var s = "";
+        for (var i = 0; i < D.towns.length; i++)
+            s += has("towns", D.towns[i].sec) ? "1" : "0";
+        for (var j = 0; j < D.regions.length; j++)
+            s += has("flags", "boss-" + D.regions[j].d) ? "1" : "0";
+        return s + (has("flags", "final") ? "F" : gateOpen() ? "O" : "S");
+    }
+    /** the sprite for a map tile, in the water's given frame */
+    function tileSprite(mx, my, frame) {
+        var t = tileAt(mx, my), d = regionOf[my * mapW + mx] || 0, v = Math.floor(hash(mx, my) * 4);
+        switch (t) {
+            case "grass": return ART.grass(v, d);
+            case "flower": return ART.flower(v, d);
+            case "road": return ART.road(v, d, edgeMask(mx, my, isRoadLike));
+            case "sand": return ART.sand(v, d);
+            case "tree": return ART.tree(v, d);
+            case "cliff": return ART.cliff(v, d, edgeMask(mx, my, isCliff));
+            case "water": return ART.water(shoreMask(mx, my), frame);
+            // a bridge runs north-south unless the water passes under it that way
+            case "bridge": return ART.bridge(!(isWater(mx, my - 1) && isWater(mx, my + 1)));
+            case "town": return ART.town(d);
+            case "door": {
+                var dr = doorAt(mx, my);
+                return ART.door(d, !!(dr && dungeonOpen(dr)));
+            }
+            case "keep": {
+                var kp = keepAt(mx, my);
+                return ART.keep(kp ? kp.d : d, !!(kp && has("flags", "boss-" + kp.d)));
+            }
+            case "gate": return ART.gate(has("flags", "final") ? 2 : gateOpen() ? 1 : 0);
+            default: return null;
+        }
+    }
+    function renderTerrain() {
+        var t0 = performance.now();
+        if (!terrain) {
+            terrain = document.createElement("canvas");
+            terrain.width = mapW * TILE;
+            terrain.height = mapH * TILE;
+        }
+        var k = terrain.getContext("2d");
+        if (!k)
+            return;
+        k.imageSmoothingEnabled = false;
+        k.fillStyle = P.sunk;
+        k.fillRect(0, 0, terrain.width, terrain.height);
+        for (var y = 0; y < mapH; y++)
+            for (var x = 0; x < mapW; x++) {
+                var s = tileSprite(x, y, 0);
+                if (s)
+                    k.drawImage(s, x * TILE, y * TILE);
+            }
+        terrainSig = landmarkSig();
+        stats.terrainRenders++;
+        stats.terrainMs += performance.now() - t0;
+    }
+    /** paint on the next animation frame; several requests in one frame are one paint */
+    function requestDraw() {
+        dirty = true;
+        if (!rafId && scene === "map")
+            rafId = requestAnimationFrame(frame);
+    }
+    function frame() { rafId = 0; draw(); }
     function draw() {
         if (!ctx || scene !== "map" || !dirty)
             return;
         dirty = false;
-        var cx = Math.max(0, Math.min(D.map[0].length - VW, player.x - Math.floor(VW / 2)));
-        var cy = Math.max(0, Math.min(D.map.length - VH, player.y - Math.floor(VH / 2)));
-        ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
-        ctx.fillStyle = P.sunk;
-        ctx.fillRect(0, 0, W, H);
+        var t0 = performance.now();
+        if (!terrain || terrainSig !== landmarkSig())
+            renderTerrain();
+        var cam = camera(), cx = cam.x, cy = cam.y;
+        ctx.setTransform(scale, 0, 0, scale, 0, 0);
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(terrain, cx * TILE, cy * TILE, W, H, 0, 0, W, H);
+        // the water's frame, over the first frame the terrain holds
+        waterInView = 0;
         for (var y = 0; y < VH; y++)
-            for (var x = 0; x < VW; x++)
-                drawTile(cx + x, cy + y, x * TILE, y * TILE);
-        // labels over towns and keeps, so the map reads without a legend
+            for (var x = 0; x < VW; x++) {
+                if (tileAt(cx + x, cy + y) !== "water")
+                    continue;
+                waterInView++;
+                if (waterFrame)
+                    ctx.drawImage(ART.water(shoreMask(cx + x, cy + y), waterFrame), x * TILE, y * TILE);
+            }
+        // banners over towns and keeps, so the map reads without a legend
         ctx.font = "8px CNPE Mono, ui-monospace, monospace";
         ctx.textBaseline = "top";
         D.towns.forEach(function (t) { label(t.name, t.x - cx, t.y - cy, has("towns", t.sec) ? P.ok : P.paper); });
         D.regions.forEach(function (r) { label(r.name + " keep", r.keep.x - cx, r.keep.y - cy, has("flags", "boss-" + r.d) ? P.ok : P.warn); });
         label("The Exam", D.finale.keep.x - cx, D.finale.keep.y - cy, has("flags", "final") ? P.ok : P.viol);
-        drawPlayer((player.x - cx) * TILE, (player.y - cy) * TILE);
+        ctx.drawImage(ART.hero(player.face, reduceMotion ? 0 : walkFrame), (player.x - cx) * TILE, (player.y - cy) * TILE);
         var here = regionAt(player.x, player.y);
         var what = tileAt(player.x, player.y);
         var t = townAt(player.x, player.y), d = doorAt(player.x, player.y), k = keepAt(player.x, player.y);
         var where = here ? here.region.name + (t ? " · " + t.name : d ? " · dungeon of " + d.name : k ? " · the keep" : gateAt(player.x, player.y) ? " · the Exam gate" : "") : "";
         whereEl.textContent = where;
         canvas.setAttribute("aria-label", "Overworld map. You stand on " + what + " in " + where + ". " + (here && here.dist ? here.town.name + " is " + here.dist + " steps away." : ""));
+        stats.frames++;
+        stats.drawMs += performance.now() - t0;
     }
+    /** a pixel banner: ink on a rim, a pointer toward the tile, the name in its state's colour */
     function label(s, tx, ty, color) {
         if (tx < -4 || tx >= VW + 4 || ty < 0 || ty >= VH)
             return;
-        var w = s.length * 5 + 6, x = tx * TILE + TILE / 2 - w / 2, y = ty * TILE - 11;
-        if (y < 0)
-            y = ty * TILE + TILE + 1;
+        var w = s.length * 5 + 8, x = Math.round(tx * TILE + TILE / 2 - w / 2), y = ty * TILE - 14, below = false;
+        if (y < 0) {
+            y = ty * TILE + TILE + 3;
+            below = true;
+        }
+        var px = Math.round(tx * TILE + TILE / 2);
+        ctx.fillStyle = P.paper3;
+        ctx.fillRect(x - 1, y - 1, w + 2, 12);
+        if (below) {
+            ctx.fillRect(px - 2, y - 2, 4, 1);
+            ctx.fillRect(px - 1, y - 3, 2, 1);
+        }
+        else {
+            ctx.fillRect(px - 2, y + 11, 4, 1);
+            ctx.fillRect(px - 1, y + 12, 2, 1);
+        }
         ctx.fillStyle = P.ink;
-        ctx.globalAlpha = 0.85;
         ctx.fillRect(x, y, w, 10);
-        ctx.globalAlpha = 1;
         ctx.fillStyle = color;
-        ctx.fillText(s, x + 3, y + 1);
+        ctx.fillText(s, x + 4, y + 1);
     }
-    /** @param mx map x @param my map y */
-    function drawTile(mx, my, px, py) {
-        var t = tileAt(mx, my), r = hash(mx, my), r2 = hash(my, mx);
-        var base = function (c) { ctx.fillStyle = c; ctx.fillRect(px, py, TILE, TILE); };
-        switch (t) {
-            case "grass":
-            case "flower":
-                base(P.s2);
-                ctx.fillStyle = P.s3;
-                if (r > 0.5)
-                    ctx.fillRect(px + Math.floor(r * 12), py + Math.floor(r2 * 12), 2, 1);
-                if (r2 > 0.7)
-                    ctx.fillRect(px + Math.floor(r2 * 13), py + 3 + Math.floor(r * 10), 1, 2);
-                if (t === "flower") {
-                    ctx.fillStyle = r > 0.5 ? P.warn : P.bad;
-                    ctx.fillRect(px + 4 + Math.floor(r * 8), py + 4 + Math.floor(r2 * 8), 2, 2);
-                }
-                break;
-            case "road":
-                base(P.s3);
-                ctx.fillStyle = P.rule;
-                if (r > 0.6)
-                    ctx.fillRect(px + Math.floor(r2 * 12), py + Math.floor(r * 12), 2, 2);
-                break;
-            case "sand":
-                base(P.warnDim);
-                ctx.globalAlpha = 0.35;
-                ctx.fillStyle = P.ink;
-                ctx.fillRect(px, py, TILE, TILE);
-                ctx.globalAlpha = 1;
-                ctx.fillStyle = P.warn;
-                if (r > 0.5)
-                    ctx.fillRect(px + Math.floor(r * 13), py + Math.floor(r2 * 13), 1, 1);
-                break;
-            case "water":
-                base(P.accentDim);
-                ctx.fillStyle = P.accent;
-                ctx.globalAlpha = 0.6;
-                ctx.fillRect(px + 2 + Math.floor(r * 6), py + 4 + Math.floor(r2 * 8), 5, 1);
-                ctx.globalAlpha = 1;
-                break;
-            case "bridge":
-                base(P.accentDim);
-                ctx.fillStyle = P.warnDim;
-                ctx.fillRect(px, py + 2, TILE, TILE - 4);
-                ctx.fillStyle = P.ink;
-                for (var i = 2; i < TILE; i += 4)
-                    ctx.fillRect(px + i, py + 2, 1, TILE - 4);
-                break;
-            case "cliff":
-                base(P.rule);
-                ctx.fillStyle = P.rule2;
-                ctx.beginPath();
-                ctx.moveTo(px + 2, py + 14);
-                ctx.lineTo(px + 7 + Math.floor(r * 3), py + 3);
-                ctx.lineTo(px + 14, py + 14);
-                ctx.closePath();
-                ctx.fill();
-                ctx.fillStyle = P.paper3;
-                ctx.fillRect(px + 7 + Math.floor(r * 3), py + 3, 2, 2);
-                break;
-            case "tree":
-                base(P.s2);
-                ctx.fillStyle = P.warnDim;
-                ctx.fillRect(px + 7, py + 10, 2, 5);
-                ctx.fillStyle = P.ok;
-                ctx.globalAlpha = 0.85;
-                ctx.beginPath();
-                ctx.arc(px + 8, py + 7, 5 + Math.floor(r * 2), 0, Math.PI * 2);
-                ctx.fill();
-                ctx.globalAlpha = 1;
-                ctx.fillStyle = P.okLit;
-                ctx.fillRect(px + 6, py + 4, 2, 2);
-                break;
-            case "town":
-                base(P.s2);
-                ctx.fillStyle = P.paper2;
-                ctx.fillRect(px + 3, py + 7, 10, 7);
-                ctx.fillStyle = P.bad;
-                ctx.beginPath();
-                ctx.moveTo(px + 2, py + 7);
-                ctx.lineTo(px + 8, py + 2);
-                ctx.lineTo(px + 14, py + 7);
-                ctx.closePath();
-                ctx.fill();
-                ctx.fillStyle = P.ink;
-                ctx.fillRect(px + 7, py + 10, 2, 4);
-                ctx.fillStyle = P.warn;
-                ctx.fillRect(px + 4, py + 9, 2, 2);
-                ctx.fillRect(px + 10, py + 9, 2, 2);
-                break;
-            case "door": {
-                base(P.rule);
-                var open = doorAt(mx, my) && dungeonOpen(doorAt(mx, my));
-                ctx.fillStyle = P.rule2;
-                ctx.fillRect(px + 1, py + 1, TILE - 2, TILE - 1);
-                ctx.fillStyle = open ? P.viol : P.sunk;
-                ctx.fillRect(px + 5, py + 6, 6, 9);
-                ctx.beginPath();
-                ctx.arc(px + 8, py + 6, 3, Math.PI, 0);
-                ctx.fill();
-                if (!open) {
-                    ctx.fillStyle = P.paper3;
-                    ctx.fillRect(px + 5, py + 9, 6, 1);
-                    ctx.fillRect(px + 5, py + 12, 6, 1);
-                }
-                break;
-            }
-            case "keep": {
-                base(P.s3);
-                ctx.fillStyle = P.paper3;
-                ctx.fillRect(px + 2, py + 5, 12, 10);
-                ctx.fillStyle = P.paper2;
-                ctx.fillRect(px + 2, py + 3, 3, 3);
-                ctx.fillRect(px + 7, py + 3, 2, 3);
-                ctx.fillRect(px + 11, py + 3, 3, 3);
-                ctx.fillStyle = P.ink;
-                ctx.fillRect(px + 6, py + 9, 4, 6);
-                var kp = keepAt(mx, my);
-                ctx.fillStyle = kp && has("flags", "boss-" + kp.d) ? P.ok : P.bad;
-                ctx.fillRect(px + 7, py, 1, 4);
-                ctx.fillRect(px + 8, py, 4, 2);
-                break;
-            }
-            case "gate":
-                base(P.s3);
-                ctx.fillStyle = P.viol;
-                ctx.fillRect(px + 2, py + 2, 3, 13);
-                ctx.fillRect(px + 11, py + 2, 3, 13);
-                ctx.fillRect(px + 2, py + 2, 12, 3);
-                ctx.fillStyle = has("flags", "final") ? P.ok : P.accent;
-                ctx.fillRect(px + 6, py + 6, 4, 9);
-                break;
-            default:
-                base(P.sunk);
+    /** a step taken: the other foot, then back to standing once you stop */
+    function step() {
+        walkFrame ^= 1;
+        if (reduceMotion)
+            return;
+        if (idleTimer)
+            clearTimeout(idleTimer);
+        idleTimer = setTimeout(function () { idleTimer = 0; if (walkFrame) {
+            walkFrame = 0;
+            requestDraw();
+        } }, 260);
+    }
+    /** the water's beat: only on the map, only when it can be seen, never under reduced motion */
+    function syncAnim() {
+        var want = scene === "map" && !reduceMotion && document.visibilityState !== "hidden" && !!host && document.body.contains(host);
+        if (want && !animTimer)
+            animTimer = setTimeout(tickAnim, ANIM_MS);
+        if (!want && animTimer) {
+            clearTimeout(animTimer);
+            animTimer = 0;
+        }
+        if (!want && waterFrame) {
+            waterFrame = 0;
+            requestDraw();
         }
     }
-    function drawPlayer(px, py) {
-        ctx.fillStyle = P.ink;
-        ctx.globalAlpha = 0.35;
-        ctx.fillRect(px + 4, py + 13, 8, 2);
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = P.accent;
-        ctx.fillRect(px + 5, py + 7, 6, 6); // tunic
-        ctx.fillStyle = P.paper;
-        ctx.fillRect(px + 5, py + 2, 6, 5); // face
-        ctx.fillStyle = P.warnDim;
-        ctx.fillRect(px + 4, py + 1, 8, 2); // hair
-        ctx.fillStyle = P.ink;
-        if (player.face === "l")
-            ctx.fillRect(px + 5, py + 4, 1, 1);
-        else if (player.face === "r")
-            ctx.fillRect(px + 10, py + 4, 1, 1);
-        else if (player.face === "d") {
-            ctx.fillRect(px + 6, py + 4, 1, 1);
-            ctx.fillRect(px + 9, py + 4, 1, 1);
-        }
-        ctx.fillRect(px + 5, py + 13, 2, 2);
-        ctx.fillRect(px + 9, py + 13, 2, 2); // boots
+    function tickAnim() {
+        animTimer = 0;
+        waterFrame = (waterFrame + 1) % ART.FRAMES;
+        if (waterInView)
+            requestDraw();
+        syncAnim();
     }
-    /** the monster: a symmetric blob seeded by the scenario id, on the 96px enemy canvas */
-    function drawMonster(c, sc) {
+    /** the backing store: whole device pixels per art pixel, so the art stays sharp on any screen */
+    function fitCanvas() {
+        var dpr = window.devicePixelRatio || 1, cssW = stage.clientWidth || W;
+        var s = Math.max(1, Math.min(4, Math.round(cssW * dpr / W)));
+        dprSeen = dpr;
+        if (s === scale && canvas.width === W * s)
+            return;
+        scale = s;
+        canvas.width = W * s;
+        canvas.height = H * s;
+        requestDraw();
+    }
+    /** the monster: the fault family's sprite, painted in the theme's colours */
+    function drawMonster(c, family) {
         var k = c.getContext("2d");
         if (!k)
             return;
-        var seed = str2n(sc.id), n = 12, cell = 8;
         k.setTransform(1, 0, 0, 1, 0, 0);
+        k.imageSmoothingEnabled = false;
         k.clearRect(0, 0, c.width, c.height);
-        var cols = [P.bad, P.viol, P.warn, P.info, P.accent];
-        var body = cols[seed % cols.length], eye = P.paper;
-        for (var y = 0; y < n; y++)
-            for (var x = 0; x < n / 2; x++) {
-                var v = hash(seed + x * 7, seed + y * 13);
-                var dy = Math.abs(y - n / 2 + 0.5) / (n / 2), dx = (n / 2 - x) / (n / 2);
-                if (v < 0.72 - dy * 0.5 - dx * 0.3) {
-                    k.fillStyle = v < 0.2 ? P.paper3 : body;
-                    k.fillRect(x * cell, y * cell, cell, cell);
-                    k.fillRect((n - 1 - x) * cell, y * cell, cell, cell);
-                }
-            }
-        k.fillStyle = eye;
-        var ey = 3 + (seed % 3), ex = 3 + (seed % 2);
-        k.fillRect(ex * cell, ey * cell, cell, cell);
-        k.fillRect((n - 1 - ex) * cell, ey * cell, cell, cell);
-        k.fillStyle = P.ink;
-        k.fillRect(ex * cell + 3, ey * cell + 3, 3, 3);
-        k.fillRect((n - 1 - ex) * cell + 3, ey * cell + 3, 3, 3);
+        k.drawImage(ART.enemy(family, 3), 0, 0);
     }
     function paintHud() {
         var mh = maxHp(), cells = "";
@@ -610,8 +638,9 @@
         stage.classList.toggle("gm-map", onMap);
         if (onMap) {
             screen.innerHTML = "";
-            dirty = true;
-            draw();
+            bt = null;
+            tn = null;
+            requestDraw();
             paintHud();
             savePos(true);
         }
@@ -619,58 +648,94 @@
             dialog.hidden = true;
             dlg = null;
         }
+        syncAnim();
     }
     function leaveToMap() { town = null; trial = null; battle = null; setScene("map"); stage.focus(); }
-    /** the town: header, the menu, and whatever the menu opened on the right */
+    /** the town: header, the menu, and whatever the menu opened on the right,
+        over a strip of scenery for the square, the inn, the shop or the people.
+        The header and the menu are built once a visit and their lines updated;
+        only the right column is rebuilt. */
     function enterTown(t) {
         town = t;
         setScene("town");
         paintTown(null);
     }
-    function paintTown(right) {
-        var t = town, nav = navOf(t.sec), dom = domainOf(+t.sec.split(".")[0]);
+    function buildTown(t) {
+        var nav = navOf(t.sec), dom = domainOf(+t.sec.split(".")[0]);
         screen.innerHTML = "";
-        var head = el("div", "gm-title", "<h3>" + esc(t.name) + '</h3><span class="sub">' + esc(t.sec) + " · " + esc(nav ? nav.title : "") + '</span><span class="right">' + esc(dom ? dom.name : "") + (has("towns", t.sec) ? " · trial cleared ✓" : "") + "</span>");
-        screen.appendChild(head);
-        var body = el("div", "gm-body"), left = el("div", "gm-col"), rightCol = el("div", "gm-col");
-        var menu = el("ul", "gm-menu");
-        var item = function (label, meta, fn, cls) {
-            var li = el("li");
-            var b = btn(label + (meta ? '<span class="k">' + meta + "</span>" : ""), fn, cls || "");
-            li.appendChild(b);
-            menu.appendChild(li);
-            return b;
-        };
-        var taught = t.npcs.filter(function (n) { return n.teaches && !has("learned", n.teaches); }).length;
-        item("Talk", t.npcs.length + " people" + (taught ? " · " + taught + " new" : ""), function () { paintTown(talkMenu()); }, taught ? "new" : "");
+        var root = el("div", "gm-town");
+        var head = el("div", "gm-title", "<h3>" + esc(t.name) + '</h3><span class="sub">' + esc(t.sec) + " · " + esc(nav ? nav.title : "") + "</span>");
+        var headRight = el("span", "right", esc(dom ? dom.name : ""));
+        head.appendChild(headRight);
+        root.appendChild(head);
+        var body = el("div", "gm-body"), left = el("div", "gm-col"), right = el("div", "gm-col");
+        var menu = el("ul", "gm-menu"), items = {};
+        var item = function (id, fn) { var li = el("li"); var b = btn("", fn); li.appendChild(b); menu.appendChild(li); items[id] = b; };
+        item("talk", function () { paintTown(talkMenu(), "talk"); });
         var read = el("li");
         var a = el("a", "", "Read the section" + '<span class="k">' + esc(t.sec) + "</span>");
         a.href = nav ? pageHref(nav.path, nav.id) : "index.html";
         read.appendChild(a);
         menu.appendChild(read);
         a.addEventListener("click", function () { savePos(true); });
-        var cards = deckFor(t.sec);
-        item("Trial", cards.length + " questions" + (has("towns", t.sec) ? " · cleared" : ""), function () { startTrial(); });
-        item("Inn", hp < maxHp() ? "rest, heal" : "you are rested", function () { hp = maxHp(); paintHud(); paintTown(note("You sleep. The pager stays quiet. Health restored to " + hp + ".", "ok")); });
-        item("Shop", gold() + "g held", function () { paintTown(shopMenu()); });
-        var sc = scenario(t.dungeon);
-        item("Dungeon", esc(sc.name) + (dungeonOpen(t) ? "" : " · sealed"), function () {
+        item("trial", function () { startTrial(); });
+        item("inn", function () { hp = maxHp(); paintHud(); paintTown(note("You sleep. The pager stays quiet. Health restored to " + hp + ".", "ok"), "inn"); });
+        item("shop", function () { paintTown(shopMenu(), "shop"); });
+        item("dungeon", function () {
             if (!dungeonOpen(t)) {
                 paintTown(note("The dungeon door is sealed until you pass this town's trial.", "warn"));
                 return;
             }
-            startBattle([sc.id], { town: t });
+            startBattle([scenario(t.dungeon).id], { town: t });
         });
-        item("Leave", "esc", function () { leaveToMap(); });
+        item("leave", function () { leaveToMap(); });
         left.appendChild(menu);
         body.appendChild(left);
+        body.appendChild(right);
+        root.appendChild(body);
+        screen.appendChild(root);
+        return { root: root, sec: t.sec, headRight: headRight, menu: menu, items: items, right: right, scene: "square" };
+    }
+    function setItem(b, label, meta, cls) {
+        b.innerHTML = label + (meta ? '<span class="k">' + meta + "</span>" : "");
+        b.className = cls || "";
+    }
+    function paintTown(right, sceneName) {
+        var t = town, nav = navOf(t.sec), dom = domainOf(+t.sec.split(".")[0]);
+        if (!tn || tn.root.parentNode !== screen || tn.sec !== t.sec)
+            tn = buildTown(t);
+        var v = tn;
+        v.headRight.innerHTML = esc(dom ? dom.name : "") + (has("towns", t.sec) ? " · trial cleared ✓" : "");
+        var taught = t.npcs.filter(function (n) { return n.teaches && !has("learned", n.teaches); }).length;
+        setItem(v.items.talk, "Talk", t.npcs.length + " people" + (taught ? " · " + taught + " new" : ""), taught ? "new" : "");
+        setItem(v.items.trial, "Trial", deckFor(t.sec).length + " questions" + (has("towns", t.sec) ? " · cleared" : ""));
+        setItem(v.items.inn, "Inn", hp < maxHp() ? "rest, heal" : "you are rested");
+        setItem(v.items.shop, "Shop", gold() + "g held");
+        var sc = scenario(t.dungeon);
+        setItem(v.items.dungeon, "Dungeon", esc(sc.name) + (dungeonOpen(t) ? "" : " · sealed"));
+        setItem(v.items.leave, "Leave", "esc");
+        v.scene = sceneName || v.scene;
+        v.right.innerHTML = "";
+        v.right.appendChild(backdrop(v.scene, +t.sec.split(".")[0]));
         if (right)
-            rightCol.appendChild(right);
+            v.right.appendChild(right);
         else
-            rightCol.appendChild(el("div", "gm-lines", "<p>" + esc(t.blurb || ("The people here work on " + (nav ? nav.title.toLowerCase() : "the platform") + ".")) + "</p><p class=\"gm-note\">Talk to learn the ideas and the commands. Pass the trial to open the dungeon. Read the section itself when a question stumps you.</p>"));
-        body.appendChild(rightCol);
-        screen.appendChild(body);
-        focusFirst(menu);
+            v.right.appendChild(el("div", "gm-lines", "<p>" + esc(t.blurb || ("The people here work on " + (nav ? nav.title.toLowerCase() : "the platform") + ".")) + "</p><p class=\"gm-note\">Talk to learn the ideas and the commands. Pass the trial to open the dungeon. Read the section itself when a question stumps you.</p>"));
+        focusFirst(v.menu);
+    }
+    /** a strip of scenery: the town square, its people, the inn or the shop, in the region's colours */
+    function backdrop(sceneName, d) {
+        var c = el("canvas", "gm-scene");
+        c.width = 480;
+        c.height = 64;
+        c.setAttribute("aria-hidden", "true");
+        c.setAttribute("data-scene", sceneName);
+        var k = c.getContext("2d");
+        if (k) {
+            k.imageSmoothingEnabled = false;
+            k.drawImage(ART.backdrop(sceneName, d, c.width, c.height), 0, 0);
+        }
+        return c;
     }
     function note(msg, cls) { return el("p", "gm-note " + (cls || ""), msg); }
     function focusFirst(within) { var b = within.querySelector("button, a, input"); if (b)
@@ -716,9 +781,9 @@
         }
         wrap.appendChild(lines);
         var acts = el("div", "gm-acts");
-        acts.appendChild(btn("◀ Others", function () { paintTown(talkMenu()); }, "ghost"));
+        acts.appendChild(btn("◀ Others", function () { paintTown(talkMenu(), "talk"); }, "ghost"));
         wrap.appendChild(acts);
-        paintTown(wrap);
+        paintTown(wrap, "talk");
     }
     function shopMenu() {
         var wrap = el("div", "gm-col");
@@ -732,16 +797,16 @@
             var b = btn('<span class="nm">' + esc(it.name) + '<span class="p">' + it.price + "g</span></span>" +
                 '<span class="ab">' + esc(it.about) + "</span>" + (owned ? '<span class="nm"><span class="h">' + (it.permanent ? "owned" : "held: " + owned) + "</span></span>" : ""), function () {
                 if (it.permanent && owned) {
-                    paintTown(shopMenu());
+                    paintTown(shopMenu(), "shop");
                     return;
                 }
                 if (!spendGold(it.price)) {
-                    paintTown(wrapNote(shopMenu(), "Not enough gold. Trials and battles pay.", "warn"));
+                    paintTown(wrapNote(shopMenu(), "Not enough gold. Trials and battles pay.", "warn"), "shop");
                     return;
                 }
                 giveItem(id, 1);
                 save();
-                paintTown(wrapNote(shopMenu(), "Bought " + it.name + ".", "ok"));
+                paintTown(wrapNote(shopMenu(), "Bought " + it.name + ".", "ok"), "shop");
             }, "gm-item");
             if ((it.permanent && owned) || gold() < it.price)
                 b.disabled = true;
@@ -868,40 +933,60 @@
         paintBattle();
     }
     function logSys(s) { battle.log.push({ sys: s }); }
-    function paintBattle() {
-        var b = battle, sc = b.sc, mh = maxHp();
+    function buildBattle() {
+        var b = battle;
         screen.innerHTML = "";
-        var nFound = Object.keys(b.found).length, nAll = sc.evidence.length;
-        var kind = b.opts.final ? "the Exam · fault " + (b.idx + 1) + " of " + b.chain.length : b.opts.boss ? b.opts.boss.name + " keep · " + (b.idx + 1) + " of " + b.chain.length : "dungeon of " + b.opts.town.name;
-        screen.appendChild(el("div", "gm-title", "<h3>" + esc(sc.name) + '</h3><span class="sub">' + esc(kind) + '</span><span class="right">turn ' + (b.turn + 1) + (b.opts.final ? " · short clock" : "") + "</span>"));
+        var root = el("div", "gm-battle");
+        var title = el("div", "gm-title"), h3 = el("h3"), sub = el("span", "sub"), turn = el("span", "right");
+        title.appendChild(h3);
+        title.appendChild(sub);
+        title.appendChild(turn);
+        root.appendChild(title);
         var body = el("div", "gm-body"), left = el("div", "gm-col"), right = el("div", "gm-col");
-        var enemy = el("div", "gm-enemy");
-        var mc = el("canvas");
-        mc.width = 96;
-        mc.height = 96;
-        mc.setAttribute("role", "img");
-        mc.setAttribute("aria-label", "The monster " + sc.name);
-        drawMonster(mc, sc);
-        enemy.appendChild(mc);
-        var side = el("div", "", '<div class="nm">' + esc(sc.name) + '</div><div class="lv">difficulty ' + stars(sc.difficulty) + " · domain " + sc.d + "</div>" +
-            '<div class="gm-bar"><i style="width:' + Math.round((1 - nFound / nAll) * 100) + '%"></i></div><div class="gm-barlbl"><span>guard</span><span>' + (nAll - nFound) + " of " + nAll + " evidence hidden</span></div>" +
-            '<div class="gm-bar hp' + (hp <= mh * 0.25 ? " crit" : hp <= mh * 0.5 ? " low" : "") + '"><i style="width:' + Math.round(hp / mh * 100) + '%"></i></div><div class="gm-barlbl"><span>you</span><span>' + hp + " / " + mh + " hp</span></div>");
-        side.style.flex = "1";
-        side.style.minWidth = "0";
-        enemy.appendChild(side);
-        left.appendChild(enemy);
-        left.appendChild(el("p", "gm-ticket", "<b>TICKET</b><br>" + esc(sc.ticket)));
-        left.appendChild(actionBar());
-        var sub = subMenu();
-        if (sub)
-            left.appendChild(sub);
+        var figure = el("div", "gm-enemy");
+        var sprite = el("canvas");
+        sprite.width = 96;
+        sprite.height = 96;
+        sprite.setAttribute("role", "img");
+        figure.appendChild(sprite);
+        var side = el("div", "side"), nm = el("div", "nm"), lv = el("div", "lv");
+        var guardWrap = el("div", "gm-bar"), guard = el("i");
+        guardWrap.appendChild(guard);
+        var guardLbl = el("div", "gm-barlbl", "<span>guard</span><span></span>");
+        var hpWrap = el("div", "gm-bar hp"), hpBar = el("i");
+        hpWrap.appendChild(hpBar);
+        var hpLbl = el("div", "gm-barlbl", "<span>you</span><span></span>");
+        [nm, lv, guardWrap, guardLbl, hpWrap, hpLbl].forEach(function (e) { side.appendChild(e); });
+        figure.appendChild(side);
+        // the effect's class comes off when its animation ends; data-fx keeps the last one for the checks
+        figure.addEventListener("animationend", function () { figure.classList.remove("fx-hit", "fx-stagger", "fx-win"); });
+        left.appendChild(figure);
+        var ticket = el("p", "gm-ticket");
+        left.appendChild(ticket);
+        var bar = el("div", "gm-acts"), modes = {};
+        var mode = function (m, label) {
+            // opening or closing a menu abandons whatever a menu pick had seeded, so the
+            // next command typed by hand is scored as typed
+            modes[m] = btn(label, function () { b.mode = b.mode === m ? "menu" : m; b.fromMenu = false; b.pending = null; paintBattle(); });
+            bar.appendChild(modes[m]);
+        };
+        mode("inspect", "Inspect");
+        mode("fix", "Fix");
+        mode("item", "Item");
+        bar.appendChild(btn("Flee", function () { flee(); }, "ghost"));
+        left.appendChild(bar);
+        var subHost = el("div", "gm-subhost");
+        left.appendChild(subHost);
         var term = el("div", "gm-term");
-        term.appendChild(el("div", "bar", "<span>" + esc(SIM.toolOf(lastCmd() || "kubectl") || "terminal") + '</span><span class="spacer"></span><span class="turn">found ' + nFound + "/" + nAll + " · " + b.gained + " xp this fight</span>"));
+        var tbar = el("div", "bar"), tool = el("span"), found = el("span", "turn");
+        tbar.appendChild(tool);
+        tbar.appendChild(el("span", "spacer"));
+        tbar.appendChild(found);
+        term.appendChild(tbar);
         var pre = el("pre");
         pre.setAttribute("tabindex", "0");
         pre.setAttribute("aria-live", "polite");
         pre.setAttribute("aria-label", "Terminal output");
-        pre.innerHTML = b.log.map(renderLog).join("\n");
         term.appendChild(pre);
         var form = el("form");
         form.appendChild(el("span", "ps", "$"));
@@ -911,16 +996,13 @@
         input.spellcheck = false;
         input.setAttribute("aria-label", "Command");
         input.placeholder = "type a command, or pick one from Inspect / Fix";
-        if (b.pending) {
-            input.value = b.pending;
-            b.pending = null;
-        }
         form.appendChild(input);
         form.addEventListener("submit", function (e) {
             e.preventDefault();
             var cmd = input.value.trim();
             if (!cmd)
                 return;
+            input.value = "";
             runCommand(cmd, !b.fromMenu);
             b.fromMenu = false;
         });
@@ -928,12 +1010,73 @@
         right.appendChild(term);
         body.appendChild(left);
         body.appendChild(right);
-        screen.appendChild(body);
-        pre.scrollTop = pre.scrollHeight;
+        root.appendChild(body);
+        screen.appendChild(root);
+        return { root: root, h3: h3, sub: sub, turn: turn, figure: figure, sprite: sprite, nm: nm, lv: lv,
+            guard: guard, guardLbl: guardLbl.lastChild, hpWrap: hpWrap, hpBar: hpBar, hpLbl: hpLbl.lastChild,
+            ticket: ticket, modes: modes, subHost: subHost, tool: tool, found: found, pre: pre, input: input, rendered: 0, scId: "", family: "" };
+    }
+    /** bring the battle screen up to date: only what changed is touched, and the
+        terminal grows by the lines since the last paint, so a long log stays cheap */
+    function paintBattle() {
+        var b = battle, sc = b.sc, mh = maxHp();
+        if (!bt || bt.root.parentNode !== screen)
+            bt = buildBattle();
+        var t = bt;
+        var nFound = Object.keys(b.found).length, nAll = sc.evidence.length;
+        if (t.scId !== sc.id) {
+            t.scId = sc.id;
+            t.family = ART.familyOf(sc.id, sc.d);
+            t.h3.textContent = sc.name;
+            drawMonster(t.sprite, t.family);
+            t.sprite.setAttribute("aria-label", "The monster " + sc.name + ", a " + t.family + " fault");
+            t.sprite.setAttribute("data-family", t.family);
+            t.nm.textContent = sc.name;
+            t.lv.textContent = "difficulty " + stars(sc.difficulty) + " · domain " + sc.d;
+            t.ticket.innerHTML = "<b>TICKET</b><br>" + esc(sc.ticket);
+        }
+        t.sub.textContent = b.opts.final ? "the Exam · fault " + (b.idx + 1) + " of " + b.chain.length : b.opts.boss ? b.opts.boss.name + " keep · " + (b.idx + 1) + " of " + b.chain.length : "dungeon of " + b.opts.town.name;
+        t.turn.textContent = "turn " + (b.turn + 1) + (b.opts.final ? " · short clock" : "");
+        t.guard.style.width = Math.round((1 - nFound / nAll) * 100) + "%";
+        t.guardLbl.textContent = (nAll - nFound) + " of " + nAll + " evidence hidden";
+        t.hpWrap.className = "gm-bar hp" + (hp <= mh * 0.25 ? " crit" : hp <= mh * 0.5 ? " low" : "");
+        t.hpBar.style.width = Math.round(hp / mh * 100) + "%";
+        t.hpLbl.textContent = hp + " / " + mh + " hp";
+        Object.keys(t.modes).forEach(function (m) { t.modes[m].className = b.mode === m ? "sel" : ""; });
+        t.subHost.innerHTML = "";
+        var sub = subMenu();
+        if (sub)
+            t.subHost.appendChild(sub);
+        t.tool.textContent = SIM.toolOf(lastCmd() || "kubectl") || "terminal";
+        t.found.textContent = "found " + nFound + "/" + nAll + " · " + b.gained + " xp this fight";
+        if (b.log.length < t.rendered) {
+            t.pre.innerHTML = "";
+            t.rendered = 0;
+        }
+        if (b.log.length > t.rendered) {
+            t.pre.insertAdjacentHTML("beforeend", (t.rendered ? "\n" : "") + b.log.slice(t.rendered).map(renderLog).join("\n"));
+            t.rendered = b.log.length;
+            t.pre.scrollTop = t.pre.scrollHeight;
+        }
+        if (b.pending) {
+            t.input.value = b.pending;
+            b.pending = null;
+        }
+        if (fx) {
+            play(t.figure, fx);
+            fx = null;
+        }
         if (b.mode === "menu" || b.mode === "typed")
-            input.focus();
+            t.input.focus();
         else
-            focusFirst(sub);
+            focusFirst(t.subHost);
+    }
+    /** an effect on the enemy's figure: the class runs the animation, data-fx records it */
+    function play(e, name) {
+        e.classList.remove("fx-hit", "fx-stagger", "fx-win");
+        void e.offsetWidth; // restart the animation if the same one is still up
+        e.classList.add("fx-" + name);
+        e.setAttribute("data-fx", name);
     }
     function lastCmd() { for (var i = battle.log.length - 1; i >= 0; i--)
         if (battle.log[i].cmd)
@@ -1120,6 +1263,7 @@
             b.gained += gain;
             b.log.push(entry);
             b.log.push({ gain: "Evidence found (" + Object.keys(b.found).length + "/" + sc.evidence.length + "): the enemy staggers. +" + gain + " xp" + (typed ? " (typed)" : "") + "." });
+            fx = "stagger";
             save();
             paintBattle();
             return;
@@ -1143,6 +1287,7 @@
         var b = battle, sc = b.sc;
         var dmg = Math.ceil((1 + sc.difficulty) * mult * (b.opts.final ? 1.5 : 1)) + Math.floor(b.turn / 4);
         hp = Math.max(0, hp - dmg);
+        fx = "hit";
         b.log.push({ hit: sc.name + " strikes for " + dmg + ". Health " + hp + " of " + maxHp() + "." });
         if (hp <= 0)
             defeat();
@@ -1168,6 +1313,7 @@
             b.mode = "menu";
             logSys("The truth: " + sc.answer);
             logSys("From the dark, another rises: " + b.sc.name + ". A new ticket.");
+            fx = "win";
             save();
             paintBattle();
             return;
@@ -1362,8 +1508,8 @@
         stage.tabIndex = 0;
         stage.setAttribute("aria-label", "CNPE Quest. Click or tab here, then walk with the arrow keys or WASD; enter acts.");
         canvas = el("canvas");
-        canvas.width = W * SCALE;
-        canvas.height = H * SCALE;
+        canvas.width = W * scale;
+        canvas.height = H * scale; // fitCanvas() picks the scale once the stage has a width
         canvas.setAttribute("role", "img");
         ctx = canvas.getContext("2d"); // draw() still checks for a null one
         stage.appendChild(canvas);
@@ -1392,10 +1538,9 @@
             if (scene !== "map" || dlg)
                 return;
             var r = canvas.getBoundingClientRect();
-            var fx = (e.clientX - r.left) / r.width * VW, fy = (e.clientY - r.top) / r.height * VH;
-            var cx = Math.max(0, Math.min(D.map[0].length - VW, player.x - Math.floor(VW / 2)));
-            var cy = Math.max(0, Math.min(D.map.length - VH, player.y - Math.floor(VH / 2)));
-            var dx = Math.floor(fx) + cx - player.x, dy = Math.floor(fy) + cy - player.y;
+            var px = (e.clientX - r.left) / r.width * VW, py = (e.clientY - r.top) / r.height * VH;
+            var cam = camera();
+            var dx = Math.floor(px) + cam.x - player.x, dy = Math.floor(py) + cam.y - player.y;
             if (dx === 0 && dy === 0) {
                 act();
                 return;
@@ -1443,25 +1588,38 @@
         pad.appendChild(ab);
         host.appendChild(pad);
         readPalette();
+        fitCanvas();
         if (window.CNPE_THEME && !themeWired) {
             themeWired = true;
             window.CNPE_THEME.onChange(function () {
                 readPalette();
-                dirty = true;
-                draw();
+                requestDraw();
                 // a live battle repaints so the monster takes the new palette; a finished
-                // one keeps its result card, and a half-typed command survives the repaint
+                // one keeps its result card; the terminal and its half-typed command stay
                 if (scene === "battle" && battle && !battle.over) {
-                    var inp = screen.querySelector(".gm-term input");
-                    if (inp && inp.value)
-                        battle.pending = inp.value;
+                    if (bt)
+                        bt.scId = "";
                     paintBattle();
                 }
+                if (scene === "town" && town && tn)
+                    paintTown(tn.right.children.length > 1 ? tn.right.children[1] : null);
             });
         }
         // fonts arrive after first paint, and the town labels are text
         if (document.fonts && document.fonts.ready)
-            document.fonts.ready.then(function () { dirty = true; draw(); });
+            document.fonts.ready.then(function () { requestDraw(); });
+        // the screen: a resize or a zoom changes how many device pixels an art pixel gets
+        window.addEventListener("resize", fitCanvas);
+        if (typeof ResizeObserver !== "undefined")
+            new ResizeObserver(function () { fitCanvas(); }).observe(stage);
+        document.addEventListener("visibilitychange", syncAnim);
+        if (motionQuery) {
+            var onMotion = function () { reduceMotion = !!(motionQuery && motionQuery.matches); walkFrame = 0; syncAnim(); requestDraw(); };
+            if (motionQuery.addEventListener)
+                motionQuery.addEventListener("change", onMotion);
+            else if (motionQuery.addListener)
+                motionQuery.addListener(onMotion);
+        }
     }
     function intro() {
         if (has("flags", "intro"))
@@ -1492,8 +1650,8 @@
             } // another tab moved the store: repaint the tiles
             mountEl.setAttribute("data-built", "1");
             host = mountEl;
-            if (!D || !SIM || !window.CNPE_PROGRESS || !D.map.length) {
-                host.innerHTML = '<div class="wnote bad">The quest did not load; assets/game-data.js or assets/game-sim.js is missing.</div>';
+            if (!D || !SIM || !ART || !window.CNPE_PROGRESS || !D.map.length) {
+                host.innerHTML = '<div class="wnote bad">The quest did not load; assets/game-data.js, assets/game-sim.js or assets/game-art.js is missing.</div>';
                 return;
             }
             scene = "map";
@@ -1501,6 +1659,9 @@
             trial = null;
             battle = null;
             dlg = null;
+            bt = null;
+            tn = null;
+            buildRegions();
             build();
             hp = maxHp();
             loadPos();
@@ -1508,7 +1669,18 @@
             paintTiles();
             paintHud();
             setScene("map");
+            frame(); // the first frame now, not on the next tick: the page opens painted
             intro();
+        },
+        /** what the renderer is doing, for the browser checks and profiling */
+        debug: function () {
+            return { frames: stats.frames, drawMs: stats.drawMs, terrainRenders: stats.terrainRenders, terrainMs: stats.terrainMs,
+                terrain: terrain ? { w: terrain.width, h: terrain.height } : null, scale: scale, dpr: dprSeen,
+                anim: !!animTimer, reduceMotion: reduceMotion, waterFrame: waterFrame, walkFrame: walkFrame, face: player.face,
+                frame: function () { if (rafId) {
+                    cancelAnimationFrame(rafId);
+                    rafId = 0;
+                } dirty = true; draw(); } };
         }
     };
     window.CNPE_GAME.mount();
