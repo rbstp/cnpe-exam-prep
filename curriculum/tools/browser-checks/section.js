@@ -5,6 +5,26 @@
 module.exports = async function (h) {
   const { url, fresh, assert, group } = h;
 
+  /* Every wait below is for a state, never for a span of time: the mark the spy
+     moves, the rail the width takes away, or a frame gone by, which is what
+     "laid out and painted" means for a scroll or a resize. */
+  /** @param {import('playwright').Page} page */
+  const frame = page => page.evaluate(() => new Promise(r => { requestAnimationFrame(() => requestAnimationFrame(() => r(null))); }));
+  /** the rail's mark reads `want`, or anything but it when `want` is prefixed with "!"
+      @param {import('playwright').Page} page @param {string} want */
+  const mark = (page, want) => page.waitForFunction(
+    (/** @type {string} */ w) => {
+      const a = document.querySelector('#toc a.active');
+      const t = a ? a.textContent : null;
+      return w.charAt(0) === '!' ? t !== w.slice(1) : t === w;
+    }, want, { timeout: 4000 }).catch(() => {});
+  /** the rail is off the page, which is the whole point of the narrow width
+      @param {import('playwright').Page} page */
+  const railGone = page => page.waitForFunction(() => {
+    const t = document.querySelector('#toc');
+    return !t || getComputedStyle(t).display === 'none' || !t.getBoundingClientRect().width;
+  }, null, { timeout: 4000 }).catch(() => {});
+
   async function freshWithClipboard() {
     const { ctx, page } = await fresh();
     await page.addInitScript(() => {
@@ -101,17 +121,17 @@ module.exports = async function (h) {
     /** @param {number} y */
     const to = y => page.evaluate(n => window.scrollTo({ top: n, behavior: 'instant' }), y);
     await to(5000);
-    await page.waitForTimeout(250);
+    await mark(page, '!' + first);                     // the spy has moved it off the first panel
     const deep = await marked();
     assert(deep !== first, 'reading deep in the page marks a later panel: ' + JSON.stringify(deep));
     // spy leaves the mark alone while the column is gone, so widening back has to
     // re-read; nothing else will, since the reader has not scrolled since.
     await page.setViewportSize({ width: 1000, height: 900 });
-    await page.waitForTimeout(200);
+    await railGone(page);                              // the column is gone: from here the spy leaves the mark alone
     await to(0);
-    await page.waitForTimeout(200);
+    await frame(page);                                 // and the scroll it ignores has been laid out
     await page.setViewportSize({ width: 1400, height: 900 });
-    await page.waitForTimeout(300);
+    await mark(page, first);
     assert(await marked() === first,
       'back at the top and wide again, the first panel is marked: ' + JSON.stringify(await marked()));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
@@ -124,7 +144,7 @@ module.exports = async function (h) {
   await group('the page root is rebuilt, not carried out of the DOM', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('01-architecture/01-networking.html'));
-    await page.waitForTimeout(300);
+    await page.waitForSelector('.pager a[href]');      // boot() has built the chrome this reads
 
     // a section page sits one directory down, and its generated links say so
     const real = await page.evaluate(() => ({
@@ -177,12 +197,12 @@ module.exports = async function (h) {
     });
     assert(last, 'the page has a rail to mark: ' + JSON.stringify(last));
     await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }));
-    await page.waitForTimeout(300);
+    await mark(page, last);
     assert(await marked() === last,
       'at the bottom the last panel is marked: ' + JSON.stringify(await marked()) + ' want ' + JSON.stringify(last));
     // and it is the bottom that does it, not a one-way latch: scrolling back up releases
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
-    await page.waitForTimeout(300);
+    await mark(page, '!' + last);
     assert(await marked() !== last, 'back at the top it lets go again: ' + JSON.stringify(await marked()));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
