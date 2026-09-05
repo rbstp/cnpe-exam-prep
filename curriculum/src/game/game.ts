@@ -278,10 +278,11 @@
   function gateOpen() { return D.regions.every(function (r) { return has("flags", "boss-" + r.d); }); }
 
   /* ── the signpost: where next ───────────────────────────── */
-  /** where next, as a road sign would put it: the nearest town with its trial or its dungeon still to do (its
-      trial first, then its dungeon door; the town you stand in is nearest of all), then the nearest keep that
-      stands open, then the Exam gate; nothing once the exam is passed. Shown in the where window with the steps
-      and the way, ringed on the minimap, and said in the canvas's label. */
+  /** where next, as a road sign would put it: the nearest tile still to be reached among the towns, each offering
+      its trial until that is cleared and its dungeon door until that is won (so a town you stand in offers its own
+      door, three tiles off, unless another town's trial is nearer); when none is left, the nearest keep that stands
+      open; then the Exam gate; nothing once the exam is passed. Shown in the where window with the steps and the
+      way, ringed on the minimap, and said in the canvas's label. */
   interface Goal { x: number; y: number; what: string; }
   function nextGoal(): Goal | null {
     var best: Goal | null = null, bd = 1e9;
@@ -657,9 +658,10 @@
   /** what moves on the minimap: the viewport's frame, one pixel wide around the tiles the map shows, and the
       player's dot, blinking on the beat; each is lifted from where it last was (the ground put back from
       miniBase) and put down again, so the map under them is never rebuilt for it */
-  function drawMinimap() {
+  function drawMinimap(goal?: Goal | null) {
     var m = miniCtx();
     if (!m) return;
+    var gl = goal === undefined ? nextGoal() : goal;   // draw() has it already; the beat's own call asks
     if (miniFrame.x >= 0) {
       restoreMini(m, miniFrame.x, miniFrame.y, VW, 1); restoreMini(m, miniFrame.x, miniFrame.y + VH - 1, VW, 1);
       restoreMini(m, miniFrame.x, miniFrame.y, 1, VH); restoreMini(m, miniFrame.x + VW - 1, miniFrame.y, 1, VH);
@@ -671,9 +673,10 @@
     m.fillStyle = focused ? P.accent : P.paper;       // the windows' rule, the frame being a window onto the map; the accent while the stage has focus, as its border does
     m.fillRect(fx, fy, VW, 1); m.fillRect(fx, fy + VH - 1, VW, 1); m.fillRect(fx, fy, 1, VH); m.fillRect(fx + VW - 1, fy, 1, VH);
     miniFrame.x = fx; miniFrame.y = fy;
-    // the signpost's ring: a hollow five by five in the accent around where next, on the beat's odd frames, so it
-    // and the dot take turns; steady under reduced motion. It never covers the tile it points at.
-    var gl = nextGoal();
+    // the signpost's ring: a hollow five by five in the accent around where next, on the beat's odd frame (the dot
+    // has the even two of the three); steady under reduced motion. It never covers the tile it points at, and it
+    // is painted before the dot, so where you stand wins where the two meet. Every tile it can ring lies two or
+    // more tiles inside the map's edge (the border is sea), so the unclipped fillRect never runs off the canvas.
     if (gl && (reduceMotion || (animFrame & 1))) {
       m.fillStyle = P.accent;
       m.fillRect(gl.x - 2, gl.y - 2, 5, 1); m.fillRect(gl.x - 2, gl.y + 2, 5, 1); m.fillRect(gl.x - 2, gl.y - 1, 1, 3); m.fillRect(gl.x + 2, gl.y - 1, 1, 3);
@@ -734,14 +737,15 @@
     D.regions.forEach(function (r) { label(r.name + " keep", r.keep.x * TILE - cx, r.keep.y * TILE - cy, has("flags", "boss-" + r.d) ? P.ok : P.warn); });
     label("The Exam", D.finale.keep.x * TILE - cx, D.finale.keep.y * TILE - cy, has("flags", "final") ? P.ok : P.viol);
     ctx.drawImage(ART.hero(player.face, walkFrame), px - cx, py - cy);
-    drawMinimap();
+    var gl = nextGoal(), far = gl ? Math.abs(gl.x - player.x) + Math.abs(gl.y - player.y) : 0;
+    drawMinimap(gl);
     var here = regionAt(player.x, player.y);
     var what = tileAt(player.x, player.y);
     var tw = townAt(player.x, player.y), dd = doorAt(player.x, player.y), kp = keepAt(player.x, player.y);
     var where = here ? here.region.name + (tw ? " · " + tw.name : dd ? " · dungeon of " + dd.name : kp ? " · the keep" : gateAt(player.x, player.y) ? " · the Exam gate" : "") : "";
-    var gl = nextGoal(), far = gl ? Math.abs(gl.x - player.x) + Math.abs(gl.y - player.y) : 0;
-    var aria = "Overworld map. You stand on " + what + " in " + where + ". " + (here && here.dist ? here.town.name + " is " + here.dist + " steps away. " : "") +
-      (gl ? "Next: " + gl.what + (far ? ", " + far + " steps " + wayTo(gl, true) + "." : ", here.") : "The exam is passed; the map is yours.");
+    var steps = function (n: number) { return n + (n === 1 ? " step" : " steps"); };
+    var aria = "Overworld map. You stand on " + what + " in " + where + ". " + (here && here.dist ? here.town.name + " is " + steps(here.dist) + " away. " : "") +
+      (gl ? "Next: " + gl.what + (far ? ", " + steps(far) + " " + wayTo(gl, true) + "." : ", here.") : "The exam is passed; the map is yours.");
     if (aria !== lastLabel) {
       lastLabel = aria;
       whereEl.innerHTML = esc(where) + (gl ? '<span class="nx">next: ' + esc(gl.what) + (far ? " · " + far + " " + wayTo(gl, false) : " · here") + "</span>" : "");
@@ -1661,7 +1665,7 @@
         anim: !!animTimer, reduceMotion: reduceMotion, waterFrame: animFrame, walkFrame: walkFrame, face: player.face,
         x: player.x, y: player.y, walking: !!walk, offset: { x: drawnOff.x, y: drawnOff.y }, sub: drawnSub, queued: !!queued,
         camera: lastCam ? { x: lastCam.x, y: lastCam.y } : null, cameraEase: !!ease,
-        goal: nextGoal(),
+        goal: host && D && window.CNPE_PROGRESS ? nextGoal() : null,   // a mount that found no assets has no store to read
         waterInView: waterInView, ambientInView: ambientInView,
         mounted: !!host, mounts: mounts, listeners: undo.length, timers: timers.length,
         frame: paintNow,
