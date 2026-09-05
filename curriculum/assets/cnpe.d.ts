@@ -394,8 +394,10 @@ interface CnpeGameResource {
   exec?: Record<string, string>;
   /** kubectl top's two columns */
   top?: string[];
-  /** `rollout status`, or for a Rollout the argo rollouts plugin's view */
-  rollout?: string | { status?: string; step?: string; weight?: string; get?: string };
+  /** what `kubectl rollout status` prints for this workload */
+  rollout?: string;
+  /** for a Rollout, the argo rollouts plugin's view: phase, step, weight, and `get`'s tree */
+  canary?: { status?: string; step?: string; weight?: string; get?: string };
   /** flux get's REVISION, SUSPENDED, READY, MESSAGE */
   flux?: string[];
   /** flux tree's body, flux reconcile's tail */

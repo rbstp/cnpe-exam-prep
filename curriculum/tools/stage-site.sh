@@ -19,6 +19,7 @@ mkdir -p "$OUT"
 # The site itself: every page and asset, minus the build tooling and repo docs.
 tar -cf - -C "$SRC" \
     --exclude=./tools \
+    --exclude=./src \
     --exclude=./README.md \
     --exclude=./cnpe-console.html \
     --exclude=./jsconfig.json \
