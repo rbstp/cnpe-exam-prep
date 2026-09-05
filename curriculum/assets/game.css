@@ -44,6 +44,10 @@
 .gm-dialog .more { text-align: right; font-family: var(--mono); font-size: 11px; color: var(--paper-3); margin-top: 6px; }
 .gm-dialog .more button { margin-left: 8px; }
 .gm-where { position: absolute; right: 8px; top: 8px; padding: 4px 8px; font-family: var(--mono); font-size: 11px; color: var(--paper-3); pointer-events: none; }
+/* the minimap: the whole map at a pixel a tile, under the signpost; the dot blinks on the beat */
+.gm-mini { right: 8px; top: 38px; padding: 4px; pointer-events: none; }
+.gm-mini canvas { display: block; width: 120px; height: 80px; image-rendering: pixelated; image-rendering: crisp-edges; }
+@media (max-width: 560px) { .gm-mini { display: none; } }
 
 /* ── screens: a scene over the whole stage ─────────────────── */
 .gm-screen {
@@ -110,7 +114,7 @@
 .gm-prog i.hit { background: var(--ok); } .gm-prog i.miss { background: var(--bad); } .gm-prog i.now { background: var(--paper-3); }
 
 /* ── the battle ───────────────────────────────────────────── */
-.gm-enemy { display: flex; gap: 12px; align-items: flex-start; }
+.gm-enemy { display: flex; gap: 12px; align-items: flex-start; position: relative; }
 .gm-enemy canvas { width: 96px; height: 96px; flex: none; image-rendering: pixelated; border: 1px solid var(--rule); background: var(--ink-sunk); }
 .gm-enemy .side { flex: 1; min-width: 0; }
 .gm-enemy .nm { font-family: var(--disp); font-weight: 700; font-size: 17px; color: var(--paper); }
@@ -123,6 +127,33 @@
 .gm-enemy.fx-hit canvas { animation: gm-shake .4s ease-out, gm-flash .4s ease-out; }
 .gm-enemy.fx-stagger canvas { animation: gm-stagger .45s ease-out; }
 .gm-enemy.fx-win canvas { animation: gm-fall .9s ease-in-out; }
+/* each fault family falls its own way: the figure carries data-family */
+@keyframes gm-fall-workload { 0% { transform: none; opacity: 1; } 55% { transform: translate(6px, 14px) rotate(24deg); opacity: .8; } 80% { transform: translate(10px, 40px) rotate(88deg); opacity: .2; } 100% { transform: none; opacity: 1; } }
+@keyframes gm-fall-networking { 0% { transform: none; opacity: 1; } 30% { transform: scale(1.1, .9) translate(0, 3px); } 70% { transform: scale(.15, 1.3) translate(0, -6px); opacity: .5; } 90% { transform: scale(.02, 1.6); opacity: 0; } 100% { transform: none; opacity: 1; } }
+@keyframes gm-fall-storage { 0% { transform: none; opacity: 1; } 50% { transform: scale(1.15, .55) translate(0, 22px); opacity: .9; } 85% { transform: scale(1.3, .08) translate(0, 46px); opacity: .1; } 100% { transform: none; opacity: 1; } }
+@keyframes gm-fall-gitops { 0% { transform: none; opacity: 1; } 60% { transform: rotate(300deg) scale(.55); opacity: .7; } 90% { transform: rotate(540deg) scale(.05); opacity: 0; } 100% { transform: none; opacity: 1; } }
+@keyframes gm-fall-ci { 0% { transform: none; opacity: 1; } 15% { transform: translate(-4px, 0); } 30% { transform: translate(4px, 0); } 45% { transform: translate(-3px, 2px); } 60% { transform: translate(3px, 4px) skew(-4deg, 0); } 88% { transform: translate(0, 44px) skew(-10deg, 0); opacity: .1; } 100% { transform: none; opacity: 1; } }
+@keyframes gm-fall-crossplane { 0% { transform: none; opacity: 1; filter: none; } 60% { transform: scale(1.12); opacity: .5; filter: blur(2px); } 90% { transform: scale(1.3); opacity: 0; filter: blur(5px); } 100% { transform: none; opacity: 1; filter: none; } }
+@keyframes gm-fall-observability { 0% { opacity: 1; } 20% { opacity: .2; } 35% { opacity: .9; } 50% { opacity: .1; } 65% { opacity: .6; } 90% { opacity: 0; transform: translate(0, 8px); } 100% { opacity: 1; transform: none; } }
+@keyframes gm-fall-security { 0% { transform: none; opacity: 1; } 40% { transform: skew(8deg, 0) translate(0, 4px); } 70% { transform: skew(-14deg, 0) scale(1, .7) translate(0, 24px); opacity: .6; } 90% { transform: skew(-20deg, 0) scale(1, .1) translate(0, 46px); opacity: .1; } 100% { transform: none; opacity: 1; } }
+.gm-enemy.fx-win[data-family="workload"] canvas { animation: gm-fall-workload .9s ease-in; }
+.gm-enemy.fx-win[data-family="networking"] canvas { animation: gm-fall-networking .9s ease-in-out; }
+.gm-enemy.fx-win[data-family="storage"] canvas { animation: gm-fall-storage .9s ease-in; }
+.gm-enemy.fx-win[data-family="gitops"] canvas { animation: gm-fall-gitops .9s ease-in; }
+.gm-enemy.fx-win[data-family="ci"] canvas { animation: gm-fall-ci .9s ease-in; }
+.gm-enemy.fx-win[data-family="crossplane"] canvas { animation: gm-fall-crossplane .9s ease-out; }
+.gm-enemy.fx-win[data-family="observability"] canvas { animation: gm-fall-observability .9s linear; }
+.gm-enemy.fx-win[data-family="security"] canvas { animation: gm-fall-security .9s ease-in; }
+/* a number that floats up and fades: the damage over the monster, the xp over the guard bar */
+@keyframes gm-float { 0% { transform: translate(0, 0); opacity: 0; } 15% { opacity: 1; } 100% { transform: translate(0, -30px); opacity: 0; } }
+.gm-float {
+  position: absolute; pointer-events: none; font-family: var(--disp); font-weight: 700; font-size: 16px; line-height: 1;
+  text-shadow: 1px 1px 0 var(--ink), -1px 1px 0 var(--ink), 1px -1px 0 var(--ink), -1px -1px 0 var(--ink);
+  animation: gm-float 1.1s ease-out forwards;
+}
+.gm-enemy > .gm-float { left: 30px; top: 26px; }
+.gm-float.hit { color: var(--bad-lit); }
+.gm-float.gain { color: var(--ok-lit); right: 0; top: -16px; font-size: 13px; }
 .gm-bar { height: 6px; background: var(--surface-3); position: relative; margin-top: 4px; }
 .gm-bar i { display: block; height: 100%; background: var(--bad); transition: width .35s ease-out; }
 .gm-bar.hp i { background: var(--ok); }

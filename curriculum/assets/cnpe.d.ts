@@ -473,14 +473,15 @@ interface CnpeGamePalette {
 interface CnpeArtApi {
   /** the tile size in pixels, 16 */
   TILE: number;
-  /** how many frames the water has */
+  /** how many frames the water, the flowers, the chimney smoke and the torches have */
   FRAMES: number;
   /** the fault families that have an enemy sprite */
   FAMILIES: string[];
   /** repaint everything from this palette from now on; drops the sprite cache */
   theme(p: CnpeGamePalette): void;
   grass(variant: number, region: number): HTMLCanvasElement;
-  flower(variant: number, region: number): HTMLCanvasElement;
+  /** frame 0 is the flower at rest, which the terrain cache holds; 1 and 2 sway */
+  flower(variant: number, region: number, frame?: number): HTMLCanvasElement;
   road(variant: number, region: number, mask: number): HTMLCanvasElement;
   sand(variant: number, region: number): HTMLCanvasElement;
   tree(variant: number, region: number): HTMLCanvasElement;
@@ -499,6 +500,11 @@ interface CnpeArtApi {
   /** the fault family a scenario belongs to: workload, networking, storage,
       gitops, ci, crossplane, observability or security */
   familyOf(scenarioId: string, domain: number): string;
+  /** a transparent overlay drawn over a tile the terrain already holds: "puff",
+      the smoke over a town's chimney, or "torch", the flames on an open door's posts */
+  ambient(kind: "puff" | "torch", frame: number): HTMLCanvasElement;
+  /** the colour a region tints its ground with, for the minimap */
+  tint(region: number): string;
   /** a strip of scenery for a town menu: square, talk, inn or shop */
   backdrop(scene: string, region: number, w: number, h: number): HTMLCanvasElement;
   /** names of grids that are not the size they claim; empty when the art is sound */
@@ -509,15 +515,31 @@ interface CnpeArtApi {
 interface CnpeGameDebug {
   /** frames painted, and the milliseconds they took in all */
   frames: number; drawMs: number;
-  /** whole-map terrain renders, their milliseconds, and the cache's size */
+  /** whole-map terrain renders (the first paint and every theme switch), the
+      milliseconds spent painting the terrain in all, and the cache's size */
   terrainRenders: number; terrainMs: number; terrain: { w: number; h: number } | null;
+  /** partial repaints, one per landmark change, the tiles they touched, and their
+      share of terrainMs */
+  terrainPatches: number; tilesRepainted: number; patchMs: number;
+  /** the minimap: its size, and how many times it was rebuilt from the terrain */
+  minimap: { w: number; h: number } | null; minimapBuilds: number;
   /** the canvas backing scale, and the device pixel ratio it was chosen for */
   scale: number; dpr: number;
-  /** the water ticker is running */
+  /** the beat that moves the water, the flowers, the smoke and the torches is running */
   anim: boolean;
   /** the visitor asked for reduced motion */
   reduceMotion: boolean;
+  /** the beat's frame (the water's, as it always was), the walk cycle's, and the way the player faces */
   waterFrame: number; walkFrame: number; face: string;
+  /** the tile the player stands on, or is stepping onto */
+  x: number; y: number;
+  /** a step is in flight: its pixel offset from the tile it ends on, and whether another waits behind it */
+  walking: boolean; offset: { x: number; y: number }; queued: boolean;
+  /** how many animated tiles the last frame found in view: water, and the rest */
+  waterInView: number; ambientInView: number;
+  /** the quest is mounted, how many times it has been, and the listeners,
+      observers and one-shot timers it holds right now (0 after unmount()) */
+  mounted: boolean; mounts: number; listeners: number; timers: number;
   /** paint now, without waiting for the next animation frame */
   frame(): void;
 }
@@ -552,8 +574,11 @@ interface CnpeSimApi {
 interface Window {
   CNPE_GAME_DATA?: CnpeGameData;
   CNPE_SIM?: CnpeSimApi;
-  /** the quest; mount() is idempotent per page, like the drill's */
-  CNPE_GAME?: { mount(): void; debug?(): CnpeGameDebug };
+  /** the quest; mount() is idempotent per page, like the drill's. unmount()
+      cancels the animation frame, the tickers, the observers and the listeners
+      and drops the terrain cache: the bundle calls it before it replaces the
+      page on a hash route, so a visit leaves nothing behind. */
+  CNPE_GAME?: { mount(): void; unmount(): void; debug?(): CnpeGameDebug };
   CNPE_ART?: CnpeArtApi;
   CNPE_NAV?: CnpeNavEntry[];
   CNPE_DOMAINS?: CnpeDomain[];

@@ -143,6 +143,9 @@ window.CNPE_EXAM_KEYS = %s;
     else { document.body.setAttribute("data-id", k); }
     if (window.CNPE_EXAM_KEYS.indexOf(k) >= 0) document.body.setAttribute("data-exam", "");
     else document.body.removeAttribute("data-exam");
+    // the quest holds an animation loop, a ticker, observers and listeners
+    // against the page it built into: take it down before that page goes
+    if (window.CNPE_GAME && window.CNPE_GAME.unmount) window.CNPE_GAME.unmount();
     view.innerHTML = window.CNPE_PAGES[k];
     window.CNPE_BOOT();
     if (pendingFragment) {
