@@ -110,5 +110,9 @@ window.CNPE_NAV = [
 
   { id: "DR", d: 0, path: "drill.html", title: "Drill: every self-check question, shuffled",
     needs: "nothing running", mins: 10,
-    tags: "drill flashcards review recall retrieval practice questions quiz self-check weak spots streak spaced repetition" }
+    tags: "drill flashcards review recall retrieval practice questions quiz self-check weak spots streak spaced repetition" },
+
+  { id: "GM", d: 0, path: "game.html", title: "CNPE Quest: explore the theory, battle the faults",
+    needs: "nothing running", mins: 20,
+    tags: "game quest rpg adventure battle practice commands kubectl argocd flux tkn crossplane incident fault ticket dungeon boss xp level gold items towns trial play" }
 ];

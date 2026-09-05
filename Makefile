@@ -67,12 +67,20 @@ browser: ## Browser-check the staged console like CI does (AREAS=sync,theme runs
 	@node curriculum/tools/browser-checks/run.js "$(CURDIR)/_site"
 worker:  ## Test the progress-sync Worker against a stub D1 (plain node, no deps)
 	@node sync/test.mjs
-merge:   ## Test the progress merge over plain objects (plain node, no deps)
+merge:   ## Test the progress merge over plain objects (plain node, no deps; see also 'sim')
 	@node curriculum/tools/merge-test.mjs
+sim:     ## Test the quest's command interpreter over every battle scenario (plain node, no deps)
+	@node curriculum/tools/game-sim-test.mjs
+ts:      ## Compile curriculum/src/**/*.ts (the quest, merge.js, syntax.js) into curriculum/assets/ (needs typescript)
+	@curriculum/tools/build-ts.sh
+ts-check: ## Fail if the committed compiled scripts no longer match their TypeScript
+	@curriculum/tools/build-ts.sh --check
 syntax:  ## Test the command-block highlighting over plain strings (plain node, no deps)
 	@node curriculum/tools/syntax-test.mjs
-typecheck: ## Type-check the console's JS via JSDoc (needs typescript, @types/node, playwright resolvable)
+typecheck: ## Type-check the console's JS via JSDoc and its TypeScript sources (needs typescript, @types/node, playwright resolvable)
 	@npx tsc -p curriculum/jsconfig.json
+	@npx tsc -p curriculum/src/game/tsconfig.json --noEmit
+	@npx tsc -p curriculum/src/console/tsconfig.json --noEmit
 	@npx tsc -p curriculum/tools/browser-checks/tsconfig.json
 	@npx tsc -p sync/jsconfig.json
 	@echo "typecheck clean"
@@ -89,7 +97,7 @@ down:    ## Delete both clusters (keeps git history + registry)
 nuke:    ## Delete everything including Gitea data
 	@$(S)/99-down.sh all
 
-.PHONY: help host tools refresh up gitea gitops cicd api obs sec mesh portal core full spire validate fix-cp-metrics study fonts site browser worker merge syntax typecheck urls forward forward-stop status break break-fix down nuke
+.PHONY: help host tools refresh up gitea gitops cicd api obs sec mesh portal core full spire validate fix-cp-metrics study fonts site browser worker merge sim ts ts-check syntax typecheck urls forward forward-stop status break break-fix down nuke
 
 break-answer: ## Reveal the last injected fault
 	@cat /tmp/cnpe-lab/.last-fault 2>/dev/null || echo "none injected yet"

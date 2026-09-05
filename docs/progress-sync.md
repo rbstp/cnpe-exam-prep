@@ -45,8 +45,23 @@ and it changes nothing about how the site is hosted or deployed.
 
 One row per GitHub user: the numeric user id, the login, a revision counter and
 the `cnpe:v2` store as JSON. Nothing else. A **fully completed** store, meaning all
-29 sections, all 123 exercises, all 148 drill cards, both mock exams and a full
-window of study days, is about 19 KB against a 64 KB ceiling.
+29 sections, all 123 exercises, all 148 drill cards, both mock exams, a full
+window of study days and a finished quest, is about 25 KB against a 64 KB ceiling.
+
+The quest's bucket (`game`) follows the same rules as the rest. Its counters
+(xp, gold earned and spent, items got and used) are per-browser maps read as
+the sum, like the day counters, so xp earned on two machines adds up rather than
+the larger side hiding the smaller. Its ticks (a trial cleared, a technique
+learned, a boss beaten) are unions, because nothing in the game un-clears. A
+battle's record keeps the most wins, the fewest turns and the latest stamp, and
+the position keeps the latest stamp. One caveat the counters carry: held gold
+and held items are earned minus spent as the merged view shows them, so two
+browsers spending the same gold while both offline can, once they meet, read as
+having spent more than was earned; the game clamps the reading at zero and no
+merge ever lowers a counter to repair it. The mirror case is two tabs of one
+browser, which share a slot: two purchases made in the same instant, before the
+tabs' storage event has merged them, keep only the larger spend. The window is
+the milliseconds between a save and the other tab's reconcile.
 The Worker measures that ceiling on the UTF-8 encoded JSON, not JavaScript
 character count, so multibyte text cannot bypass the limit.
 
