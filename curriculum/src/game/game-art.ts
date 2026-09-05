@@ -108,6 +108,13 @@
     return out;
   }
   function flip(g: Grid): Grid { return g.map(function (r) { return r.split("").reverse().join(""); }); }
+  /** an edge band padded out to a whole tile, so that a turn of it lands on the far side rather than back at the origin */
+  function pad(g: Grid): Grid {
+    var out: string[] = [];
+    for (var y = 0; y < TILE; y++) { var row = g[y] || ""; while (row.length < TILE) row += "."; out.push(row.slice(0, TILE)); }
+    return out;
+  }
+  function own(o: object, k: string) { return Object.prototype.hasOwnProperty.call(o, k); }
 
   var GRASS: Grid[] = [
     ["................", "....G...........", "................", "..........h.....", ".G..............", "................", ".......G........", "................",
@@ -335,6 +342,7 @@
   }
   /** the fault family a scenario belongs to, by its id; the sprite and its colour follow */
   function familyOf(id: string, domain: number): string {
+    if (/^(image|probe|resources|quota|config|hpa-unknown)$/.test(id)) return "workload";
     if (/^(argocd|flux|canary)/.test(id)) return "gitops";
     if (/^(tekton|image-unsigned)/.test(id)) return "ci";
     if (/^(xp-|xr-)/.test(id)) return "crossplane";
@@ -397,9 +405,9 @@
   }
   function fill(k: CanvasRenderingContext2D, c: string) { k.fillStyle = c; k.fillRect(0, 0, TILE, TILE); }
 
-  /** N=1 E=2 S=4 W=8: the sides whose neighbour is a different kind of ground */
+  /** N=1 E=2 S=4 W=8: the sides whose neighbour is a different kind of ground; g is the north band */
   function edges4(k: CanvasRenderingContext2D, g: Grid, slots: Slots, mask: number) {
-    var dirs = [g, rot(g), rot(rot(g)), rot(rot(rot(g)))];
+    var sq = pad(g), dirs = [sq, rot(sq), rot(rot(sq)), rot(rot(rot(sq)))];
     for (var i = 0; i < 4; i++) if (mask & (1 << i)) stamp(k, dirs[i], slots, 0, 0);
   }
 
@@ -407,8 +415,6 @@
   var api: CnpeArtApi = {
     TILE: TILE, FRAMES: FRAMES, FAMILIES: FAMILIES,
     theme: function (p) { P = p; gen++; cache = {}; groundCache = {}; bright = lum(p.paper) > lum(p.ink) ? p.paper : p.ink; dark = bright === p.paper ? p.ink : p.paper; },
-    ready: function () { return !!P; },
-    mix: mix,
     grass: function (v, d) { return cached("g" + v + "." + d, function (k) { var s = ground(d); fill(k, s.g); stamp(k, GRASS[v % GRASS.length], s, 0, 0); }); },
     flower: function (v, d) { return cached("f" + v + "." + d, function (k) { var s = ground(d); fill(k, s.g); stamp(k, GRASS[(v + 1) % GRASS.length], s, 0, 0); stamp(k, FLOWER[v % FLOWER.length], s, 0, 0); }); },
     road: function (v, d, mask) {
@@ -430,8 +436,8 @@
       frame = ((frame % FRAMES) + FRAMES) % FRAMES;
       return cached("w" + mask + "." + frame, function (k) {
         var s = waterSlots(); fill(k, s.w); stamp(k, WATER[frame], s, 0, 0);
-        var shore = SHORE[frame], sides = [shore, rot(shore), rot(rot(shore)), rot(rot(rot(shore)))];
-        var corner = SHORE_CORNER, corners = [corner, rot(corner), rot(rot(corner)), rot(rot(rot(corner)))];   // NW NE SE SW
+        var shore = pad(SHORE[frame]), sides = [shore, rot(shore), rot(rot(shore)), rot(rot(rot(shore)))];       // N E S W
+        var corner = pad(SHORE_CORNER), corners = [corner, rot(corner), rot(rot(corner)), rot(rot(rot(corner)))];   // NW NE SE SW
         var land = [!!(mask & 1), !!(mask & 4), !!(mask & 16), !!(mask & 64)];                            // N E S W
         for (var i = 0; i < 4; i++) if (land[i]) stamp(k, sides[i], s, 0, 0);
         if ((mask & 128) && !land[0] && !land[3]) stamp(k, corners[0], s, 0, 0);
@@ -467,12 +473,12 @@
       });
     },
     hero: function (face, frame) {
-      var f = HERO[face] ? face : "d";
+      var f = own(HERO, face) ? face : "d";
       return cached("h" + f + (frame & 1), function (k) { stamp(k, HERO[f][frame & 1], heroSlots(), 0, 0); });
     },
     enemy: function (family, scale) {
       scale = scale || 3;
-      var fam = ENEMIES[family] ? family : "workload";
+      var fam = own(ENEMIES, family) ? family : "workload";
       return cached("e" + fam + "." + scale, function (k) { stamp(k, ENEMIES[fam], enemySlots(fam), 0, 0, scale); }, 32 * scale, 32 * scale);
     },
     familyOf: familyOf,
@@ -511,7 +517,11 @@
       Object.keys(PROPS).forEach(function (n) { sq("prop-" + n, PROPS[n], TILE); });
       Object.keys(HERO).forEach(function (f) { HERO[f].forEach(function (g, i) { sq("hero-" + f + i, g, TILE); }); });
       FAMILIES.forEach(function (f) { sq("enemy-" + f, ENEMIES[f], 32); });
-      [SHORE[0], SHORE[1], SHORE[2], SHORE_CORNER, CLIFF_N, ROAD_EDGE].forEach(function (g, i) { if (g.some(function (r) { return r.length !== TILE; })) bad.push("edge" + i); });
+      [SHORE[0], SHORE[1], SHORE[2], SHORE_CORNER, CLIFF_N, ROAD_EDGE].forEach(function (g, i) { if (g.length > TILE || g.some(function (r) { return r.length !== TILE; })) bad.push("edge" + i); });
+      // a turned band must land on the far side: the east shore in the last column, the south shore in the last row
+      var east = rot(pad(SHORE[0])), south = rot(rot(pad(SHORE[0])));
+      if (east[0][TILE - 1] === "." || east[TILE - 1][TILE - 1] === "." || east[0][0] !== ".") bad.push("shore-east");
+      if (south[TILE - 1][0] === "." || south[TILE - 1][TILE - 1] === "." || south[0][0] !== ".") bad.push("shore-south");
       return bad;
     }
   };

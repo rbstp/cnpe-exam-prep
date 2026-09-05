@@ -479,10 +479,6 @@ interface CnpeArtApi {
   FAMILIES: string[];
   /** repaint everything from this palette from now on; drops the sprite cache */
   theme(p: CnpeGamePalette): void;
-  /** whether theme() has run: nothing can be painted before it */
-  ready(): boolean;
-  /** a mixed into b by t, as a css colour */
-  mix(a: string, b: string, t: number): string;
   grass(variant: number, region: number): HTMLCanvasElement;
   flower(variant: number, region: number): HTMLCanvasElement;
   road(variant: number, region: number, mask: number): HTMLCanvasElement;

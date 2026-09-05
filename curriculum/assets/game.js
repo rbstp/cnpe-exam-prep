@@ -159,8 +159,6 @@
     } return a; }
     // a deterministic hash for tile texture and monster shapes
     function hash(x, y) { var h = (x * 374761393 + y * 668265263) ^ 0x5bd1e995; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
-    function str2n(s) { var h = 0; for (var i = 0; i < s.length; i++)
-        h = (h * 31 + s.charCodeAt(i)) >>> 0; return h; }
     /* ── the palette, read live so the theme switch repaints ───── */
     var P = {}; // filled by readPalette() before the first draw
     function readPalette() {
@@ -384,6 +382,7 @@
     var ANIM_MS = 420; // the water's beat
     var motionQuery = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
     var reduceMotion = !!(motionQuery && motionQuery.matches);
+    var sizeObs = null, motionWired = false; // wired once; the bundle mounts the quest again on every visit
     var stats = { frames: 0, drawMs: 0, terrainRenders: 0, terrainMs: 0 };
     function camera() {
         return { x: Math.max(0, Math.min(mapW - VW, player.x - Math.floor(VW / 2))), y: Math.max(0, Math.min(mapH - VH, player.y - Math.floor(VH / 2))) };
@@ -730,12 +729,15 @@
         c.height = 64;
         c.setAttribute("aria-hidden", "true");
         c.setAttribute("data-scene", sceneName);
+        paintBackdrop(c, d);
+        return c;
+    }
+    function paintBackdrop(c, d) {
         var k = c.getContext("2d");
         if (k) {
             k.imageSmoothingEnabled = false;
-            k.drawImage(ART.backdrop(sceneName, d, c.width, c.height), 0, 0);
+            k.drawImage(ART.backdrop(c.getAttribute("data-scene") || "square", d, c.width, c.height), 0, 0);
         }
-        return c;
     }
     function note(msg, cls) { return el("p", "gm-note " + (cls || ""), msg); }
     function focusFirst(within) { var b = within.querySelector("button, a, input"); if (b)
@@ -928,6 +930,7 @@
             hp = maxHp();
         battle = { chain: chain, idx: 0, sc: scenario(chain[0]), found: {}, turn: 0, log: [], mode: "menu", opts: opts,
             gained: 0, goldGained: 0, turnsTotal: 0, pick: null };
+        fx = null; // a blow from a lost fight does not land on the next one's first frame
         setScene("battle");
         logSys("A " + (opts.boss ? "keep" : opts.final ? "gate" : "dungeon") + " battle begins: " + battle.sc.name + ". The ticket is above; the terminal is yours.");
         paintBattle();
@@ -1587,19 +1590,28 @@
                         bt.scId = "";
                     paintBattle();
                 }
-                if (scene === "town" && town && tn)
-                    paintTown(tn.right.children.length > 1 ? tn.right.children[1] : null);
+                // a town's menus follow the stylesheet on their own; only the scenery is painted, and focus stays where it was
+                if (scene === "town" && town && tn) {
+                    var sc = tn.right.querySelector(".gm-scene");
+                    if (sc)
+                        paintBackdrop(sc, +town.sec.split(".")[0]);
+                }
             });
         }
         // fonts arrive after first paint, and the town labels are text
         if (document.fonts && document.fonts.ready)
             document.fonts.ready.then(function () { requestDraw(); });
         // the screen: a resize or a zoom changes how many device pixels an art pixel gets
-        window.addEventListener("resize", fitCanvas);
-        if (typeof ResizeObserver !== "undefined")
-            new ResizeObserver(function () { fitCanvas(); }).observe(stage);
+        window.addEventListener("resize", fitCanvas); // the same function each mount: added once
         document.addEventListener("visibilitychange", syncAnim);
-        if (motionQuery) {
+        if (sizeObs)
+            sizeObs.disconnect(); // the last mount's stage is gone; let go of it
+        if (typeof ResizeObserver !== "undefined") {
+            sizeObs = new ResizeObserver(function () { fitCanvas(); });
+            sizeObs.observe(stage);
+        }
+        if (motionQuery && !motionWired) {
+            motionWired = true;
             var onMotion = function () { reduceMotion = !!(motionQuery && motionQuery.matches); walkFrame = 0; syncAnim(); requestDraw(); };
             if (motionQuery.addEventListener)
                 motionQuery.addEventListener("change", onMotion);

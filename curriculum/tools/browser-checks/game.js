@@ -318,15 +318,16 @@ module.exports = async function (h) {
     const backing = await page.evaluate(() => { const c = /** @type {HTMLCanvasElement} */ (document.querySelector('.gm-stage canvas')); return { w: c.width, h: c.height }; });
     assert(d.dpr === 2 && d.scale >= 2 && backing.w === 480 * d.scale && backing.h === 304 * d.scale, 'the backing store is a whole number of device pixels per art pixel: ' + JSON.stringify({ scale: d.scale, backing }));
     await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowLeft');
-    await page.waitForTimeout(120);
-    assert((await page.evaluate(() => window.CNPE_GAME.debug().terrainRenders)) === 1, 'walking blits the cache rather than repainting it');
+    await page.waitForFunction(n => window.CNPE_GAME.debug().frames > n, d.frames, { timeout: 3000 }).catch(() => {});
+    const walked = await page.evaluate(() => { const x = window.CNPE_GAME.debug(); return { frames: x.frames, terrainRenders: x.terrainRenders }; });
+    assert(walked.frames > d.frames && walked.terrainRenders === 1, 'walking paints frames from the cache rather than repainting it: ' + JSON.stringify(walked));
     await page.evaluate(() => window.CNPE_THEME.set('light'));
-    await page.waitForFunction(() => window.CNPE_GAME.debug().terrainRenders === 2, null, { timeout: 3000 });
-    assert(true, 'the theme switch repaints the terrain cache');
+    await page.waitForFunction(() => window.CNPE_GAME.debug().terrainRenders === 2, null, { timeout: 3000 }).catch(() => {});
+    assert((await page.evaluate(() => window.CNPE_GAME.debug().terrainRenders)) === 2, 'the theme switch repaints the terrain cache');
     await page.evaluate(() => { const s = window.CNPE_PROGRESS.get(); s.game.towns = { '1.1': 1 }; window.CNPE_PROGRESS.save(); });
     await page.keyboard.press('ArrowRight');
-    await page.waitForFunction(() => window.CNPE_GAME.debug().terrainRenders === 3, null, { timeout: 3000 });
-    assert(true, 'a door opening repaints the landmarks');
+    await page.waitForFunction(() => window.CNPE_GAME.debug().terrainRenders === 3, null, { timeout: 3000 }).catch(() => {});
+    assert((await page.evaluate(() => window.CNPE_GAME.debug().terrainRenders)) === 3, 'a door opening repaints the landmarks');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   });
@@ -350,8 +351,8 @@ module.exports = async function (h) {
         assert(s.frames > f0 && s.face === 'l', tag + 'a step still paints a frame and turns the player: ' + JSON.stringify(s));
       } else {
         assert(a.reduce === false && a.anim === true, tag + 'the water ticker runs on the map: ' + JSON.stringify(a));
-        await page.waitForFunction(() => window.CNPE_GAME.debug().waterFrame !== 0, null, { timeout: 3000 });
-        assert(true, tag + 'and the water reaches another frame');
+        await page.waitForFunction(() => window.CNPE_GAME.debug().waterFrame !== 0, null, { timeout: 3000 }).catch(() => {});
+        assert((await page.evaluate(() => window.CNPE_GAME.debug().waterFrame)) !== 0, tag + 'and the water reaches another frame');
         await page.keyboard.press('ArrowUp'); await page.keyboard.press('ArrowUp');
         await page.waitForSelector('.gm-screen:not([hidden]) .gm-title');
         await page.waitForTimeout(500);
