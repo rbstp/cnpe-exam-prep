@@ -906,18 +906,6 @@
     out = at >= 0 ? parts[0] + '<span class="tell">' + parts[1] + "</span>" + parts[2] : parts[0];
     return '<span class="in">' + esc(e.cmd!) + "</span>\n" + out;
   }
-  function actionBar() {
-    var b = battle!, bar = el("div", "gm-acts");
-    var mode = function (m: BattleMode, label: string, cls?: string) {
-      // opening or closing a menu abandons whatever a menu pick had seeded, so the
-      // next command typed by hand is scored as typed
-      var x = btn(label, function () { b.mode = b.mode === m ? "menu" : m; b.fromMenu = false; b.pending = null; paintBattle(); }, (b.mode === m ? "sel" : "") + (cls ? " " + cls : ""));
-      bar.appendChild(x);
-    };
-    mode("inspect", "Inspect"); mode("fix", "Fix"); mode("item", "Item");
-    bar.appendChild(btn("Flee", function () { flee(); }, "ghost"));
-    return bar;
-  }
   /** techniques the player knows, inspect or fix */
   function known(fix: boolean) {
     return Object.keys(D.techniques).filter(function (id) { var t = D.techniques[id]; return !!t.fix === fix && has("learned", id); });
