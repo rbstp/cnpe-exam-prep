@@ -243,20 +243,20 @@
     if (d) {
       if (!dungeonOpen(d)) { say(d.name, ["The door is sealed. A voice from the stone: <em>pass the trial in " + d.name + " first, and the way opens.</em>"]); return; }
       var sc = scenario(d.dungeon);
-      say("Dungeon of " + d.name, ["Something stirs below: <b>" + esc(sc.name) + "</b>" + (wins(sc.id) ? " (beaten " + wins(sc.id) + (wins(sc.id) === 1 ? " time" : " times") + ")" : "") + ". Difficulty " + stars(sc.difficulty) + ".", "Go down and fight it?"],
+      say("Dungeon of " + d.name, ["Something stirs below: <b>" + esc(sc.name) + "</b>" + (wins(sc.id) ? " (beaten " + wins(sc.id) + (wins(sc.id) === 1 ? " time" : " times") + ")" : "") + ". Difficulty " + stars(sc.difficulty) + ". Go down and fight it?"],
         function () { startBattle([sc.id], { town: d }); }, true);
       return;
     }
     var k = keepAt(player.x, player.y);
     if (k) {
       if (!keepOpen(k)) { say(k.name + " keep", ["The keep's gate holds. Clear every dungeon in " + k.name + " and it opens: " + D.scenarios.filter(function (s) { return s.d === k.d && !wins(s.id); }).map(function (s) { return s.name; }).join(", ") + " still stand."]); return; }
-      say(k.name + " keep", ["Two faults wait inside, one after the other: <b>" + k.boss.map(function (id) { return esc(scenario(id).name); }).join("</b> and <b>") + "</b>." + (has("flags", "boss-" + k.d) ? " You have beaten them before." : ""), "Enter the keep?"],
+      say(k.name + " keep", ["Two faults wait inside, one after the other: <b>" + k.boss.map(function (id) { return esc(scenario(id).name); }).join("</b> and <b>") + "</b>." + (has("flags", "boss-" + k.d) ? " You have beaten them before." : "") + " Enter the keep?"],
         function () { startBattle(k.boss.slice(), { boss: k }); }, true);
       return;
     }
     if (gateAt(player.x, player.y)) {
       if (!gateOpen()) { say("The Exam", ["The gate is shut. Five keeps guard it; " + D.regions.filter(function (r) { return !has("flags", "boss-" + r.d); }).map(function (r) { return r.name; }).join(", ") + " still hold."]); return; }
-      say("The Exam", ["Beyond the gate, three faults drawn at random, on a shorter clock. Everything you learned, all at once." + (has("flags", "final") ? " You have passed before." : ""), "Sit the exam?"],
+      say("The Exam", ["Beyond the gate, three faults drawn at random, on a shorter clock. Everything you learned, all at once." + (has("flags", "final") ? " You have passed before." : "") + " Sit the exam?"],
         function () { startBattle(shuffle(D.finale.pool.slice()).slice(0, D.finale.pick), { final: true }); }, true);
     }
   }
@@ -509,6 +509,16 @@
   /** @param {HTMLElement} within */
   function focusFirst(within) { var b = /** @type {HTMLElement} */ (within.querySelector("button, a, input")); if (b) b.focus(); }
 
+  /** a technique's short name: the command up to its first placeholder or flag
+      @param {string} id */
+  function techName(id) {
+    var words = D.techniques[id].cmd.split(" "), out = [];
+    for (var i = 0; i < words.length && out.length < 4; i++) {
+      if (/^[-{]/.test(words[i]) || /^[A-Z]{3,}/.test(words[i])) break;
+      out.push(words[i]);
+    }
+    return out.join(" ");
+  }
   function talkMenu() {
     var wrap = el("div", "gm-col");
     wrap.appendChild(el("div", "gm-sub .hd", "").firstChild ? el("div") : el("p", "gm-note", "Who do you talk to?"));
@@ -516,7 +526,7 @@
     town.npcs.forEach(function (n) {
       var li = el("li");
       var learnedIt = n.teaches && has("learned", n.teaches);
-      var b = btn(esc(n.name) + (n.teaches ? '<span class="k">' + (learnedIt ? "taught ✓" : "teaches " + esc(D.techniques[n.teaches].cmd.split(" ").slice(0, 2).join(" "))) + "</span>" : ""), function () { talkTo(n); }, n.teaches && !learnedIt ? "new" : "");
+      var b = btn(esc(n.name) + (n.teaches ? '<span class="k">' + (learnedIt ? "taught ✓" : "teaches " + esc(techName(n.teaches))) + "</span>" : ""), function () { talkTo(n); }, n.teaches && !learnedIt ? "new" : "");
       li.appendChild(b); menu.appendChild(li);
     });
     wrap.appendChild(menu);
@@ -827,6 +837,7 @@
       @param {string} cmd @param {boolean} typed */
   function runCommand(cmd, typed) {
     var b = battle, sc = b.sc;
+    if (b.over) return;                               // the card is up; the fight is finished
     var r = SIM.run(sc, b.found, cmd);
     b.turn++; b.turnsTotal++;
     var entry = { cmd: cmd, out: r.out, tell: null };
@@ -846,7 +857,7 @@
     if (r.wrong) { b.log.push({ hit: "That was not it, and the fault bites back." }); enemyHit(2); }
     else enemyHit(1);
     save();
-    if (battle) paintBattle();
+    if (battle && !battle.over) paintBattle();
   }
   /** @param {number} mult */
   function enemyHit(mult) {
@@ -878,11 +889,13 @@
     if (b.opts.boss) { flag = "boss-" + b.opts.boss.d; extraXp = XP_BOSS; extraGold = GOLD_BOSS; }
     if (b.opts.final) { flag = "final"; extraXp = XP_FINAL; extraGold = GOLD_FINAL; }
     if (flag && tick("flags", flag)) { addXp(extraXp); addGold(extraGold); b.gained += extraXp; b.goldGained += extraGold; }
+    b.over = true;
     save();
     resultCard(true);
   }
   function defeat() {
     var b = battle;
+    b.over = true;
     b.log.push({ hit: "You black out." });
     save();
     resultCard(false);
