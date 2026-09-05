@@ -189,7 +189,7 @@
     var battle = null;
     var hp = 0; // the session's hearts; a page load heals
     var dlg = null; // { who, pages: [], i, done: fn }
-    var posTimer = 0, themeWired = false, dirty = true;
+    var posTimer = 0, dirty = true;
     var bt = null; // the battle screen, while one is built
     /** a keep's next monster waiting for the last one's fall: paints are deferred and the prompt shut until it fires */
     var swapPending = null;
@@ -199,17 +199,30 @@
     var walked = false; // a step was taken: only then is the position worth a save
     /** listeners, observers and timers the mount holds, undone in order by unmount() */
     var undo = [];
-    var timers = []; // one-shot timers (a floating number's fallback, a result card's delay)
+    var timers = []; // one-shot timers (a floating number's fallback, a result card's delay), with what they run so settle() can fire them
     var mounts = 0;
     function listen(t, type, fn, capture) {
         t.addEventListener(type, fn, !!capture);
         undo.push(function () { t.removeEventListener(type, fn, !!capture); });
     }
     function later(fn, ms) {
-        var id = window.setTimeout(function () { var i = timers.indexOf(id); if (i >= 0)
+        var t = { id: 0, fn: fn };
+        t.id = window.setTimeout(function () { var i = timers.indexOf(t); if (i >= 0)
             timers.splice(i, 1); fn(); }, ms);
-        timers.push(id);
-        return id;
+        timers.push(t);
+        return t.id;
+    }
+    /** fire every pending later() timer, oldest first, then the pending swap, all now: a test hook, so a check
+        need not wait on the clock for a result card, a floating number's fallback or a fall that gives way */
+    function settle() {
+        if (!host)
+            return;
+        var due = timers;
+        timers = []; // what they run may set new ones, which stay pending
+        due.forEach(function (t) { clearTimeout(t.id); });
+        due.forEach(function (t) { t.fn(); });
+        if (swapPending)
+            swapPending.fire();
     }
     /* ── the overworld ──────────────────────────────────────── */
     function tileAt(x, y) {
@@ -273,8 +286,9 @@
     // flight waits for it and starts the moment it lands, so a held key walks
     // tile by tile and never skips one. Under reduced motion the step is instant.
     var STEP_MS = 120, STEP_SUBS = 5;
-    var walk = null; // the step in flight: from (fx, fy) to the player's tile
+    var walk = null; // the step in flight: from (fx, fy) to the player's tile, leading with one leg or the other
     var queued = null; // the step waiting behind it
+    var stride = 0; // which leg the next step leads with: flipped per step, so a walk goes left, right, left
     function move(dx, dy) {
         if (scene !== "map")
             return;
@@ -299,12 +313,14 @@
         player.y = ny;
         walked = true;
         savePos(false);
+        stride ^= 1;
+        ease = null; // the camera is the step's now: an ease never runs through one
         if (reduceMotion) {
             requestDraw();
             arrive();
             return;
         }
-        walk = { fx: fx0, fy: fy0, t0: performance.now() };
+        walk = { fx: fx0, fy: fy0, t0: performance.now(), stride: stride };
         requestDraw();
     }
     /** how far the step in flight has come, in whole sub-positions: 0 at the tile it left, 1 on the tile it ends on */
@@ -454,12 +470,33 @@
     var reduceMotion = !!(motionQuery && motionQuery.matches);
     var sizeObs = null;
     var stats = { frames: 0, drawMs: 0, terrainRenders: 0, terrainMs: 0, terrainPatches: 0, tilesRepainted: 0, patchMs: 0, minimapBuilds: 0 };
-    var mini = null, miniBase = null; // the minimap, and the map under its dot
+    var mini = null, miniBase = null; // the minimap, and the map under its dot and its frame
+    var miniScale = 1; // whole device pixels per minimap pixel (a tile), chosen for the screen like the map's
     var miniDot = { x: -1, y: -1 }; // where the dot was last painted, to lift it
+    var miniFrame = { x: -1, y: -1 }; // the viewport frame's top-left tile as last painted, to lift it
     var lastLabel = ""; // the canvas's aria-label as last written
+    // Coming back to the map, the camera eases from where it last stood to the
+    // player over EASE_MS, through whole pixels, on the same frames as a step;
+    // never through a step (a step owns the camera), never under reduced motion,
+    // and not at all when it already stands there or has never stood anywhere.
+    // Where it last stood is kept across a remount: a position that moved while
+    // the quest was away (the bundle's other pages, a sync) is panned to, not cut to.
+    var EASE_MS = 180;
+    var ease = null; // the ease in flight: from (fx, fy) to the player's camera; t0 is set by its first frame
+    var lastCam = null; // the camera as last drawn
     /** the camera, in map pixels: the player's pixel position centred, clamped to the map */
     function camera(px, py) {
         return { x: Math.max(0, Math.min((mapW - VW) * TILE, px - Math.floor(VW / 2) * TILE)), y: Math.max(0, Math.min((mapH - VH) * TILE, py - Math.floor(VH / 2) * TILE)) };
+    }
+    /** the camera's way back to the player when the map returns: see EASE_MS */
+    function startEase() {
+        ease = null;
+        if (!lastCam || reduceMotion || walk)
+            return;
+        var want = camera(player.x * TILE, player.y * TILE);
+        if (want.x === lastCam.x && want.y === lastCam.y)
+            return;
+        ease = { fx: lastCam.x, fy: lastCam.y, t0: 0 }; // the clock starts on the first frame painted, which shows where the camera stood
     }
     /** water for the shoreline's purposes: the sea, a bridge over it, and the void past the edge */
     function isWater(x, y) { var t = tileAt(x, y); return t === "water" || t === "bridge" || t === "void"; }
@@ -644,20 +681,77 @@
         D.regions.forEach(function (r) { k.fillStyle = has("flags", "boss-" + r.d) ? P.ok : P.warn; k.fillRect(r.keep.x, r.keep.y, 1, 1); });
         k.fillStyle = has("flags", "final") ? P.ok : P.viol;
         k.fillRect(D.finale.keep.x, D.finale.keep.y, 1, 1);
+        paintMini();
+        stats.minimapBuilds++;
+    }
+    /** the minimap's context, drawing in minimap pixels (a tile each) whatever the backing scale */
+    function miniCtx() {
+        var m = mini && miniBase && mini.getContext("2d");
+        if (!m)
+            return null;
+        m.setTransform(miniScale, 0, 0, miniScale, 0, 0);
         m.imageSmoothingEnabled = false;
+        return m;
+    }
+    /** the whole minimap from its ground, with nothing over it: the dot and the frame come back on the next frame */
+    function paintMini() {
+        var m = miniCtx();
+        if (!m)
+            return;
         m.clearRect(0, 0, mapW, mapH);
         m.drawImage(miniBase, 0, 0);
         miniDot.x = -1;
         miniDot.y = -1;
-        stats.minimapBuilds++;
+        miniFrame.x = -1;
+        miniFrame.y = -1;
     }
-    /** the player's dot on the minimap: the last one lifted, the new one put down, blinking on the beat */
+    /** the ground back under a rectangle of the minimap, clipped to the map, so a lift at its edge stretches nothing */
+    function restoreMini(m, x, y, w, h) {
+        var x0 = Math.max(0, x), y0 = Math.max(0, y), x1 = Math.min(mapW, x + w), y1 = Math.min(mapH, y + h);
+        if (x1 <= x0 || y1 <= y0)
+            return;
+        m.drawImage(miniBase, x0, y0, x1 - x0, y1 - y0, x0, y0, x1 - x0, y1 - y0);
+    }
+    /** the backing store behind the minimap's 120 by 80 CSS pixels: whole device pixels per tile, like fitCanvas() */
+    function fitMini() {
+        if (!mini)
+            return;
+        var dpr = window.devicePixelRatio || 1, cssW = mini.clientWidth || mapW;
+        var s = Math.max(1, Math.min(4, Math.round(cssW * dpr / mapW)));
+        if (s === miniScale && mini.width === mapW * s)
+            return;
+        miniScale = s;
+        mini.width = mapW * s;
+        mini.height = mapH * s; // sizing clears it
+        if (miniBase) {
+            paintMini();
+            drawMinimap();
+        }
+    }
+    /** what moves on the minimap: the viewport's frame, one pixel wide around the tiles the map shows, and the
+        player's dot, blinking on the beat; each is lifted from where it last was (the ground put back from
+        miniBase) and put down again, so the map under them is never rebuilt for it */
     function drawMinimap() {
-        var m = mini && miniBase && mini.getContext("2d");
+        var m = miniCtx();
         if (!m)
             return;
+        if (miniFrame.x >= 0) {
+            restoreMini(m, miniFrame.x, miniFrame.y, VW, 1);
+            restoreMini(m, miniFrame.x, miniFrame.y + VH - 1, VW, 1);
+            restoreMini(m, miniFrame.x, miniFrame.y, 1, VH);
+            restoreMini(m, miniFrame.x + VW - 1, miniFrame.y, 1, VH);
+        }
         if (miniDot.x >= 0)
-            m.drawImage(miniBase, miniDot.x - 1, miniDot.y - 1, 3, 3, miniDot.x - 1, miniDot.y - 1, 3, 3);
+            restoreMini(m, miniDot.x - 1, miniDot.y - 1, 3, 3);
+        var c = lastCam || camera(player.x * TILE, player.y * TILE);
+        var fx = Math.round(c.x / TILE), fy = Math.round(c.y / TILE);
+        m.fillStyle = P.paper; // the windows' rule: the frame is a window onto the map
+        m.fillRect(fx, fy, VW, 1);
+        m.fillRect(fx, fy + VH - 1, VW, 1);
+        m.fillRect(fx, fy, 1, VH);
+        m.fillRect(fx + VW - 1, fy, 1, VH);
+        miniFrame.x = fx;
+        miniFrame.y = fy;
         var x = player.x, y = player.y;
         if (reduceMotion || !(animFrame & 1)) {
             m.fillStyle = P.ink;
@@ -688,9 +782,26 @@
                 patchTerrain(sig);
         }
         var p = stepProgress(t0), off = stepOffset(p);
-        walkFrame = walk && p < 0.5 ? 1 : 0;
+        walkFrame = walk && p < 0.5 ? 1 + walk.stride : 0; // the stride's half through the first half of the step, standing after
         var px = player.x * TILE + off.x, py = player.y * TILE + off.y;
         var cam = camera(px, py), cx = cam.x, cy = cam.y;
+        if (ease && (walk || reduceMotion))
+            ease = null; // a step owns the camera; reduced motion has no ease
+        if (ease) {
+            if (!ease.t0)
+                ease.t0 = t0;
+            var q = Math.min(1, (t0 - ease.t0) / EASE_MS), e = 1 - Math.pow(1 - q, 3); // out: quick off the mark, settling onto the player
+            cx = Math.round(ease.fx + (cam.x - ease.fx) * e);
+            cy = Math.round(ease.fy + (cam.y - ease.fy) * e);
+            if (q >= 1)
+                ease = null; // e is 1: this frame is the exact camera
+        }
+        if (lastCam) {
+            lastCam.x = cx;
+            lastCam.y = cy;
+        }
+        else
+            lastCam = { x: cx, y: cy };
         var tx0 = Math.floor(cx / TILE), ty0 = Math.floor(cy / TILE), ox = cx - tx0 * TILE, oy = cy - ty0 * TILE;
         ctx.setTransform(scale, 0, 0, scale, 0, 0);
         ctx.imageSmoothingEnabled = false;
@@ -751,6 +862,8 @@
             else
                 requestDraw();
         } // the step in flight: land it, or paint the next sub-position
+        else if (ease)
+            requestDraw(); // the camera still on its way
     }
     /** a pixel banner: ink on a rim, a pointer toward the tile, the name in its state's colour; px, py the tile's top-left on the canvas */
     function label(s, px, py, color) {
@@ -792,19 +905,22 @@
         }
     }
     /** one beat: a frame if anything animated is in view, else only the minimap's dot blinks */
-    function tickAnim() {
-        animTimer = 0;
+    function beat() {
         animFrame = (animFrame + 1) % ART.FRAMES;
         if (waterInView || ambientInView)
             requestDraw();
         else if (!rafId)
             drawMinimap();
-        syncAnim();
     }
+    function tickAnim() { animTimer = 0; beat(); syncAnim(); }
+    /** one beat by hand, the ticker left as it is: a test hook. Nothing under reduced motion, which has no beat. */
+    function tickBeat() { if (!host || reduceMotion)
+        return; beat(); }
     /** the backing store: whole device pixels per art pixel, so the art stays sharp on any screen */
     function fitCanvas() {
         if (!host)
             return;
+        fitMini();
         var dpr = window.devicePixelRatio || 1, cssW = stage.clientWidth || W;
         var s = Math.max(1, Math.min(4, Math.round(cssW * dpr / W)));
         dprSeen = dpr;
@@ -846,6 +962,7 @@
             bt = null;
             tn = null;
             swapPending = null;
+            startEase();
             requestDraw();
             paintHud();
             savePos(true);
@@ -1163,6 +1280,8 @@
         var side = el("div", "side"), nm = el("div", "nm"), lv = el("div", "lv");
         var guardWrap = el("div", "gm-bar"), guard = el("i");
         guardWrap.appendChild(guard);
+        guardWrap.addEventListener("animationend", function (e) { if (e.target === guardWrap)
+            guardWrap.classList.remove("fx-shake"); });
         var guardLbl = el("div", "gm-barlbl", "<span>guard</span><span></span>");
         var hpWrap = el("div", "gm-bar hp"), hpBar = el("i");
         hpWrap.appendChild(hpBar);
@@ -1334,6 +1453,11 @@
             play(t.figure, fx.name);
             if (fx.num)
                 floatNum(fx.from === "guard" ? t.guard.parentNode : t.figure, fx.num, fx.from === "guard" ? "gain" : "hit");
+            // and the blow lands on more than the figure: evidence shakes the guard bar it chips at, a hit flashes the stage's edge
+            if (fx.name === "stagger")
+                pulse(t.guard.parentNode, "shake", 450);
+            if (fx.name === "hit")
+                pulse(screen, "flash", 400);
             fx = null;
         }
         if (b.mode === "menu" || b.mode === "typed")
@@ -1347,6 +1471,19 @@
         void e.offsetWidth; // restart the animation if the same one is still up
         e.classList.add("fx-" + name);
         e.setAttribute("data-fx", name);
+    }
+    /** a one-shot effect on an element that lifts its own class on animationend (the guard bar, the screen): the class
+        runs the animation, data-fx records it for the checks, and the clock lifts the class after ms for a visitor whose
+        reduced motion runs no animation, the way floatNum() is lifted; a newer run of the same effect outlives the old clock */
+    var fxRuns = {};
+    function pulse(e, name, ms) {
+        var run = fxRuns[name] = (fxRuns[name] || 0) + 1;
+        e.classList.remove("fx-" + name);
+        void e.offsetWidth; // restart the animation if the same one is still up
+        e.classList.add("fx-" + name);
+        e.setAttribute("data-fx", name);
+        later(function () { if (fxRuns[name] === run)
+            e.classList.remove("fx-" + name); }, ms);
     }
     /** a number that floats up and fades: the damage over the monster, the xp over the guard bar */
     function floatNum(anchor, num, cls) {
@@ -1806,6 +1943,8 @@
         screen = el("div", "gm-screen");
         screen.hidden = true;
         stage.appendChild(screen);
+        screen.addEventListener("animationend", function (e) { if (e.target === screen)
+            screen.classList.remove("fx-flash"); });
         live = el("div");
         live.className = "sr-only";
         live.setAttribute("aria-live", "polite");
@@ -1821,8 +1960,8 @@
                 return;
             var r = canvas.getBoundingClientRect();
             var px = (e.clientX - r.left) / r.width * VW, py = (e.clientY - r.top) / r.height * VH;
-            var cam = camera(player.x * TILE, player.y * TILE);
-            var dx = Math.floor(px) + cam.x / TILE - player.x, dy = Math.floor(py) + cam.y / TILE - player.y;
+            var cam = lastCam || camera(player.x * TILE, player.y * TILE); // the camera as drawn: what was clicked is what shows
+            var dx = Math.floor(px + cam.x / TILE) - player.x, dy = Math.floor(py + cam.y / TILE) - player.y;
             if (dx === 0 && dy === 0) {
                 act();
                 return;
@@ -1871,13 +2010,12 @@
         host.appendChild(pad);
         readPalette();
         fitCanvas();
-        // the theme's listener is wired once for the page (theme.js has no way to let
-        // one go) and does nothing while the quest is unmounted
-        if (window.CNPE_THEME && !themeWired) {
-            themeWired = true;
-            window.CNPE_THEME.onChange(function () {
+        // the theme's listener, held like the rest of the mount's and let go by unmount()
+        if (window.CNPE_THEME) {
+            var theme = window.CNPE_THEME;
+            var onTheme = function () {
                 if (!host)
-                    return;
+                    return; // a cached theme.js from before offChange() still tells an unmounted quest
                 readPalette();
                 requestDraw();
                 // a live battle repaints so the monster takes the new palette; a finished
@@ -1893,7 +2031,10 @@
                     if (sc)
                         paintBackdrop(sc, +town.sec.split(".")[0]);
                 }
-            });
+            };
+            theme.onChange(onTheme);
+            undo.push(function () { if (theme.offChange)
+                theme.offChange(onTheme); });
         }
         // fonts arrive after first paint, and the town labels are text
         if (document.fonts && document.fonts.ready)
@@ -1910,8 +2051,11 @@
         if (motionQuery) {
             var mq = motionQuery;
             // a step in flight when motion is reduced lands now: its tile is already taken, and landing is what the tile does
-            var onMotion = function () { reduceMotion = mq.matches; walkFrame = 0; if (reduceMotion && walk)
-                landStep(); syncAnim(); requestDraw(); };
+            var onMotion = function () { reduceMotion = mq.matches; walkFrame = 0; if (reduceMotion) {
+                ease = null;
+                if (walk)
+                    landStep();
+            } syncAnim(); requestDraw(); };
             if (mq.addEventListener) {
                 mq.addEventListener("change", onMotion);
                 undo.push(function () { mq.removeEventListener("change", onMotion); });
@@ -1966,6 +2110,8 @@
             swapPending = null;
             walk = null;
             queued = null;
+            ease = null;
+            stride = 0;
             walked = false;
             lastLabel = "";
             mounts++;
@@ -1996,11 +2142,12 @@
                 clearTimeout(animTimer);
                 animTimer = 0;
             }
-            timers.forEach(function (id) { clearTimeout(id); });
+            timers.forEach(function (t) { clearTimeout(t.id); });
             timers = [];
             undo.forEach(function (fn) { fn(); });
             undo = [];
             settleStep();
+            ease = null;
             terrain = null;
             miniBase = null;
             mini = null;
@@ -2031,16 +2178,18 @@
             return { frames: stats.frames, drawMs: stats.drawMs, terrainRenders: stats.terrainRenders, terrainMs: stats.terrainMs,
                 terrain: terrain ? { w: terrain.width, h: terrain.height } : null,
                 terrainPatches: stats.terrainPatches, tilesRepainted: stats.tilesRepainted, patchMs: stats.patchMs,
-                minimap: mini ? { w: mini.width, h: mini.height } : null, minimapBuilds: stats.minimapBuilds,
+                minimap: mini ? { w: mini.width, h: mini.height, scale: miniScale } : null, minimapBuilds: stats.minimapBuilds,
                 scale: scale, dpr: dprSeen,
                 anim: !!animTimer, reduceMotion: reduceMotion, waterFrame: animFrame, walkFrame: walkFrame, face: player.face,
                 x: player.x, y: player.y, walking: !!walk, offset: off, queued: !!queued,
+                camera: lastCam ? { x: lastCam.x, y: lastCam.y } : null, cameraEase: !!ease,
                 waterInView: waterInView, ambientInView: ambientInView,
                 mounted: !!host, mounts: mounts, listeners: undo.length, timers: timers.length,
                 frame: function () { if (rafId) {
                     cancelAnimationFrame(rafId);
                     rafId = 0;
-                } dirty = true; draw(); } };
+                } dirty = true; draw(); },
+                tick: tickBeat, settle: settle };
         }
     };
     window.CNPE_GAME.mount();

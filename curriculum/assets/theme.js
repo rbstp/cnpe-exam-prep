@@ -30,8 +30,10 @@
   }
 
   function announce() {
-    for (var i = 0; i < listeners.length; i++) {
-      try { listeners[i](pref, resolved()); } catch (e) {}
+    // over a copy: a listener may let itself (or another) go while it is told
+    var fns = listeners.slice();
+    for (var i = 0; i < fns.length; i++) {
+      try { fns[i](pref, resolved()); } catch (e) {}
     }
   }
 
@@ -58,7 +60,9 @@
     resolved: resolved,
     set: set,
     cycle: function () { set(MODES[(MODES.indexOf(pref) + 1) % MODES.length]); },
-    onChange: function (fn) { if (typeof fn === "function") listeners.push(fn); }
+    onChange: function (fn) { if (typeof fn === "function") listeners.push(fn); },
+    // the same function that was given to onChange; the quest lets its handler go on unmount
+    offChange: function (fn) { var i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); }
   };
 
   paint();
