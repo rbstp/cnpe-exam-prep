@@ -598,7 +598,8 @@ module.exports = async function (h) {
     const S = m0.minimap ? m0.minimap.scale : 0;
     assert(!!m0.minimap && m0.dpr === 2 && S === 2 && m0.minimap.w === map.w * S && m0.minimap.h === map.h * S && m0.backing.w === map.w * S && m0.backing.h === map.h * S,
       'the backing store is the map times a whole scale chosen for dpr 2: ' + JSON.stringify(m0) + ' for a ' + map.w + 'x' + map.h + ' map');
-    assert(m0.box.w === 120 && m0.box.h === 80 && m0.rendering === 'pixelated', 'behind a 120 by 80 CSS box, painted pixelated: ' + JSON.stringify({ box: m0.box, rendering: m0.rendering }));
+    // the stylesheet asks for pixelated and then crisp-edges; a browser reports whichever of the two it took
+    assert(m0.box.w === 120 && m0.box.h === 80 && /^(pixelated|crisp-edges)$/.test(m0.rendering), 'behind a 120 by 80 CSS box, painted sharp: ' + JSON.stringify({ box: m0.box, rendering: m0.rendering }));
     assert(m0.builds === 1 && m0.frames > 1, 'built once with the terrain, while frames keep coming: ' + JSON.stringify(m0));
     // a minimap pixel is a tile: read the tile's top-left device pixel, and check the whole block is one colour
     const px = (/** @type {number} */ x, /** @type {number} */ y) => page.evaluate(({ x, y }) => {
