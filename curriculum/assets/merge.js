@@ -50,6 +50,19 @@
     Object.keys(m).forEach(function (k) { n += m[k]; });
     return n;
   }
+  // Per-slot max of theirs into mine: the merged map, or null when nothing moved.
+  // A slot already here always takes the max. A new one only lands while there
+  // is room: a payload naming thousands of browsers would otherwise be stored,
+  // and push the blob past what the Worker takes.
+  function takeSlots(curV, incV) {
+    var mine = slots(curV), theirs = slots(incV), moved = false;
+    Object.keys(theirs).forEach(function (id) {
+      if (theirs[id] <= (mine[id] || 0)) return;
+      if (!own(mine, id) && Object.keys(mine).length >= MAXSLOTS) return;
+      mine[id] = theirs[id]; moved = true;
+    });
+    return moved ? mine : null;
+  }
   function dayActs(rec) {
     if (!rec || typeof rec !== "object") return 0;
     return countOf(rec.c) + countOf(rec.x) + countOf(rec.s) + countOf(rec.e);
@@ -201,6 +214,103 @@
   function dueIn(rec, now) { return ((rec && +rec.t) || 0) + restOf(rec) * DAY - now; }
 
 
+  /* ── the quest ────────────────────────────────────────────── */
+  /* The game stores nothing the rest of the store does not already know how to
+     merge. Its counters are slot maps read as the sum (xp, gold earned and gold
+     spent, items got and items used), so two browsers add up as study days do;
+     its ticks are monotonic unions (a trial cleared, a technique learned, a boss
+     beaten), because nothing in the game un-clears; a win keeps the most times,
+     the fewest turns and the latest stamp; and where you stood carries its
+     stamp, as the resume pointer does. Every rule is per field and never lowers
+     anything, so merging the same copy twice is a no-op, which is what lets it
+     run on every pull and every import. */
+  var GKEY_RE = /^[A-Za-z0-9][A-Za-z0-9._#:-]{0,63}$/;   // the ids game-data.js mints
+  var MAXGKEYS = 400;                            // more than the content names, and a bound on the wire
+  var MAXPOS = 4096;                             // no map is wider
+  function obj(v) { return v && typeof v === "object" && !Array.isArray(v) ? v : null; }
+  function gkey(k) { return ownKey(k) && GKEY_RE.test(k); }
+  /** @param {*} store @param {*} src @return {number} fields that grew */
+  function mergeGame(store, src) {
+    var inc = obj(src && src.game);
+    if (!inc) return 0;
+    var g = obj(store.game);
+    if (!g) g = store.game = {};
+    var n = 0, m;
+    m = takeSlots(g.xp, inc.xp);
+    if (m) { g.xp = m; n++; }
+    var ig = obj(inc.gold);
+    if (ig) {
+      var cg = obj(g.gold) || {};
+      ["e", "s"].forEach(function (f) {
+        m = takeSlots(cg[f], ig[f]);
+        if (m) { cg[f] = m; g.gold = cg; n++; }
+      });
+    }
+    var ii = obj(inc.items);
+    if (ii) {
+      var ci = obj(g.items) || {};
+      Object.keys(ii).forEach(function (id) {
+        var rec = obj(ii[id]);
+        if (!gkey(id) || !rec) return;
+        var cur = obj(ci[id]);
+        if (!cur && Object.keys(ci).length >= MAXGKEYS) return;
+        ["g", "u"].forEach(function (f) {
+          m = takeSlots(cur && cur[f], rec[f]);
+          if (!m) return;
+          if (!cur) cur = ci[id] = {};
+          cur[f] = m; g.items = ci; n++;
+        });
+      });
+    }
+    ["towns", "learned", "flags"].forEach(function (b) {
+      var from = obj(inc[b]);
+      if (!from) return;
+      var into = obj(g[b]) || {};
+      Object.keys(from).forEach(function (k) {
+        if (!gkey(k) || !from[k] || into[k]) return;
+        if (Object.keys(into).length >= MAXGKEYS) return;
+        into[k] = 1; g[b] = into; n++;
+      });
+    });
+    var iw = obj(inc.wins);
+    if (iw) {
+      var cw = obj(g.wins) || {};
+      Object.keys(iw).forEach(function (k) {
+        var r = obj(iw[k]);
+        if (!gkey(k) || !r) return;
+        var cur = obj(cw[k]);
+        if (!cur && Object.keys(cw).length >= MAXGKEYS) return;
+        var was = cur || { n: 0 }, next = {};
+        var wn = Math.floor(+r.n) || 0, best = Math.floor(+r.best) || 0, t = stampOf(r.t);
+        if (wn > (+was.n || 0)) next.n = wn;
+        if (best > 0 && (!(+was.best > 0) || best < +was.best)) next.best = best;
+        if (t > stampOf(was.t)) next.t = t;
+        if (!Object.keys(next).length) return;
+        if (!cur) cur = cw[k] = { n: 0 };
+        Object.keys(next).forEach(function (f) { cur[f] = next[f]; });
+        g.wins = cw; n++;
+      });
+    }
+    var ip = obj(inc.pos);
+    if (ip) {
+      var t = stampOf(ip.t), cp = obj(g.pos), x = Math.floor(+ip.x), y = Math.floor(+ip.y);
+      if (t && x >= 0 && y >= 0 && x < MAXPOS && y < MAXPOS && t > (cp ? stampOf(cp.t) : 0)) {
+        g.pos = { x: x, y: y, t: t }; n++;
+      }
+    }
+    return n;
+  }
+  // Whether a game bucket holds anything a player earned.
+  function gameHasAnything(g) {
+    g = obj(g);
+    if (!g) return false;
+    if (countOf(g.xp) > 0) return true;
+    return ["towns", "learned", "wins", "flags", "items"].some(function (k) {
+      var v = obj(g[k]);
+      return !!v && Object.keys(v).length > 0;
+    });
+  }
+
   /* ── the ticked keys of a store ───────────────────────────── */
   /* What cnpe:sync-base holds, and what a tab keeps of the last store it saw on
      the disk. Both are bases for the merge below; sets() is the shape it reads. */
@@ -307,9 +417,10 @@
     if (["ex", "done", "drill", "days"].some(function (k) {
       return p[k] && typeof p[k] === "object" && Object.keys(p[k]).length > 0;
     })) return true;
-    return ["exam", "exam2"].some(function (k) {
+    if (["exam", "exam2"].some(function (k) {
       return p[k] && p[k].tasks && Object.keys(p[k].tasks).length > 0;
-    });
+    })) return true;
+    return gameHasAnything(p.game);
   }
 
   /* ── the merge ────────────────────────────────────────────── */
@@ -318,7 +429,7 @@
      No base makes every base value 0, which is the union Import has always had. */
   /** @param {*} store @param {*} src @param {CnpeMergeBase} [base] @return {CnpeMergeCounts} */
   function mergeProgress(store, src, base) {
-    var n = { done: 0, ex: 0, exam: 0, drill: 0, days: 0, last: 0, off: 0 };
+    var n = { done: 0, ex: 0, exam: 0, drill: 0, days: 0, game: 0, last: 0, off: 0 };
     function union(into, from, was, bucket) {
       // A bucket the payload leaves out is not a bucket the server emptied.
       if (!from || typeof from !== "object" || Array.isArray(from)) return;
@@ -403,16 +514,8 @@
         if (!cur || typeof cur !== "object" || Array.isArray(cur)) cur = store.days[k] = {};
         var grew = false;
         ["c", "x", "s", "e"].forEach(function (f) {
-          var mine = slots(cur[f]), theirs = slots(inc[f]), moved = false;
-          Object.keys(theirs).forEach(function (id) {
-            // A slot already here always takes the max. A new one only lands
-            // while there is room: a payload naming thousands of browsers would
-            // otherwise be stored, and push the blob past what the Worker takes.
-            if (theirs[id] <= (mine[id] || 0)) return;
-            if (!own(mine, id) && Object.keys(mine).length >= MAXSLOTS) return;
-            mine[id] = theirs[id]; moved = true;
-          });
-          if (moved) { cur[f] = mine; grew = true; }
+          var m = takeSlots(cur[f], inc[f]);
+          if (m) { cur[f] = m; grew = true; }
         });
         // A day from below the window is taken so the run it is part of is not
         // lost with it, and the prune below folds it into the carry and drops
@@ -426,6 +529,7 @@
     }
     seedDays(store);
     pruneDays(store);
+    n.game = mergeGame(store, src);
     /* The pointer carries the moment it was set, so the section read most recently
        wins rather than whichever browser pushed last. A file with no stamp in it,
        and a store that never carried one, both read as 0 and still merge. */
@@ -445,6 +549,7 @@
     canon: canon, pickBase: pickBase, wire: wire, hasAnything: hasAnything,
     dueIn: dueIn, seedDays: seedDays, streak: streak,
     countOf: countOf, pruneDays: pruneDays, KEEP: KEEP,
+    mergeGame: mergeGame, gameHasAnything: gameHasAnything,
     dayKey: dayKey, shiftKey: shiftKey, dayActs: dayActs, DAY_RE: DAY_RE,
   };
 })(typeof window !== "undefined" ? window : globalThis);

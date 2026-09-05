@@ -117,6 +117,15 @@ window.CNPE_EXAM_KEYS = %s;
 %s
 </script>
 <script>
+%s
+</script>
+<script>
+%s
+</script>
+<script>
+%s
+</script>
+<script>
 (function () {
   var view = document.getElementById("main");
   function keyFromHash() {
@@ -166,7 +175,8 @@ window.CNPE_EXAM_KEYS = %s;
 </script>
 """ % (
     read("assets/theme.js"),
-    inline_fonts(read("assets/style.css")),
+    # game.css follows the stylesheet it extends, through the same font inliner
+    inline_fonts(read("assets/style.css") + "\n" + read("assets/game.css")),
     read("assets/nav.js"),
     read("assets/drill-data.js"),
     read("assets/merge.js"),
@@ -177,6 +187,9 @@ window.CNPE_EXAM_KEYS = %s;
     read("assets/app.js"),
     read("assets/sync.js"),
     read("assets/drill.js"),
+    read("assets/game-data.js"),
+    read("assets/game-sim.js"),
+    read("assets/game.js"),
 )
 
 if not FRAGMENT:

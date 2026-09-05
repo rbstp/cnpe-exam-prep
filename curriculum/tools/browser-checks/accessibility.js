@@ -31,7 +31,7 @@ module.exports = async function (h) {
 
   await group('every page has one main landmark and ordered headings', async () => {
     const pages = htmlPages(siteDir);
-    assert(pages.length === 35, 'the staged site has all 35 pages');
+    assert(pages.length === 36, 'the staged site has all 36 pages');
     const { ctx, page } = await fresh();
     await page.setViewportSize({ width: 640, height: 800 });
     for (const name of pages) {

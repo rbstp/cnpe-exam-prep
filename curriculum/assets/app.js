@@ -80,7 +80,7 @@
     var s = /** @type {CnpeStore} */ (/** @type {unknown} */ ({ ex: {}, done: {}, exam: {}, last: null }));
     try { var raw = localStorage.getItem(KEY); if (raw) s = Object.assign(s, JSON.parse(raw)); } catch (e) {}
     var hadDays = s.days && typeof s.days === "object" && !Array.isArray(s.days);
-    ["ex", "done", "exam", "exam2", "drill", "drillmeta", "days"].forEach(function (k) {
+    ["ex", "done", "exam", "exam2", "drill", "drillmeta", "days", "game"].forEach(function (k) {
       if (!s[k] || typeof s[k] !== "object") s[k] = {};
     });
     if (typeof s.last !== "string") s.last = null;
@@ -118,6 +118,9 @@
     /** @param {*} src @param {CnpeMergeBase} [base] */
     merge: function (src, base) { return mergeProgress(src, base); },
     onSave: function (fn) { if (typeof fn === "function") savers.push(fn); },
+    // The quest keeps its counters per browser the way the days do, so it needs
+    // the same slot name; it is minted on first use, as bumpDay mints it.
+    slot: devId,
   };
 
   /* ── the other tabs ──────────────────────────────────────── */
@@ -143,7 +146,7 @@
   // two sections would write at each other, and a tab on a section page would
   // write its whole store back over a Reset another tab just ran.
   /** @param {CnpeMergeCounts} n */
-  function moved(n) { return !!(n.done || n.ex || n.exam || n.drill || n.days || n.off); }
+  function moved(n) { return !!(n.done || n.ex || n.exam || n.drill || n.days || n.game || n.off); }
   /* The exam clock is the one thing that never merges: it belongs to the tab the
      paper is open in, which is why it does not go to the server either. Any other
      tab is holding whatever it read at load, and writing that back would rewind a
@@ -223,12 +226,12 @@
     if (!src || typeof src !== "object" || Array.isArray(src)) {
       return "That file does not look like exported CNPE progress.";
     }
-    if (!src.done && !src.ex && !src.exam && !src.exam2 && !src.drill && !src.days) {
+    if (!src.done && !src.ex && !src.exam && !src.exam2 && !src.drill && !src.days && !src.game) {
       return "That file has no CNPE progress in it.";
     }
     var n = mergeProgress(src);
     save();
-    if (!n.done && !n.ex && !n.exam && !n.drill && !n.days && !n.last) return "Nothing new in that file; this browser is already up to date.";
+    if (!n.done && !n.ex && !n.exam && !n.drill && !n.days && !n.game && !n.last) return "Nothing new in that file; this browser is already up to date.";
     return { added: n };
   }
 
@@ -321,7 +324,7 @@
     if (entry) {
       crumbs.innerHTML =
         '<span class="sep">/</span><a href="' + href("index.html") + '">' + (d ? "Domain " + d.n : /^EX/.test(entry.id) ? "Exam" : "Practice") + "</a>" +
-        '<span class="sep">/</span><span class="here">' + (entry.id === "EX" ? "Mock exam" : entry.id === "EX2" ? "Mock exam 2" : entry.id === "DR" ? "Drill" : entry.id + " " + entry.title) + "</span>";
+        '<span class="sep">/</span><span class="here">' + (entry.id === "EX" ? "Mock exam" : entry.id === "EX2" ? "Mock exam 2" : entry.id === "DR" ? "Drill" : entry.id === "GM" ? "Quest" : entry.id + " " + entry.title) + "</span>";
     } else {
       crumbs.innerHTML = '<span class="sep">/</span><span class="here">Overview</span>';
     }
@@ -448,7 +451,7 @@
       if (d) eyebrow.innerHTML = '<span class="badge d' + d.n + '">Domain ' + d.n + " · " + d.weight + "</span><span>" + d.name + "</span>";
       else if (entry.id === "EX") eyebrow.innerHTML = '<span class="badge d2">Assessment</span><span>All five domains, 120 minutes</span>';
       else if (entry.id === "EX2") eyebrow.innerHTML = '<span class="badge d2">Assessment</span><span>Second paper · all five domains, 120 minutes</span>';
-      // other domainless pages (the drill) keep the eyebrow written in their markup
+      // other domainless pages (the drill, the quest) keep the eyebrow written in their markup
     }
     if (h1 && !h1.textContent.trim()) {
       h1.innerHTML = (/^EX/.test(entry.id) ? "" : '<span class="id">' + entry.id + "</span>") + entry.title;
@@ -803,7 +806,7 @@
       }
       return '<li id="pal-' + i + '" role="option" aria-selected="false" data-i="' + i + '"><span class="pid">' + n.id +
         '</span><span class="ptitle">' + n.title +
-        '</span><span class="pmeta">' + (d ? "d" + d.n : /^EX/.test(n.id) ? "exam" : "drill") + hit + "</span></li>";
+        '</span><span class="pmeta">' + (d ? "d" + d.n : /^EX/.test(n.id) ? "exam" : n.id === "GM" ? "quest" : "drill") + hit + "</span></li>";
     }).join("");
     palettePainted = -1;                         // those rows are gone
     markSel(paletteSel > 0);   // the row it jumped to is worth centring, a match at the top is not
@@ -871,6 +874,7 @@
       "<dt>n &nbsp;/&nbsp; p</dt><dd>next / previous section</dd>" +
       "<dt>d</dt><dd>back to the dashboard</dd>" +
       "<dt>g</dt><dd>drill: shuffled self-check questions</dd>" +
+      "<dt>q</dt><dd>quest: the study game</dd>" +
       (sectionKeys
         ? "<dt>x</dt><dd>jump to the exercises panel</dd>" +
           "<dt>c</dt><dd>collapse or expand every exercise</dd>" +
@@ -923,6 +927,7 @@
         case "p": if (idx > 0) location.href = href(NAV[idx - 1].path); break;
         case "d": location.href = href("index.html"); break;
         case "g": location.href = href("drill.html"); break;
+        case "q": location.href = href("game.html"); break;
         case "x": var ep = document.getElementById("exercises"); if (ep) ep.scrollIntoView(); break;
         case "c":
           var exs = document.querySelectorAll(".exercise");
@@ -1097,11 +1102,11 @@
     }
     var reset = once("reset-progress");
     if (reset) reset.addEventListener("click", function () {
-      if (!confirm("Clear all section, exercise, exam, drill and streak progress stored in this browser?" +
+      if (!confirm("Clear all section, exercise, exam, drill, quest and streak progress stored in this browser?" +
                    "\n\nOther tabs of the console hold their own copy in memory. Close or reload them " +
                    "first, or the next thing written from any tab puts that copy back.")) return;
       function wipe() {
-        store = { ex: {}, done: {}, exam: {}, exam2: {}, drill: {}, drillmeta: {}, days: {}, last: null };
+        store = { ex: {}, done: {}, exam: {}, exam2: {}, drill: {}, drillmeta: {}, days: {}, game: {}, last: null };
         // Drop the base too, or the next pull reads this as un-ticking everything.
         if (window.CNPE_SYNC && window.CNPE_SYNC.forgetBase) window.CNPE_SYNC.forgetBase();
         save(); location.reload();
@@ -1146,7 +1151,8 @@
           if (typeof res === "string") { say(res); return; }
           var a = res.added;
           alert("Imported: " + a.done + " section(s), " + a.ex + " exercise(s), " + a.exam +
-                " exam task(s), " + a.drill + " drill record(s), " + a.days + " study day(s).\nNothing already ticked here was changed.");
+                " exam task(s), " + a.drill + " drill record(s), " + a.days + " study day(s), " +
+                a.game + " quest record(s).\nNothing already ticked here was changed.");
           location.reload();
         };
         fr.onerror = function () { input.remove(); say("Could not read that file."); };
@@ -1323,6 +1329,7 @@
     buildExercises();
     if (window.CNPE_WIDGETS) window.CNPE_WIDGETS.mount();
     if (window.CNPE_DRILL_UI) window.CNPE_DRILL_UI.mount();
+    if (window.CNPE_GAME) window.CNPE_GAME.mount();
     buildToc();
     buildFooter();
     buildPalette();
