@@ -698,6 +698,71 @@ module.exports = async function (h) {
     await ctx.close();
   });
 
+  /* 8c2. a paint is one blit: the terrain and the frame's water, flowers, smoke and torches are composed once
+     per frame of the beat and per tile the camera stands in, and every paint after that reads what is held */
+  await group('a frame blits the composition rather than the tiles under it', async () => {
+    const { ctx, page } = await fresh({ game: { towns: { '1.1': 1 }, flags: { intro: 1 }, pos: { x: 10, y: 6, t: 1 } } });
+    await page.goto(url('game.html'));
+    await page.waitForSelector('.gm-stage canvas');
+    await skipIntro(page);
+    // one turn of the beat brings all three compositions into being; four more turns read them back. The beat
+    // is driven by hand, in one task, so the ticker cannot slip a frame in between and compose behind the count
+    const cycle = await page.evaluate(() => {
+      const g = () => window.CNPE_GAME.debug();
+      g().frame();
+      for (let i = 0; i < 3; i++) { g().tick(); g().frame(); }
+      const a = g(), warm = { composes: a.composes, blits: a.tileBlits, frames: a.frames };
+      for (let i = 0; i < 12; i++) { g().tick(); g().frame(); }
+      const b = g();
+      return { warm, after: { composes: b.composes, blits: b.tileBlits, frames: b.frames },
+        water: b.waterInView, ambient: b.ambientInView, beat: window.CNPE_ART.FRAMES };
+    });
+    assert(cycle.water > 0 && cycle.ambient > 0, 'the camera is over water and over what else moves: ' + JSON.stringify({ water: cycle.water, ambient: cycle.ambient }));
+    assert(cycle.warm.composes <= cycle.beat && cycle.warm.blits >= cycle.water,
+      'a still camera composes one canvas per frame of the beat and no more, each of them blitting what moves in view once: ' + JSON.stringify(cycle.warm));
+    assert(cycle.after.frames - cycle.warm.frames === 12, 'twelve more frames are painted: ' + JSON.stringify(cycle.after));
+    assert(cycle.after.composes === cycle.warm.composes && cycle.after.blits === cycle.warm.blits,
+      'and not one of them composes or blits a tile: ' + JSON.stringify(cycle));
+    // a step is many frames and at most one composition: the camera crossing a tile is what composes, not the
+    // frames of its tween. Six steps in the open, where the map's edge does not clamp the camera
+    const spot = await page.evaluate(() => {
+      const D = window.CNPE_GAME_DATA, m = D.map, W = m[0].length, H = m.length;
+      /** @type {Record<string, number>} */
+      const walk = { grass: 1, road: 1, sand: 1, flower: 1 };
+      const open = (/** @type {number} */ x, /** @type {number} */ y) => !!walk[D.tiles[m[y][x]]];
+      for (let y = 24; y < H - 24; y++) for (let x = 24; x < W - 32; x++) {
+        let n = 0;
+        while (n < 8 && open(x + n, y)) n++;
+        if (n === 8) return { x: x, y: y };
+      }
+      return null;
+    });
+    assert(!!spot, 'the map has a run of open tiles away from its edges to walk: ' + JSON.stringify(spot));
+    await standAt(page, spot.x, spot.y);
+    const from = await page.evaluate(() => { const d = window.CNPE_GAME.debug(); d.frame(); const e = window.CNPE_GAME.debug(); return { composes: e.composes, frames: e.frames, x: e.x, cam: e.camera.x }; });
+    for (let i = 0; i < 6; i++) {
+      await page.keyboard.press('ArrowRight');
+      await page.waitForFunction(() => !window.CNPE_GAME.debug().walking, null, { timeout: 3000 }).catch(() => {});
+    }
+    const to = await page.evaluate(() => { const d = window.CNPE_GAME.debug(); d.frame(); const e = window.CNPE_GAME.debug(); return { composes: e.composes, frames: e.frames, x: e.x, cam: e.camera.x }; });
+    const walked = { steps: to.x - from.x, tiles: (to.cam - from.cam) / 16, frames: to.frames - from.frames, composes: to.composes - from.composes };
+    assert(walked.steps === 6 && walked.tiles === 6, 'six steps east, the camera over six tiles with them: ' + JSON.stringify(walked));
+    assert(walked.frames >= 12, 'the tween paints several frames a step: ' + JSON.stringify(walked));
+    assert(walked.composes <= walked.tiles + 3, 'and composes at most once a tile crossed, whatever the beat did meanwhile: ' + JSON.stringify(walked));
+    // a repaint of the terrain drops all three: the next turn of the beat composes them again, over the new palette
+    const r0 = await page.evaluate(() => { const d = window.CNPE_GAME.debug(); return { renders: d.terrainRenders, composes: d.composes }; });
+    await page.evaluate(() => window.CNPE_THEME.set('light'));
+    await page.waitForFunction(n => window.CNPE_GAME.debug().terrainRenders > n, r0.renders, { timeout: 3000 });
+    const themed = await page.evaluate(() => {
+      const g = () => window.CNPE_GAME.debug();
+      for (let i = 0; i < 3; i++) { g().tick(); g().frame(); }
+      return g().composes;
+    });
+    assert(themed - r0.composes === 3, 'a theme switch drops all three compositions and the beat builds them again: ' + JSON.stringify({ before: r0.composes, after: themed }));
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  });
+
   /* 8d. the minimap: built from the terrain once, tinted per region, the towns cleared in green, the player a dot
      that blinks, a frame around the tiles in view, and a backing store scaled for the screen behind a 120x80 box */
   await group('the minimap is built from the terrain, only its dot and frame move, and it is sharp on HiDPI', async () => {

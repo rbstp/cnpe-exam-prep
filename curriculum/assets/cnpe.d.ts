@@ -523,6 +523,10 @@ interface CnpeGameDebug {
   /** partial repaints, one per landmark change, the tiles they touched, and their
       share of terrainMs */
   terrainPatches: number; tilesRepainted: number; patchMs: number;
+  /** the viewport compositions: how many were built (the terrain and one frame of the beat's water, flowers,
+      smoke and torches, for one tile of the camera), the milliseconds they took, and the animated tiles they
+      blitted in all. A paint reads one and blits nothing per tile, so these stand still while frames climb */
+  composes: number; composeMs: number; tileBlits: number;
   /** the minimap: its backing store (the map's size times scale, whole device pixels per tile, behind the CSS
       box whose width game.css sets in --gm-mini-w, the height following the map's aspect), and how many times it
       was rebuilt from the terrain */

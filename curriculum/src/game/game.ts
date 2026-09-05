@@ -492,7 +492,8 @@
   var motionQuery = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
   var reduceMotion = !!(motionQuery && motionQuery.matches);
   var sizeObs: ResizeObserver | null = null;
-  var stats = { frames: 0, drawMs: 0, terrainRenders: 0, terrainMs: 0, terrainPatches: 0, tilesRepainted: 0, patchMs: 0, minimapBuilds: 0 };
+  var stats = { frames: 0, drawMs: 0, terrainRenders: 0, terrainMs: 0, terrainPatches: 0, tilesRepainted: 0, patchMs: 0, minimapBuilds: 0,
+    composes: 0, composeMs: 0, tileBlits: 0 };
   var mini: HTMLCanvasElement | null = null, miniBase: HTMLCanvasElement | null = null;   // the minimap, and the map under its dot and its frame
   var miniScale = 1, miniBoxW = 0;                    // whole device pixels per minimap pixel (a tile), chosen for the screen like the map's; the CSS width game.css gives the canvas, read once at build
   var focused = false;                                // the stage has focus: its border and the minimap's frame take the accent
@@ -607,6 +608,7 @@
     k.fillStyle = P.sunk; k.fillRect(0, 0, terrain.width, terrain.height);
     for (var y = 0; y < mapH; y++) for (var x = 0; x < mapW; x++) paintTile(k, x, y);
     terrainSig = landmarkSig(); terrainStale = false;
+    dropComposites();                                  // every composition was drawn over the old palette
     stats.terrainRenders++; stats.terrainMs += performance.now() - t0;
     buildMinimap();
   }
@@ -618,7 +620,7 @@
     for (var t = 0; t < D.towns.length; t++, i++) if (sig[i] !== terrainSig[i]) { paintTile(k, D.towns[t].door.x, D.towns[t].door.y); n++; }
     for (var r = 0; r < D.regions.length; r++, i++) if (sig[i] !== terrainSig[i]) { paintTile(k, D.regions[r].keep.x, D.regions[r].keep.y); n++; }
     if (sig[i] !== terrainSig[i]) { paintTile(k, D.finale.keep.x, D.finale.keep.y); n++; }
-    terrainSig = sig;
+    terrainSig = sig;                                  // and with it the key every composition and the counts are held under
     var dt = performance.now() - t0;
     stats.terrainPatches++; stats.tilesRepainted += n; stats.terrainMs += dt; stats.patchMs += dt;
     buildMinimap();                                    // a cleared town turns green on it
@@ -714,6 +716,65 @@
     }
     miniDot.x = x; miniDot.y = y;
   }
+  /* ── what moves, composed rather than blitted tile by tile ── */
+  // A frame used to end in one ctx.drawImage per animated tile in view — a
+  // hundred of them on a coastal screen, and the bulk of what an animated frame
+  // cost — paid again on every paint though the tiles under them had not moved.
+  // Each frame of the beat has its own viewport-sized canvas instead, the
+  // terrain and that frame's water, flowers, smoke and torches composed into it
+  // once; a paint is the single blit of that. The canvas is a tile wider and
+  // taller than the viewport, so the camera's offset inside a tile is a source
+  // offset into the same composition: a step's whole tween reads one, and a
+  // still map composes three and then never again.
+  var CW = VW + 1, CH = VH + 1;                       // the composition, in tiles: the viewport and a tile of slack for the camera's offset
+  var comp: HTMLCanvasElement[] = [];                 // one per frame of the beat, built on demand: reduced motion only ever builds frame 0's
+  var compKey: string[] = [];                         // what each holds: the camera's tile and the landmark signature, so a tile crossed or a door opened drops it
+  var viewCount = { key: "", water: 0, ambient: 0 };  // waterInView and ambientInView for a camera tile and viewport, which only those can change
+  /** every composition is stale: a repaint of the terrain under them */
+  function dropComposites() { compKey = []; viewCount.key = ""; }
+  /** what moves on a tile in the beat's given frame, over what the terrain holds (which is frame 0's water and
+      flowers): null where nothing does. The smoke and the torches are overlays, so they are drawn in every frame */
+  function animSprite(mx: number, my: number, frame: number): HTMLCanvasElement | null {
+    switch (tileAt(mx, my)) {
+      case "water": return frame ? ART.water(shoreMask(mx, my), frame) : null;
+      case "flower": return frame ? ART.flower(Math.floor(hash(mx, my) * 4), regionOf[my * mapW + mx] || 0, frame) : null;
+      case "town": return ART.ambient("puff", frame);
+      case "door": { var dr = doorAt(mx, my); return dr && dungeonOpen(dr) ? ART.ambient("torch", frame) : null; }
+      default: return null;
+    }
+  }
+  /** whether a tile is a reason to paint on the beat: 1 the water, 2 everything else that moves, 0 still */
+  function animKind(mx: number, my: number) {
+    switch (tileAt(mx, my)) {
+      case "water": return 1;
+      case "flower": case "town": return 2;
+      case "door": { var dr = doorAt(mx, my); return dr && dungeonOpen(dr) ? 2 : 0; }
+      default: return 0;
+    }
+  }
+  /** the beat's given frame at the camera's tile: the composition held for it, or a new one */
+  function composite(frame: number, tx0: number, ty0: number) {
+    var c = comp[frame];
+    if (!c) { c = comp[frame] = document.createElement("canvas"); c.width = CW * TILE; c.height = CH * TILE; }
+    var key = tx0 + "," + ty0 + "," + terrainSig;
+    if (compKey[frame] === key) return c;
+    var k = c.getContext("2d");
+    if (!k) return c;
+    var t0 = performance.now(), n = 0;
+    k.setTransform(1, 0, 0, 1, 0, 0);
+    k.imageSmoothingEnabled = false;
+    k.fillStyle = P.sunk; k.fillRect(0, 0, c.width, c.height);
+    // the terrain under it, clipped at the map's far edge, where the camera is clamped and the slack is never read
+    var sw = Math.min(CW * TILE, terrain!.width - tx0 * TILE), sh = Math.min(CH * TILE, terrain!.height - ty0 * TILE);
+    if (sw > 0 && sh > 0) k.drawImage(terrain!, tx0 * TILE, ty0 * TILE, sw, sh, 0, 0, sw, sh);
+    for (var y = 0; y < CH; y++) for (var x = 0; x < CW; x++) {
+      var s = animSprite(tx0 + x, ty0 + y, frame);
+      if (s) { k.drawImage(s, x * TILE, y * TILE); n++; }
+    }
+    compKey[frame] = key;
+    stats.composes++; stats.tileBlits += n; stats.composeMs += performance.now() - t0;
+    return c;
+  }
   /** paint on the next animation frame; several requests in one frame are one paint */
   function requestDraw() {
     dirty = true;
@@ -744,18 +805,23 @@
     var tx0 = Math.floor(cx / TILE), ty0 = Math.floor(cy / TILE), ox = cx - tx0 * TILE, oy = cy - ty0 * TILE;
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(terrain!, cx, cy, W, H, 0, 0, W, H);
-    // what moves, over the first frame the terrain holds: the water and the
-    // flowers in another frame, the smoke over a town, the torches on an open door
-    waterInView = 0; ambientInView = 0;
+    // the terrain and what moves over it, composed once for this frame of the
+    // beat at this tile of the camera: the offset inside the tile is where the
+    // blit reads from, so a step's tween and every beat after the first are one
+    ctx.drawImage(composite(animFrame, tx0, ty0), ox, oy, W, H, 0, 0, W, H);
+    // and how much of what moves is in view, which is what the beat asks before
+    // it paints at all: the tiles, not the blits, and only when they can differ
     var cols = VW + (ox ? 1 : 0), rows = VH + (oy ? 1 : 0);
-    for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
-      var mx = tx0 + x, my = ty0 + y, t = tileAt(mx, my), sx = x * TILE - ox, sy = y * TILE - oy;
-      if (t === "water") { waterInView++; if (animFrame) ctx.drawImage(ART.water(shoreMask(mx, my), animFrame), sx, sy); }
-      else if (t === "flower") { ambientInView++; if (animFrame) ctx.drawImage(ART.flower(Math.floor(hash(mx, my) * 4), regionOf[my * mapW + mx] || 0, animFrame), sx, sy); }
-      else if (t === "town") { ambientInView++; ctx.drawImage(ART.ambient("puff", animFrame), sx, sy); }
-      else if (t === "door") { var dr = doorAt(mx, my); if (dr && dungeonOpen(dr)) { ambientInView++; ctx.drawImage(ART.ambient("torch", animFrame), sx, sy); } }
+    var vkey = tx0 + "," + ty0 + "," + cols + "," + rows + "," + terrainSig;
+    if (viewCount.key !== vkey) {
+      var water = 0, ambient = 0;
+      for (var y = 0; y < rows; y++) for (var x = 0; x < cols; x++) {
+        var kind = animKind(tx0 + x, ty0 + y);
+        if (kind === 1) water++; else if (kind) ambient++;
+      }
+      viewCount = { key: vkey, water: water, ambient: ambient };
     }
+    waterInView = viewCount.water; ambientInView = viewCount.ambient;
     // banners over towns and keeps, so the map reads without a legend
     ctx.font = "8px CNPE Mono, ui-monospace, monospace"; ctx.textBaseline = "top";
     D.towns.forEach(function (t) { label(t.name, t.x * TILE - cx, t.y * TILE - cy, has("towns", t.sec) ? P.ok : P.paper); });
@@ -1693,6 +1759,7 @@
       undo.forEach(function (fn) { fn(); }); undo = [];
       settleStep(); ease = null;
       terrain = null; miniBase = null; mini = null; terrainStale = true; terrainSig = "";
+      comp = []; dropComposites();
       dlg = null; battle = null; trial = null; town = null; bt = null; tn = null; fx = null; swapPending = null;
       host.removeAttribute("data-built");
       host.classList.remove("gm");
@@ -1705,6 +1772,7 @@
       return { frames: stats.frames, drawMs: stats.drawMs, terrainRenders: stats.terrainRenders, terrainMs: stats.terrainMs,
         terrain: terrain ? { w: terrain.width, h: terrain.height } : null,
         terrainPatches: stats.terrainPatches, tilesRepainted: stats.tilesRepainted, patchMs: stats.patchMs,
+        composes: stats.composes, composeMs: stats.composeMs, tileBlits: stats.tileBlits,
         minimap: mini ? { w: mini.width, h: mini.height, scale: miniScale } : null, minimapBuilds: stats.minimapBuilds,
         scale: scale, dpr: dprSeen,
         anim: !!animTimer, reduceMotion: reduceMotion, waterFrame: animFrame, walkFrame: walkFrame, face: player.face,
