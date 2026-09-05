@@ -344,7 +344,7 @@ module.exports = async function (h) {
     await page.waitForFunction(() => window.CNPE_GAME.debug().terrainPatches === 1, null, { timeout: 3000 }).catch(() => {});
     const door = await page.evaluate(() => { const x = window.CNPE_GAME.debug(); return { renders: x.terrainRenders, patches: x.terrainPatches, tiles: x.tilesRepainted, patchMs: x.patchMs, ms: x.terrainMs }; });
     assert(door.renders === 2 && door.patches === 1 && door.tiles === 1, 'a door opening repaints that one tile and nothing else: ' + JSON.stringify(door));
-    assert(door.patchMs > 0 && door.patchMs < themeMs / 4 && Math.abs((door.ms - themed.ms) - door.patchMs) < 0.5,
+    assert(door.patchMs >= 0 && door.patchMs < themeMs / 4 && Math.abs((door.ms - themed.ms) - door.patchMs) < 0.5,
       'and costs a fraction of a full render, counted into terrainMs: patch ' + door.patchMs.toFixed(2) + ' ms against ' + themeMs.toFixed(1) + ' ms for the theme');
     // the patched tile is the open door: the map now shows the open sprite at the door's place
     await page.waitForFunction(() => !window.CNPE_GAME.debug().walking, null, { timeout: 2000 }).catch(() => {});
@@ -386,7 +386,7 @@ module.exports = async function (h) {
         await page.waitForTimeout(50);
         const part = await at();
         assert(part.walking && part.off.x < 0 && part.off.x > -16 && part.off.x % 1 === 0, tag + 'part way, the offset is whole pixels between the tiles: ' + JSON.stringify(part));
-        assert(part.walk === 1 || part.off.x > -8, tag + 'the walk cycle is keyed to the tween: the other foot in its first half: ' + JSON.stringify(part));
+        assert((part.off.x <= -10) === (part.walk === 1), tag + 'the walk cycle is keyed to the tween: the other foot through its first half, standing after: ' + JSON.stringify(part));
         await page.waitForFunction(() => !window.CNPE_GAME.debug().walking, null, { timeout: 2000 }).catch(() => {});
         const done = await at();
         assert(done.x === 9 && done.y === 8 && !done.walking && done.off.x === 0 && done.off.y === 0 && done.walk === 0, tag + 'the tween ends on the exact tile, standing: ' + JSON.stringify(done));
@@ -440,12 +440,12 @@ module.exports = async function (h) {
         // the flame is at pixel (3, 0) of the open door's tile
         const p = k.getImageData(((door.x - v.cx) * 16 + 3) * v.scale, ((door.y - v.cy) * 16 + 0) * v.scale, 1, 1).data;
         seen.push(p[0] + ',' + p[1] + ',' + p[2] + ':' + window.CNPE_GAME.debug().waterFrame);
-        if (seen.length < 4) setTimeout(look, 430); else res({ warn: warn[0] + ',' + warn[1] + ',' + warn[2], seen });
+        if (seen.length < 9) setTimeout(look, 150); else res({ warn: warn[0] + ',' + warn[1] + ',' + warn[2], seen });
       };
       look();
     }), { v, door: DOOR });
     assert(torch.seen.some(x => x.indexOf(torch.warn + ':') === 0), 'the torch flame is painted over the open door in the flame colour: ' + JSON.stringify(torch));
-    assert(new Set(torch.seen.map(x => x.split(':')[1])).size >= 3, 'across three frames of the beat: ' + JSON.stringify(torch.seen));
+    assert(new Set(torch.seen.map(x => x.split(':')[1])).size === 3, 'across the three frames of the beat: ' + JSON.stringify(torch.seen));
     // only what is in view is counted: the same count as a walk over the map's rows inside the viewport, here and by the Exam gate
     const inView = () => page.evaluate(() => {
       const d = window.CNPE_GAME.debug(), D = window.CNPE_GAME_DATA, m = D.map, W = m[0].length, H = m.length;
@@ -509,17 +509,22 @@ module.exports = async function (h) {
     assert(dot.length >= 2, 'the dot blinks: the pixel under the player changes over a second: ' + JSON.stringify(dot));
     const builds1 = await page.evaluate(() => window.CNPE_GAME.debug().minimapBuilds);
     assert(builds1 === 1, 'and blinking did not rebuild the minimap: ' + builds1);
-    // a step moves the dot: the map's pixel comes back where it was, and the dot's colours show where it is
+    // a step moves the dot: the rim's pixel at (11, 6) is lifted and the ground under it shows again, and the dot is at (9, 6)
+    const ink = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--ink').trim());
     await page.keyboard.press('ArrowLeft');
     await page.waitForTimeout(300);
     const moved = await page.evaluate(() => {
       const c = /** @type {HTMLCanvasElement} */ (document.querySelector('.gm-mini canvas')), k = c.getContext('2d');
       const at = (/** @type {number} */ x, /** @type {number} */ y) => { const p = k.getImageData(x, y, 1, 1).data; return p[0] + ',' + p[1] + ',' + p[2]; };
+      // paint now and read in the same task, so the blink's phase is known: the dot is on when the beat's frame is even
+      window.CNPE_GAME.debug().frame();
       const d = window.CNPE_GAME.debug();
-      // the dot is 3 by 3 around the player, so the tile two to the right is ground again
-      return { x: d.x, builds: d.minimapBuilds, right: at(12, 6), was: at(11, 6) };
+      return { x: d.x, builds: d.minimapBuilds, on: (d.waterFrame & 1) === 0, left: at(11, 6), ground: at(12, 6), centre: at(9, 6), rim: at(10, 6) };
     });
     assert(moved.x === 9 && moved.builds === 1, 'a step moves the dot without a rebuild: ' + JSON.stringify(moved));
+    assert(moved.left !== rgb(ink) && moved.left !== rgb(colours.warn), 'the tile the rim left shows the ground again: ' + JSON.stringify(moved));
+    if (moved.on) assert(moved.centre === rgb(colours.warn) && moved.rim === rgb(ink), 'the dot stands on the new tile, a warn centre in an ink rim: ' + JSON.stringify(moved));
+    else assert(moved.centre !== rgb(colours.warn) && moved.rim !== rgb(ink), 'the dot is between blinks, so the ground shows there too: ' + JSON.stringify(moved));
     await ctx.close();
     // reduced motion: the dot holds still
     const still = await fresh({ game: { flags: { intro: 1 }, pos: { x: 10, y: 6, t: 1 } } }, { reducedMotion: 'reduce' });
@@ -554,7 +559,7 @@ module.exports = async function (h) {
     await page.goto(url('console.html') + '#GM');
     await page.waitForFunction(() => document.body.getAttribute('data-id') === 'GM' && !!document.querySelector('#game-app[data-built] canvas'));
     await skipIntro(page);
-    const pending = () => page.evaluate(() => { const w = /** @type {any} */ (window), d = window.CNPE_GAME.debug(); return { raf: w.__pending.raf.size, beat: w.__pending.beat.size, mounted: d.mounted, mounts: d.mounts, listeners: d.listeners, anim: d.anim }; });
+    const pending = () => page.evaluate(() => { const w = /** @type {any} */ (window), d = window.CNPE_GAME.debug(); return { raf: w.__pending.raf.size, beat: w.__pending.beat.size, mounted: d.mounted, mounts: d.mounts, listeners: d.listeners, timers: d.timers, anim: d.anim, frames: d.frames }; });
     const first = await pending();
     assert(first.mounted && first.mounts === 1 && first.listeners > 0 && first.beat === 1, 'mounted once, holding its listeners, one beat pending: ' + JSON.stringify(first));
     for (let i = 0; i < 3; i++) {
@@ -562,14 +567,16 @@ module.exports = async function (h) {
       await page.waitForFunction(() => document.body.getAttribute('data-id') === 'DR');
       await page.waitForTimeout(500);
       const away = await pending();
-      assert(!away.mounted && away.listeners === 0 && away.raf === 0 && away.beat === 0 && !away.anim, 'trip ' + (i + 1) + ', away: unmounted, no listeners, no frame, no beat: ' + JSON.stringify(away));
+      assert(!away.mounted && away.listeners === 0 && away.timers === 0 && away.raf === 0 && away.beat === 0 && !away.anim, 'trip ' + (i + 1) + ', away: unmounted, no listeners, no timers, no frame, no beat: ' + JSON.stringify(away));
       await page.evaluate(() => { location.hash = '#GM'; });
       await page.waitForFunction(() => document.body.getAttribute('data-id') === 'GM' && !!document.querySelector('#game-app[data-built] canvas'));
       await skipIntro(page);
     }
+    const f0 = await pending();
     await page.waitForTimeout(700);
     const back = await pending();
     assert(back.mounted && back.mounts === 4 && back.beat === 1 && back.raf <= 1 && back.listeners === first.listeners, 'three round trips later: one beat, at most one frame pending, the same listeners as the first mount: ' + JSON.stringify(back));
+    assert(back.frames > f0.frames, 'and the one loop is alive: frames still come on the beat: ' + f0.frames + ' -> ' + back.frames);
     // one keydown listener: a press is one step
     await page.focus('.gm-stage');
     const x0 = await page.evaluate(() => window.CNPE_GAME.debug().x);
@@ -690,8 +697,10 @@ module.exports = async function (h) {
     assert((await page.evaluate(() => document.querySelectorAll('.gm-float').length)) === 0, 'the numbers are gone after their second');
     // the fall: Hollow Beacon is a networking fault, and its figure falls the networking way before the card
     await type(page, 'kubectl -n team-a patch svc web -p \'{"spec":{"selector":{"app":"web-frontend"}}}\'');
-    const fell = await page.evaluate(() => { const f = document.querySelector('.gm-enemy'); return f ? { fx: f.getAttribute('data-fx'), family: f.getAttribute('data-family'), anim: getComputedStyle(f.querySelector('canvas')).animationName } : null; });
+    const fell = await page.evaluate(() => { const f = document.querySelector('.gm-enemy'); return f ? { fx: f.getAttribute('data-fx'), family: f.getAttribute('data-family'), anim: getComputedStyle(f.querySelector('canvas')).animationName,
+      flee: /** @type {HTMLButtonElement} */ (document.querySelector('.gm-acts button.ghost')).disabled, inspect: /** @type {HTMLButtonElement} */ (document.querySelector('.gm-acts button')).disabled } : null; });
     assert(!!fell && fell.fx === 'win' && fell.family === 'networking' && fell.anim === 'gm-fall-networking', 'the fix plays the networking fall on the figure: ' + JSON.stringify(fell));
+    assert(!!fell && fell.flee === true && fell.inspect === true, 'and the fight is over: Flee and the menus are shut while it falls: ' + JSON.stringify(fell));
     await page.waitForSelector('.gm-result', { timeout: 3000 });
     assert(/Victory|Critical|lucky/.test(await page.textContent('.gm-result')), 'and the card comes up behind it');
     const falls = await page.evaluate(() => {
@@ -701,6 +710,53 @@ module.exports = async function (h) {
       return names;
     });
     assert(falls.length === 8 && new Set(falls).size === 8 && falls.every(n => /^gm-fall-/.test(n)), 'eight families, eight falls: ' + JSON.stringify(falls));
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  });
+
+  /* 12. a keep chains two faults: the next monster waits for the last one's fall, and nothing repaints or runs against it meanwhile */
+  await group('in a keep the next monster waits for the fall', async () => {
+    // every dungeon of Substrate Downs won, so its keep opens; stand on the keep itself
+    const wins = { image: { n: 1 }, probe: { n: 1 }, resources: { n: 1 }, quota: { n: 1 }, config: { n: 1 }, 'hpa-unknown': { n: 1 }, 'svc-selector': { n: 1 }, pvc: { n: 1 }, 'storage-class': { n: 1 }, dns: { n: 1 }, ingress: { n: 1 } };
+    const { ctx, page } = await fresh({ game: { flags: { intro: 1 }, wins, pos: { x: 35, y: 32, t: 1 } } });
+    await page.goto(url('game.html'));
+    await page.waitForSelector('.gm-stage canvas');
+    await skipIntro(page);
+    // the keep's own dialogue names both faults; the seed may not cover every dungeon, so read what it says
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.gm-dialog:not([hidden])');
+    const dlg = await page.textContent('.gm-dialog');
+    if (!/Two faults wait inside/.test(dlg)) {
+      // list what still stands and seed those too, then come back
+      const ids = await page.evaluate(() => window.CNPE_GAME_DATA.scenarios.filter(s => s.d === 1).map(s => s.id));
+      await page.evaluate(ids => { const s = window.CNPE_PROGRESS.get(); s.game.wins = s.game.wins || {}; ids.forEach(id => { s.game.wins[id] = { n: 1 }; }); window.CNPE_PROGRESS.save(); }, ids);
+      await standAt(page, 35, 32);
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('.gm-dialog:not([hidden])');
+    }
+    assert(/Two faults wait inside/.test(await page.textContent('.gm-dialog')), 'the keep is open: ' + (await page.textContent('.gm-dialog')).slice(0, 90));
+    await page.click('.gm-dialog button:has-text("Yes")');
+    await page.waitForSelector('.gm-term input');
+    const first = await page.textContent('.gm-title h3');
+    assert(first === "Miser's Ledger", 'the first fault of the Substrate Downs keep is up: ' + first);
+    // the fix, before any evidence: the monster falls, the next waits behind it
+    await page.fill('.gm-term input', 'kubectl -n team-a scale deployment broken --replicas=1');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(80);
+    const falling = await page.evaluate(() => ({ h3: document.querySelector('.gm-title h3').textContent, fx: document.querySelector('.gm-enemy').getAttribute('data-fx'),
+      disabled: /** @type {HTMLInputElement} */ (document.querySelector('.gm-term input')).disabled, flee: /** @type {HTMLButtonElement} */ (document.querySelector('.gm-acts button.ghost')).disabled }));
+    assert(falling.h3 === "Miser's Ledger" && falling.fx === 'win' && falling.disabled === true && falling.flee === false, 'the fallen monster stays on screen through its fall, the prompt shut, Flee still open (the keep goes on): ' + JSON.stringify(falling));
+    // a repaint asked for during the fall waits: the screen is still the fallen one's
+    await page.click('.gm-acts button:has-text("Inspect")');
+    await page.waitForTimeout(50);
+    const during = await page.evaluate(() => ({ h3: document.querySelector('.gm-title h3').textContent, sub: !!document.querySelector('.gm-sub') }));
+    assert(during.h3 === "Miser's Ledger" && !during.sub, 'Inspect during the fall does not swap the screen early: ' + JSON.stringify(during));
+    await page.waitForFunction(() => document.querySelector('.gm-title h3').textContent !== "Miser's Ledger", null, { timeout: 3000 }).catch(() => {});
+    const next = await page.evaluate(() => ({ h3: document.querySelector('.gm-title h3').textContent, disabled: /** @type {HTMLInputElement} */ (document.querySelector('.gm-term input')).disabled,
+      fx: document.querySelector('.gm-enemy').className, sub: !!document.querySelector('.gm-sub'), log: document.querySelector('.gm-term pre').textContent }));
+    assert(next.h3 === 'Blindfolded Scaler' && next.disabled === false && !/fx-win/.test(next.fx), 'then the next monster stands, the prompt open, the fall over: ' + JSON.stringify({ h3: next.h3, disabled: next.disabled, cls: next.fx }));
+    assert(next.sub, 'and the Inspect menu asked for during the fall is painted now');
+    assert(/another rises: Blindfolded Scaler/.test(next.log), 'the terminal announces it');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   });

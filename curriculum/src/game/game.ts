@@ -75,7 +75,7 @@
     root: HTMLElement; h3: HTMLElement; sub: HTMLElement; turn: HTMLElement;
     figure: HTMLElement; sprite: HTMLCanvasElement; nm: HTMLElement; lv: HTMLElement;
     guard: HTMLElement; guardLbl: HTMLElement; hpWrap: HTMLElement; hpBar: HTMLElement; hpLbl: HTMLElement;
-    ticket: HTMLElement; modes: Record<string, HTMLButtonElement>; subHost: HTMLElement;
+    ticket: HTMLElement; modes: Record<string, HTMLButtonElement>; flee: HTMLButtonElement; subHost: HTMLElement;
     tool: HTMLElement; found: HTMLElement; pre: HTMLElement; input: HTMLInputElement;
     /** log entries already in the terminal, and the scenario the figure shows */
     rendered: number; scId: string; family: string;
@@ -222,6 +222,8 @@
   var dlg: Dialogue | null = null;                    // { who, pages: [], i, done: fn }
   var posTimer = 0, themeWired = false, dirty = true;
   var bt: BattleDom | null = null;                    // the battle screen, while one is built
+  /** a keep's next monster waiting for the last one's fall: paints are deferred and the prompt shut until it fires */
+  var swapPending: { t: BattleDom; fire: () => void } | null = null;
   var tn: TownDom | null = null;                      // the town screen, while one is built
   /** the effect the next battle paint plays (hit, stagger, win), and the number that floats up with it */
   var fx: { name: string; num?: string; from?: "enemy" | "guard" } | null = null;
@@ -675,7 +677,7 @@
     canvas.style.visibility = onMap ? "" : "hidden";
     hud.hidden = !onMap; whereEl.hidden = !onMap; miniWin.hidden = !onMap;
     stage.classList.toggle("gm-map", onMap);
-    if (onMap) { screen.innerHTML = ""; bt = null; tn = null; requestDraw(); paintHud(); savePos(true); }
+    if (onMap) { screen.innerHTML = ""; bt = null; tn = null; swapPending = null; requestDraw(); paintHud(); savePos(true); }
     else { dialog.hidden = true; dlg = null; settleStep(); }
     syncAnim();
   }
@@ -942,7 +944,8 @@
       bar.appendChild(modes[m]);
     };
     mode("inspect", "Inspect"); mode("fix", "Fix"); mode("item", "Item");
-    bar.appendChild(btn("Flee", function () { flee(); }, "ghost"));
+    var fleeBtn = btn("Flee", function () { flee(); }, "ghost");
+    bar.appendChild(fleeBtn);
     left.appendChild(bar);
     var subHost = el("div", "gm-subhost"); left.appendChild(subHost);
 
@@ -987,7 +990,7 @@
     screen.appendChild(root);
     return { root: root, h3: h3, sub: sub, turn: turn, figure: figure, sprite: sprite, nm: nm, lv: lv,
       guard: guard, guardLbl: guardLbl.lastChild as HTMLElement, hpWrap: hpWrap, hpBar: hpBar, hpLbl: hpLbl.lastChild as HTMLElement,
-      ticket: ticket, modes: modes, subHost: subHost, tool: tool, found: found, pre: pre, input: input, rendered: 0, scId: "", family: "" };
+      ticket: ticket, modes: modes, flee: fleeBtn, subHost: subHost, tool: tool, found: found, pre: pre, input: input, rendered: 0, scId: "", family: "" };
   }
   /** bring the battle screen up to date: only what changed is touched, and the
       terminal grows by the lines since the last paint, so a long log stays cheap */
@@ -995,13 +998,26 @@
     var b = battle!, sc = b.sc, mh = maxHp();
     if (!bt || bt.root.parentNode !== screen) bt = buildBattle();
     var t = bt;
+    // while a fall plays, the screen stays the fallen monster's: whatever asked
+    // for this paint is painted when the swap fires
+    if (swapPending && swapPending.t === t) return;
     var nFound = Object.keys(b.found).length, nAll = sc.evidence.length;
     // a chain's next monster waits for the last one's fall: the fall plays on the
     // figure as it is, and the swap comes when the animation ends
     if (t.scId && t.scId !== sc.id && fx && fx.name === "win" && !reduceMotion) {
-      var cur = fx, swapped = false; fx = null;
-      var swap = function () { if (swapped) return; swapped = true; t.sprite.removeEventListener("animationend", once); if (bt !== t || !battle) return; t.scId = ""; paintBattle(); };
+      var cur = fx; fx = null;
+      var swap = function () {
+        if (!swapPending || swapPending.t !== t) return;
+        swapPending = null;
+        t.sprite.removeEventListener("animationend", once);
+        t.figure.classList.remove("fx-hit", "fx-stagger", "fx-win");
+        t.input.disabled = false;
+        if (bt !== t || !battle) return;
+        t.scId = ""; paintBattle();
+      };
       var once = function (e: AnimationEvent) { if (e.target === t.sprite) swap(); };
+      swapPending = { t: t, fire: swap };
+      t.input.disabled = true;                        // the terminal is the fallen monster's until the next one stands
       t.sprite.addEventListener("animationend", once);
       later(swap, 1200);                              // reduced motion aside (handled above), a fall that never ends still gives way
       play(t.figure, cur.name);
@@ -1025,7 +1041,8 @@
     t.hpWrap.className = "gm-bar hp" + (hp <= mh * 0.25 ? " crit" : hp <= mh * 0.5 ? " low" : "");
     t.hpBar.style.width = Math.round(hp / mh * 100) + "%";
     t.hpLbl.textContent = hp + " / " + mh + " hp";
-    Object.keys(t.modes).forEach(function (m) { t.modes[m].className = b.mode === m ? "sel" : ""; });
+    Object.keys(t.modes).forEach(function (m) { t.modes[m].className = b.mode === m ? "sel" : ""; t.modes[m].disabled = !!b.over; });
+    t.flee.disabled = !!b.over;                       // the monster is falling; the card is on its way
     t.subHost.innerHTML = "";
     var sub = subMenu();
     if (sub) t.subHost.appendChild(sub);
@@ -1168,7 +1185,7 @@
   /** the turn: the command, the cluster's answer, then the enemy's swing */
   function runCommand(cmd: string, typed: boolean) {
     var b = battle!, sc = b.sc;
-    if (b.over) return;                               // the card is up; the fight is finished
+    if (b.over || swapPending) return;                // the card is up, or the next monster has not stood yet
     var r = SIM.run(sc, b.found, cmd);
     b.turn++; b.turnsTotal++;
     var entry: LogEntry = { cmd: cmd, out: r.out, tell: null };
@@ -1343,7 +1360,7 @@
     // a click on the map is a step toward where you clicked, and takes focus
     canvas.addEventListener("click", function (e) {
       stage.focus();
-      if (scene !== "map" || dlg || walk) return;
+      if (scene !== "map" || dlg) return;
       var r = canvas.getBoundingClientRect();
       var px = (e.clientX - r.left) / r.width * VW, py = (e.clientY - r.top) / r.height * VH;
       var cam = camera(player.x * TILE, player.y * TILE);
@@ -1396,7 +1413,8 @@
     }
     if (motionQuery) {
       var mq = motionQuery;
-      var onMotion = function () { reduceMotion = mq.matches; walkFrame = 0; if (reduceMotion) { settleStep(); } syncAnim(); requestDraw(); };
+      // a step in flight when motion is reduced lands now: its tile is already taken, and landing is what the tile does
+      var onMotion = function () { reduceMotion = mq.matches; walkFrame = 0; if (reduceMotion && walk) landStep(); syncAnim(); requestDraw(); };
       if (mq.addEventListener) { mq.addEventListener("change", onMotion); undo.push(function () { mq.removeEventListener("change", onMotion); }); }
       else if (mq.addListener) { mq.addListener(onMotion); undo.push(function () { mq.removeListener(onMotion); }); }
     }
@@ -1428,7 +1446,7 @@
         host.innerHTML = '<div class="wnote bad">The quest did not load; assets/game-data.js, assets/game-sim.js or assets/game-art.js is missing.</div>';
         return;
       }
-      scene = "map"; town = null; trial = null; battle = null; dlg = null; bt = null; tn = null; fx = null;
+      scene = "map"; town = null; trial = null; battle = null; dlg = null; bt = null; tn = null; fx = null; swapPending = null;
       walk = null; queued = null; walked = false; lastLabel = ""; mounts++;
       buildRegions();
       build();
@@ -1453,7 +1471,7 @@
       undo.forEach(function (fn) { fn(); }); undo = [];
       settleStep();
       terrain = null; miniBase = null; mini = null; terrainStale = true; terrainSig = "";
-      dlg = null; battle = null; trial = null; town = null; bt = null; tn = null; fx = null;
+      dlg = null; battle = null; trial = null; town = null; bt = null; tn = null; fx = null; swapPending = null;
       host.removeAttribute("data-built");
       host.classList.remove("gm");
       host.innerHTML = "";
@@ -1471,7 +1489,7 @@
         anim: !!animTimer, reduceMotion: reduceMotion, waterFrame: animFrame, walkFrame: walkFrame, face: player.face,
         x: player.x, y: player.y, walking: !!walk, offset: off, queued: !!queued,
         waterInView: waterInView, ambientInView: ambientInView,
-        mounted: !!host, mounts: mounts, listeners: undo.length,
+        mounted: !!host, mounts: mounts, listeners: undo.length, timers: timers.length,
         frame: function () { if (rafId) { cancelAnimationFrame(rafId); rafId = 0; } dirty = true; draw(); } };
     }
   };

@@ -537,9 +537,9 @@ interface CnpeGameDebug {
   walking: boolean; offset: { x: number; y: number }; queued: boolean;
   /** how many animated tiles the last frame found in view: water, and the rest */
   waterInView: number; ambientInView: number;
-  /** the quest is mounted, how many times it has been, and the listeners and
-      observers it holds right now (0 after unmount()) */
-  mounted: boolean; mounts: number; listeners: number;
+  /** the quest is mounted, how many times it has been, and the listeners,
+      observers and one-shot timers it holds right now (0 after unmount()) */
+  mounted: boolean; mounts: number; listeners: number; timers: number;
   /** paint now, without waiting for the next animation frame */
   frame(): void;
 }
