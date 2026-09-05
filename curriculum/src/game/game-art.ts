@@ -115,6 +115,16 @@
     for (var y = 0; y < TILE; y++) { var row = g[y] || ""; while (row.length < TILE) row += "."; out.push(row.slice(0, TILE)); }
     return out;
   }
+  /** an edge band padded to a tile and its three turns, N E S W: the same four
+      grids every time, so they are turned once per band rather than per sprite */
+  var turned = new Map<Grid, Grid[]>();
+  function rots4(g: Grid): Grid[] {
+    var hit = turned.get(g);
+    if (hit) return hit;
+    var sq = pad(g), dirs = [sq, rot(sq), rot(rot(sq)), rot(rot(rot(sq)))];
+    turned.set(g, dirs);
+    return dirs;
+  }
   function own(o: object, k: string) { return Object.prototype.hasOwnProperty.call(o, k); }
 
   var GRASS: Grid[] = [
@@ -461,7 +471,7 @@
 
   /** N=1 E=2 S=4 W=8: the sides whose neighbour is a different kind of ground; g is the north band */
   function edges4(k: CanvasRenderingContext2D, g: Grid, slots: Slots, mask: number) {
-    var sq = pad(g), dirs = [sq, rot(sq), rot(rot(sq)), rot(rot(rot(sq)))];
+    var dirs = rots4(g);
     for (var i = 0; i < 4; i++) if (mask & (1 << i)) stamp(k, dirs[i], slots, 0, 0);
   }
 
@@ -498,8 +508,8 @@
       frame = ((frame % FRAMES) + FRAMES) % FRAMES;
       return cached("w" + mask + "." + frame, function (k) {
         var s = waterSlots(); fill(k, s.w); stamp(k, WATER[frame], s, 0, 0);
-        var shore = pad(SHORE[frame]), sides = [shore, rot(shore), rot(rot(shore)), rot(rot(rot(shore)))];       // N E S W
-        var corner = pad(SHORE_CORNER), corners = [corner, rot(corner), rot(rot(corner)), rot(rot(rot(corner)))];   // NW NE SE SW
+        var sides = rots4(SHORE[frame]);                                                                 // N E S W
+        var corners = rots4(SHORE_CORNER);                                                               // NW NE SE SW
         var land = [!!(mask & 1), !!(mask & 4), !!(mask & 16), !!(mask & 64)];                            // N E S W
         for (var i = 0; i < 4; i++) if (land[i]) stamp(k, sides[i], s, 0, 0);
         if ((mask & 128) && !land[0] && !land[3]) stamp(k, corners[0], s, 0, 0);

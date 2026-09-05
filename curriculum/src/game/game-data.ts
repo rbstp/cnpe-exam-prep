@@ -80,6 +80,10 @@ window.CNPE_GAME_DATA = (function (): CnpeGameData {
   var GET_PODS = ["^kubectl get pods(,\\S+)? -n team-a", "^kubectl get (deployments|replicasets|all)(,\\S+)? -n team-a", "^kubectl get pods -A"];
   var EVENTS = ["^kubectl (get|describe) events -n team-a", "^kubectl events -n team-a", "^kubectl get events -A"];
   var DESCRIBE_POD = ["^kubectl describe pods( broken\\S*)? -n team-a", "^kubectl get pods broken\\S* -n team-a -o (yaml|json)"];
+  /* a pod refused at admission leaves its error on the ReplicaSet that tried to create it, not on any pod */
+  var DESCRIBE_RS = ["^kubectl describe replicasets( \\S+)? -n team-a", "^kubectl describe deployments broken -n team-a", "^kubectl get (deployments|replicasets) broken\\S* -n team-a -o (yaml|json)"];
+  /* the reflex that fixes nothing: a fresh pod meets whatever refused the last one */
+  var RESTART = ["^kubectl (delete pods|rollout restart)"];
 
   /* ── the workload faults: make break's team-a drill ──────── */
   var SCENARIOS: CnpeGameScenario[] = [];
@@ -218,7 +222,7 @@ window.CNPE_GAME_DATA = (function (): CnpeGameData {
       { match: ["^kubectl create clusterrolebindings \\S+ --clusterrole=cluster-admin"], out: "clusterrolebinding.rbac.authorization.k8s.io/app-sa-admin created\n(and the app can list its pods, along with every secret in the cluster; the ticket asked for least privilege, not root. Undo it and bind a Role in the namespace)" },
       { match: ["^kubectl create rolebindings \\S+ -n team-a .*--serviceaccount=team-a:default", "^kubectl create rolebindings \\S+ .*--user="], out: "rolebinding.rbac.authorization.k8s.io created\n(bound to the wrong subject; the pod runs as app-sa, and app-sa still gets 403)" },
       { match: ["^kubectl patch deployments broken -n team-a .*serviceaccountname\":\"default\"", "^kubectl set serviceaccount deployments broken default -n team-a"], out: "deployment.apps/broken serviceaccount updated\n(the default service account has no bindings either; same 403, different name in it)" },
-      { match: ["^kubectl (delete pods|rollout restart)"], out: "pod \"" + POD + "\" deleted\n(a fresh pod under the same unbound account gets the same 403)" }
+      { match: RESTART, out: "pod \"" + POD + "\" deleted\n(a fresh pod under the same unbound account gets the same 403)" }
     ]
   });
 
@@ -247,7 +251,7 @@ window.CNPE_GAME_DATA = (function (): CnpeGameData {
     ],
     evidence: [
       { id: "status", match: GET_PODS, tell: "1/5", hint: "Count what is running against what was asked for. Then notice there are no failing pods to describe: the missing four were never created." },
-      { id: "rs", match: ["^kubectl describe replicasets( \\S+)? -n team-a", "^kubectl describe deployments broken -n team-a", "^kubectl get (deployments|replicasets) broken\\S* -n team-a -o (yaml|json)"].concat(EVENTS), tell: "exceeded quota", hint: "A pod that was refused at admission leaves its error on the ReplicaSet that tried to create it." },
+      { id: "rs", match: DESCRIBE_RS.concat(EVENTS), tell: "exceeded quota", hint: "A pod that was refused at admission leaves its error on the ReplicaSet that tried to create it." },
       { id: "quota", match: ["^kubectl (get|describe) resourcequotas(,\\S+)?( \\S+)? -n team-a"], tell: "pods                    1      1", hint: "Read the namespace's ResourceQuota: used against hard." }
     ],
     fix: ["^kubectl patch resourcequotas team-a-quota -n team-a .*\"pods\":\"([5-9]|[1-9]\\d)\"", "^kubectl scale deployments broken -n team-a --replicas=1$"],
@@ -256,7 +260,7 @@ window.CNPE_GAME_DATA = (function (): CnpeGameData {
       { match: ["^kubectl patch resourcequotas team-a-quota -n team-a .*\"pods\":\"[2-4]\""], out: "resourcequota/team-a-quota patched\n(higher, and still below five: the ReplicaSet gets a little further and hits the same error)" },
       { match: ["^kubectl delete resourcequotas"], out: "resourcequota \"team-a-quota\" deleted\n(all five pods come up, and the namespace has no ceiling at all any more; the tenancy model was the quota. Raise the number instead)" },
       { match: ["^kubectl scale deployments broken -n team-a --replicas=([2-9]|\\d\\d+)"], out: "deployment.apps/broken scaled\n(still more than the quota's one pod; the ReplicaSet reports FailedCreate as before)" },
-      { match: ["^kubectl (delete pods|rollout restart)"], out: "(the running pod is fine; deleting it frees one slot that its own replacement takes)" }
+      { match: RESTART, out: "(the running pod is fine; deleting it frees one slot that its own replacement takes)" }
     ]
   });
 
@@ -284,7 +288,7 @@ window.CNPE_GAME_DATA = (function (): CnpeGameData {
     wrong: [
       { match: ["^kubectl delete networkpolicies default-deny", "^kubectl delete networkpolicies allow-dns-and-same-namespace", "^kubectl delete networkpolicies --all"], out: "networkpolicy.networking.k8s.io deleted\n(DNS works, and so does everything else: the tenant's isolation is gone with it. Put the DNS rule back instead)" },
       { match: ["^kubectl patch networkpolicies \\S+ -n team-a .*\"egress\":\\[\\]", "^kubectl patch networkpolicies \\S+ -n team-a .*\"policytypes\":\\[\"ingress\"\\]"], out: "networkpolicy.networking.k8s.io patched\n(that opens all egress from the namespace; the ticket wanted DNS back, not the perimeter down)" },
-      { match: ["^kubectl (delete pods|rollout restart)"], out: "pod deleted\n(the new pod is selected by the same policies and resolves nothing either)" },
+      { match: RESTART, out: "pod deleted\n(the new pod is selected by the same policies and resolves nothing either)" },
       { match: ["^kubectl patch (deployments|pods) \\S+ -n team-a .*(dnspolicy|dnsconfig|nameservers)"], out: "deployment.apps/broken patched\n(a different nameserver is still port 53 across the policy that does not allow it)" }
     ]
   });
@@ -316,7 +320,7 @@ window.CNPE_GAME_DATA = (function (): CnpeGameData {
       { match: ["^kubectl create configmaps (?!missing-config)\\S+ -n team-a"], out: "configmap created\n(the volume asks for missing-config by name; a ConfigMap by any other name is not mounted)" },
       { match: ["^kubectl create configmaps missing-config( -n default)?$", "^kubectl create configmaps missing-config --from-literal=\\S+$"], out: "configmap/missing-config created\n(in the default namespace; the pod is in team-a and volumes do not cross namespaces)" },
       { match: ["^kubectl patch deployments broken -n team-a --type=json -p=\\[\\{\"op\":\"remove\",\"path\":\"/spec/template/spec/volumes\"\\}\\]$"], out: "The Deployment \"broken\" is invalid: spec.template.spec.containers[0].volumeMounts[0].name: Not found: \"cfg\"\n(the mount still names the volume; remove both, or create the ConfigMap)" },
-      { match: ["^kubectl (delete pods|rollout restart)"], out: "pod deleted\n(the replacement waits on the same missing ConfigMap)" }
+      { match: RESTART, out: "pod deleted\n(the replacement waits on the same missing ConfigMap)" }
     ]
   });
 
@@ -521,7 +525,7 @@ window.CNPE_GAME_DATA = (function (): CnpeGameData {
     fix: ["^kubectl create rolebindings \\S+ -n drill-ci --clusterrole=tekton-triggers-eventlistener-roles --serviceaccount=drill-ci:drill-trigger-sa"],
     fixOut: "rolebinding.rbac.authorization.k8s.io/drill-trigger-el created\n\n$ kubectl -n drill-ci delete pod -l eventlistener=drill-listener\npod \"el-drill-listener-6c7d8e9f1-z4k8w\" deleted\n\n$ kubectl -n drill-ci get eventlistener drill-listener\nNAME             ADDRESS                                                 AVAILABLE   REASON                     READY   REASON\ndrill-listener   http://el-drill-listener.drill-ci.svc.cluster.local:8080   True        MinimumReplicasAvailable   True    MinimumReplicasAvailable",
     wrong: [
-      { match: ["^kubectl (delete pods|rollout restart)"], out: "pod \"el-drill-listener-6c7d8e9f1-z4k8w\" deleted\n(the fresh pod starts its informers under the same unbound account and dies the same way)" },
+      { match: RESTART, out: "pod \"el-drill-listener-6c7d8e9f1-z4k8w\" deleted\n(the fresh pod starts its informers under the same unbound account and dies the same way)" },
       { match: ["^kubectl create clusterrolebindings \\S+ --clusterrole=cluster-admin"], out: "clusterrolebinding.rbac.authorization.k8s.io created\n(the listener comes up, as cluster-admin; a webhook receiver with root on the cluster is the wrong shape of fix. Bind the ClusterRole Tekton ships, in the namespace)" },
       { match: ["^kubectl create rolebindings \\S+ .*--clusterrole=tekton-triggers-eventlistener-clusterroles"], out: "rolebinding.rbac.authorization.k8s.io created\n(that ClusterRole covers the cluster-scoped kinds and is already bound cluster-wide; the namespaced listers still get forbidden)" },
       { match: ["^kubectl create rolebindings \\S+ .*--serviceaccount=drill-ci:default"], out: "rolebinding.rbac.authorization.k8s.io created\n(bound to the default account; the listener runs as drill-trigger-sa)" },
@@ -651,7 +655,7 @@ window.CNPE_GAME_DATA = (function (): CnpeGameData {
     ],
     evidence: [
       { id: "stuck", match: GET_PODS, tell: "0", hint: "The old pod is Running, the new ReplicaSet has zero: something between the controller and the pod says no." },
-      { id: "denied", match: ["^kubectl describe replicasets( \\S+)? -n team-a", "^kubectl describe deployments broken -n team-a", "^kubectl get (deployments|replicasets) broken\\S* -n team-a -o (yaml|json)"].concat(EVENTS), tell: "drill-deny", hint: "An admission denial lands as a FailedCreate event on the ReplicaSet, and it names the policy." },
+      { id: "denied", match: DESCRIBE_RS.concat(EVENTS), tell: "drill-deny", hint: "An admission denial lands as a FailedCreate event on the ReplicaSet, and it names the policy." },
       { id: "policy", match: ["^kubectl get validatingpolicies", "^kubectl describe validatingpolicies", "^kubectl get (clusterpolicies|policies|policyreports)"], tell: "drill-deny", hint: "Kyverno's policies are cluster resources: kubectl get validatingpolicies, then read the one the event named." }
     ],
     fix: ["^kubectl delete validatingpolicies drill-deny", "^kubectl patch deployments broken -n team-a .*\"labels\":\\{[^}]*\"billing-code\":\"[^\"]+\"", "^kubectl patch validatingpolicies drill-deny .*\"validationactions\":\\[\"audit\"\\]"],
@@ -659,7 +663,7 @@ window.CNPE_GAME_DATA = (function (): CnpeGameData {
     wrong: [
       { match: ["^kubectl delete validatingpolicies (require-requests|--all)", "^kubectl delete clusterpolicies"], out: "deleted\n(that was the platform's own policy, and it only audited; drill-deny is still denying)" },
       { match: ["^kubectl label pods \\S+ -n team-a billing-code=", "^kubectl label replicasets"], out: "pod/" + OLD_POD + " labeled\n(the running pod does not need the label; the pods the ReplicaSet tries to create do, and they get it from the Deployment's template)" },
-      { match: ["^kubectl (delete pods|rollout restart)"], out: "(every new pod is denied at admission; the old one is the only thing serving, and now it is gone too)" },
+      { match: RESTART, out: "(every new pod is denied at admission; the old one is the only thing serving, and now it is gone too)" },
       { match: ["^kubectl (delete|scale|rollout restart) deployments \\S+ -n kyverno", "^kubectl delete (pods|deployments) \\S+ -n kyverno"], out: "(taking the admission controller down opens the whole cluster to unchecked pods; the fix is the one policy, not the engine)" },
       { match: ["^kubectl label namespaces team-a tenant-"], out: "namespace/team-a unlabeled\n(the policy no longer matches team-a, and neither does the platform's quota automation or the network policy generator: a fix that breaks three other things)" }
     ]
@@ -685,7 +689,7 @@ window.CNPE_GAME_DATA = (function (): CnpeGameData {
     ],
     evidence: [
       { id: "stuck", match: GET_PODS, tell: "0", hint: "A new ReplicaSet with zero pods and an old one still serving: the replacement is being refused." },
-      { id: "violates", match: ["^kubectl describe replicasets( \\S+)? -n team-a", "^kubectl describe deployments broken -n team-a", "^kubectl get (deployments|replicasets) broken\\S* -n team-a -o (yaml|json)"].concat(EVENTS), tell: "violates PodSecurity", hint: "The ReplicaSet's FailedCreate event is the whole diagnosis: which profile, and each field that violates it." },
+      { id: "violates", match: DESCRIBE_RS.concat(EVENTS), tell: "violates PodSecurity", hint: "The ReplicaSet's FailedCreate event is the whole diagnosis: which profile, and each field that violates it." },
       { id: "label", match: ["^kubectl get namespaces team-a --show-labels", "^kubectl get namespaces team-a -o (yaml|json|jsonpath\\S*)", "^kubectl describe namespaces team-a", "^kubectl get namespaces --show-labels"], tell: "enforce=restricted", hint: "Pod Security is a namespace label. Read team-a's: enforce used to say baseline." }
     ],
     fix: ["^kubectl patch deployments broken -n team-a .*\"runasnonroot\":true.*\"seccompprofile\".*\"allowprivilegeescalation\":false.*\"drop\":\\[\"all\"\\]", "^kubectl patch deployments broken -n team-a .*\"allowprivilegeescalation\":false.*\"drop\":\\[\"all\"\\].*\"runasnonroot\":true.*\"seccompprofile\"", "^kubectl patch deployments broken -n team-a (?=.*\"runasnonroot\":true)(?=.*\"seccompprofile\")(?=.*\"allowprivilegeescalation\":false)(?=.*\"drop\":\\[\"all\"\\])", "^kubectl label namespaces team-a pod-security\\.kubernetes\\.io/enforce=baseline --overwrite"],
@@ -694,7 +698,7 @@ window.CNPE_GAME_DATA = (function (): CnpeGameData {
       { match: ["^kubectl label namespaces team-a pod-security\\.kubernetes\\.io/enforce=privileged", "^kubectl label namespaces team-a pod-security\\.kubernetes\\.io/enforce-"], out: "namespace/team-a labeled\n(the pods come up, with no Pod Security at all in a tenant namespace; the tenancy model was baseline, and the app can meet restricted anyway)" },
       { match: ["^kubectl patch deployments broken -n team-a (?!.*\"runasnonroot\":true)(?=.*(\"allowprivilegeescalation\"|\"drop\"|\"seccompprofile\"))", "^kubectl patch deployments broken -n team-a (?=.*\"runasnonroot\":true)(?!.*\"seccompprofile\")"], out: "deployment.apps/broken patched\n\n$ kubectl -n team-a describe rs broken-9a8b7c6d5 | tail -1\n  Warning  FailedCreate  2s  replicaset-controller  Error creating: pods \"broken-9a8b7c6d5-x\" is forbidden: violates PodSecurity \"restricted:latest\": (fewer violations, still some; restricted wants all four)" },
       { match: ["^kubectl label namespaces team-a pod-security\\.kubernetes\\.io/(audit|warn)="], out: "namespace/team-a labeled\n(audit and warn do not block; enforce does, and it still says restricted)" },
-      { match: ["^kubectl (delete pods|rollout restart)"], out: "(the old pod is the only one serving; a new one is refused at admission)" }
+      { match: RESTART, out: "(the old pod is the only one serving; a new one is refused at admission)" }
     ]
   });
 

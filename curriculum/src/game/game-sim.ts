@@ -384,21 +384,24 @@
     if (r.yaml) lines.push(r.yaml);
     return lines.join("\n");
   }
+  /** the Kind a plural resource name stands for, where it is not just the singular capitalised */
+  var KIND_NAMES: Record<string, string> = {
+    pod: "Pod", deployment: "Deployment", replicaset: "ReplicaSet", service: "Service", namespace: "Namespace", configmap: "ConfigMap",
+    secret: "Secret", persistentvolumeclaim: "PersistentVolumeClaim", storageclass: "StorageClass",
+    horizontalpodautoscaler: "HorizontalPodAutoscaler", resourcequota: "ResourceQuota", networkpolicy: "NetworkPolicy",
+    serviceaccount: "ServiceAccount", rolebinding: "RoleBinding", clusterrolebinding: "ClusterRoleBinding", role: "Role",
+    clusterrole: "ClusterRole", node: "Node", endpointslice: "EndpointSlice", application: "Application",
+    kustomization: "Kustomization", gitrepository: "GitRepository", rollout: "Rollout", analysisrun: "AnalysisRun",
+    analysistemplate: "AnalysisTemplate", pipelinerun: "PipelineRun", pipeline: "Pipeline", task: "Task",
+    eventlistener: "EventListener", triggerbinding: "TriggerBinding", triggertemplate: "TriggerTemplate",
+    appenvironment: "AppEnvironment", object: "Object", validatingpolicy: "ValidatingPolicy",
+    imagevalidatingpolicy: "ImageValidatingPolicy", servicemonitor: "ServiceMonitor", prometheusrule: "PrometheusRule",
+    externalsecret: "ExternalSecret", secretstore: "SecretStore", clustersecretstore: "ClusterSecretStore",
+    opentelemetrycollector: "OpenTelemetryCollector"
+  };
   function kindName(kind: string): string {
     var s = singular(kind);
-    var map: Record<string, string> = { pod: "Pod", deployment: "Deployment", replicaset: "ReplicaSet", service: "Service", namespace: "Namespace",
-      configmap: "ConfigMap", secret: "Secret", persistentvolumeclaim: "PersistentVolumeClaim", storageclass: "StorageClass",
-      horizontalpodautoscaler: "HorizontalPodAutoscaler", resourcequota: "ResourceQuota", networkpolicy: "NetworkPolicy",
-      serviceaccount: "ServiceAccount", rolebinding: "RoleBinding", clusterrolebinding: "ClusterRoleBinding", role: "Role",
-      clusterrole: "ClusterRole", node: "Node", endpointslice: "EndpointSlice", application: "Application",
-      kustomization: "Kustomization", gitrepository: "GitRepository", rollout: "Rollout", analysisrun: "AnalysisRun",
-      analysistemplate: "AnalysisTemplate", pipelinerun: "PipelineRun", pipeline: "Pipeline", task: "Task",
-      eventlistener: "EventListener", triggerbinding: "TriggerBinding", triggertemplate: "TriggerTemplate",
-      appenvironment: "AppEnvironment", object: "Object", validatingpolicy: "ValidatingPolicy",
-      imagevalidatingpolicy: "ImageValidatingPolicy", servicemonitor: "ServiceMonitor", prometheusrule: "PrometheusRule",
-      externalsecret: "ExternalSecret", secretstore: "SecretStore", clustersecretstore: "ClusterSecretStore",
-      opentelemetrycollector: "OpenTelemetryCollector" };
-    return map[s] || (s.charAt(0).toUpperCase() + s.slice(1));
+    return KIND_NAMES[s] || (s.charAt(0).toUpperCase() + s.slice(1));
   }
 
   /** the events on one object, as describe prints them */
@@ -490,6 +493,11 @@
     namespaces: "KIND:       Namespace\nVERSION:    v1\n\nDESCRIPTION:\n    Namespace provides a scope for Names. Pod Security admission reads the\n    pod-security.kubernetes.io/enforce label here."
   };
 
+  /** the scenarios' matchers, compiled on first use: a battle runs every one of
+      them past every command, and they are literals that never change */
+  var MATCHERS: Record<string, RegExp> = Object.create(null);
+  function matcher(re: string): RegExp { return MATCHERS[re] || (MATCHERS[re] = new RegExp(re)); }
+
   /**
    * The scenario's answer to one command.
    * @param found evidence ids surfaced so far
@@ -501,7 +509,7 @@
     // The scenario's own matchers come first: evidence, then the fix, then the
     // repairs that look right and are not.
     for (i = 0; i < sc.evidence.length && !hit; i++) {
-      if (sc.evidence[i].match.some(function (re) { return new RegExp(re).test(n); })) hit = sc.evidence[i];
+      if (sc.evidence[i].match.some(function (re) { return matcher(re).test(n); })) hit = sc.evidence[i];
     }
     if (hit) {
       var out = hit.out != null ? hit.out : generic(sc, n);
@@ -509,9 +517,9 @@
       if (!found[hit.id]) r.evidence = hit.id;
       return r;
     }
-    if (sc.fix.some(function (re) { return new RegExp(re).test(n); })) return { out: sc.fixOut, fixed: true };
+    if (sc.fix.some(function (re) { return matcher(re).test(n); })) return { out: sc.fixOut, fixed: true };
     for (i = 0; i < (sc.wrong || []).length; i++) {
-      if (sc.wrong[i].match.some(function (re) { return new RegExp(re).test(n); })) return { out: sc.wrong[i].out, wrong: true };
+      if (sc.wrong[i].match.some(function (re) { return matcher(re).test(n); })) return { out: sc.wrong[i].out, wrong: true };
     }
     return { out: generic(sc, n), generic: true };
   }
