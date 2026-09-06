@@ -175,6 +175,56 @@ module.exports = async function (h) {
     await ctx.close();
   });
 
+  /* 2a. an option is the whole answer, and the quest can take the window to show four of them */
+  await group('a trial option carries its whole answer, and f gives the quest the window', async () => {
+    const { ctx, page } = await fresh();
+    await page.goto(url('game.html'));
+    await page.waitForSelector('.gm-stage canvas');
+    await skipIntro(page);
+    await page.keyboard.press('ArrowUp'); await page.keyboard.press('ArrowUp');
+    await page.waitForSelector('.gm-screen:not([hidden]) .gm-title');
+    await page.click('.gm-menu button:has-text("Trial")');
+    await page.waitForSelector('.gm-opt');
+    // every option is one card's answer, whole: the text on the button is the text of the card, not a cut of it
+    const opts = await page.evaluate(() => {
+      const strip = (/** @type {string} */ h) => { const d = document.createElement('div'); d.innerHTML = h; return d.textContent.replace(/\s+/g, ' ').trim(); };
+      const answers = window.CNPE_DRILL.map(c => strip(c.a));
+      return Array.from(document.querySelectorAll('.gm-opt')).map(b => {
+        const t = b.textContent.replace(/^\s*\d\s*/, '').replace(/\s+/g, ' ').trim();
+        return { len: t.length, whole: answers.indexOf(t) >= 0, cut: /…$/.test(t) };
+      });
+    });
+    assert(opts.length === 4 && opts.every(o => o.whole), 'each of the four options is a card\'s answer in full: ' + JSON.stringify(opts));
+    assert(opts.every(o => !o.cut), 'and none of them is cut short');
+
+    // fullscreen: the class the stylesheet paints it with, the lock on the page under it, and the button that says so
+    const state = () => page.evaluate(() => ({
+      host: document.getElementById('game-app').className,
+      lock: document.documentElement.className,
+      pressed: document.querySelector('.gm-fs').getAttribute('aria-pressed'),
+      label: document.querySelector('.gm-fs').textContent,
+    }));
+    await page.keyboard.press('f');
+    let f = await state();
+    assert(/gm-full/.test(f.host) && /gm-full-lock/.test(f.lock), 'f puts the quest over the window: ' + JSON.stringify(f));
+    assert(f.pressed === 'true' && /exit/.test(f.label), 'and the pad\'s button holds it down: ' + JSON.stringify(f));
+    const box = await page.evaluate(() => { const r = document.getElementById('game-app').getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), iw: innerWidth, ih: innerHeight }; });
+    assert(box.w === box.iw && box.h === box.ih, 'the host is the window: ' + JSON.stringify(box));
+    // esc is the trial's own key nowhere, so it is fullscreen's; the question is still up behind it
+    await page.keyboard.press('Escape');
+    f = await state();
+    assert(!/gm-full/.test(f.host) && !/gm-full-lock/.test(f.lock) && f.pressed === 'false', 'esc gives the page back: ' + JSON.stringify(f));
+    assert(await page.isVisible('.gm-opt'), 'and the trial is where it was');
+    // the button toggles it as well, and unmounting the quest cannot leave the lock behind
+    await page.click('.gm-fs');
+    assert(/gm-full/.test((await state()).host), 'the button takes the window too');
+    await page.evaluate(() => window.CNPE_GAME.unmount());
+    f = await page.evaluate(() => ({ host: document.getElementById('game-app').className, lock: document.documentElement.className }));
+    assert(!/gm-full/.test(f.host) && !/gm-full-lock/.test(f.lock), 'and unmount hands the window back: ' + JSON.stringify(f));
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  });
+
   /* 2b. the rest of the town: its people teach a technique once, the shop spends gold, the inn beds you down */
   await group('the townsfolk teach, the shop sells and the inn rests you', async () => {
     // ninety gold: enough for the Lens, never enough for a Cheat Sheet. The trial

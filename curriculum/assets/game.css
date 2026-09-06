@@ -237,19 +237,61 @@
 
 /* ── touch controls ───────────────────────────────────────── */
 .gm-pad { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; gap: 12px; }
-.gm-dpad { display: grid; grid-template-columns: repeat(3, 40px); grid-template-rows: repeat(3, 40px); gap: 2px; }
+/* two rows, not three: up over the middle, and down between left and right, so the pad is a T and not a cross with a hole in it */
+.gm-dpad { display: grid; grid-template-columns: repeat(3, 40px); grid-template-rows: repeat(2, 40px); gap: 2px; }
 .gm-dpad button, .gm-ab button {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1;
   font-family: var(--mono); font-size: 14px; cursor: pointer; background: var(--surface); color: var(--paper-2);
   border: 1px solid var(--rule-2); padding: 0; touch-action: manipulation; user-select: none; -webkit-user-select: none;
 }
 .gm-dpad button:active, .gm-ab button:active { background: var(--paper); color: var(--ink); }
 .gm-dpad .u { grid-column: 2; grid-row: 1; } .gm-dpad .l { grid-column: 1; grid-row: 2; }
-.gm-dpad .r { grid-column: 3; grid-row: 2; } .gm-dpad .dn { grid-column: 2; grid-row: 3; }
+.gm-dpad .r { grid-column: 3; grid-row: 2; } .gm-dpad .dn { grid-column: 2; grid-row: 2; }
 .gm-ab { display: flex; gap: 8px; }
 .gm-ab button { width: 52px; height: 52px; font-family: var(--disp); font-weight: 700; font-size: 15px; }
-.gm-ab button b { display: block; font-family: var(--mono); font-weight: 400; font-size: 9.5px; color: var(--paper-3); }
+.gm-ab button b { display: block; margin-top: 3px; font-family: var(--mono); font-weight: 400; font-size: 9.5px; color: var(--paper-3); }
+/* the fullscreen toggle: the same key as A and B, narrower, since it is pressed once a session and not once a step */
+.gm-ab .gm-fs { width: 44px; font-size: 14px; }
+.gm-ab .gm-fs[aria-pressed="true"] { border-color: var(--accent); color: var(--paper); }
 .gm-keys { font-family: var(--mono); font-size: 11.5px; color: var(--paper-3); flex: 1; text-align: center; }
 @media (max-width: 560px) { .gm-keys { display: none; } }
+
+/* ── fullscreen: the quest over the whole window ───────────
+   A trial's four answers run to a paragraph each and a battle's terminal keeps a
+   log, so the pad's ⛶ (or f) lifts the quest out of the page: the host covers the
+   window, the stage takes the height the pad leaves, and the screens scroll inside
+   it as they always have. The browser's own fullscreen is asked for as well where
+   it has one for an element; this is what the page looks like either way. */
+.gm-full {
+  position: fixed; inset: 0; z-index: 90; margin: 0; padding: 8px;
+  background: var(--ink-sunk); display: flex; flex-direction: column; justify-content: center;
+}
+html.gm-full-lock, html.gm-full-lock body { overflow: hidden; }
+.gm-full .gm-stage { flex: 1 1 auto; min-height: 0; aspect-ratio: auto; box-shadow: none; }
+/* the map keeps its 30 by 19 so no art pixel is stretched: it is capped to the height the pad leaves (its two
+   rows of 40, the gap over them and this box's own padding) and centred in what is left */
+.gm-full .gm-stage.gm-map {
+  flex: 0 0 auto; aspect-ratio: 30 / 19; margin: 0 auto;
+  max-width: calc((100vh - 112px) * 30 / 19);
+  max-width: calc((100dvh - 112px) * 30 / 19);
+}
+/* a screen scrolls in place, as on a wide page: on a narrow one the stage is no longer the tall box the phone rules make it */
+.gm-full .gm-screen { position: absolute; inset: 0; min-height: 0; }
+/* and a line of a trial's answer stays a line, not the width of a monitor */
+.gm-full .gm-body { width: 100%; max-width: 1200px; margin: 0 auto; }
+.gm-full .gm-pad { flex: none; margin-top: 8px; }
+/* a phone held on its side has no height to spare, so fullscreen there gives the pad's back to the screen */
+@media (max-height: 560px) {
+  .gm-full { padding: 4px; }
+  .gm-full .gm-pad { margin-top: 4px; }
+  .gm-full .gm-dpad { grid-template-columns: repeat(3, 32px); grid-template-rows: repeat(2, 32px); }
+  .gm-full .gm-ab button { width: 44px; height: 44px; }
+  .gm-full .gm-ab .gm-fs { width: 38px; }
+  .gm-full .gm-stage.gm-map {
+    max-width: calc((100vh - 84px) * 30 / 19);
+    max-width: calc((100dvh - 84px) * 30 / 19);
+  }
+}
 
 /* ── responsive ───────────────────────────────────────────── */
 @media (max-width: 720px) {
@@ -257,6 +299,9 @@
   .gm-stage { aspect-ratio: auto; min-height: 420px; }
   .gm-stage.gm-map { aspect-ratio: 30 / 19; min-height: 0; }
   .gm-screen { position: relative; inset: auto; min-height: 420px; }
+  /* off the map the screen is in the flow, so the canvas under it must give its box back too: hidden, it would
+     hold a phone's first half-screen of a trial empty (on a wide page the screen covers it, and it can stay) */
+  .gm-stage:not(.gm-map) > canvas { display: none; }
   .gm-enemy canvas { width: 64px; height: 64px; }
   .gm-term pre { max-height: 200px; }
 }

@@ -206,6 +206,10 @@
     /** the effect the next battle paint plays (hit, stagger, win), and the number that floats up with it */
     var fx = null;
     var walked = false; // a step was taken: only then is the position worth a save
+    var fullOn = false; // the quest holds the window (see setFull)
+    var wentNative = false; // ...and the browser's own fullscreen with it, so leaving it leaves ours
+    var scrollBack = 0; // where the page stood when it did, to be put back on the way out
+    var fullBtn = null; // the pad's ⛶, while a mount holds one
     /** listeners, observers and timers the mount holds, undone in order by unmount() */
     var undo = [];
     var timers = []; // one-shot timers (a floating number's fallback, a result card's delay), with what they run so settle() can fire them
@@ -1422,7 +1426,10 @@
     function wrapNote(w, msg, cls) { w.insertBefore(note(msg, cls), w.firstChild); return w; }
     /* ── the trial: the section's self-check cards, multiple choice ── */
     function deckFor(sec) { return (window.CNPE_DRILL || []).filter(function (q) { return q.sec === sec; }); }
-    /** a card's answer as an option reads it: the markup stripped, cut to a line or two.
+    /** a card's answer as an option reads it: the markup stripped, whole.
+        An answer cut short is an answer you cannot tell from its neighbour, so the
+        option carries all of it and the screen scrolls; fullscreen (the pad's ⛶, or
+        f) gives the trial the window when four long answers want the room.
         Stripping it parses the markup, and a question draws its wrong answers from the
         whole domain, so the answers are kept by card id: the cards never change, and a
         trial asks for the same thirty of them once a question. */
@@ -1431,8 +1438,7 @@
         var hit = answerCache[q.id];
         if (hit != null)
             return hit;
-        var t = text(q.a);
-        return (answerCache[q.id] = t.length > 170 ? t.slice(0, 168).replace(/\s+\S*$/, "") + "…" : t);
+        return (answerCache[q.id] = text(q.a));
     }
     function startTrial() {
         var cards = shuffle(deckFor(town.sec).slice());
@@ -1475,7 +1481,7 @@
             acts.appendChild(el("span", "gm-note", "enter"));
         }
         else {
-            acts.appendChild(el("span", "gm-note", "pick 1 to 4, or click"));
+            acts.appendChild(el("span", "gm-note", "pick 1 to 4, or click · f for fullscreen"));
         }
         acts.appendChild(btn("Give up", function () { town && enterTown(town); }, "ghost"));
         col.appendChild(acts);
@@ -2098,6 +2104,73 @@
         focusFirst(acts);
         live.textContent = won ? "Victory. " + b.gained + " xp gained." : "Defeat.";
     }
+    /* ── fullscreen: the quest over the whole window ────────── */
+    /* A trial's four answers are four whole paragraphs, and a battle's terminal
+       wants the same room, so the pad's ⛶ (or f) hands the quest the window.
+       Where the browser gives an element the screen it is asked for; where it does
+       not (iOS Safari), the class alone still covers the page, and both leave the
+       same way: the button, f, or esc where the scene has no use for it. */
+    function nativeFull() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+    /** paint the mode: the class on the host (and the lock on the page under it), the button's label, and the canvas refitted to its new box */
+    function setFull(on) {
+        if (!host || fullOn === on)
+            return;
+        // the page is shut behind the quest while it holds the window, and a shut page keeps no scroll: where it stood is put back on the way out
+        if (on)
+            scrollBack = window.pageYOffset || 0;
+        fullOn = on;
+        host.classList.toggle("gm-full", on);
+        document.documentElement.classList.toggle("gm-full-lock", on);
+        if (fullBtn) {
+            fullBtn.innerHTML = "⛶<b>" + (on ? "exit" : "full") + "</b>";
+            fullBtn.setAttribute("aria-pressed", on ? "true" : "false");
+            fullBtn.setAttribute("aria-label", on ? "leave fullscreen" : "play fullscreen");
+        }
+        fitCanvas();
+        fitMini();
+        requestDraw();
+        if (!on)
+            window.scrollTo(0, scrollBack);
+        live.textContent = on ? "Fullscreen. Esc leaves it." : "Left fullscreen.";
+    }
+    function toggleFull(want) {
+        var on = want == null ? !fullOn : want;
+        if (on === fullOn)
+            return;
+        if (on) {
+            var req = host.requestFullscreen || host.webkitRequestFullscreen;
+            // a browser may refuse it (a gesture it did not count, a permissions policy): the class covers the page either way
+            if (req && !nativeFull()) {
+                try {
+                    var p = req.call(host);
+                    wentNative = true;
+                    if (p && p.catch)
+                        p.catch(function () { wentNative = false; });
+                }
+                catch (err) {
+                    wentNative = false;
+                }
+            }
+            setFull(true);
+        }
+        else {
+            if (wentNative && nativeFull()) {
+                var exit = document.exitFullscreen || document.webkitExitFullscreen;
+                if (exit) {
+                    try {
+                        var q = exit.call(document);
+                        if (q && q.catch)
+                            q.catch(function () { });
+                    }
+                    catch (err2) { /* left already */ }
+                }
+            }
+            wentNative = false;
+            setFull(false);
+        }
+        if (scene === "map")
+            stage.focus({ preventScroll: true }); // the keys are the stage's again; the page stays where setFull() put it
+    }
     /* ── input ──────────────────────────────────────────────── */
     function keys() {
         // Capture phase, like the drill: inside the game the keys are the game's,
@@ -2133,9 +2206,17 @@
                     leaveToMap();
                 else
                     handled = false;
+                // a scene with no use for esc gives it to fullscreen, the way esc leaves the browser's own
+                if (!handled && fullOn) {
+                    toggleFull(false);
+                    handled = true;
+                }
             }
             else if (typing) {
                 handled = false; // the terminal's own keys
+            }
+            else if (e.key === "f" || e.key === "F") {
+                toggleFull(); // in any scene, and the terminal's own f is caught above
             }
             else if (scene === "map") {
                 switch (e.key) {
@@ -2274,13 +2355,18 @@
             b.setAttribute("aria-label", "walk " + (dy < 0 ? "up" : dy > 0 ? "down" : dx < 0 ? "left" : "right"));
             dpad.appendChild(b);
         };
+        // in the order they sit: up over the middle, then left, down, right (the stylesheet places them; this is the tab order)
         padBtn("u", "▲", 0, -1);
         padBtn("l", "◀", -1, 0);
-        padBtn("r", "▶", 1, 0);
         padBtn("dn", "▼", 0, 1);
+        padBtn("r", "▶", 1, 0);
         pad.appendChild(dpad);
-        pad.appendChild(el("div", "gm-keys", "arrows / WASD walk · enter acts · esc leaves · 1-4 answer a trial"));
+        pad.appendChild(el("div", "gm-keys", "arrows / WASD walk · enter acts · esc leaves · 1-4 answer a trial · f fullscreen"));
         var ab = el("div", "gm-ab");
+        fullBtn = btn("⛶<b>full</b>", function () { toggleFull(); }, "gm-fs");
+        fullBtn.setAttribute("aria-pressed", "false");
+        fullBtn.setAttribute("aria-label", "play fullscreen");
+        ab.appendChild(fullBtn);
         ab.appendChild(btn("B<b>back</b>", function () { if (scene === "map") {
             if (dlg)
                 closeDialog();
@@ -2345,6 +2431,13 @@
         // fonts arrive after first paint, and the town labels are text
         if (document.fonts && document.fonts.ready)
             document.fonts.ready.then(function () { requestDraw(); });
+        // the browser's own way out of fullscreen (esc, F11, the system gesture) leaves ours with it
+        var onFullChange = function () { if (host && fullOn && wentNative && !nativeFull()) {
+            wentNative = false;
+            setFull(false);
+        } };
+        listen(document, "fullscreenchange", onFullChange);
+        listen(document, "webkitfullscreenchange", onFullChange);
         // the screen: a resize or a zoom changes how many device pixels an art pixel gets
         listen(window, "resize", fitCanvas);
         listen(document, "visibilitychange", syncAnim);
@@ -2384,7 +2477,7 @@
         say("A note pinned to the signpost", [
             "Five regions, one per exam domain, and a town for every section. All roads are open; the dungeons are not.",
             "In a town, talk to people: they teach the theory and hand you commands. Pass the town's trial and its dungeon opens. Inside is a fault, and you fight it with real commands.",
-            "You start with <code>kubectl get</code>, <code>describe</code>, <code>events</code> and <code>logs</code>, and two hint scrolls. The rest you learn in the towns. Walk with the arrows or WASD; enter acts."
+            "You start with <code>kubectl get</code>, <code>describe</code>, <code>events</code> and <code>logs</code>, and two hint scrolls. The rest you learn in the towns. Walk with the arrows or WASD; enter acts, and <code>f</code> gives the quest the whole window."
         ]);
         // The starter kit is written when the note is put down, which is the first
         // action: opening the page writes nothing, as reading the console never has.
@@ -2420,6 +2513,12 @@
             tn = null;
             fx = null;
             swapPending = null;
+            // the window is the page's again on every mount: a route that took the quest down mid-fullscreen leaves nothing behind
+            fullOn = false;
+            wentNative = false;
+            fullBtn = null;
+            host.classList.remove("gm-full");
+            document.documentElement.classList.remove("gm-full-lock");
             settleStep();
             ease = null;
             focused = false;
@@ -2446,6 +2545,11 @@
             if (!host)
                 return;
             savePos(true); // a step taken is worth writing before the page goes
+            // the window goes back first, while the host is still there to take the class off: the frame it asks for is cancelled below
+            if (fullOn)
+                toggleFull(false);
+            document.documentElement.classList.remove("gm-full-lock");
+            fullBtn = null;
             if (rafId) {
                 cancelAnimationFrame(rafId);
                 rafId = 0;
