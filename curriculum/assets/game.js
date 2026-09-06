@@ -1348,6 +1348,9 @@
     }
     function focusFirst(within) { var b = within.querySelector("button, a, input"); if (b)
         b.focus(); }
+    /** the save key that marks a lore-only npc as heard: derived from the name, so it survives a reorder.
+        Clamped to what merge.js will carry over the wire; game-sim-test.mjs holds the names to one each. */
+    function metKey(n) { return "met-" + n.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 48).replace(/^-|-$/g, ""); }
     /** a technique's short name: the command up to its first placeholder or flag */
     function techName(id) {
         var words = D.techniques[id].cmd.split(" "), out = [];
@@ -1365,7 +1368,9 @@
         town.npcs.forEach(function (n) {
             var li = el("li");
             var learnedIt = n.teaches && has("learned", n.teaches);
-            var b = btn(esc(n.name) + (n.teaches ? '<span class="k">' + (learnedIt ? "taught ✓" : "teaches " + esc(techName(n.teaches))) + "</span>" : ""), function () { talkTo(n); }, n.teaches && !learnedIt ? "new" : "");
+            // npcs with nothing to teach still earn a mark, so a heard one never reads like an unopened row
+            var mark = n.teaches ? (learnedIt ? "taught ✓" : "teaches " + esc(techName(n.teaches))) : (has("flags", metKey(n)) ? "heard ✓" : "lore");
+            var b = btn(esc(n.name) + '<span class="k">' + mark + "</span>", function () { talkTo(n); }, n.teaches && !learnedIt ? "new" : "");
             li.appendChild(b);
             menu.appendChild(li);
         });
@@ -1386,6 +1391,11 @@
             }
             lines.appendChild(el("div", "teach", (fresh ? "Learned: " : "You know this one: ") + esc(tq.cmd) + "<br>" + esc(tq.about)));
             live.textContent = n.name + (fresh ? " taught you " : " reminded you of ") + tq.cmd;
+        }
+        else {
+            if (tick("flags", metKey(n)))
+                save();
+            live.textContent = n.name + " told you what they know";
         }
         wrap.appendChild(lines);
         var acts = el("div", "gm-acts");

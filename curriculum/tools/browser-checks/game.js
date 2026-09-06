@@ -351,6 +351,21 @@ module.exports = async function (h) {
     assert(/^You know this one: kubectl get endpointslices/.test(taught) && dayCount(s.game, 'xp') === 5,
       'a second visit only reminds you, for no xp: ' + taught.slice(0, 40) + ', ' + dayCount(s.game, 'xp') + ' xp');
 
+    // the fourth has no technique to give: she reads 'lore' until you hear her out, then carries a mark of her own
+    await page.click('.gm-acts button:has-text("Others")');
+    const lore = () => page.locator('.gm-body > .gm-col').nth(1).locator('.gm-menu button').nth(3);
+    assert(/Gatewright Tamsin\s*lore$/.test((await lore().textContent()).trim()),
+      'the lore-only townsfolk say so up front: ' + (await lore().textContent()));
+    await lore().click();
+    await page.waitForSelector('.gm-lines b:text-is("Gatewright Tamsin")');
+    await page.click('.gm-acts button:has-text("Others")');
+    assert(/Gatewright Tamsin\s*heard ✓$/.test((await lore().textContent()).trim()),
+      'and once heard she is marked like the rest: ' + (await lore().textContent()));
+    s = await store(page);
+    assert(s.game.flags && s.game.flags['met-gatewright-tamsin'] === 1, 'the visit is saved: ' + JSON.stringify(s.game.flags));
+    assert(dayCount(s.game, 'xp') === 5, 'lore pays no xp: ' + dayCount(s.game, 'xp'));
+    assert(/4 people · 2 new/.test(await line('Talk')), 'and it never counted as one of the town\'s new things: ' + await line('Talk'));
+
     // the shop: what you can afford is buyable, what you cannot is not
     await menu.locator('button:has-text("Shop")').click();
     await page.waitForSelector('.gm-scene[data-scene="shop"]');
