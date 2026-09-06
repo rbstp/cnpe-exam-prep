@@ -178,6 +178,13 @@ module.exports = async function (h) {
   /* 2a. an option is the whole answer, and the quest can take the window to show four of them */
   await group('a trial option carries its whole answer, and f gives the quest the window', async () => {
     const { ctx, page } = await fresh();
+    // the request counted and refused the screen: see the fullscreen half below
+    await page.addInitScript(() => {
+      const w = /** @type {*} */ (window);
+      w.fsAsked = 0;
+      Element.prototype.requestFullscreen = function () { w.fsAsked++; return Promise.resolve(); };
+      delete (/** @type {*} */ (Element.prototype)).webkitRequestFullscreen;
+    });
     await page.goto(url('game.html'));
     await page.waitForSelector('.gm-stage canvas');
     await skipIntro(page);
@@ -197,27 +204,38 @@ module.exports = async function (h) {
     assert(opts.length === 4 && opts.every(o => o.whole), 'each of the four options is a card\'s answer in full: ' + JSON.stringify(opts));
     assert(opts.every(o => !o.cut), 'and none of them is cut short');
 
-    // fullscreen: the class the stylesheet paints it with, the lock on the page under it, and the button that says so
-    const state = () => page.evaluate(() => ({
+    // Fullscreen. The browser's own element fullscreen is a spy here, counted and
+    // never entered: what is under test is the page the quest paints either way,
+    // and a real fullscreen transition moves every box on the page for a frame or
+    // two, which is a click that waits for a stable element and a read that races
+    // the resize. The iPhone runs this path for real, having no element fullscreen.
+    const fs = () => page.evaluate(() => ({
       host: document.getElementById('game-app').className,
       lock: document.documentElement.className,
       pressed: document.querySelector('.gm-fs').getAttribute('aria-pressed'),
       label: document.querySelector('.gm-fs').textContent,
+      asked: /** @type {*} */ (window).fsAsked,
+      box: (r => ({ w: Math.round(r.width), h: Math.round(r.height), iw: innerWidth, ih: innerHeight }))(document.getElementById('game-app').getBoundingClientRect()),
     }));
+    /** @param {boolean} on */
+    const untilFull = on => page.waitForFunction(want => document.getElementById('game-app').classList.contains('gm-full') === want, on, { timeout: 5000 });
     await page.keyboard.press('f');
-    let f = await state();
+    await untilFull(true);
+    let f = await fs();
     assert(/gm-full/.test(f.host) && /gm-full-lock/.test(f.lock), 'f puts the quest over the window: ' + JSON.stringify(f));
     assert(f.pressed === 'true' && /exit/.test(f.label), 'and the pad\'s button holds it down: ' + JSON.stringify(f));
-    const box = await page.evaluate(() => { const r = document.getElementById('game-app').getBoundingClientRect(); return { w: Math.round(r.width), h: Math.round(r.height), iw: innerWidth, ih: innerHeight }; });
-    assert(box.w === box.iw && box.h === box.ih, 'the host is the window: ' + JSON.stringify(box));
+    assert(f.asked === 1, 'and the browser\'s own fullscreen was asked for once: ' + f.asked);
+    assert(f.box.w === f.box.iw && f.box.h === f.box.ih, 'the host is the window: ' + JSON.stringify(f.box));
     // esc is the trial's own key nowhere, so it is fullscreen's; the question is still up behind it
     await page.keyboard.press('Escape');
-    f = await state();
+    await untilFull(false);
+    f = await fs();
     assert(!/gm-full/.test(f.host) && !/gm-full-lock/.test(f.lock) && f.pressed === 'false', 'esc gives the page back: ' + JSON.stringify(f));
     assert(await page.isVisible('.gm-opt'), 'and the trial is where it was');
     // the button toggles it as well, and unmounting the quest cannot leave the lock behind
     await page.click('.gm-fs');
-    assert(/gm-full/.test((await state()).host), 'the button takes the window too');
+    await untilFull(true);
+    assert(/gm-full/.test((await fs()).host), 'the button takes the window too');
     await page.evaluate(() => window.CNPE_GAME.unmount());
     const gone = await page.evaluate(() => ({ host: document.getElementById('game-app').className, lock: document.documentElement.className }));
     assert(!/gm-full/.test(gone.host) && !/gm-full-lock/.test(gone.lock), 'and unmount hands the window back: ' + JSON.stringify(gone));
