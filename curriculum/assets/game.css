@@ -102,7 +102,7 @@
 .gm-note.ok { color: var(--ok); } .gm-note.bad { color: var(--bad); } .gm-note.warn { color: var(--warn); }
 .gm-lines { font-size: 14.5px; line-height: 1.55; color: var(--paper); }
 .gm-lines p { margin: 0 0 8px; } .gm-lines p:last-child { margin: 0; }
-.gm-lines code, .gm-q code, .gm-a code, .gm-opt code, .gm-ticket code { font-family: var(--mono); font-size: .88em; color: var(--accent-lit); background: none; padding: 0; border: none; }
+.gm-lines code, .gm-q code, .gm-opt code, .gm-ticket code { font-family: var(--mono); font-size: .88em; color: var(--accent-lit); background: none; padding: 0; border: none; }
 .gm-lines .teach { font-family: var(--mono); font-size: 12px; color: var(--ok); border-top: 1px solid var(--rule); padding-top: 8px; margin-top: 8px; }
 
 /* ── the trial ────────────────────────────────────────────── */
@@ -117,8 +117,6 @@
 .gm-opt.right { border-color: var(--ok); background: var(--ok-fill); color: var(--paper); }
 .gm-opt.wrong { border-color: var(--bad); background: var(--bad-fill); }
 .gm-opt:disabled { cursor: default; }
-.gm-a { font-family: var(--serif); font-size: 14px; color: var(--paper-2); border-left: 2px solid var(--rule-2); padding-left: 12px; margin: 8px 0 0; }
-.gm-a p { margin: 0 0 6px; } .gm-a p:last-child { margin: 0; }
 .gm-prog { display: flex; gap: 2px; height: 4px; }
 .gm-prog i { flex: 1; background: var(--surface-3); display: block; }
 .gm-prog i.hit { background: var(--ok); } .gm-prog i.miss { background: var(--bad); } .gm-prog i.now { background: var(--paper-3); }
@@ -265,8 +263,18 @@
 .gm-full {
   position: fixed; inset: 0; z-index: 90; margin: 0; padding: 8px;
   background: var(--ink-sunk); display: flex; flex-direction: column; justify-content: center;
+  /* iOS resolves inset against the layout viewport, which is taller than the window the browser's bars leave */
+  height: 100dvh;
+  /* the pad is the only control a touch device has: if it ever outgrows the room left (a browser's minimum font
+     size, text-only zoom), the box scrolls to it rather than centring it off the bottom of a page that cannot scroll */
+  overflow: auto;
+  justify-content: safe center;
 }
 html.gm-full-lock, html.gm-full-lock body { overflow: hidden; }
+/* .wrap is a stacking context of the page's own (style.css: body > * { z-index: 1 }), so no z-index of the quest's can
+   reach over the topbar from inside it. Nothing of the page shows over the quest while it holds the window: the topbar
+   goes, and the palette and the help card (.overlay) stay above it deliberately, so both still open over the quest. */
+html.gm-full-lock .topbar { display: none; }
 .gm-full .gm-stage { flex: 1 1 auto; min-height: 0; aspect-ratio: auto; box-shadow: none; }
 /* the map keeps its 30 by 19 so no art pixel is stretched: it is capped to the height the pad leaves (its two
    rows of 40, the gap over them and this box's own padding) and centred in what is left */
@@ -280,6 +288,11 @@ html.gm-full-lock, html.gm-full-lock body { overflow: hidden; }
 /* and a line of a trial's answer stays a line, not the width of a monitor */
 .gm-full .gm-body { width: 100%; max-width: 1200px; margin: 0 auto; }
 .gm-full .gm-pad { flex: none; margin-top: 8px; }
+/* The trial hangs its body straight on the screen, so .gm-body's flex: 1 fills it. A battle and a town wrap theirs in a
+   box of their own, which is content-tall: without this the screen grows and the fight stays the size it was, the log
+   clipped at its 260px with half a window empty under it. Give the wrapper the height, and the log the room. */
+.gm-full .gm-battle, .gm-full .gm-town { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.gm-full .gm-term pre { max-height: none; }
 /* a phone held on its side has no height to spare, so fullscreen there gives the pad's back to the screen */
 @media (max-height: 560px) {
   .gm-full { padding: 4px; }

@@ -1183,7 +1183,8 @@
     col.appendChild(opts);
     var acts = el("div", "gm-acts");
     if (tr.revealed) {
-      col.appendChild(el("div", "gm-a", q.a));
+      // no answer block under the options: the option marked right now carries the whole answer, and printing it
+      // again under four paragraphs is the same paragraph twice (it was the rest of a cut line before)
       acts.appendChild(btn(tr.i + 1 < tr.cards.length ? "Next ▶" : "Finish", function () { nextTrial(); }));
       acts.appendChild(el("span", "gm-note", "enter"));
     } else {
@@ -1641,6 +1642,11 @@
      not (iOS Safari), the class alone still covers the page, and both leave the
      same way: the button, f, or esc where the scene has no use for it. */
   function nativeFull() { return !!(document.fullscreenElement || (document as unknown as { webkitFullscreenElement?: Element }).webkitFullscreenElement); }
+  function exitNative() {
+    var exit = document.exitFullscreen || (document as unknown as { webkitExitFullscreen?: () => Promise<void> }).webkitExitFullscreen;
+    if (!exit) return;
+    try { var q = exit.call(document); if (q && q.catch) q.catch(function () { }); } catch (err) { /* left already */ }
+  }
   /** paint the mode: the class on the host (and the lock on the page under it), the button's label, and the canvas refitted to its new box */
   function setFull(on: boolean) {
     if (!host || fullOn === on) return;
@@ -1663,14 +1669,20 @@
     if (on === fullOn) return;
     if (on) {
       var req = host.requestFullscreen || (host as unknown as { webkitRequestFullscreen?: () => Promise<void> }).webkitRequestFullscreen;
-      // a browser may refuse it (a gesture it did not count, a permissions policy): the class covers the page either way
-      if (req && !nativeFull()) { try { var p = req.call(host); wentNative = true; if (p && p.catch) p.catch(function () { wentNative = false; }); } catch (err) { wentNative = false; } }
+      // A browser may refuse it (a gesture it did not count, a permissions policy): the class covers the page either way.
+      // The request is granted a frame or more later, and a second press can land inside that window: the screen would then
+      // be taken after we had already left, with no one holding it. So the promise reconciles with where the quest stands
+      // by the time it settles, and leaving asks the document, never a flag: the flag can only be stale, the document cannot.
+      if (req && !nativeFull()) {
+        try {
+          var p = req.call(host);
+          wentNative = true;
+          if (p && p.then) p.then(function () { if (!fullOn) { wentNative = false; exitNative(); } }, function () { wentNative = false; });
+        } catch (err) { wentNative = false; }
+      }
       setFull(true);
     } else {
-      if (wentNative && nativeFull()) {
-        var exit = document.exitFullscreen || (document as unknown as { webkitExitFullscreen?: () => Promise<void> }).webkitExitFullscreen;
-        if (exit) { try { var q = exit.call(document); if (q && q.catch) q.catch(function () { }); } catch (err2) { /* left already */ } }
-      }
+      if (nativeFull()) exitNative();
       wentNative = false;
       setFull(false);
     }
@@ -1817,7 +1829,11 @@
     // fonts arrive after first paint, and the town labels are text
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { requestDraw(); });
     // the browser's own way out of fullscreen (esc, F11, the system gesture) leaves ours with it
-    var onFullChange = function () { if (host && fullOn && wentNative && !nativeFull()) { wentNative = false; setFull(false); } };
+    var onFullChange = function () {
+      if (!host) return;
+      wentNative = nativeFull();                      // whatever moved it, this is where the browser now stands
+      if (fullOn && !wentNative) setFull(false);      // it was the way out (esc, F11, the system gesture): the quest follows the page back
+    };
     listen(document, "fullscreenchange", onFullChange);
     listen(document, "webkitfullscreenchange" as "fullscreenchange", onFullChange);
     // the screen: a resize or a zoom changes how many device pixels an art pixel gets
