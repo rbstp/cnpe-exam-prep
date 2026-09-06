@@ -175,6 +175,143 @@ module.exports = async function (h) {
     await ctx.close();
   });
 
+  /* 2a. an option is the whole answer, and the quest can take the window to show four of them */
+  await group('a trial option carries its whole answer, and f gives the quest the window', async () => {
+    const { ctx, page } = await fresh();
+    // the request counted and refused the screen: see the fullscreen half below
+    await page.addInitScript(() => {
+      const w = /** @type {*} */ (window);
+      w.fsAsked = 0;
+      Element.prototype.requestFullscreen = function () { w.fsAsked++; return Promise.resolve(); };
+      delete (/** @type {*} */ (Element.prototype)).webkitRequestFullscreen;
+    });
+    await page.goto(url('game.html'));
+    await page.waitForSelector('.gm-stage canvas');
+    await skipIntro(page);
+    await page.keyboard.press('ArrowUp'); await page.keyboard.press('ArrowUp');
+    await page.waitForSelector('.gm-screen:not([hidden]) .gm-title');
+    await page.click('.gm-menu button:has-text("Trial")');
+    await page.waitForSelector('.gm-opt');
+    // every option is one card's answer, whole: the text on the button is the text of the card, not a cut of it
+    const opts = await page.evaluate(() => {
+      const strip = (/** @type {string} */ h) => { const d = document.createElement('div'); d.innerHTML = h; return d.textContent.replace(/\s+/g, ' ').trim(); };
+      const answers = window.CNPE_DRILL.map(c => strip(c.a));
+      return Array.from(document.querySelectorAll('.gm-opt')).map(b => {
+        const t = b.textContent.replace(/^\s*\d\s*/, '').replace(/\s+/g, ' ').trim();
+        return { len: t.length, whole: answers.indexOf(t) >= 0, cut: /…$/.test(t) };
+      });
+    });
+    assert(opts.length === 4 && opts.every(o => o.whole), 'each of the four options is a card\'s answer in full: ' + JSON.stringify(opts));
+    assert(opts.every(o => !o.cut), 'and none of them is cut short');
+
+    // Fullscreen. The browser's own element fullscreen is a spy here, counted and
+    // never entered: what is under test is the page the quest paints either way,
+    // and a real fullscreen transition moves every box on the page for a frame or
+    // two, which is a click that waits for a stable element and a read that races
+    // the resize. The iPhone runs this path for real, having no element fullscreen.
+    const fs = () => page.evaluate(() => ({
+      host: document.getElementById('game-app').className,
+      lock: document.documentElement.className,
+      pressed: document.querySelector('.gm-fs').getAttribute('aria-pressed'),
+      label: document.querySelector('.gm-fs').textContent,
+      asked: /** @type {*} */ (window).fsAsked,
+      box: (r => ({ w: Math.round(r.width), h: Math.round(r.height), iw: innerWidth, ih: innerHeight }))(document.getElementById('game-app').getBoundingClientRect()),
+    }));
+    /** @param {boolean} on */
+    const untilFull = on => page.waitForFunction(want => document.getElementById('game-app').classList.contains('gm-full') === want, on, { timeout: 5000 });
+    await page.keyboard.press('f');
+    await untilFull(true);
+    let f = await fs();
+    assert(/gm-full/.test(f.host) && /gm-full-lock/.test(f.lock), 'f puts the quest over the window: ' + JSON.stringify(f));
+    assert(f.pressed === 'true' && /exit/.test(f.label), 'and the pad\'s button holds it down: ' + JSON.stringify(f));
+    assert(f.asked === 1, 'and the browser\'s own fullscreen was asked for once: ' + f.asked);
+    assert(f.box.w === f.box.iw && f.box.h === f.box.ih, 'the host is the window: ' + JSON.stringify(f.box));
+    // esc is the trial's own key nowhere, so it is fullscreen's; the question is still up behind it
+    await page.keyboard.press('Escape');
+    await untilFull(false);
+    f = await fs();
+    assert(!/gm-full/.test(f.host) && !/gm-full-lock/.test(f.lock) && f.pressed === 'false', 'esc gives the page back: ' + JSON.stringify(f));
+    assert(await page.isVisible('.gm-opt'), 'and the trial is where it was');
+    // the button toggles it as well, and unmounting the quest cannot leave the lock behind
+    await page.click('.gm-fs');
+    await untilFull(true);
+    assert(/gm-full/.test((await fs()).host), 'the button takes the window too');
+    await page.evaluate(() => window.CNPE_GAME.unmount());
+    const gone = await page.evaluate(() => ({ host: document.getElementById('game-app').className, lock: document.documentElement.className }));
+    assert(!/gm-full/.test(gone.host) && !/gm-full-lock/.test(gone.lock), 'and unmount hands the window back: ' + JSON.stringify(gone));
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  });
+
+  /* 2a-native. The browser's own fullscreen, faked so it can be driven: it is granted a tick after it is asked for,
+     as a real one is granted a frame or more after, and the fake is what makes the interesting case reachable — a
+     second press inside that window, which used to take the screen after the quest had already left, with nothing
+     left able to give it back. A real one cannot be driven here: its transition moves every box on the page. */
+  await group("the browser's own fullscreen is entered, left, and never left holding the screen", async () => {
+    const { ctx, page } = await fresh({ game: { flags: { intro: 1 }, pos: { x: 8, y: 8, t: 1 } } });
+    await page.addInitScript(() => {
+      const w = /** @type {*} */ (window);
+      w.fsEl = null;
+      w.grants = 0;                                   // every grant that has actually landed, so a check can wait for one
+      Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => w.fsEl });
+      const change = () => document.dispatchEvent(new Event('fullscreenchange'));
+      Element.prototype.requestFullscreen = function () {
+        const el = this;
+        return new Promise(res => setTimeout(() => { w.fsEl = el; w.grants++; change(); res(undefined); }, 20));
+      };
+      document.exitFullscreen = function () { w.fsEl = null; change(); return Promise.resolve(); };
+      delete (/** @type {*} */ (Element.prototype)).webkitRequestFullscreen;
+    });
+    await page.goto(url('game.html'));
+    await page.waitForSelector('.gm-stage canvas');
+    await skipIntro(page);
+    const held = () => page.evaluate(() => ({
+      screen: document.fullscreenElement ? document.fullscreenElement.id : null,
+      host: document.getElementById('game-app').className,
+      lock: document.documentElement.className,
+    }));
+    /** the request is granted on a timer, so every state below is waited for, never read on the next line
+        @param {string | null} want */
+    const until = want => page.waitForFunction(id => (document.fullscreenElement ? document.fullscreenElement.id : null) === id, want, { timeout: 5000 });
+
+    await page.keyboard.press('f');
+    await until('game-app');
+    let h = await held();
+    assert(h.screen === 'game-app' && /gm-full/.test(h.host), 'f takes the browser\'s screen as well as the page: ' + JSON.stringify(h));
+    await page.keyboard.press('Escape');
+    await until(null);
+    h = await held();
+    assert(h.screen === null && !/gm-full/.test(h.host) && !/gm-full-lock/.test(h.lock), 'esc gives both back: ' + JSON.stringify(h));
+
+    // Two presses inside one grant: the screen is asked for and given up again before it arrives. The grant has to be
+    // waited for, or the state read is the one before it — which is null whether the quest handles this or not.
+    const grants = await page.evaluate(() => /** @type {*} */ (window).grants);
+    await page.evaluate(() => { const b = /** @type {HTMLElement} */ (document.querySelector('.gm-fs')); b.click(); b.click(); });
+    await page.waitForFunction(n => /** @type {*} */ (window).grants > n, grants, { timeout: 5000 });
+    await until(null).catch(() => { });               // a quest that keeps the screen fails the assert, rather than taking the group down
+    h = await held();
+    assert(h.screen === null && !/gm-full/.test(h.host), 'a second press inside the grant leaves nothing holding the screen: ' + JSON.stringify(h));
+    await page.keyboard.press('f');
+    await until('game-app');
+    assert(/gm-full/.test((await held()).host), 'and the quest still works after it: f takes the window again');
+
+    // the browser's own way out (esc at the chrome, F11, the system gesture): the quest follows the page back
+    await page.evaluate(() => { /** @type {*} */ (window).fsEl = null; document.dispatchEvent(new Event('fullscreenchange')); });
+    await page.waitForFunction(() => !document.getElementById('game-app').classList.contains('gm-full'), null, { timeout: 5000 });
+    h = await held();
+    assert(!/gm-full/.test(h.host) && !/gm-full-lock/.test(h.lock), 'left out of band, the quest lets the page go too: ' + JSON.stringify(h));
+
+    // and a route away mid-fullscreen hands the screen back with everything else
+    await page.keyboard.press('f');
+    await until('game-app');
+    await page.evaluate(() => window.CNPE_GAME.unmount());
+    await until(null);
+    h = await held();
+    assert(h.screen === null && !/gm-full-lock/.test(h.lock), 'unmount gives the screen back: ' + JSON.stringify(h));
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  });
+
   /* 2b. the rest of the town: its people teach a technique once, the shop spends gold, the inn beds you down */
   await group('the townsfolk teach, the shop sells and the inn rests you', async () => {
     // ninety gold: enough for the Lens, never enough for a Cheat Sheet. The trial
