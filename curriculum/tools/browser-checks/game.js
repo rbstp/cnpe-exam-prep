@@ -219,8 +219,8 @@ module.exports = async function (h) {
     await page.click('.gm-fs');
     assert(/gm-full/.test((await state()).host), 'the button takes the window too');
     await page.evaluate(() => window.CNPE_GAME.unmount());
-    f = await page.evaluate(() => ({ host: document.getElementById('game-app').className, lock: document.documentElement.className }));
-    assert(!/gm-full/.test(f.host) && !/gm-full-lock/.test(f.lock), 'and unmount hands the window back: ' + JSON.stringify(f));
+    const gone = await page.evaluate(() => ({ host: document.getElementById('game-app').className, lock: document.documentElement.className }));
+    assert(!/gm-full/.test(gone.host) && !/gm-full-lock/.test(gone.lock), 'and unmount hands the window back: ' + JSON.stringify(gone));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   });
