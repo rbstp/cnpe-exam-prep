@@ -246,6 +246,16 @@ const secs = new Set(D.towns.map(t => t.sec));
 ok(["1.1", "2.6", "3.6", "4.6", "5.6", "1.5"].every(s => secs.has(s)), "with the section ids the manifest uses");
 ok(D.towns.every(t => t.npcs.length >= 3 && t.npcs.length <= 5 && t.npcs.every(n => n.name && n.lines.length >= 2 && (!n.teaches || D.techniques[n.teaches]))),
   "every town has three to five people with lines, teaching techniques that exist");
+// game.js marks a lore-only npc heard under a key it slugs from the name, and
+// merge.js only carries a key its regex accepts: two npcs slugging alike would
+// share one mark, and one slugging long would never leave the browser it was
+// earned in. Both are silent, so the names carry the invariant.
+const GKEY = /^[A-Za-z0-9][A-Za-z0-9._#:-]{0,63}$/;
+const metKey = n => "met-" + n.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 48).replace(/^-|-$/g, "");
+const met = D.towns.flatMap(t => t.npcs).map(metKey);
+const dupeMet = met.filter((k, i) => met.indexOf(k) !== i);
+ok(!dupeMet.length && met.every(k => GKEY.test(k)),
+  "every townsfolk slugs to one key the merge will carry" + (dupeMet.length ? ", but these collide: " + [...new Set(dupeMet)].join(", ") : ""));
 ok(D.towns.every(t => ids.has(t.dungeon)), "every town's door leads to a real fault");
 ok(D.scenarios.every(s => D.towns.some(t => t.dungeon === s.id)), "and every fault is behind some door");
 ok(Object.keys(D.techniques).every(k => D.techniques[k].cmd && D.techniques[k].about && D.techniques[k].tool), "every technique has a command, a line and a tool");

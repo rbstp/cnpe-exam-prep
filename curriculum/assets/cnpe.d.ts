@@ -117,7 +117,7 @@ interface CnpeGameState {
   learned?: Record<string, number>;
   /** scenario id -> the record of beating it */
   wins?: Record<string, CnpeGameWin>;
-  /** intro seen, bosses beaten, the final: flag -> 1 */
+  /** intro seen, bosses beaten, the final, and met-<npc> once a lore-only townsfolk is heard: flag -> 1 */
   flags?: Record<string, number>;
   /** where the player stood, in tiles, and when */
   pos?: { x: number; y: number; t: number };
