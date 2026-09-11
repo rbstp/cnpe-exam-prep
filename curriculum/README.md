@@ -45,6 +45,8 @@ and RBAC scope), each wired to the concept it explains.
 `assets/reader.css` enhances the shared stylesheet only under `html[data-study]`.
 Study pages use the approved black-and-gold palette, sans-serif reading copy, a
 fluid lesson column that uses the available desktop width, bold menus, and a larger breadcrumb.
+Desktop tables can wrap long technical identifiers to accommodate different
+font metrics; command and captured-output blocks retain their original formatting.
 Page titles use a restrained 32px size (28px on mobile), with 14px sidebar
 navigation and 13px supporting labels. The small decorative captions beneath
 section headings are hidden; section titles, lesson prose, and model instructions remain.

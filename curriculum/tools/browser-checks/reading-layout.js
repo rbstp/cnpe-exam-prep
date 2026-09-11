@@ -70,6 +70,27 @@ module.exports = async function (h) {
     await ctx.close();
   });
 
+  await group('desktop tables tolerate wider font metrics and increased text spacing', async () => {
+    const { ctx, page } = await fresh();
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    for (const theme of ['dark', 'light']) {
+      await page.goto(url('05-security/02-policy-engines.html'));
+      await page.evaluate(t => window.CNPE_THEME.set(t), theme);
+      await page.evaluate(() => document.fonts.ready);
+      await page.addStyleTag({ content: '.tbl-wrap table { letter-spacing: .12em; }' });
+      const layout = await page.locator('#dialects .tbl-wrap').evaluate(table => ({
+        width: table.clientWidth,
+        content: table.scrollWidth,
+        overflow: document.documentElement.scrollWidth > innerWidth + 1,
+      }));
+      assert(layout.content <= layout.width + 1 && !layout.overflow,
+        theme + ': wider text still fits the desktop comparison table ' + JSON.stringify(layout));
+      assert(await page.locator('.cb pre code').first().evaluate(code => getComputedStyle(code).whiteSpace) === 'pre',
+        'command blocks retain their original non-wrapping format');
+    }
+    await ctx.close();
+  });
+
   await group('reading controls do not overlap wrapped page headings', async () => {
     const { ctx, page } = await fresh();
     /** @type {[string, number][]} */
