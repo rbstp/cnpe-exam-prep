@@ -273,6 +273,7 @@ interface CnpeThemeApi {
   resolved(): string;
   set(next: string): void;
   cycle(): void;
+  study(on: boolean): void;
   onChange(fn: (pref: string, resolved: string) => void): void;
   /** stop telling this function; the same reference that was given to onChange */
   offChange(fn: (pref: string, resolved: string) => void): void;
@@ -631,8 +632,10 @@ interface Window {
   CNPE_THEME?: CnpeThemeApi;
   CNPE_WIDGETS?: { mount(): void };
   CNPE_DRILL_UI?: { mount(): void };
-  /** re-run by the single-file bundle on every hash navigation */
+  /** re-run by the single-file bundle when the page changes */
   CNPE_BOOT?: () => void;
+  /** expand, focus and scroll a target after bundled fragment navigation */
+  CNPE_SCROLL_TO?: (id: string) => boolean;
   /** set only by the bundled console (tools/bundle.py) */
   CNPE_BUNDLE?: boolean;
   /** clipboard stub installed by the browser checks */

@@ -114,7 +114,7 @@ module.exports = async function (h) {
     await page.goto(url('02-gitops/04-tekton.html'));
     const marked = () => page.evaluate(() =>
       (document.querySelector('#toc a.active') || {}).textContent || null);
-    const first = await page.evaluate(() => (document.querySelector('#toc a') || {}).textContent);
+    const first = await page.evaluate(() => (document.querySelector('#toc .reading-outline a') || {}).textContent);
     // Instant, or smooth scrolling keeps firing events that hide the bug.
     /** @param {number} y */
     const to = y => page.evaluate(n => window.scrollTo({ top: n, behavior: 'instant' }), y);
@@ -196,7 +196,7 @@ module.exports = async function (h) {
     const marked = () => page.evaluate(() =>
       (document.querySelector('#toc a.active') || {}).textContent || null);
     const last = await page.evaluate(() => {
-      const as = document.querySelectorAll('#toc a');
+      const as = document.querySelectorAll('#toc .reading-outline a');
       return as.length ? as[as.length - 1].textContent : null;
     });
     assert(last, 'the page has a rail to mark: ' + JSON.stringify(last));

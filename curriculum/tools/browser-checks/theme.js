@@ -20,13 +20,13 @@ module.exports = async function (h) {
       .map(m => m.getAttribute('content').toLowerCase()),
   }));
 
-  /* 1. the button walks the three states and comes back round */
-  await group('the masthead button cycles system, light, dark', async () => {
+  await group('study pages default to dark and toggle light / dark', async () => {
     const { ctx, page } = await fresh();
+    await page.emulateMedia({ colorScheme: 'light' });
     await page.goto(url('index.html'));
     let s = await state(page);
-    assert(s.pref === 'system' && s.attr === null,
-      'a browser that has never chosen follows the system: ' + JSON.stringify([s.pref, s.attr]));
+    assert(s.pref === 'dark' && s.attr === 'dark',
+      'a browser that has never chosen starts dark even on a light system: ' + JSON.stringify([s.pref, s.attr]));
     assert(s.stored === null, 'and nothing is stored for it');
     assert(/switch to light \(t\)/.test(s.title), 'the button offers the next one: ' + JSON.stringify(s.title));
 
@@ -42,9 +42,8 @@ module.exports = async function (h) {
 
     await page.click('.themebtn');
     s = await state(page);
-    assert(s.pref === 'system' && s.attr === null, 'and the third hands it back to the system');
-    // left set, every later boot would read a pin the reader has cleared
-    assert(s.stored === null, 'clearing the pin removes the key: ' + JSON.stringify(s.stored));
+    assert(s.pref === 'light' && s.attr === 'light', 'and the third returns to light');
+    assert(s.stored === 'light', 'the preference is persisted');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   });
@@ -73,7 +72,7 @@ module.exports = async function (h) {
   await group('t cycles the theme, and not from inside the palette', async () => {
     const { ctx, page } = await fresh();
     await page.goto(url('01-architecture/01-networking.html'));
-    assert((await state(page)).pref === 'system', 'starting on system');
+    assert((await state(page)).pref === 'dark', 'starting on dark');
     await page.keyboard.press('t');
     assert((await state(page)).pref === 'light', 't pins light');
     await page.keyboard.press('t');
@@ -92,11 +91,36 @@ module.exports = async function (h) {
   });
 
   /* 4. a junk pin is not a pin */
-  await group('a stored theme nobody offers falls back to the system', async () => {
+  await group('a stored theme nobody offers falls back to dark', async () => {
     const { ctx, page } = await fresh(null, { theme: 'chartreuse' });
     await page.goto(url('index.html'));
     const s = await state(page);
-    assert(s.pref === 'system' && s.attr === null, 'junk reads as system: ' + JSON.stringify([s.pref, s.attr]));
+    assert(s.pref === 'dark' && s.attr === 'dark', 'junk reads as dark: ' + JSON.stringify([s.pref, s.attr]));
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  });
+
+  await group('the quest keeps its original system default and three-way switch', async () => {
+    const { ctx, page } = await fresh();
+    await page.emulateMedia({ colorScheme: 'light' });
+    await page.goto(url('game.html'));
+    let s = await state(page);
+    assert(s.pref === 'system' && s.attr === null && s.ink === '#f3efe6', 'quest follows the light system with its original palette');
+    await page.click('.themebtn');
+    assert((await state(page)).pref === 'light', 'quest first pins light');
+    await page.click('.themebtn');
+    assert((await state(page)).pref === 'dark', 'quest next pins dark');
+    await page.click('.themebtn');
+    s = await state(page);
+    assert(s.pref === 'system' && s.stored === null, 'quest then clears the pin');
+    await page.goto(url('console.html') + '#2.2');
+    assert((await state(page)).ink === '#171c1d', 'bundle starts with the study palette');
+    await page.evaluate(() => { location.hash = '#GM'; });
+    await page.waitForSelector('#game-app canvas');
+    assert((await state(page)).ink === '#f3efe6', 'bundled quest restores the original palette');
+    await page.evaluate(() => { location.hash = '#2.2'; });
+    await page.waitForSelector('.reading-modes');
+    assert((await state(page)).ink === '#171c1d', 'returning to study restores its dark default');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   });

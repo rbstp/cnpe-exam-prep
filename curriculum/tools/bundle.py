@@ -61,12 +61,12 @@ def favicon_uri():
 
 # The theme-color metas must come before the theme script, which recolors them.
 HEAD = """<!doctype html>
-<html lang="en">
+<html lang="en" data-study>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#171511" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#F3EFE6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#171c1d" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f5f0" media="(prefers-color-scheme: light)">
 <meta name="description" content="An interactive study console for the Certified Cloud Native Platform Engineer (CNPE) exam: 29 sections across all five domains, hands-on exercises against a local lab, and two timed mock exams.">
 <link rel="icon" type="image/svg+xml" href="%s">
 """ % favicon_uri()
@@ -131,37 +131,50 @@ window.CNPE_EXAM_KEYS = %s;
 <script>
 (function () {
   var view = document.getElementById("main");
-  function keyFromHash() {
+  function routeFromHash() {
     var h = (location.hash || "#index").slice(1);
-    return window.CNPE_PAGES[h] ? h : "index";
+    var split = h.indexOf("/");
+    var key = split < 0 ? h : h.slice(0, split);
+    return {
+      key: Object.prototype.hasOwnProperty.call(window.CNPE_PAGES, key) ? key : "index",
+      fragment: split < 0 ? "" : h.slice(split + 1)
+    };
   }
-  var pendingFragment = "";
+  var renderedKey = "";
   function render() {
-    var k = keyFromHash();
-    document.body.setAttribute("data-root", "");
-    if (k === "index") { document.body.removeAttribute("data-id"); }
-    else { document.body.setAttribute("data-id", k); }
-    if (window.CNPE_EXAM_KEYS.indexOf(k) >= 0) document.body.setAttribute("data-exam", "");
-    else document.body.removeAttribute("data-exam");
-    // the quest holds an animation loop, a ticker, observers and listeners
-    // against the page it built into: take it down before that page goes
-    if (window.CNPE_GAME && window.CNPE_GAME.unmount) window.CNPE_GAME.unmount();
-    view.innerHTML = window.CNPE_PAGES[k];
-    window.CNPE_BOOT();
-    if (pendingFragment) {
-      var el = document.getElementById(pendingFragment);
-      pendingFragment = "";
-      if (el) { el.scrollIntoView(); return; }
+    var route = routeFromHash(), k = route.key;
+    if (k !== renderedKey) {
+      document.body.setAttribute("data-root", "");
+      if (k === "index") { document.body.removeAttribute("data-id"); }
+      else { document.body.setAttribute("data-id", k); }
+      if (window.CNPE_EXAM_KEYS.indexOf(k) >= 0) document.body.setAttribute("data-exam", "");
+      else document.body.removeAttribute("data-exam");
+      // Only a page change tears down the quest or resets a lesson's models.
+      if (window.CNPE_GAME && window.CNPE_GAME.unmount) window.CNPE_GAME.unmount();
+      view.innerHTML = window.CNPE_PAGES[k];
+      window.CNPE_BOOT();
+      renderedKey = k;
     }
+    if (route.fragment && window.CNPE_SCROLL_TO(route.fragment)) return;
     window.scrollTo(0, 0);
   }
   addEventListener("hashchange", render);
   // in-page links that point at other pages of the site become hash routes
   addEventListener("click", function (e) {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     var a = e.target.closest && e.target.closest("a");
     if (!a) return;
     var href = a.getAttribute("href") || "";
-    if (/^(https?:|mailto:|#)/.test(href)) return;
+    if (/^(https?:|mailto:)/.test(href)) return;
+    if (href.charAt(0) === "#") {
+      var fragment = href.slice(1);
+      if (Object.prototype.hasOwnProperty.call(window.CNPE_PAGES, fragment) || fragment.indexOf("/") >= 0) return;
+      if (!document.getElementById(fragment)) return;
+      e.preventDefault();
+      var local = "#" + routeFromHash().key + "/" + fragment;
+      if (location.hash === local) render(); else location.hash = local;
+      return;
+    }
     var frag = href.split("#")[1] || "";
     var file = href.split("#")[0].replace(/^(\\.\\.\\/)+/, "");
     var target = null;
@@ -173,8 +186,8 @@ window.CNPE_EXAM_KEYS = %s;
     }
     if (!target) return;                       // not a page of this bundle: let the browser have it
     e.preventDefault();
-    pendingFragment = frag;
-    if (location.hash === "#" + target) render(); else location.hash = "#" + target;
+    var next = "#" + target + (frag ? "/" + frag : "");
+    if (location.hash === next) render(); else location.hash = next;
   });
   render();
 })();
@@ -182,7 +195,7 @@ window.CNPE_EXAM_KEYS = %s;
 """ % (
     read("assets/theme.js"),
     # game.css follows the stylesheet it extends, through the same font inliner
-    inline_fonts(read("assets/style.css") + "\n" + read("assets/game.css")),
+    inline_fonts(read("assets/style.css") + "\n" + read("assets/reader.css") + "\n" + read("assets/game.css")),
     read("assets/nav.js"),
     read("assets/drill-data.js"),
     read("assets/merge.js"),

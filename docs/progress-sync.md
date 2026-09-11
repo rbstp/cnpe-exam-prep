@@ -22,7 +22,7 @@ Concretely, the guarantees the code holds to, each asserted by a browser check i
 * Two tabs of one browser converge on the same store instead of overwriting each
   other, signed in or not; that one is local-first machinery, not sync.
 
-If you never press **Sign in to sync**, nothing below applies to you and the
+If you never press **Sign in** in the header, nothing below applies to you and the
 console behaves exactly as it did before.
 
 ## Why this needs a Worker at all
@@ -76,7 +76,7 @@ today picks that up where the stored days run out. So 60 days running still read
 as 60 with 30 days on disk, and the record with it. The carry travels, because
 the days that would otherwise prove it do not.
 
-Three things deliberately do not travel:
+Four things deliberately do not travel:
 
 * **The mock exam clock.** `startedAt`, `running` and `spent` are stripped before
   the push, so a running exam stays on the machine that started it. That matches
@@ -85,6 +85,9 @@ Three things deliberately do not travel:
   looking at, not of the account: dark on the phone and light on the laptop is a
   setting, not a bug. It lives in `cnpe:theme`, outside the store, and no merge
   has ever touched it.
+* **Reading preferences.** Text size lives in `cnpe:reading-size`, outside the
+  progress store. Focus view is per visit. Neither changes the synchronized
+  progress payload.
 * **Any GitHub credential.** The OAuth scope is empty, so this is identity only.
   The token GitHub returns is used once, server-side, to read the account id, and
   is never stored. The consent screen says "public data only"; this service can no more
@@ -387,8 +390,10 @@ curl -s -o /dev/null -w '%{http_code}\n' https://sync.rbstp.dev/v1/progress
 # 401   configured. A 500 still names whatever is missing.
 ```
 
-Open <https://cnpe.rbstp.dev>, press **Sign in to sync**, approve, and the button
-should come back reading `Sign out (@you)` with a `Synced HH:MM` line under it.
+Open <https://cnpe.rbstp.dev>, press **Sign in** in the header, and approve.
+The header should show your account, with `Synced HH:MM` and the sign-out action
+in its accessible label and tooltip. The dashboard also shows the sync status
+and **Delete saved copy** control, but no second sign-in button.
 Then:
 
 ```bash
@@ -477,7 +482,7 @@ and dates, not personal data of consequence, but it is theirs:
 
 To shut the whole thing down: `npx wrangler delete` removes the Worker. Browsers
 already signed in fall back to local-only on their next load, with a note saying
-the Worker is unreachable; a browser that presses **Sign in to sync** after that
+the Worker is unreachable; a browser that presses the header **Sign in** control after that
 gets its own connection-error page, since sign-in is a navigation. Nobody loses
 any progress, because nobody ever had it only there.
 

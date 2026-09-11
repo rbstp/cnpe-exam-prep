@@ -13,7 +13,7 @@ SITE_DOMAIN="${SITE_DOMAIN:-cnpe.rbstp.dev}"
 SYNC_DOMAIN="${SYNC_DOMAIN:-sync.rbstp.dev}"
 
 for f in index.html mock-exam.html mock-exam-2.html drill.html game.html console.html 404.html CNAME \
-         assets/style.css assets/game.css assets/app.js assets/nav.js assets/widgets.js \
+         assets/style.css assets/reader.css assets/game.css assets/app.js assets/nav.js assets/widgets.js \
          assets/theme.js assets/favicon.svg assets/drill-data.js assets/drill-index.js \
          assets/drill.js assets/merge.js assets/syntax.js assets/sync.js \
          assets/game.js assets/game-sim.js assets/game-data.js assets/game-art.js; do
@@ -101,12 +101,28 @@ dk=$(grep -o -- '--dk-ink: *#[0-9A-Fa-f]*' "$SITE/assets/style.css" | grep -o '#
 lt=$(grep -o -- '--lt-ink: *#[0-9A-Fa-f]*' "$SITE/assets/style.css" | grep -o '#[0-9A-Fa-f]*')
 { test -n "$dk" && test -n "$lt"; } || { echo "could not read --dk-ink/--lt-ink from style.css"; exit 1; }
 while IFS= read -r f; do
-  { grep -q "name=\"theme-color\" content=\"$dk\" media=\"(prefers-color-scheme: dark)\"" "$f" &&
-    grep -q "name=\"theme-color\" content=\"$lt\" media=\"(prefers-color-scheme: light)\"" "$f"; } ||
+  dark="$dk"; light="$lt"
+  if grep -q '<html lang="en" data-study>' "$f"; then
+    dark="#171c1d"; light="#f6f5f0"
+    case "${f#"$SITE"/}" in
+      console.html) ;;
+      *) grep -q 'assets/reader.css?v=' "$f" || { echo "missing reader stylesheet: $f"; exit 1; };;
+    esac
+  fi
+  { grep -q "name=\"theme-color\" content=\"$dark\" media=\"(prefers-color-scheme: dark)\"" "$f" &&
+    grep -q "name=\"theme-color\" content=\"$light\" media=\"(prefers-color-scheme: light)\"" "$f"; } ||
     { echo "theme-color metas out of sync with style.css grounds: ${f#"$SITE"/}"; exit 1; }
 done < <(find "$SITE" -name '*.html')
 # theme.js keeps its own copy of the pair, which must match too
 grep -q "dark: \"$dk\", light: \"$lt\"" "$SITE/assets/theme.js" ||
   { echo "theme.js CHROME pair out of sync with style.css grounds"; exit 1; }
+grep -q 'dark: "#171c1d", light: "#f6f5f0"' "$SITE/assets/theme.js" ||
+  { echo "study theme chrome colors drifted"; exit 1; }
+grep -q -- '--ink: #171c1d' "$SITE/assets/reader.css" &&
+  grep -q -- '--ink: #f6f5f0' "$SITE/assets/reader.css" ||
+  { echo "reader palette grounds drifted"; exit 1; }
+if grep -q 'assets/reader.css' "$SITE/game.html"; then
+  echo "the standalone quest must not load reader.css"; exit 1
+fi
 
 echo "staged site looks right ($n pages)"

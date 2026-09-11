@@ -274,7 +274,35 @@
 
   /* ── 2.2 · the sync × health matrix ───────────────────────── */
   function syncmatrix(mount) {
-    var f = frame("Sync status × health status", "click a cell; each combination has exactly one right move");
+    var f = frame("Sync status × health status", "change Git, then apply it; matching manifests do not guarantee a healthy workload");
+    var desiredBroken = true, liveBroken = true;
+    var model = announce(h("div", { "class": "wout sync-model" }));
+    var desired = toggle("Git specifies a missing image", desiredBroken);
+    var apply = h("button", { "class": "wbtn", type: "button", html: "Apply desired state" });
+    var reset = h("button", { "class": "wbtn ghost", type: "button", html: "Reset model" });
+    var actions = h("div", { "class": "wctls-row" }, [apply, reset]);
+    function drawModel() {
+      var matches = desiredBroken === liveBroken;
+      model.innerHTML = '<div class="wgrid">' +
+        '<div class="wcell"><span class="wk">Git / desired</span><span class="wv">' +
+          (desiredBroken ? "image:missing" : "image:stable") + '</span></div>' +
+        '<div class="wcell"><span class="wk">Cluster / live</span><span class="wv">' +
+          (liveBroken ? "image:missing" : "image:stable") + '</span></div>' +
+        '<div class="wcell"><span class="wk">Sync</span>' + verdict(matches ? "ok" : "warn", matches ? "Synced" : "OutOfSync") + '</div>' +
+        '<div class="wcell"><span class="wk">Health</span>' + verdict(liveBroken ? "bad" : "ok", liveBroken ? "Degraded" : "Healthy") + '</div></div>' +
+        '<div class="wnote">' + (matches
+          ? liveBroken ? "The manifests match, but the missing image still prevents the workload from starting. Applying the same broken desired state again cannot fix it."
+            : "The live workload matches the valid desired state and is healthy."
+          : "Git and the live workload differ. Applying desired state changes the live image; health depends on whether that image can run.") + '</div>';
+    }
+    desired.input.addEventListener("change", function () { desiredBroken = desired.input.checked; drawModel(); });
+    apply.addEventListener("click", function () { liveBroken = desiredBroken; drawModel(); });
+    reset.addEventListener("click", function () {
+      desiredBroken = liveBroken = true; desired.input.checked = true; drawModel();
+    });
+    f.body.appendChild(model); f.body.appendChild(desired); f.body.appendChild(actions);
+    f.body.appendChild(h("p", { "class": "wproof", html: "Local model, not a cluster connection. Health shows the eventual outcome; a real Deployment may report Progressing until its progress deadline expires." }));
+    drawModel();
     var cells = [
       { s: "Synced", hh: "Healthy", cls: "ok", t: "Nothing to do. Live matches git and the workloads are up. The only question worth asking is <em>when</em> it last synced; a stale-but-green app looks exactly like this." },
       { s: "Synced", hh: "Degraded", cls: "bad", t: "<b>Git is wrong, the cluster is faithful.</b> Bad image tag, impossible request, missing key. Re-syncing does nothing: the diff is already empty. Fix the commit." },
@@ -283,20 +311,22 @@
       { s: "Unknown", hh: "n/a", cls: "bad", t: "<b>Access, not workload.</b> The controller cannot reach the repo or compare state: bad credentials, unreachable git, RBAC. The error names the controller's own identity and no pod is involved." },
       { s: "Synced", hh: "Progressing", cls: "warn", t: "A rollout in flight, or a Deployment that will flip to Degraded once <code>progressDeadlineSeconds</code> expires. Do not wait it out: the pod events already tell you which one it is." }
     ];
-    var grid = h("div", { "class": "wchips" });
-    var detail = h("div", { "class": "wnote" , html: "Pick a combination." });
+    var grid = h("div", { "class": "wchips", role: "group", "aria-label": "Explore status combinations" });
+    var detail = announce(h("div", { "class": "wnote" , html: "Pick a combination." }));
     cells.forEach(function (c, i) {
-      var b = h("button", { "class": "wchip " + c.cls, type: "button",
+      var b = h("button", { "class": "wchip " + c.cls, type: "button", "aria-pressed": "false",
         html: '<span class="cs">' + c.s + "</span><span class='ch'>" + c.hh + "</span>" });
       b.addEventListener("click", function () {
-        Array.prototype.forEach.call(grid.children, function (x) { x.classList.remove("sel"); });
+        Array.prototype.forEach.call(grid.children, function (x) { x.classList.remove("sel"); x.setAttribute("aria-pressed", "false"); });
         b.classList.add("sel");
+        b.setAttribute("aria-pressed", "true");
         detail.className = "wnote " + c.cls;
         detail.innerHTML = c.t;
       });
       grid.appendChild(b);
       if (i === 1) b.click();
     });
+    f.body.appendChild(h("div", { "class": "wk", html: "Explore other diagnostic states" }));
     f.body.appendChild(grid); f.body.appendChild(detail);
     mount.appendChild(f.root);
   }
@@ -405,7 +435,8 @@
       var maxV = Math.max.apply(null, pts.map(function (p) { return p.v; })) || 1;
       var x = function (t) { return padL + t / 30 * (W - padL - padR); };
       var y = function (v) { return base - v / maxV * (base - top); };
-      var g = svg("svg", { viewBox: "0 0 " + W + " " + H, "class": "wsvg" });
+      var g = svg("svg", { viewBox: "0 0 " + W + " " + H, "class": "wsvg", role: "img",
+        "aria-label": "Request counter over 30 minutes, with a " + st.win + " minute rate window" + (st.reset ? " and a counter reset at minute 20" : "") });
       [0, .25, .5, .75, 1].forEach(function (q) {
         var gy = y(maxV * q);
         g.appendChild(svg("line", { x1: padL, x2: W - padR, y1: gy, y2: gy, style: "stroke: var(--rule)", "stroke-width": 1 }));
@@ -432,7 +463,9 @@
       lbl.textContent = "[" + st.win + "m] window";
       g.appendChild(lbl);
       out.innerHTML = "";
-      out.appendChild(g);
+      var chart = h("div", { "class": "wchart", tabindex: "0", role: "region", "aria-label": "Request counter chart; scroll horizontally on small screens" });
+      chart.appendChild(g);
+      out.appendChild(chart);
 
       var a = pts[Math.max(0, Math.round(t0))].v, b = pts[30].v;
       var naive = (b - a) / (st.win * 60);
@@ -578,11 +611,11 @@
       var wrap = h("div", { "class": "wpick" });
       wrap.appendChild(h("span", { "class": "wlbl", html: label }));
       values.forEach(function (v) {
-        var b = h("button", { "class": "wchip small" + (st[key] === v ? " sel" : ""), type: "button", html: v });
+        var b = h("button", { "class": "wchip small" + (st[key] === v ? " sel" : ""), type: "button", "aria-pressed": String(st[key] === v), html: v });
         b.addEventListener("click", function () {
           st[key] = v;
-          Array.prototype.forEach.call(wrap.querySelectorAll("button"), function (x) { x.classList.remove("sel"); });
-          b.classList.add("sel"); draw();
+          Array.prototype.forEach.call(wrap.querySelectorAll("button"), function (x) { x.classList.remove("sel"); x.setAttribute("aria-pressed", "false"); });
+          b.classList.add("sel"); b.setAttribute("aria-pressed", "true"); draw();
         });
         wrap.appendChild(b);
       });
@@ -781,11 +814,11 @@
       var wrap = h("div", { "class": "wpick" });
       wrap.appendChild(h("span", { "class": "wlbl", html: label }));
       values.forEach(function (v) {
-        var b = h("button", { "class": "wchip small" + (st[key] === v ? " sel" : ""), type: "button", html: v });
+        var b = h("button", { "class": "wchip small" + (st[key] === v ? " sel" : ""), type: "button", "aria-pressed": String(st[key] === v), html: v });
         b.addEventListener("click", function () {
           st[key] = v;
-          Array.prototype.forEach.call(wrap.querySelectorAll("button"), function (x) { x.classList.remove("sel"); });
-          b.classList.add("sel"); draw();
+          Array.prototype.forEach.call(wrap.querySelectorAll("button"), function (x) { x.classList.remove("sel"); x.setAttribute("aria-pressed", "false"); });
+          b.classList.add("sel"); b.setAttribute("aria-pressed", "true"); draw();
         });
         wrap.appendChild(b);
       });
