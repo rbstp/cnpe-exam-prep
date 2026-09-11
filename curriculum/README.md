@@ -49,7 +49,7 @@ natural terrain accents to `.gm`; the engine reads from the game host, so
 standalone and bundled play look alike without recolouring the study pages.
 The shared dark/light switch repaints the art as well as the windows.
 Town artwork is 480 by 304 art pixels, fitted without cropping beside the
-upper-left menu, with a shallow full-width dialogue panel below. On mobile,
+upper-left menu, with a roomy full-width dialogue panel below. On mobile,
 the complete scene, compact menu and dialogue stack. Battle backdrops are
 480 by 144 art pixels; the battlefield layers
 the monster, player, guard/health windows and action feedback above the scenery.
@@ -63,6 +63,16 @@ Dungeons are enclosed in impassable stone, with one approach from the town.
 A sealed entrance stops movement as well as battle entry, including auto-travel.
 The public road visibly bends around the dungeon; it keeps the overworld open,
 not the dungeon, and grants no progress for walking around.
+Each enclosure is painted as one coordinated two-by-three-tile crypt rather
+than repeated cliff tiles; unlocking repaints only the doorway.
+
+Desktop mouse/keyboard play hides the touch-controller strip and gives that
+space back to the scene. Fullscreen remains in the toolbar on every device.
+Town conversations show short Next/Previous pages, preserving every authored
+line and granting learning XP only once. Shop stock uses responsive single-row
+pages, and entering or paging a menu keeps keyboard focus in that menu. The
+bottom panel grows with its content instead of trapping it in a nested
+scrollbar; touch devices retain the directional and action buttons.
 
 Sound is opt-in for each visit and synthesized locally with Web Audio; no audio
 assets or network requests are involved. Scene wipes, spell effects, inn

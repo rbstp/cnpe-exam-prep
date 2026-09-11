@@ -51,6 +51,8 @@ module.exports = async function (h) {
         if (!mobile) assert(layout.stats.left >= layout.game.right && Math.max(layout.stats.bottom, layout.game.bottom) <= layout.height,
           tag + ': stats sit beside the game and both fit in one screen: ' + JSON.stringify(layout));
         else assert(layout.stats.bottom < layout.game.bottom, tag + ': mobile uses a compact stats strip above the game');
+        assert((await page.locator('.gm-pad').isVisible()) === mobile, tag + ': controller strip is kept on mobile, not desktop');
+        assert(await page.locator('.gm-toolbar .gm-fs').isVisible(), tag + ': fullscreen is always accessible in the toolbar');
         assert(!(await page.locator('.quest-guide').getAttribute('open')), tag + ': optional quick help starts collapsed');
         assert((await page.locator('.quest-guide').textContent()).split(/\s+/).length < 100, tag + ': quick help stays concise');
         await page.focus('.gm-stage');
@@ -101,7 +103,8 @@ module.exports = async function (h) {
             dialogueHeight: dialogue.height, fullWidth: dialogue.left <= Math.min(menu.left, picture.left) + 1 && dialogue.right >= Math.max(menu.right, picture.right) - 1 };
         });
         assert(inn.fit === 'contain' && inn.visible, tag + ': the complete inn fits without menus hiding it');
-        assert(inn.dialogueHeight < 100 && inn.fullWidth, tag + ': the inn message is shallow and full-width: ' + JSON.stringify(inn));
+        assert((mobile ? inn.dialogueHeight < 100 : inn.dialogueHeight >= 180) && inn.fullWidth,
+          tag + ': dialogue uses the recovered desktop space and stays compact on mobile: ' + JSON.stringify(inn));
         await page.locator('.gm-menu button').filter({ hasText: /^Dungeon/ }).click();
         await page.waitForSelector('.gm-arena');
         if (mobile) assert(!(await page.isVisible('.gm-transition')), tag + ': reduced motion skips the encounter wipe');
@@ -133,6 +136,76 @@ module.exports = async function (h) {
     }
   }
 
+  await group('dungeon art is one cached landmark rather than repeated cliff tiles', async () => {
+    const { ctx, page } = await fresh(seed);
+    await page.goto(url('console.html') + '#GM');
+    const art = await page.evaluate(() => {
+      const a = window.CNPE_ART;
+      const pixels = (/** @type {HTMLCanvasElement} */ c) => Array.from(c.getContext('2d').getImageData(0, 0, 16, 16).data).join(',');
+      const cliff = pixels(a.cliff(0, 1, 0));
+      const columns = /** @type {(0 | 1)[]} */ ([0, 1]), rows = /** @type {(0 | 1 | 2)[]} */ ([0, 1, 2]);
+      const parts = rows.flatMap(row => columns.map(column => {
+        const tile = a.dungeon(1, column, row);
+        return { size: tile.width === 16 && tile.height === 16, cached: tile === a.dungeon(1, column, row), distinct: pixels(tile) !== cliff };
+      }));
+      const wall = pixels(a.dungeon(1, 1, 1));
+      return { parts, errors: a.check(), doorSharesTile: a.door(1, false) === a.dungeon(1, 0, 1),
+        openingChangesDoor: pixels(a.door(1, false)) !== pixels(a.door(1, true)), wallUnchanged: pixels(a.dungeon(1, 1, 1)) === wall };
+    });
+    assert(art.parts.length === 6 && art.parts.every(p => p.size && p.cached && p.distinct), 'all six dungeon tiles have dedicated art and stable cache identity');
+    assert(art.errors.length === 0 && art.doorSharesTile && art.openingChangesDoor && art.wallUnchanged, 'the seal opens without changing or repainting its surrounding structure');
+    await ctx.close();
+  });
+
+  await group('conversation pages preserve every line without a nested scrollbar', async () => {
+    for (const full of [false, true]) {
+      const { ctx, page } = await fresh(seed);
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.addInitScript(() => { Element.prototype.requestFullscreen = () => Promise.resolve(); });
+      await page.goto(url('console.html') + '#GM');
+      await page.focus('.gm-stage');
+      await page.keyboard.press('ArrowUp'); await page.keyboard.press('ArrowUp');
+      await page.waitForSelector('.gm-town');
+      if (full) await page.locator('.gm-fs').click();
+      await page.locator('.gm-menu button').filter({ hasText: /^Talk/ }).click();
+      assert(!!(await page.evaluate(() => document.activeElement.getAttribute('data-npc'))), 'Talk focuses a person immediately, not the main menu');
+      await page.locator('.gm-town > .gm-body > .gm-col:last-child .gm-menu button').first().click();
+      const expected = await page.evaluate(() => window.CNPE_GAME_DATA.towns[0].npcs[0].lines);
+      const seen = [];
+      for (let i = 0; i < expected.length; i++) {
+        seen.push(await page.locator('.gm-speech').innerHTML());
+        const box = await page.locator('.gm-town > .gm-body > .gm-col:last-child').evaluate(e => {
+          const bounds = e.getBoundingClientRect(), stage = e.closest('.gm-stage').getBoundingClientRect();
+          const acts = e.querySelector('.gm-acts').getBoundingClientRect();
+          return { scroll: e.scrollHeight > e.clientHeight + 1, bottom: bounds.bottom, stageBottom: stage.bottom, actionsVisible: acts.bottom <= bounds.bottom };
+        });
+        assert(!box.scroll && box.actionsVisible && box.bottom <= box.stageBottom + 1, (full ? 'fullscreen' : 'page') + ': dialogue and actions fit, page ' + (i + 1) + ': ' + JSON.stringify(box));
+        if (i + 1 < expected.length) await page.locator('.gm-dialogue-next').click();
+      }
+      assert(JSON.stringify(seen) === JSON.stringify(expected), 'every authored NPC line is readable in order');
+      await page.locator('.gm-dialogue-prev').click();
+      assert(await page.locator('.gm-speech').innerHTML() === expected[expected.length - 2], 'Previous lets the player revisit a line');
+      assert(dayCount((await store(page)).game, 'xp') === 5, 'paging forward and back never grants duplicate learning XP');
+      await page.getByRole('button', { name: '◀ Others', exact: true }).click();
+      const lastPerson = page.locator('[data-npc]').last(), personName = await lastPerson.getAttribute('data-npc');
+      await lastPerson.click();
+      await page.getByRole('button', { name: '◀ Others', exact: true }).click();
+      assert(await page.evaluate(() => document.activeElement.getAttribute('data-npc')) === personName, 'returning to Others restores the person just visited');
+      await page.locator('.gm-menu button').filter({ hasText: /^Shop/ }).click();
+      const ids = new Set();
+      do {
+        for (const name of await page.locator('.gm-item .nm').allTextContents()) ids.add(name);
+        const next = page.locator('.gm-stock-next');
+        if (!(await next.count())) break;
+        await next.click();
+      } while (true);
+      const stockCount = await page.evaluate(() => Object.values(window.CNPE_GAME_DATA.items).filter(it => it.price).length);
+      assert(ids.size === stockCount, 'all shop stock is reachable through short pages');
+      assert(page.errors.length === 0, 'no browser errors: ' + page.errors.join(' | '));
+      await ctx.close();
+    }
+  });
+
   await group('grass and click-to-travel cannot bypass a dungeon seal', async () => {
     const { ctx, page } = await fresh({ game: { flags: { intro: 1 }, pos: { x: 11, y: 8, t: 1 } } }, { reducedMotion: 'reduce' });
     await page.goto(url('console.html') + '#GM');
@@ -160,6 +233,41 @@ module.exports = async function (h) {
     await page.waitForSelector('.gm-dialog:not([hidden])');
     await page.getByRole('button', { name: 'Yes', exact: true }).click();
     assert(await page.locator('.gm-battle').count() === 1, 'clearing the trial opens that same entrance normally');
+    assert(page.errors.length === 0, 'no browser errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  });
+
+  await group('shop pages fit one row and retain keyboard focus', async () => {
+    const { ctx, page } = await fresh(seed);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto(url('console.html') + '#GM');
+    await page.focus('.gm-stage');
+    await page.keyboard.press('ArrowUp'); await page.keyboard.press('ArrowUp');
+    await page.waitForSelector('.gm-town');
+    await page.locator('.gm-menu button').filter({ hasText: /^Shop/ }).click();
+    const layout = () => page.evaluate(() => {
+      const shop = document.querySelector('.gm-shop'), panel = shop.parentElement;
+      const bounds = panel.getBoundingClientRect(), screen = panel.closest('.gm-screen').getBoundingClientRect();
+      const cards = Array.from(shop.querySelectorAll('.gm-item')).map(e => e.getBoundingClientRect());
+      const pager = shop.querySelector('.gm-acts').getBoundingClientRect();
+      return { focused: shop.contains(document.activeElement), row: Math.max(...cards.map(c => c.top)) - Math.min(...cards.map(c => c.top)) < 1,
+        fit: panel.scrollHeight <= panel.clientHeight + 1 && pager.bottom <= bounds.bottom && bounds.bottom <= screen.bottom + 1,
+        count: cards.length };
+    });
+    let current = await layout();
+    assert(current.focused, 'entering a zero-gold shop focuses its pager, not Talk');
+    do {
+      current = await layout();
+      assert(current.row && current.fit && current.focused, 'stock and pager fit without clipping, and focus stays in the shop: ' + JSON.stringify(current));
+      if (!(await page.locator('.gm-stock-next').count())) break;
+      await page.locator('.gm-stock-next').click();
+    } while (true);
+    await page.locator('.gm-stock-prev').click();
+    assert((await layout()).focused, 'Previous stock also retains focus in the shop');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForFunction(() => document.querySelectorAll('.gm-shop .gm-item').length === 1);
+    current = await layout();
+    assert(current.row && current.focused && current.count === 1, 'resizing repaginates to one touch-sized item without losing focus');
     assert(page.errors.length === 0, 'no browser errors: ' + page.errors.join(' | '));
     await ctx.close();
   });
@@ -215,7 +323,7 @@ module.exports = async function (h) {
     });
     await page.goto(url('console.html') + '#GM');
     await page.waitForSelector('.gm-stage');
-    const sound = page.locator('.gm-tools button[aria-pressed]');
+    const sound = page.getByRole('button', { name: /^Sound:/ });
     await sound.click();
     if (leave) {
       await page.evaluate(() => { location.hash = '#1.1'; });

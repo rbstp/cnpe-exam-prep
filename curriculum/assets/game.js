@@ -210,7 +210,7 @@
     var fullOn = false; // the quest holds the window (see setFull)
     var wentNative = false; // ...and the browser's own fullscreen with it, so leaving it leaves ours
     var scrollBack = 0; // where the page stood when it did, to be put back on the way out
-    var fullBtn = null; // the pad's ⛶, while a mount holds one
+    var fullBtn = null; // the toolbar's fullscreen control
     var journalBtn = null, soundBtn = null;
     var transitionEl = null, transitionRun = 0;
     var trackedTown = null;
@@ -325,15 +325,28 @@
     // per tile by the terrain and by every frame, and a scan a town at a time was
     // the answer.
     var townTile = {}, doorTile = {};
+    var cryptTile = {};
     var keepTile = {};
     var scById = Object.create(null), scByDomain = {};
     function indexData() {
         townTile = {};
         doorTile = {};
+        cryptTile = {};
         keepTile = {};
         scById = Object.create(null);
         scByDomain = {};
-        D.towns.forEach(function (t) { townTile[t.y * mapW + t.x] = t; doorTile[t.door.y * mapW + t.door.x] = t; });
+        D.towns.forEach(function (t) {
+            townTile[t.y * mapW + t.x] = t;
+            doorTile[t.door.y * mapW + t.door.x] = t;
+            var columns = [0, 1], rows = [0, 1, 2];
+            rows.forEach(function (row) {
+                columns.forEach(function (column) {
+                    if (column === 0 && row === 1)
+                        return;
+                    cryptTile[(t.door.y - 1 + row) * mapW + t.door.x + column] = { region: domainOfSec(t.sec), column: column, row: row };
+                });
+            });
+        });
         D.regions.forEach(function (r) { keepTile[r.keep.y * mapW + r.keep.x] = r; });
         D.scenarios.forEach(function (s) { scById[s.id] = s; (scByDomain[s.d] || (scByDomain[s.d] = [])).push(s); });
     }
@@ -799,6 +812,9 @@
     /** the sprite for a map tile, in the beat's given frame */
     function tileSprite(mx, my, frame) {
         var t = tileAt(mx, my), d = regionOf[my * mapW + mx] || 0, v = Math.floor(hash(mx, my) * 4);
+        var crypt = cryptTile[my * mapW + mx];
+        if (crypt && t === "cliff")
+            return ART.dungeon(crypt.region, crypt.column, crypt.row);
         switch (t) {
             case "grass": return ART.grass(v, d);
             case "flower": return ART.flower(v, d, frame);
@@ -1361,7 +1377,7 @@
         if (!fullOn && window.innerWidth > 1000 && window.innerHeight >= 650) {
             var toolbar = host.querySelector(".gm-toolbar"), pad = host.querySelector(".gm-pad");
             var style = getComputedStyle(host);
-            var chrome = (toolbar ? toolbar.offsetHeight : 0) + (pad ? pad.offsetHeight + 12 : 0) +
+            var chrome = (toolbar ? toolbar.offsetHeight : 0) + (pad && pad.offsetHeight ? pad.offsetHeight + 12 : 0) +
                 parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + 18;
             var room = window.innerHeight - (host.getBoundingClientRect().top + window.scrollY) - chrome;
             host.style.setProperty("--gm-fit-height", Math.max(280, Math.floor(room)) + "px");
@@ -1509,7 +1525,7 @@
         right.setAttribute("aria-label", "Town conversation and services");
         var menu = el("ul", "gm-menu"), items = {};
         var item = function (id, fn) { var li = el("li"); var b = btn("", fn); li.appendChild(b); menu.appendChild(li); items[id] = b; };
-        item("talk", function () { paintTown(talkMenu(), "talk"); });
+        item("talk", function () { showPeople(); });
         var read = el("li");
         var a = el("a", "", "Read the section" + '<span class="k">' + esc(t.sec) + "</span>");
         a.href = nav ? pageHref(nav.path, nav.id) : "index.html";
@@ -1518,7 +1534,7 @@
         a.addEventListener("click", function () { savePos(true); });
         item("trial", function () { startTrial(); });
         item("inn", function () { hp = maxHp(); paintHud(); paintTown(note("You sleep. The pager stays quiet. Health restored to " + hp + ".", "ok"), "inn"); transition("A quiet night. A fresh beginning.", "rest"); cue("rest"); });
-        item("shop", function () { paintTown(shopMenu(), "shop"); });
+        item("shop", function () { showShop(); });
         item("dungeon", function () {
             if (!dungeonOpen(t)) {
                 paintTown(note("The dungeon door is sealed until you pass this town's trial.", "warn"));
@@ -1565,7 +1581,10 @@
             v.right.appendChild(right);
         else
             v.right.appendChild(el("div", "gm-lines", "<p>" + esc(t.blurb || ("The people here work on " + (nav ? nav.title.toLowerCase() : "the platform") + ".")) + "</p><p class=\"gm-note\">Talk to learn the ideas and the commands. Pass the trial to open the dungeon. Read the section itself when a question stumps you.</p>"));
-        focusFirst(v.menu);
+        if (right && right.querySelector("button:not(:disabled), a[href], input:not(:disabled)"))
+            focusFirst(right);
+        else
+            focusFirst(v.menu);
     }
     /** a strip of scenery: the town square, its people, the inn or the shop, in the region's colours */
     function backdrop(sceneName, d, height) {
@@ -1593,7 +1612,7 @@
         root.appendChild(body);
         return { left: left, right: right };
     }
-    function focusFirst(within) { var b = within.querySelector("button, a, input"); if (b)
+    function focusFirst(within) { var b = within.querySelector("button:not(:disabled), a[href], input:not(:disabled)"); if (b)
         b.focus(); }
     /** the save key that marks a lore-only npc as heard: derived from the name, so it survives a reorder.
         Clamped to what merge.js will carry over the wire; game-sim-test.mjs holds the names to one each. */
@@ -1618,68 +1637,117 @@
             // npcs with nothing to teach still earn a mark, so a heard one never reads like an unopened row
             var mark = n.teaches ? (learnedIt ? "taught ✓" : "teaches " + esc(techName(n.teaches))) : (has("flags", metKey(n)) ? "heard ✓" : "lore");
             var b = btn(esc(n.name) + '<span class="k">' + mark + "</span>", function () { talkTo(n); }, n.teaches && !learnedIt ? "new" : "");
+            b.dataset.npc = n.name;
             li.appendChild(b);
             menu.appendChild(li);
         });
         wrap.appendChild(menu);
         return wrap;
     }
+    function showPeople(name) {
+        var people = talkMenu();
+        paintTown(people, "talk");
+        if (name) {
+            var person = Array.from(people.querySelectorAll("[data-npc]")).find(function (button) { return button.dataset.npc === name; });
+            if (person)
+                person.focus();
+        }
+    }
     function talkTo(n) {
-        var wrap = el("div", "gm-col");
-        var lines = el("div", "gm-lines");
-        lines.appendChild(el("p", "gm-note", "<b>" + esc(n.name) + "</b> says:"));
-        n.lines.forEach(function (l) { lines.appendChild(el("p", "", l)); });
+        var page = 0, learned = false;
+        var technique = n.teaches ? D.techniques[n.teaches] : null;
         if (n.teaches) {
-            var tq = D.techniques[n.teaches];
-            var fresh = tick("learned", n.teaches);
-            if (fresh) {
+            learned = tick("learned", n.teaches);
+            if (learned) {
                 addXp(5);
                 save();
                 cue("evidence");
             }
-            lines.appendChild(el("div", "teach", (fresh ? "Learned: " : "You know this one: ") + esc(tq.cmd) + "<br>" + esc(tq.about)));
-            live.textContent = n.name + (fresh ? " taught you " : " reminded you of ") + tq.cmd;
         }
-        else {
-            if (tick("flags", metKey(n)))
-                save();
-            live.textContent = n.name + " told you what they know";
+        else if (tick("flags", metKey(n)))
+            save();
+        function paintPage() {
+            var wrap = el("div", "gm-col gm-conversation"), lines = el("div", "gm-lines");
+            lines.appendChild(el("p", "gm-note", "<b>" + esc(n.name) + '</b><span class="gm-page-number">' + (page + 1) + " / " + n.lines.length + "</span>"));
+            lines.appendChild(el("p", "gm-speech", n.lines[page]));
+            if (technique)
+                lines.appendChild(el("div", "teach", (learned ? "Learned: " : "You know this one: ") + esc(technique.cmd) + "<br>" + esc(technique.about)));
+            wrap.appendChild(lines);
+            var acts = el("div", "gm-acts");
+            acts.appendChild(btn("◀ Others", function () { showPeople(n.name); }, "ghost"));
+            if (page > 0)
+                acts.appendChild(btn("◀ Previous", function () { page--; paintPage(); }, "ghost gm-dialogue-prev"));
+            if (page + 1 < n.lines.length)
+                acts.appendChild(btn("Next ▶", function () { page++; paintPage(); }, "gm-dialogue-next"));
+            wrap.appendChild(acts);
+            paintTown(wrap, "talk");
+            var next = acts.querySelector(".gm-dialogue-next");
+            if (next)
+                next.focus();
+            else
+                focusFirst(acts);
+            live.textContent = n.name + ", page " + (page + 1) + " of " + n.lines.length + ": " + text(n.lines[page]);
         }
-        wrap.appendChild(lines);
-        var acts = el("div", "gm-acts");
-        acts.appendChild(btn("◀ Others", function () { paintTown(talkMenu(), "talk"); }, "ghost"));
-        wrap.appendChild(acts);
-        paintTown(wrap, "talk");
+        paintPage();
     }
-    function shopMenu() {
-        var wrap = el("div", "gm-col");
+    function shopCapacity() {
+        if (!tn)
+            return 1;
+        var style = getComputedStyle(tn.right), props = getComputedStyle(host);
+        var width = tn.right.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        var minimum = parseFloat(props.getPropertyValue("--gm-item-min")) || 200;
+        var gap = parseFloat(props.getPropertyValue("--gm-item-gap")) || 6;
+        return Math.max(1, Math.floor((width + gap) / (minimum + gap)));
+    }
+    function showShop(page = 0, focusSelector, message, tone) {
+        var shop = shopMenu(page);
+        paintTown(message ? wrapNote(shop, message, tone || "ok") : shop, "shop");
+        var target = focusSelector ? shop.querySelector(focusSelector) : null;
+        if (target && !target.disabled)
+            target.focus();
+        else
+            focusFirst(shop);
+    }
+    function shopMenu(page = 0) {
+        var wrap = el("div", "gm-col gm-shop");
         wrap.appendChild(el("p", "gm-note", "The shopkeeper nods at your " + gold() + " gold."));
         var grid = el("div", "gm-items");
-        Object.keys(D.items).forEach(function (id) {
+        var stock = Object.keys(D.items).filter(function (id) { return !!D.items[id].price; }), pageSize = shopCapacity();
+        var pages = Math.ceil(stock.length / pageSize);
+        page = Math.max(0, Math.min(page, pages - 1));
+        wrap.dataset.start = String(page * pageSize);
+        wrap.dataset.size = String(pageSize);
+        stock.slice(page * pageSize, (page + 1) * pageSize).forEach(function (id) {
             var it = D.items[id];
-            if (!it.price)
-                return;
             var owned = held(id);
             var b = btn('<span class="nm">' + esc(it.name) + '<span class="p">' + it.price + "g</span></span>" +
                 '<span class="ab">' + esc(it.about) + "</span>" + (owned ? '<span class="nm"><span class="h">' + (it.permanent ? "owned" : "held: " + owned) + "</span></span>" : ""), function () {
                 if (it.permanent && owned) {
-                    paintTown(shopMenu(), "shop");
+                    showShop(page);
                     return;
                 }
                 if (!spendGold(it.price)) {
-                    paintTown(wrapNote(shopMenu(), "Not enough gold. Trials and battles pay.", "warn"), "shop");
+                    showShop(page, undefined, "Not enough gold. Trials and battles pay.", "warn");
                     return;
                 }
                 giveItem(id, 1);
                 save();
                 cue("evidence");
-                paintTown(wrapNote(shopMenu(), "Bought " + it.name + ".", "ok"), "shop");
+                showShop(page, '[data-item="' + id + '"]', "Bought " + it.name + ".");
             }, "gm-item");
+            b.dataset.item = id;
             if ((it.permanent && owned) || gold() < it.price)
                 b.disabled = true;
             grid.appendChild(b);
         });
         wrap.appendChild(grid);
+        var acts = el("div", "gm-acts");
+        if (page > 0)
+            acts.appendChild(btn("◀ Previous stock", function () { showShop(page - 1, ".gm-stock-prev"); }, "ghost gm-stock-prev"));
+        acts.appendChild(note("Stock " + (page + 1) + " / " + pages));
+        if (page + 1 < pages)
+            acts.appendChild(btn("Next stock ▶", function () { showShop(page + 1, ".gm-stock-next"); }, "gm-stock-next"));
+        wrap.appendChild(acts);
         return wrap;
     }
     function wrapNote(w, msg, cls) { w.insertBefore(note(msg, cls), w.firstChild); return w; }
@@ -2461,7 +2529,7 @@
         host.classList.toggle("gm-full", on);
         document.documentElement.classList.toggle("gm-full-lock", on);
         if (fullBtn) {
-            fullBtn.innerHTML = "⛶<b>" + (on ? "exit" : "full") + "</b>";
+            fullBtn.textContent = on ? "exit fullscreen" : "fullscreen";
             fullBtn.setAttribute("aria-pressed", on ? "true" : "false");
             fullBtn.setAttribute("aria-label", on ? "leave fullscreen" : "play fullscreen");
         }
@@ -2651,6 +2719,10 @@
         }
         tools.appendChild(soundBtn);
         toolbar.appendChild(tools);
+        fullBtn = btn("fullscreen", function () { toggleFull(); }, "gm-btn ghost gm-fs");
+        fullBtn.setAttribute("aria-pressed", "false");
+        fullBtn.setAttribute("aria-label", "play fullscreen");
+        tools.appendChild(fullBtn);
         host.appendChild(toolbar);
         stage = el("div", "gm-stage gm-map");
         stage.tabIndex = 0;
@@ -2722,10 +2794,6 @@
         pad.appendChild(dpad);
         pad.appendChild(el("div", "gm-keys", "<b>Click a destination. Follow your own path.</b><br>WASD / arrows · enter: act · Q: journal · F: fullscreen"));
         var ab = el("div", "gm-ab");
-        fullBtn = btn("⛶<b>full</b>", function () { toggleFull(); }, "gm-fs");
-        fullBtn.setAttribute("aria-pressed", "false");
-        fullBtn.setAttribute("aria-label", "play fullscreen");
-        ab.appendChild(fullBtn);
         ab.appendChild(btn("B<b>back</b>", function () { if (scene === "map") {
             cancelRoute();
             requestDraw();
@@ -2801,6 +2869,16 @@
         listen(document, "webkitfullscreenchange", onFullChange);
         // the screen: a resize or a zoom changes how many device pixels an art pixel gets
         listen(window, "resize", fitCanvas);
+        listen(window, "resize", function () {
+            if (scene !== "town" || !tn || tn.scene !== "shop")
+                return;
+            var shop = tn.right.querySelector(".gm-shop"), size = shopCapacity();
+            if (!shop || Number(shop.dataset.size) === size)
+                return;
+            var active = document.activeElement, item = active && active.getAttribute("data-item");
+            var selector = item ? '[data-item="' + item + '"]' : active && active.classList.contains("gm-stock-prev") ? ".gm-stock-prev" : ".gm-stock-next";
+            showShop(Math.floor(Number(shop.dataset.start) / size), selector);
+        });
         listen(document, "visibilitychange", syncAnim);
         listen(document, "visibilitychange", function () { if (document.hidden)
             silence(); });

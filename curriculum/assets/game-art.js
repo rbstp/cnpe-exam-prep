@@ -245,8 +245,8 @@
     /* ── landmarks ──────────────────────────────────────────── */
     var TOWN = ["................", "................", "......bb........", ".....bbbb..bb...", "....bbbbbbbbbb..", "...bbbbbbbbbbbb.", "..bbbbbbbbbbbbbb", "..pppppppppppppp",
         "..ppyppkkpppyppp", "..ppyppkkpppyppp", "..pppppkkppppppp", "..pppppkkppppppp", "..pppppkkppppppp", ".xxxxxxxxxxxxxxx", "................", "................"];
-    var DOOR_SEALED = ["................", "....CCCCCCCC....", "...CccccccccC...", "..CccKKKKKKccC..", "..CcKKKKKKKKcC..", "..CcKKKKKKKKcC..", "..CcKCCCCCCKcC..", "..CcKKKKKKKKcC..",
-        "..CcKKKKKKKKcC..", "..CcKCCCCCCKcC..", "..CcKKKKKKKKcC..", "..CcKKKKKKKKcC..", "..CcKKKKKKKKcC..", ".xxxxxxxxxxxxxx.", "................", "................"];
+    var DOOR_SEALED = ["................", "....CCCCCCCC....", "...CccccccccC...", "..CccKKKKKKccC..", "..CcKtTtTtTKcC..", "..CcKtTtTtTKcC..", "..CcKKKKKKKKcC..", "..CcKtTyyTTKcC..",
+        "..CcKtYyyYTKcC..", "..CcKtTyyTTKcC..", "..CcKKKKKKKKcC..", "..CcKtTtTtTKcC..", "..CcKtTtTtTKcC..", ".xxxxxxxxxxxxxx.", "................", "................"];
     var DOOR_OPEN = ["................", "....CCCCCCCC....", "...CccccccccC...", "..CccvvvvvvccC..", "..CcvvVVVVvvcC..", "..CcvVVVVVVvcC..", "..CcvVVVVVVvcC..", "..CcvVVVVVVvcC..",
         "..CcvVVVVVVvcC..", "..CcvVVVVVVvcC..", "..CcvvVVVVvvcC..", "..CcKKKKKKKKcC..", "..CcKKKKKKKKcC..", ".xxxxxxxxxxxxxx.", "................", "................"];
     /* five keeps, one silhouette a region; "F" is the flag, red until the keep falls, green after */
@@ -607,6 +607,63 @@
             return;
         k.fillStyle = c;
         k.fillRect(Math.floor(x), Math.floor(y), Math.ceil(w), Math.ceil(h));
+    }
+    function dungeonTile(d, column, row, open) {
+        var crypt = cached("crypt." + d + "." + open, function (k) {
+            var g = ground(d), s = stoneSlots(), edge = outline();
+            var wall = pigment("#b2aa8d", "#8b907f", P.rule2);
+            var shade = mix(wall, edge, 0.45), light = mix(wall, "#efdcac", 0.5);
+            var roof = pigment("#526e67", "#385751", P.ok);
+            var roofLight = mix(roof, "#bec79b", 0.3), roofDark = mix(roof, edge, 0.5);
+            for (var y = 0; y < 3; y++)
+                for (var x = 0; x < 2; x++)
+                    k.drawImage(api.grass((x + y) % 4, d), x * TILE, y * TILE);
+            block(k, g.x, 5, 15, 26, 29);
+            block(k, edge, 2, 14, 27, 28);
+            block(k, wall, 3, 15, 19, 25);
+            block(k, shade, 22, 16, 6, 24);
+            for (y = 17; y < 40; y += 4) {
+                block(k, shade, 3, y, 19, 1);
+                for (x = 3 + (y % 8 === 1 ? 3 : 0); x < 22; x += 7) {
+                    block(k, light, x, y + 1, Math.min(5, 22 - x), 1);
+                    block(k, shade, x + 5, y + 1, 1, 3);
+                }
+                block(k, wall, 23, y + 1, 4, 1);
+            }
+            // A stepped slate roof and a deep return replace the repeated cliff slab.
+            for (y = 0; y < 15; y++) {
+                var inset = Math.max(0, 9 - Math.floor(y * 0.8));
+                block(k, edge, inset, y + 2, 32 - inset * 2, 1);
+                block(k, y % 3 === 2 ? roofDark : roof, inset + 1, y + 2, 29 - inset * 2, 1);
+                if (y % 3 === 0)
+                    for (x = inset + 2; x < 29 - inset; x += 5)
+                        block(k, roofLight, x, y + 2, 3, 1);
+            }
+            block(k, light, 12, 1, 8, 1);
+            block(k, edge, 1, 17, 29, 2);
+            block(k, roofLight, 1, 17, 21, 1);
+            block(k, edge, 3, 40, 26, 3);
+            block(k, light, 3, 40, 19, 1);
+            block(k, edge, 22, 22, 4, 8);
+            block(k, s.y, 23, 23, 2, 5);
+            block(k, shade, 24, 23, 1, 6);
+            var doorSlots = { c: wall, C: light, K: edge, t: g.t, T: g.T, y: s.y, Y: s.Y,
+                v: mix(edge, P.info, 0.15), V: edge, x: g.x };
+            stamp(k, open ? DOOR_OPEN : DOOR_SEALED, doorSlots, 0, TILE);
+            block(k, g.r, 0, 29, 4, 3);
+            block(k, light, 3, 30, 12, 1);
+            for (y = 18; y < 43; y += 3) {
+                block(k, g.o, 27, y, 2, 4);
+                block(k, y % 2 ? g.l : g.m, 25 + (y % 3), y + 1, 3, 2);
+            }
+            [[2, 35], [3, 42], [20, 42], [28, 43]].forEach(function (p) {
+                block(k, g.o, p[0], p[1], 3, 2);
+                block(k, g.m, p[0] + 1, p[1] - 1, 2, 2);
+            });
+        }, TILE * 2, TILE * 3);
+        return cached("crypt-tile." + d + "." + column + "." + row + "." + open, function (k) {
+            k.drawImage(crypt, column * TILE, row * TILE, TILE, TILE, 0, 0, TILE, TILE);
+        });
     }
     function noise(n) { return ((Math.imul(n + 17, 374761393) ^ Math.imul(n + 41, 668265263)) >>> 0) % 997 / 997; }
     function sceneColours(d) {
@@ -1258,7 +1315,8 @@
             });
         },
         town: function (d) { return cached("T" + d, function (k) { var g = ground(d); fill(k, g.g); stamp(k, GRASS[0], g, 0, 0); stamp(k, TOWN, stoneSlots(), 0, 0); }); },
-        door: function (d, open) { return cached("D" + d + (open ? "o" : "s"), function (k) { var g = ground(d); fill(k, g.g); stamp(k, open ? DOOR_OPEN : DOOR_SEALED, stoneSlots(), 0, 0); }); },
+        door: function (d, open) { return dungeonTile(d, 0, 1, open); },
+        dungeon: function (d, column, row) { return dungeonTile(d, column, row, false); },
         keep: function (d, cleared) {
             return cached("K" + d + (cleared ? "c" : "u"), function (k) {
                 var g = ground(d);

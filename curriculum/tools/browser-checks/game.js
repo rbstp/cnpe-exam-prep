@@ -370,8 +370,12 @@ module.exports = async function (h) {
     await menu.locator('button:has-text("Shop")').click();
     await page.waitForSelector('.gm-scene[data-scene="shop"]');
     const lens = () => page.locator('.gm-item:has-text("Lens")').first();
-    assert(!(await lens().isDisabled()) && (await page.locator('.gm-item:has-text("Cheat Sheet: kubectl")').isDisabled()),
+    const lensBuyable = !(await lens().isDisabled());
+    const sheet = page.locator('.gm-item[data-item="sheet-kubectl"]');
+    while (!(await sheet.count()) && await page.locator('.gm-stock-next').count()) await page.locator('.gm-stock-next').click();
+    assert(lensBuyable && await sheet.isDisabled(),
       'the Lens at 60g is buyable on 90 gold; the Cheat Sheet at 120g is not');
+    while (!(await lens().count()) && await page.locator('.gm-stock-prev').count()) await page.locator('.gm-stock-prev').click();
     await lens().click();
     await page.waitForSelector('.gm-note.ok');
     s = await store(page);
