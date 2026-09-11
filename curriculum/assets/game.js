@@ -3041,17 +3041,19 @@
             tn = null;
             fx = null;
             swapPending = null;
-            host.removeAttribute("data-built");
-            host.classList.remove("gm");
-            host.innerHTML = "";
+            // the host goes before the DOM does: clearing it blurs the focused stage, and that handler asks for a frame no one would cancel
+            var going = host;
             host = null;
+            going.removeAttribute("data-built");
+            going.classList.remove("gm");
+            going.innerHTML = "";
             scene = "map";
             animFrame = 0;
             walkFrame = 0;
             waterInView = 1;
             ambientInView = 0;
             dirty = true;
-            focused = false; // removing a focused element fires no blur
+            focused = false;
         },
         /** what the renderer is doing, for the browser checks and profiling */
         debug: function () {
@@ -3062,7 +3064,8 @@
                 composes: stats.composes, composeMs: stats.composeMs, tileBlits: stats.tileBlits,
                 minimap: mini ? { w: mini.width, h: mini.height, scale: miniScale } : null, minimapBuilds: stats.minimapBuilds,
                 scale: scale, dpr: dprSeen,
-                anim: !!animTimer, reduceMotion: reduceMotion, waterFrame: animFrame, walkFrame: walkFrame, face: player.face,
+                // the frames the quest itself holds, the draw loop's and the sweep's: the page's own are not its to answer for
+                anim: !!animTimer, raf: (rafId ? 1 : 0) + (sweepId ? 1 : 0), reduceMotion: reduceMotion, waterFrame: animFrame, walkFrame: walkFrame, face: player.face,
                 x: player.x, y: player.y, walking: !!walk, offset: { x: drawnOff.x, y: drawnOff.y }, sub: drawnSub, queued: !!queued,
                 camera: lastCam ? { x: lastCam.x, y: lastCam.y } : null, cameraEase: !!ease,
                 goal: host && D && window.CNPE_PROGRESS ? nextGoal() : null, // a mount that found no assets has no store to read
