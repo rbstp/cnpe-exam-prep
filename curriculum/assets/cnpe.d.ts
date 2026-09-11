@@ -493,6 +493,8 @@ interface CnpeArtApi {
   bridge(vertical: boolean): HTMLCanvasElement;
   town(region: number): HTMLCanvasElement;
   door(region: number, open: boolean): HTMLCanvasElement;
+  /** One tile of the coherent two-by-three dungeon landmark. */
+  dungeon(region: number, column: 0 | 1, row: 0 | 1 | 2): HTMLCanvasElement;
   keep(region: number, cleared: boolean): HTMLCanvasElement;
   /** 0 shut, 1 open, 2 passed */
   gate(state: number): HTMLCanvasElement;

@@ -297,6 +297,11 @@ const kinds = [...new Set(Object.values(D.tiles))].sort();
 ok(kinds.every(k => WALK[k] || BLOCKED[k]), "every tile kind is one the walk table knows: " + kinds.join(", "));
 const W = D.map[0].length, H = D.map.length;
 const kindAt = (x, y) => (D.map[y] && D.map[y][x] ? D.tiles[D.map[y][x]] : "void");
+ok(D.towns.every(t => {
+  const { x, y } = t.door;
+  return BLOCKED[kindAt(x, y - 1)] && BLOCKED[kindAt(x + 1, y)] &&
+    BLOCKED[kindAt(x, y + 1)] && kindAt(x - 1, y) === 'road';
+}), "every dungeon has stone on three sides and one road-facing entrance");
 const reached = new Set([D.start.x + "," + D.start.y]), queue = [[D.start.x, D.start.y]];
 for (let q = 0; q < queue.length; q++) {
   const [x, y] = queue[q];

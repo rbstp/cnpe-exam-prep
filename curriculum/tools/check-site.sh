@@ -121,8 +121,7 @@ grep -q 'dark: "#171c1d", light: "#f6f5f0"' "$SITE/assets/theme.js" ||
 grep -q -- '--ink: #171c1d' "$SITE/assets/reader.css" &&
   grep -q -- '--ink: #f6f5f0' "$SITE/assets/reader.css" ||
   { echo "reader palette grounds drifted"; exit 1; }
-if grep -q 'assets/reader.css' "$SITE/game.html"; then
-  echo "the standalone quest must not load reader.css"; exit 1
-fi
+grep -q 'assets/reader.css' "$SITE/game.html" ||
+  { echo "the quest must load the shared reading shell"; exit 1; }
 
 echo "staged site looks right ($n pages)"

@@ -422,7 +422,6 @@
         'stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">' +
         '<path d="M13.3 10.1A5.8 5.8 0 0 1 5.9 2.7a5.9 5.9 0 1 0 7.4 7.4Z"/></svg>'
   };
-  var THEME_NEXT = { system: "light", light: "dark", dark: "system" };
   function themeButton() {
     var b = el("button", "iconbtn themebtn");
     b.type = "button";
@@ -445,7 +444,7 @@
     var pref = window.CNPE_THEME.pref();
     var name = pref === "system" ? "system (" + window.CNPE_THEME.resolved() + ")" : pref;
     b.innerHTML = THEME_ICON[pref];
-    var next = isStudy() ? (window.CNPE_THEME.resolved() === "dark" ? "light" : "dark") : THEME_NEXT[pref];
+    var next = window.CNPE_THEME.resolved() === "dark" ? "light" : "dark";
     b.title = "Theme: " + name + " · switch to " + next + " (t)";
     b.setAttribute("aria-label", b.title);
   }
@@ -704,7 +703,6 @@
     body.classList.toggle("reading-lesson", !!entry && entry.d > 0);
     body.classList.remove("reading-menu-open");
     paintReading();
-    if (!isStudy()) return;
     if (!readingPrefsRead) {
       readingPrefsRead = true;
       try { readingLarge = localStorage.getItem("cnpe:reading-size") === "large"; }
@@ -714,7 +712,7 @@
     var head = art && art.querySelector(".pagehead");
     if (!head) return;
     var tools = head.querySelector(".reading-tools");
-    if (!tools) {
+    if (!tools && isStudy()) {
       tools = el("div", "reading-tools");
       var size = el("button", "iconbtn reading-size", "Aa");
       size.type = "button";
@@ -1063,7 +1061,7 @@
           "<dt>m</dt><dd>mark this section complete</dd>"
         : "") +
       (isStudy() ? "<dt>f</dt><dd>toggle focus view</dd><dt>t</dt><dd>switch dark / light theme</dd>" :
-        "<dt>t</dt><dd>theme: system, light, dark</dd>") +
+        "<dt>f</dt><dd>fullscreen while the game is focused</dd><dt>t</dt><dd>switch dark / light theme</dd>") +
       "<dt>?</dt><dd>this card</dd>" +
       "<dt>esc</dt><dd>close</dd></dl>" +
       '<p style="margin:16px 0 0;color:var(--paper-3);font-size:13.5px">Progress is stored in this browser only. ' +
@@ -1516,7 +1514,7 @@
   var wired = false;
   function boot() {
     readPage();
-    if (window.CNPE_THEME && window.CNPE_THEME.study) window.CNPE_THEME.study(isStudy());
+    if (window.CNPE_THEME && window.CNPE_THEME.study) window.CNPE_THEME.study(true);
     Array.prototype.forEach.call(document.querySelectorAll(".topbar, .overlay"), function (n) { n.remove(); });
     lockScroll(false);                 // the bundle boots straight out of an open palette
     buildTopbar();

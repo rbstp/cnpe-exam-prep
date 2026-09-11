@@ -1,4 +1,4 @@
-/* Study pages default to dark; the quest keeps its system/light/dark switch. */
+/* The shared study shell, including the quest page, defaults to dark. */
 (function () {
   "use strict";
 
