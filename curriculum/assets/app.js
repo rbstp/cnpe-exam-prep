@@ -353,7 +353,16 @@
 
     inner.appendChild(themeButton());
 
-    var hb = el("button", "iconbtn", "?");
+    if (isStudy()) {
+      var fb = el("button", "iconbtn focusbtn",
+        '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" aria-hidden="true">' +
+        '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M8 8h8v8H8Z"/></svg>');
+      fb.type = "button";
+      fb.addEventListener("click", toggleReadingFocus);
+      inner.appendChild(fb);
+    }
+
+    var hb = el("button", "iconbtn helpbtn", "?");
     hb.type = "button"; hb.title = "Keyboard shortcuts";
     hb.addEventListener("click", function () { toggleOverlay(helpOverlay); });
     inner.appendChild(hb);
@@ -371,6 +380,7 @@
     repo.title = "The lab this curriculum runs on: github.com/rbstp/cnpe-exam-prep";
     repo.target = "_blank";
     repo.rel = "noopener";
+    repo.classList.add("repobtn");
     repo.setAttribute("aria-label", "The lab repository on GitHub");
     inner.appendChild(repo);
 
@@ -435,7 +445,8 @@
     var pref = window.CNPE_THEME.pref();
     var name = pref === "system" ? "system (" + window.CNPE_THEME.resolved() + ")" : pref;
     b.innerHTML = THEME_ICON[pref];
-    b.title = "Theme: " + name + " · switch to " + THEME_NEXT[pref] + " (t)";
+    var next = isStudy() ? (window.CNPE_THEME.resolved() === "dark" ? "light" : "dark") : THEME_NEXT[pref];
+    b.title = "Theme: " + name + " · switch to " + next + " (t)";
     b.setAttribute("aria-label", b.title);
   }
 
@@ -603,7 +614,11 @@
     if (!toc) return;
     toc.style.display = "";
     var heads = document.querySelectorAll("article .panel > .phdr h2");
-    if (!heads.length) { toc.style.display = "none"; toc.innerHTML = ""; return; }
+    if (!heads.length) {
+      toc.style.display = "none"; toc.innerHTML = "";
+      spyState.links = []; spyState.targets = []; spyState.active = -1;
+      return;
+    }
     var html = "<h2>On this page</h2>";
     Array.prototype.forEach.call(heads, function (h, i) {
       var panel = h.closest(".panel");
@@ -617,7 +632,7 @@
     }
     toc.innerHTML = html;
 
-    spyState.links = Array.prototype.slice.call(toc.querySelectorAll("a"));
+    spyState.links = Array.prototype.slice.call(toc.querySelectorAll('a[href^="#"]'));
     spyState.targets = spyState.links.map(function (a) { return document.querySelector(a.getAttribute("href")); });
     spyState.active = -1;                        // the links it last marked are gone
     if (!spyState.wired) {
@@ -631,6 +646,162 @@
     // spy() reads offsetTop and six builders still have to run, so lay out once,
     // on the next frame, over the page the reader actually gets.
     requestAnimationFrame(spy);
+  }
+
+  /* Reading controls enhance the original document, never replace its content. */
+  var readingFocus = false, readingLarge = false, readingPrefsRead = false;
+  function isStudy() { return PAGE_ID !== "GM"; }
+  function toggleReadingFocus() {
+    readingFocus = !readingFocus;
+    paintReading();
+  }
+  function paintReading() {
+    body.classList.toggle("reading-focus", isStudy() && readingFocus);
+    body.classList.toggle("reading-large", isStudy() && readingLarge);
+    var focus = document.querySelector(".focusbtn");
+    if (focus) {
+      focus.setAttribute("aria-pressed", String(readingFocus));
+      focus.setAttribute("aria-label", (readingFocus ? "Exit" : "Enter") + " focus view (f)");
+      focus.setAttribute("title", (readingFocus ? "Exit" : "Enter") + " focus view (f)");
+    }
+    var size = document.querySelector(".reading-size");
+    if (size) {
+      size.setAttribute("aria-pressed", String(readingLarge));
+      size.setAttribute("aria-label", readingLarge ? "Use standard reading text" : "Use larger reading text");
+    }
+  }
+  function jumpToReading(target) {
+    var exercise = target.closest(".exercise");
+    if (exercise && exercise.classList.contains("collapsed")) {
+      var disc = /** @type {HTMLButtonElement} */ (exercise.querySelector(".disc"));
+      if (disc) disc.click();
+    }
+    var menu = document.querySelector(".reading-menu");
+    if (menu) menu.setAttribute("aria-expanded", "false");
+    body.classList.remove("reading-menu-open");
+    target.setAttribute("tabindex", "-1");
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: "start" });
+  }
+  window.CNPE_SCROLL_TO = function (id) {
+    var target = document.getElementById(id);
+    if (!target) return false;
+    jumpToReading(target);
+    return true;
+  };
+  function readingLink(link, target) {
+    link.href = window.CNPE_BUNDLE ? "#" + (PAGE_ID || "index") + "/" + target.id : "#" + target.id;
+    link.addEventListener("click", function (e) {
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      if (!window.CNPE_BUNDLE) jumpToReading(target);
+      else if (location.hash === link.getAttribute("href")) {
+        e.preventDefault();
+        jumpToReading(target);
+      }
+    });
+  }
+  function buildReading() {
+    body.classList.toggle("reading-lesson", !!entry && entry.d > 0);
+    body.classList.remove("reading-menu-open");
+    paintReading();
+    if (!isStudy()) return;
+    if (!readingPrefsRead) {
+      readingPrefsRead = true;
+      try { readingLarge = localStorage.getItem("cnpe:reading-size") === "large"; }
+      catch (e) { console.warn("CNPE: reading preferences are unavailable in this browser.", e); }
+    }
+    var art = document.querySelector("article");
+    var head = art && art.querySelector(".pagehead");
+    if (!head) return;
+    var tools = head.querySelector(".reading-tools");
+    if (!tools) {
+      tools = el("div", "reading-tools");
+      var size = el("button", "iconbtn reading-size", "Aa");
+      size.type = "button";
+      size.addEventListener("click", function () {
+        readingLarge = !readingLarge;
+        paintReading();
+        try { localStorage.setItem("cnpe:reading-size", readingLarge ? "large" : "standard"); }
+        catch (e) {
+          var note = document.getElementById("reading-note");
+          if (note) note.textContent = "Text size changed for this visit, but this browser could not save the preference.";
+          console.warn("CNPE: could not save the reading text size.", e);
+        }
+      });
+      tools.appendChild(size);
+      var note = el("span", "reading-note");
+      note.id = "reading-note"; note.setAttribute("role", "status");
+      tools.appendChild(note);
+      head.appendChild(tools);
+    }
+    var toc = document.getElementById("toc");
+    if (!toc || !spyState.links.length) { paintReading(); return; }
+    toc.setAttribute("aria-label", entry && entry.d > 0 ? "Lesson navigation" : "Page navigation");
+    var links = Array.prototype.slice.call(toc.querySelectorAll("a"));
+    var nav = el("nav", "reading-outline");
+    nav.setAttribute("aria-label", "Contents");
+    links.forEach(function (a) {
+      var target = document.getElementById(a.getAttribute("href").slice(1));
+      readingLink(a, target);
+      nav.appendChild(a);
+    });
+    var title = toc.querySelector("h2");
+    if (title) title.textContent = entry && entry.d > 0 ? "Lesson contents" : "Contents";
+    if (title) title.after(nav);
+
+    if (entry) {
+      var home = el("a", "reading-home", "← Curriculum");
+      home.href = href("index.html");
+      toc.insertBefore(home, toc.firstChild);
+    }
+    if (entry && entry.d > 0) {
+      var d = domainOf(entry.d);
+      var context = el("div", "reading-domain");
+      context.textContent = entry.id + " · " + d.name;
+      home.after(context);
+      var modes = el("nav", "reading-modes");
+      modes.setAttribute("aria-label", "Learning mode");
+      [["Read", document.querySelector("article .panel")],
+       ["Practice", document.getElementById("exercises")],
+       ["Recall", document.getElementById("selfcheck")]].forEach(function (pair) {
+        var target = /** @type {HTMLElement} */ (pair[1]);
+        if (!target) return;
+        var a = el("a", "", pair[0]);
+        readingLink(a, target);
+        modes.appendChild(a);
+      });
+      context.after(modes);
+      var practice = el("details", "reading-exercises");
+      practice.appendChild(el("summary", "", "Exercise index"));
+      Array.prototype.forEach.call(art.querySelectorAll(".exercise"), function (ex) {
+        var target = ex.querySelector(".body");
+        var a = el("a");
+        a.textContent = ex.getAttribute("data-title");
+        readingLink(a, target);
+        practice.appendChild(a);
+      });
+      nav.after(practice);
+      var drill = el("a", "reading-drill", "Spaced recall →");
+      drill.href = href("drill.html");
+      practice.after(drill);
+    }
+    var menu = art.querySelector(".reading-menu");
+    if (!menu) {
+      menu = el("button", "tbtn ghost reading-menu", "Contents");
+      menu.setAttribute("type", "button");
+      menu.setAttribute("aria-controls", "toc");
+      art.insertBefore(menu, art.firstChild);
+      menu.addEventListener("click", function () {
+        var open = body.classList.toggle("reading-menu-open");
+        menu.setAttribute("aria-expanded", String(open));
+        if (open) {
+          var first = /** @type {HTMLElement} */ (toc.querySelector("a"));
+          if (first) first.focus();
+        }
+      });
+    }
+    menu.setAttribute("aria-expanded", "false");
+    paintReading();
   }
   var spyState = { links: [], targets: [], wired: false, active: -1 };
   function spy() {
@@ -652,8 +823,19 @@
     if (root.scrollHeight > window.innerHeight &&
         window.innerHeight + window.pageYOffset >= root.scrollHeight - 2) idx = spyState.targets.length - 1;
     if (idx === spyState.active) return;
-    if (links[spyState.active]) links[spyState.active].classList.remove("active");
+    if (links[spyState.active]) {
+      links[spyState.active].classList.remove("active");
+      links[spyState.active].removeAttribute("aria-current");
+    }
     links[idx].classList.add("active");
+    links[idx].setAttribute("aria-current", "location");
+    var active = spyState.targets[idx];
+    Array.prototype.forEach.call(document.querySelectorAll(".reading-modes a"), function (a) {
+      var mode = a.textContent;
+      var current = mode === "Practice" ? active.id === "exercises" :
+        mode === "Recall" ? active.id === "selfcheck" : active.id !== "exercises" && active.id !== "selfcheck";
+      if (current) a.setAttribute("aria-current", "location"); else a.removeAttribute("aria-current");
+    });
     spyState.active = idx;
   }
   // Scroll already arrives at most once a frame, so do the reading on the frame
@@ -880,7 +1062,8 @@
           "<dt>c</dt><dd>collapse or expand every exercise</dd>" +
           "<dt>m</dt><dd>mark this section complete</dd>"
         : "") +
-      "<dt>t</dt><dd>theme: system, light, dark</dd>" +
+      (isStudy() ? "<dt>f</dt><dd>toggle focus view</dd><dt>t</dt><dd>switch dark / light theme</dd>" :
+        "<dt>t</dt><dd>theme: system, light, dark</dd>") +
       "<dt>?</dt><dd>this card</dd>" +
       "<dt>esc</dt><dd>close</dd></dl>" +
       '<p style="margin:16px 0 0;color:var(--paper-3);font-size:13.5px">Progress is stored in this browser only. ' +
@@ -915,7 +1098,15 @@
       var target = /** @type {HTMLElement} */ (e.target);
       var tag = (target.tagName || "").toLowerCase();
       var typing = tag === "input" || tag === "textarea" || target.isContentEditable;
-      if (e.key === "Escape") { closeOverlays(); return; }
+      if (e.key === "Escape") {
+        closeOverlays();
+        if (body.classList.contains("reading-menu-open")) {
+          body.classList.remove("reading-menu-open");
+          var menu = /** @type {HTMLButtonElement} */ (document.querySelector(".reading-menu"));
+          if (menu) { menu.setAttribute("aria-expanded", "false"); menu.focus(); }
+        }
+        return;
+      }
       if ((e.key === "k" || e.key === "K") && (e.metaKey || e.ctrlKey)) { e.preventDefault(); openPalette(); return; }
       if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
       if (document.querySelector(".overlay.open")) return;   // the modal owns the keyboard
@@ -943,6 +1134,9 @@
           break;
         case "t":
           if (window.CNPE_THEME) window.CNPE_THEME.cycle();
+          break;
+        case "f":
+          if (isStudy()) { e.preventDefault(); toggleReadingFocus(); }
           break;
       }
     });
@@ -1322,6 +1516,7 @@
   var wired = false;
   function boot() {
     readPage();
+    if (window.CNPE_THEME && window.CNPE_THEME.study) window.CNPE_THEME.study(isStudy());
     Array.prototype.forEach.call(document.querySelectorAll(".topbar, .overlay"), function (n) { n.remove(); });
     lockScroll(false);                 // the bundle boots straight out of an open palette
     buildTopbar();
@@ -1340,6 +1535,7 @@
     buildExam();
     // Must run last: the builders above re-serialize their panels.
     buildCodeBlocks();
+    buildReading();
     if (!wired) { keys(); wired = true; }
   }
   window.CNPE_BOOT = boot;

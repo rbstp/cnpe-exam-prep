@@ -36,14 +36,15 @@ printf '%s\n' "$SITE_DOMAIN" > "$OUT/CNAME"
 # Served for any missing path at any depth, so its links must be root-absolute.
 cat > "$OUT/404.html" <<'HTML'
 <!doctype html>
-<html lang="en">
+<html lang="en" data-study>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#171511" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#F3EFE6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#171c1d" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f5f0" media="(prefers-color-scheme: light)">
 <title>Not found · CNPE study console</title>
 <link rel="stylesheet" href="/assets/style.css">
+<link rel="stylesheet" href="/assets/reader.css">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
 <script src="/assets/theme.js"></script>
 </head>

@@ -158,9 +158,9 @@ module.exports = async function (h) {
     p.evaluate(() => (document.getElementById('sync-note') || { textContent: '' }).textContent);
   /** @param {import('playwright').Page} p */
   const btnOf = p => p.evaluate(() => {
-    const b = /** @type {HTMLButtonElement} */ (document.getElementById('sync-btn'));
+    const b = /** @type {HTMLButtonElement} */ (document.querySelector('.syncbtn'));
     const d = /** @type {HTMLButtonElement} */ (document.getElementById('sync-forget'));
-    return { text: b ? b.textContent : null, hidden: b ? b.hidden : null, delHidden: d ? d.hidden : null };
+    return { text: b ? b.title : null, hidden: b ? b.hidden : null, delHidden: d ? d.hidden : null };
   });
 
   /* 1. file:// is local-only: neither control appears and nothing is requested.
@@ -187,7 +187,9 @@ module.exports = async function (h) {
     const s = await site({ seed: { done: { '1.1': 1 } } });
     await s.go();
     const b = await btnOf(s.page);
-    assert(b.hidden === false && /Sign in to sync/.test(b.text), 'the button offers sign-in: ' + JSON.stringify(b.text));
+    assert(b.hidden === false && /Sign in with GitHub/.test(b.text), 'the button offers sign-in: ' + JSON.stringify(b.text));
+    assert(await s.page.locator('.syncbtn').count() === 1 && await s.page.locator('#sync-btn').count() === 0,
+      'sign-in is available only in the header');
     assert(b.delHidden === true, 'the delete button is hidden while signed out');
     // [hidden] only wins if nothing in style.css sets display on button.tbtn
     const painted = await s.page.evaluate(() =>
@@ -195,6 +197,27 @@ module.exports = async function (h) {
     assert(painted === 'none', 'and it is really off the page, not just flagged: ' + painted);
     assert(s.seen.length === 0, 'no call to the Worker before opting in: ' + JSON.stringify(s.seen));
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
+    await s.ctx.close();
+  });
+
+  await group('a long account name fits the responsive header', async () => {
+    const s = await site({
+      signedIn: true,
+      api: () => ({ status: 200, json: {
+        user: { login: 'a-long-github-account-name-for-testing', id: '1' },
+        rev: 0, progress: null, updated: null,
+      } }),
+    });
+    await s.go();
+    await s.page.waitForFunction(() => document.querySelector('.syncbtn').classList.contains('on'));
+    for (const width of [390, 768, 1100, 1440]) {
+      await s.page.setViewportSize({ width, height: 900 });
+      const layout = await s.page.evaluate(() => {
+        const b = document.querySelector('.syncbtn').getBoundingClientRect();
+        return document.documentElement.scrollWidth <= innerWidth + 1 && b.left >= 0 && b.right <= innerWidth;
+      });
+      assert(layout, 'account control stays visible without horizontal overflow at ' + width + 'px');
+    }
     await s.ctx.close();
   });
 
@@ -220,7 +243,7 @@ module.exports = async function (h) {
       },
     });
     await s.go();
-    await s.page.click('#sync-btn');
+    await s.page.click('.syncbtn');
     // waitForURL would match the page we are already on, so wait for the trip
     await s.page.waitForFunction(o =>
       location.href === o && !!window.CNPE_SYNC, SITE_ORIGIN + '/index.html');
@@ -229,7 +252,7 @@ module.exports = async function (h) {
     assert(!!flag && JSON.parse(flag).on === 1, 'the opt-in is recorded before leaving: ' + JSON.stringify(flag));
     await s.page.waitForFunction(() => window.CNPE_SYNC.signedIn());
     const b = await btnOf(s.page);
-    assert(/Sign out/.test(b.text), 'the button flips to sign-out on return: ' + JSON.stringify(b.text));
+    assert(/sign out/i.test(b.text), 'the button flips to sign-out on return: ' + JSON.stringify(b.text));
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
   });
@@ -348,12 +371,12 @@ module.exports = async function (h) {
     // the panel button is a deliberate, fully labelled control: no confirm here
     let dialogs = 0;
     s.page.on('dialog', d => { dialogs++; d.accept(); });
-    await s.page.click('#sync-btn');
+    await s.page.click('.syncbtn');
     await s.page.waitForFunction(() => !window.CNPE_SYNC.signedIn());
-    assert(dialogs === 0, 'the panel button signs out without asking');
+    assert(dialogs === 1, 'the header button confirms before signing out');
     assert(s.seen.indexOf('POST /auth/signout') >= 0, 'the session is dropped at the Worker: ' + JSON.stringify(s.seen));
     const b = await btnOf(s.page);
-    assert(/Sign in to sync/.test(b.text), 'the button offers sign-in again');
+    assert(/Sign in with GitHub/.test(b.text), 'the button offers sign-in again');
     assert(b.delHidden === true, 'the delete button goes away with it');
     assert(/saved copy is untouched/.test(await noteOf(s.page)), 'the note says the saved copy survives');
     const store = await readStore(s.page);

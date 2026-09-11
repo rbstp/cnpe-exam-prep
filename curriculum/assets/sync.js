@@ -153,7 +153,7 @@
         // Panels paint from the store at load, so a merge that moved something
         // needs a repaint. Only on the dashboard, where the user just asked.
         if (!changed(added)) { mark(RELOADED, null); return; }
-        if (document.getElementById("sync-btn") && !mark(RELOADED)) {
+        if (document.getElementById("domain-grid") && !mark(RELOADED)) {
           mark(RELOADED, "1");            // a save that never sticks must not loop
           location.reload();
         }
@@ -302,20 +302,21 @@
 
     b.title = title;
     b.setAttribute("aria-label", title);
+    var label = b.querySelector(".sync-label");
+    if (document.documentElement.hasAttribute("data-study")) {
+      if (!label) {
+        label = document.createElement("span");
+        label.className = "sync-label";
+        b.appendChild(label);
+      }
+      label.textContent = S.on ? (S.login ? "@" + S.login : "Account") : "Sign in";
+    } else if (label) label.remove();
   }
   function paint() {
     paintTop();
-    var btn = /** @type {HTMLButtonElement} */ (document.getElementById("sync-btn"));
     var del = /** @type {HTMLButtonElement} */ (document.getElementById("sync-forget"));
     var note = document.getElementById("sync-note");
-    if (!btn) return;
-    if (!usable()) { btn.hidden = true; if (del) del.hidden = true; return; }
-    btn.hidden = false;
-    btn.textContent = S.on ? (S.login ? "Sign out (@" + S.login + ")" : "Sign out") : "Sign in to sync";
-    // ghost and .on set colour at the same specificity, so only one may be on.
-    btn.classList.toggle("on", S.on);
-    btn.classList.toggle("ghost", !S.on);
-    if (del) del.hidden = !S.on;
+    if (del) del.hidden = !usable() || !S.on;
     if (note) { note.textContent = S.note; note.hidden = !S.note; }
   }
   /** @param {boolean} ask confirm first; the masthead icon is one stray click from anywhere */
@@ -332,16 +333,13 @@
       top.setAttribute("data-wired", "1");
       top.addEventListener("click", function () { toggle(true); });
     }
-    var btn = document.getElementById("sync-btn");
-    if (!btn) { paint(); return; }
-    // The bundle re-runs every builder per navigation; wire each button once.
-    if (btn.getAttribute("data-wired")) { paint(); return; }
-    btn.setAttribute("data-wired", "1");
     var del = document.getElementById("sync-forget");
-    btn.addEventListener("click", function () { toggle(false); });
-    if (del) del.addEventListener("click", function () {
-      if (confirm("Delete the progress copy saved to your GitHub account? This browser keeps its own.")) forget();
-    });
+    if (del && !del.getAttribute("data-wired")) {
+      del.setAttribute("data-wired", "1");
+      del.addEventListener("click", function () {
+        if (confirm("Delete the progress copy saved to your GitHub account? This browser keeps its own.")) forget();
+      });
+    }
     paint();
   }
 

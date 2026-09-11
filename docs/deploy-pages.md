@@ -180,7 +180,7 @@ That was chosen over the alternatives:
 ### (e) GitHub sign-in + Worker + D1: added, opt-in, alongside (b)
 
 (b) is still there and still the default. On top of it there is now an optional
-**Sign in to sync**, documented in full in [progress-sync.md](progress-sync.md).
+header **Sign in** control, documented in full in [progress-sync.md](progress-sync.md).
 It answers each objection to (c) and (d) rather than accepting them:
 
 * **Not a shared key.** GitHub OAuth gives a per-account row. Nobody with the URL
@@ -248,14 +248,15 @@ curl -sS -o /dev/null -w 'apex %{http_code}\n' https://rbstp.dev/
 ### Browser pass
 
 1. **Fonts.** Open `https://cnpe.rbstp.dev/`, DevTools → Network → filter `Font`, reload.
-   Nine `woff2` at `200`: plex-sans (variable), plex-serif 400/400i/600, plex-cond 600/700, plex-mono 400/500/600.
-   Headings should be narrow and condensed, code monospaced; a serif or the system UI
-   font means they did not load.
+   Requested `woff2` files should return `200` from the site's own assets directory,
+   with no external font requests. Study page titles use `CNPE Serif`, prose and
+   navigation use `CNPE Sans`, and code uses `CNPE Mono`. The quest retains its
+   original serif and condensed assignments. Only faces used by the page need to load.
 2. **Palette.** Press <kbd>/</kbd> → the overlay opens. Type `crossplane` → one hit
    (3.5). <kbd>Enter</kbd> navigates to it. <kbd>?</kbd> lists every shortcut.
 3. **A figure responds.** Go to `/01-architecture/01-networking.html`, find *"Follow one
    request until it fails"*, untick **DNS egress to kube-dns is allowed** → the
-   `DNS (CoreDNS)` hop flips to ✕, the hops below grey out, and the note becomes the
+   `DNS (CoreDNS)` hop flips to ✕, the skipped hops below use dashed borders, and the note becomes the
    `nslookup` / `hubble observe --verdict DROPPED` pair.
 4. **Progress persists.** On that page click **Mark section complete** and tick one
    exercise's **mark verified**. Reload: both stay. Go to `/` → *Sections complete*
@@ -264,10 +265,12 @@ curl -sS -o /dev/null -w 'apex %{http_code}\n' https://rbstp.dev/
    Open the site in a different browser (or a private window), click **Import**, pick that
    file → it reports what it added and reloads showing 1.1 done. Importing it a second
    time says *"Nothing new in that file"* rather than double-counting.
-6. **The theme.** The ground matches your OS setting on first load. Click the masthead
-   theme button (or press <kbd>t</kbd>) → paper, then night, then back to *system*;
-   the tooltip names the current state. Reload on a pinned theme: the page comes up in it
-   with no flash of the other ground, because `assets/theme.js` runs from `<head>`.
+6. **The theme.** Study pages start dark when no preference is saved, even on a
+   light OS setting. Click the masthead theme button (or press <kbd>t</kbd>) to
+   alternate light and dark; the tooltip names the current state and next action.
+   Reload: the saved theme returns without a flash because `assets/theme.js`
+   runs from `<head>`. The standalone quest and the bundle's `#GM` route retain
+   the original system/light/dark switch and palette.
 7. **The single file.** `/console.html` → same dashboard. Network shows one document and
    **zero** font requests (they are `data:` URIs). Clicking a section only changes the
    `#hash`. Save it with <kbd>Ctrl/Cmd-S</kbd>, turn off wifi, open the saved file: it
