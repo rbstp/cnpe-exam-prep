@@ -93,10 +93,7 @@ module.exports = async function (h) {
 
   await group('table headers stay on one line', async () => {
     const { ctx, page } = await fresh();
-    // Every staged page that carries a table, not a sample of them: a header
-    // cell is squeezed by the widest body cell in its own column, so which
-    // labels break is a property of each table's content. The bundled console
-    // is in the sweep for the same reason check-site.sh walks it separately.
+    // every page with a table: which label breaks depends on that table's content
     /** @type {string[]} */
     const files = [];
     (function walk(/** @type {string} */ dir) {
@@ -119,9 +116,7 @@ module.exports = async function (h) {
         await page.goto(url(file));
         await page.evaluate(() => document.fonts.ready);
         const state = await page.evaluate(() => {
-          // Line boxes rather than computed white-space: a broken header is what
-          // the reader actually sees ("Sessio / ns"), and the client rects of a
-          // range over the cell's text count the lines it took.
+          // line boxes, not computed white-space: what the reader actually sees
           const lines = (/** @type {Element} */ th) => {
             const range = document.createRange();
             range.selectNodeContents(th);
@@ -139,8 +134,7 @@ module.exports = async function (h) {
       }
       assert(wrapped.length === 0,
         width + 'px: every header cell renders on one line' + (wrapped.length ? ': ' + wrapped.join(', ') : ''));
-      // A non-wrapping header row raises each table's minimum width, which the
-      // scrolling wrapper has to absorb instead of handing it to the page.
+      // a header row that cannot wrap raises the table's minimum width
       assert(overflowed.length === 0,
         width + 'px: no page scrolls sideways to fit a header row' + (overflowed.length ? ': ' + overflowed.join(', ') : ''));
     }
