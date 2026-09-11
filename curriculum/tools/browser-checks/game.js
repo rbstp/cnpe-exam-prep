@@ -553,7 +553,7 @@ module.exports = async function (h) {
       await page.evaluate(() => window.CNPE_GAME.debug().frame());   // the viewport settled; paint it now
       seen[theme] = await water(page);
       assert(seen[theme] !== '0,0,0', theme + ': the sea is painted, not black: ' + seen[theme]);
-      const ink = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--ink').trim());
+      const ink = await page.evaluate(() => getComputedStyle(document.getElementById('game-app')).getPropertyValue('--ink').trim());
       const win = await page.evaluate(() => getComputedStyle(document.querySelector('.gm-hud')).backgroundColor);
       assert(!!ink && win !== 'rgba(0, 0, 0, 0)', theme + ': the windows take the palette ground');
       if (SHOTS) {
@@ -635,7 +635,7 @@ module.exports = async function (h) {
     // camera's tiles and no more, and the map — not the ground colour under it — is what it shows
     const first = await page.evaluate(() => {
       const g = () => window.CNPE_GAME.debug();
-      const hex = getComputedStyle(document.documentElement).getPropertyValue('--ink-sunk').trim().replace('#', '');
+      const hex = getComputedStyle(document.getElementById('game-app')).getPropertyValue('--ink-sunk').trim().replace('#', '');
       const sunk = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16)).join(',');   // the ground the terrain is cleared to, before a tile lands on it
       const before = { renders: g().terrainRenders, slices: g().terrainSlices, builds: g().minimapBuilds };
       window.CNPE_THEME.set('light');
@@ -668,7 +668,7 @@ module.exports = async function (h) {
       g().frame();
       const d = g(), c = /** @type {HTMLCanvasElement} */ (document.querySelector('.gm-stage canvas'));
       const p = c.getContext('2d').getImageData((c.width / 2) | 0, (c.height / 2) | 0, 1, 1).data;
-      const hex = getComputedStyle(document.documentElement).getPropertyValue('--ink-sunk').trim().replace('#', '');
+      const hex = getComputedStyle(document.getElementById('game-app')).getPropertyValue('--ink-sunk').trim().replace('#', '');
       return { slices: d.terrainSlices - slices, pending: d.terrainPending, middle: p[0] + ',' + p[1] + ',' + p[2], sunk: [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16)).join(','), at: [d.x, d.y] };
     });
     assert(there.at.join() === '60,40' && there.pending > 0 && there.middle !== there.sunk,
@@ -689,7 +689,7 @@ module.exports = async function (h) {
     await page.goto(url('game.html'));
     await page.waitForSelector('.gm-stage canvas');
     const rgb = (/** @type {string} */ hex) => { const h = hex.replace('#', ''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)).join(','); };
-    const colours = await page.evaluate(() => { const cs = getComputedStyle(document.documentElement); const v = (/** @type {string} */ n) => cs.getPropertyValue(n).trim(); return { warn: v('--warn'), ink: v('--ink'), paper: v('--paper') }; });
+    const colours = await page.evaluate(() => { const cs = getComputedStyle(document.getElementById('game-app')); const v = (/** @type {string} */ n) => cs.getPropertyValue(n).trim(); return { warn: v('--warn'), ink: v('--ink'), paper: v('--paper') }; });
     // no frame() and no sweep() here: the sweep runs on its own animation frames,
     // and under reduced motion there is no beat to come round and repaint after it
     await page.waitForFunction(() => window.CNPE_GAME.debug().terrainPending === 0 && window.CNPE_GAME.debug().minimapBuilds > 0, null, { timeout: 5000 });
@@ -758,7 +758,7 @@ module.exports = async function (h) {
         const landed = await at();
         assert(landed.x === 11 && !landed.walking && !landed.queued, tag + 'and the queued step lands one tile on, and no further: ' + JSON.stringify(landed));
         const label = await page.getAttribute('.gm-stage canvas', 'aria-label');
-        assert(/You stand on grass/.test(label || ''), tag + 'the canvas describes the tile landed on: ' + label);
+        assert(/You stand on road/.test(label || ''), tag + 'the canvas describes the dungeon bypass road landed on: ' + label);
       }
       assert(page.errors.length === 0, tag + 'no console errors: ' + page.errors.join(' | '));
       await ctx.close();
@@ -1046,7 +1046,7 @@ module.exports = async function (h) {
       for (let i = 4; i < d.length; i += 4) if (d[i] + ',' + d[i + 1] + ',' + d[i + 2] !== first) return 'mixed:' + first;
       return first;
     }, { x, y });
-    const colours = await page.evaluate(() => { const cs = getComputedStyle(document.documentElement); const v = (/** @type {string} */ n) => cs.getPropertyValue(n).trim(); return { ok: v('--ok'), paper: v('--paper'), warn: v('--warn'), ink: v('--ink'), accent: v('--accent') }; });
+    const colours = await page.evaluate(() => { const cs = getComputedStyle(document.getElementById('game-app')); const v = (/** @type {string} */ n) => cs.getPropertyValue(n).trim(); return { ok: v('--ok'), paper: v('--paper'), warn: v('--warn'), ink: v('--ink'), accent: v('--accent') }; });
     const rgb = (/** @type {string} */ hex) => { const h = hex.replace('#', ''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)).join(','); };
     assert((await px(8, 6)) === rgb(colours.ok), 'Portmouth, cleared, is a green pixel, whole at the backing scale: ' + (await px(8, 6)) + ' for ' + colours.ok);
     const mill = await page.evaluate(() => window.CNPE_GAME_DATA.towns[1]);
@@ -1180,7 +1180,7 @@ module.exports = async function (h) {
     await page.goto(url('game.html'));
     await page.waitForSelector('.gm-stage canvas');
     await skipIntro(page);
-    const colours = await page.evaluate(() => { const cs = getComputedStyle(document.documentElement); const v = (/** @type {string} */ n) => cs.getPropertyValue(n).trim(); return { accent: v('--accent'), paper: v('--paper'), warn: v('--warn') }; });
+    const colours = await page.evaluate(() => { const cs = getComputedStyle(document.getElementById('game-app')); const v = (/** @type {string} */ n) => cs.getPropertyValue(n).trim(); return { accent: v('--accent'), paper: v('--paper'), warn: v('--warn') }; });
     let s = await sign(page);
     assert(!!s.goal && s.goal.x === TOWN.x && s.goal.y === TOWN.y && s.goal.what === 'the trial in Portmouth', 'from the start the signpost points to Portmouth\'s trial: ' + JSON.stringify(s.goal));
     assert(s.nx === 'next: the trial in Portmouth · 2 ▲' && /Substrate Downs/.test(s.where), 'the where window says so, with the steps and the way: ' + JSON.stringify(s.nx));
@@ -1329,8 +1329,8 @@ module.exports = async function (h) {
         assert(s.frames > f0 && s.face === 'l', tag + 'a step still paints a frame and turns the player: ' + JSON.stringify(s));
       } else {
         assert(a.reduce === false && a.anim === true, tag + 'the water ticker runs on the map: ' + JSON.stringify(a));
-        await page.waitForFunction(() => window.CNPE_GAME.debug().waterFrame !== 0, null, { timeout: 3000 }).catch(() => {});
-        assert((await page.evaluate(() => window.CNPE_GAME.debug().waterFrame)) !== 0, tag + 'and the water reaches another frame');
+        const changed = await page.waitForFunction(frame => window.CNPE_GAME.debug().waterFrame !== frame, a.wf, { timeout: 3000 });
+        assert(await changed.jsonValue(), tag + 'and the water reaches another frame');
         await page.keyboard.press('ArrowUp'); await page.keyboard.press('ArrowUp');
         await page.waitForSelector('.gm-screen:not([hidden]) .gm-title');
         assert((await page.evaluate(() => window.CNPE_GAME.debug().anim)) === false, tag + 'in a town the ticker stops');
@@ -1409,7 +1409,7 @@ module.exports = async function (h) {
       const hit = await page.evaluate(() => {
         /** @type {HTMLInputElement} */ (document.querySelector('.gm-term input')).form.requestSubmit();
         const scr = /** @type {HTMLElement} */ (document.querySelector('.gm-screen')), cs = getComputedStyle(scr);
-        return { fx: scr.getAttribute('data-fx'), cls: scr.className, anim: cs.animationName, shadow: cs.boxShadow, bad: getComputedStyle(document.documentElement).getPropertyValue('--bad').trim() };
+        return { fx: scr.getAttribute('data-fx'), cls: scr.className, anim: cs.animationName, shadow: cs.boxShadow, bad: getComputedStyle(document.getElementById('game-app')).getPropertyValue('--bad').trim() };
       });
       assert(hit.fx === 'flash' && /\bfx-flash\b/.test(hit.cls), tag + 'a hit puts the flash on the screen: ' + JSON.stringify(hit));
       if (reduced) assert(hit.anim === 'none', tag + 'and no animation runs: ' + hit.anim);

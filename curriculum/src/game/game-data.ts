@@ -1394,6 +1394,17 @@ window.CNPE_GAME_DATA = (function (): CnpeGameData {
     ])
   ];
 
+  // A dungeon is a cul-de-sac in stone, not a gate across the overworld road.
+  TOWNS.forEach(function (t) {
+    var x = t.door.x, y = t.door.y;
+    var put = function (dx: number, dy: number, tile: string) {
+      var row = MAP[y + dy];
+      MAP[y + dy] = row.slice(0, x + dx) + tile + row.slice(x + dx + 1);
+    };
+    [[0, -1], [1, -1], [1, 0], [0, 1], [1, 1]].forEach(function (p) { put(p[0], p[1], "^"); });
+    [[-1, 0], [-1, 1], [-1, 2], [0, 2], [1, 2], [2, 2], [2, 1], [2, 0]].forEach(function (p) { put(p[0], p[1], "#"); });
+  });
+
   return {
     map: MAP, tiles: TILES, regions: REGIONS, towns: TOWNS, techniques: TECHNIQUES, items: ITEMS,
     scenarios: SCENARIOS, finale: FINALE, levels: LEVELS, start: START

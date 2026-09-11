@@ -149,7 +149,7 @@
     function btn(label, fn, cls) {
         var b = el("button", cls || "", label);
         b.type = "button";
-        b.addEventListener("click", function (e) { e.preventDefault(); fn(); });
+        b.addEventListener("click", function (e) { e.preventDefault(); cue("select"); fn(); });
         return b;
     }
     function navOf(sec) { return (window.CNPE_NAV || []).filter(function (n) { return n.id === sec; })[0]; }
@@ -170,7 +170,8 @@
     /* ── the palette, read live so the theme switch repaints ───── */
     var P = {}; // filled by readPalette() before the first draw
     function readPalette() {
-        var cs = getComputedStyle(document.documentElement);
+        host.setAttribute("data-palette", window.CNPE_THEME ? window.CNPE_THEME.resolved() : "dark");
+        var cs = getComputedStyle(host);
         var v = function (n) { return cs.getPropertyValue(n).trim() || "#888"; };
         P = { ink: v("--ink"), sunk: v("--ink-sunk"), s1: v("--surface"), s2: v("--surface-2"), s3: v("--surface-3"),
             rule: v("--rule"), rule2: v("--rule-2"), paper: v("--paper"), paper2: v("--paper-2"), paper3: v("--paper-3"),
@@ -192,7 +193,7 @@
     let ctx;
     let hud, whereEl, miniWin, dialog, screen, live;
     var player = { x: 0, y: 0, face: "d" };
-    var scene = "map"; // map | town | trial | battle | shop
+    var scene = "map";
     var town = null;
     var trial = null;
     var battle = null;
@@ -210,6 +211,11 @@
     var wentNative = false; // ...and the browser's own fullscreen with it, so leaving it leaves ours
     var scrollBack = 0; // where the page stood when it did, to be put back on the way out
     var fullBtn = null; // the pad's ⛶, while a mount holds one
+    var journalBtn = null, soundBtn = null;
+    var transitionEl = null, transitionRun = 0;
+    var trackedTown = null;
+    var audio = null, soundOn = false, soundRun = 0;
+    var voices = new Set();
     /** listeners, observers and timers the mount holds, undone in order by unmount() */
     var undo = [];
     var timers = []; // one-shot timers (a floating number's fallback, a result card's delay), with what they run so settle() can fire them
@@ -236,6 +242,82 @@
         due.forEach(function (t) { t.fn(); });
         if (swapPending)
             swapPending.fire();
+    }
+    var melodies = {
+        select: [660], scene: [262, 392, 523], battle: [196, 185, 147],
+        evidence: [523, 659, 784], hit: [110, 73], victory: [392, 523, 659, 784, 1047],
+        rest: [330, 440, 554, 660]
+    };
+    function cue(kind) {
+        if (!soundOn || !audio || audio.state !== "running" || document.hidden)
+            return;
+        var ac = audio, notes = melodies[kind], duration = kind === "select" ? 0.05 : 0.11;
+        notes.forEach(function (frequency, i) {
+            var oscillator = ac.createOscillator(), gain = ac.createGain(), at = ac.currentTime + i * duration;
+            oscillator.type = kind === "hit" ? "sawtooth" : "triangle";
+            oscillator.frequency.value = frequency;
+            gain.gain.setValueAtTime(0, at);
+            gain.gain.linearRampToValueAtTime(0.045, at + 0.008);
+            gain.gain.exponentialRampToValueAtTime(0.001, at + duration);
+            oscillator.connect(gain);
+            gain.connect(ac.destination);
+            voices.add(oscillator);
+            oscillator.onended = function () { voices.delete(oscillator); oscillator.disconnect(); gain.disconnect(); };
+            oscillator.start(at);
+            oscillator.stop(at + duration + 0.01);
+        });
+    }
+    function silence() {
+        voices.forEach(function (voice) { voice.stop(); });
+        voices.clear();
+    }
+    function paintSound() {
+        if (!soundBtn)
+            return;
+        soundBtn.textContent = soundOn ? "Sound: on" : "Sound: off";
+        soundBtn.setAttribute("aria-pressed", String(soundOn));
+    }
+    async function toggleSound() {
+        var run = ++soundRun;
+        soundOn = !soundOn;
+        paintSound();
+        if (!soundOn) {
+            silence();
+            return;
+        }
+        try {
+            if (!audio)
+                audio = new AudioContext();
+            var ac = audio;
+            await ac.resume();
+            if (run !== soundRun || audio !== ac || !host)
+                return;
+            cue("scene");
+        }
+        catch (error) {
+            if (run !== soundRun || !host)
+                return;
+            soundOn = false;
+            paintSound();
+            live.textContent = "Sound could not start. You can keep playing silently.";
+            if (soundBtn)
+                soundBtn.title = "Sound unavailable. Try enabling sound again.";
+            console.warn("CNPE Quest could not enable audio:", error);
+        }
+    }
+    function transition(label, kind) {
+        if (!transitionEl)
+            return;
+        var overlay = transitionEl, run = ++transitionRun;
+        overlay.hidden = true;
+        if (reduceMotion)
+            return;
+        overlay.textContent = label;
+        overlay.className = "gm-transition " + kind;
+        void overlay.offsetWidth;
+        overlay.hidden = false;
+        later(function () { if (run === transitionRun)
+            overlay.hidden = true; }, 650);
     }
     /* ── the overworld ──────────────────────────────────────── */
     // The landmarks and the scenarios never move once the data is loaded, so they
@@ -279,6 +361,9 @@
         return best ? { region: D.regions.filter(function (r) { return r.d === domainOfSec(best.sec); })[0], town: best, dist: bd } : null;
     }
     function dungeonOpen(t) { return has("towns", t.sec); }
+    function sealedDoor(t) {
+        say(t.name + " dungeon", ["The entrance is sealed. Pass the trial in <b>" + esc(t.name) + "</b> to enter. The road around the dungeon leads onward through the overworld."]);
+    }
     /** the region's keep has fallen */
     function bossDown(d) { return has("flags", "boss-" + d); }
     /** the Exam has been sat and passed */
@@ -286,6 +371,14 @@
     function keepOpen(r) { return scenariosIn(r.d).every(function (s) { return wins(s.id) > 0; }); }
     function gateOpen() { return D.regions.every(function (r) { return bossDown(r.d); }); }
     function nextGoal() {
+        if (trackedTown) {
+            var tracked = D.towns.filter(function (t) { return t.sec === trackedTown; })[0];
+            if (tracked && !has("towns", tracked.sec))
+                return { x: tracked.x, y: tracked.y, what: "the trial in " + tracked.name };
+            if (tracked && !wins(tracked.dungeon))
+                return { x: tracked.door.x, y: tracked.door.y, what: "the dungeon of " + tracked.name };
+            trackedTown = null;
+        }
         var best = null, bd = 1e9;
         var offer = function (x, y, what) {
             var d = Math.abs(x - player.x) + Math.abs(y - player.y);
@@ -362,7 +455,59 @@
     var walk = null; // the step in flight: from (fx, fy) to the player's tile
     var queued = null; // the step waiting behind it
     var drawnOff = { x: 0, y: 0 }, drawnSub = -1; // the step as the last frame painted it: the sprite's offset, and the sub-position (-1 standing); what debug() reports, so its offset, sub-position and walk frame are one frame's
-    function move(dx, dy) {
+    var route = [], routeRun = 0;
+    function cancelRoute() { route = []; routeRun++; }
+    function followRoute() {
+        if (walk || scene !== "map" || dlg || !route.length)
+            return;
+        var next = route.shift();
+        move(next.x - player.x, next.y - player.y, true);
+    }
+    function walkTo(x, y) {
+        cancelRoute();
+        if (!walkable(x, y)) {
+            live.textContent = "That terrain cannot be crossed. Choose a road or open ground.";
+            requestDraw();
+            return;
+        }
+        var start = tileKey(player.x, player.y), goal = tileKey(x, y);
+        if (start === goal) {
+            act();
+            return;
+        }
+        var parents = new Int32Array(mapW * mapH);
+        parents.fill(-1);
+        parents[start] = start;
+        var queue = [start], offsets = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+        for (var i = 0; i < queue.length && parents[goal] < 0; i++) {
+            var current = queue[i], cx = current % mapW, cy = Math.floor(current / mapW);
+            offsets.forEach(function (offset) {
+                var nx = cx + offset[0], ny = cy + offset[1], key = tileKey(nx, ny);
+                if (key < 0 || parents[key] >= 0 || !walkable(nx, ny))
+                    return;
+                // Travel never enters an intermediate town or encounter without a choice.
+                if (key !== goal && (townAt(nx, ny) || doorAt(nx, ny) || keepAt(nx, ny) || gateAt(nx, ny)))
+                    return;
+                parents[key] = current;
+                queue.push(key);
+            });
+        }
+        if (parents[goal] < 0) {
+            live.textContent = "There is no open route there. Try a nearer road.";
+            requestDraw();
+            return;
+        }
+        for (var at = goal; at !== start; at = parents[at])
+            route.push({ x: at % mapW, y: Math.floor(at / mapW) });
+        route.reverse();
+        live.textContent = "Walking " + route.length + " steps. Use a direction key or Escape to stop.";
+        queued = null;
+        followRoute();
+        requestDraw();
+    }
+    function move(dx, dy, following) {
+        if (!following)
+            cancelRoute();
         if (scene !== "map")
             return;
         if (dlg) {
@@ -381,6 +526,13 @@
             requestDraw();
             return;
         }
+        var door = doorAt(nx, ny);
+        if (door && !dungeonOpen(door)) {
+            cancelRoute();
+            sealedDoor(door);
+            requestDraw();
+            return;
+        }
         var fx0 = player.x, fy0 = player.y;
         player.x = nx;
         player.y = ny;
@@ -390,6 +542,11 @@
         if (reduceMotion) {
             requestDraw();
             arrive();
+            if (route.length) {
+                var run = routeRun;
+                later(function () { if (run === routeRun)
+                    followRoute(); }, STEP_MS);
+            }
             return;
         }
         walk = { fx: fx0, fy: fy0, t0: performance.now() };
@@ -417,11 +574,13 @@
         queued = null;
         if (q && scene === "map" && !dlg)
             move(q.dx, q.dy);
+        else
+            followRoute();
     }
     /** the step as a standing frame paints it, which is what debug() then reports */
     function stand() { drawnOff = { x: 0, y: 0 }; drawnSub = -1; walkFrame = 0; }
     /** a scene change or an unmount ends a step where it was going, with no tween left to land, and nothing of it drawn */
-    function settleStep() { walk = null; queued = null; stand(); }
+    function settleStep() { walk = null; queued = null; cancelRoute(); stand(); }
     // What standing on a tile means. Walking onto a town enters it; the doors and
     // the keeps ask first, because a battle is a commitment.
     function arrive() {
@@ -433,7 +592,7 @@
         var d = doorAt(player.x, player.y);
         if (d) {
             if (!dungeonOpen(d)) {
-                say(d.name, ["The door is sealed. A voice from the stone: <em>pass the trial in " + d.name + " first, and the way opens.</em>"]);
+                sealedDoor(d);
                 return;
             }
             var sc = scenario(d.dungeon);
@@ -487,7 +646,8 @@
         }
         dialog.hidden = false;
         var last = dlg.i >= dlg.pages.length - 1;
-        dialog.innerHTML = '<div class="who">' + esc(dlg.who) + '</div><div class="txt">' + dlg.pages[dlg.i] + "</div>";
+        dialog.setAttribute("aria-label", dlg.who || "Quest dialogue");
+        dialog.innerHTML = '<div class="who">' + esc(dlg.who) + '<span class="gm-page-number">' + (dlg.i + 1) + " / " + dlg.pages.length + '</span></div><div class="txt">' + dlg.pages[dlg.i] + "</div>";
         var more = el("div", "more");
         if (last && dlg.ask) {
             more.appendChild(btn("No, not yet", function () { closeDialog(); }, "gm-btn ghost"));
@@ -1087,6 +1247,12 @@
         // beat at this tile of the camera: the offset inside the tile is where the
         // blit reads from, so a step's tween and every beat after the first are one
         ctx.drawImage(composite(animFrame, tx0, ty0), ox, oy, W, H, 0, 0, W, H);
+        ctx.fillStyle = P.warn;
+        route.forEach(function (step) {
+            var x = step.x * TILE - cx + 7, y = step.y * TILE - cy + 7;
+            if (x >= 0 && x < W && y >= 0 && y < H)
+                ctx.fillRect(x, y, 2, 2);
+        });
         // and how much of what moves is in view, which is what the beat asks before
         // it paints at all: the tiles, not the blits, and only when they can differ
         var cols = VW + (ox ? 1 : 0), rows = VH + (oy ? 1 : 0);
@@ -1192,6 +1358,16 @@
     function fitCanvas() {
         if (!host)
             return;
+        if (!fullOn && window.innerWidth > 1000 && window.innerHeight >= 650) {
+            var toolbar = host.querySelector(".gm-toolbar"), pad = host.querySelector(".gm-pad");
+            var style = getComputedStyle(host);
+            var chrome = (toolbar ? toolbar.offsetHeight : 0) + (pad ? pad.offsetHeight + 12 : 0) +
+                parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + 18;
+            var room = window.innerHeight - (host.getBoundingClientRect().top + window.scrollY) - chrome;
+            host.style.setProperty("--gm-fit-height", Math.max(280, Math.floor(room)) + "px");
+        }
+        else
+            host.style.removeProperty("--gm-fit-height");
         fitMini();
         var dpr = window.devicePixelRatio || 1, cssW = stage.clientWidth || W;
         var s = Math.max(1, Math.min(4, Math.round(cssW * dpr / W)));
@@ -1217,10 +1393,11 @@
         var mh = maxHp(), cells = "";
         for (var i = 0; i < 10; i++)
             cells += '<i class="' + (hp > (i / 10) * mh ? "" : "off") + '"></i>';
-        hud.innerHTML = '<span class="lv">Lv <b>' + level() + "</b></span><span class=\"hp\" title=\"" + hp + " of " + mh + '">' + cells + "</span><span class=\"g\"><b>" + gold() + "</b>g</span>";
+        hud.innerHTML = '<span class="lv">Lv <b>' + level() + "</b></span><span class=\"hp\" aria-label=\"Health " + hp + " of " + mh + '" title="' + hp + " of " + mh + '">' + cells + "</span><span class=\"g\"><b>" + gold() + "</b>g</span>";
     }
     /* ── scenes ─────────────────────────────────────────────── */
     function setScene(next) {
+        var previous = scene;
         scene = next;
         var onMap = next === "map";
         screen.hidden = onMap;
@@ -1229,6 +1406,9 @@
         whereEl.hidden = !onMap;
         miniWin.hidden = !onMap;
         stage.classList.toggle("gm-map", onMap);
+        stage.setAttribute("data-scene", next);
+        if (journalBtn)
+            journalBtn.disabled = next !== "map" && next !== "journal";
         // a battle's flash is the battle's: its record does not follow the screen into the next scene
         screen.classList.remove("fx-flash");
         screen.removeAttribute("data-fx");
@@ -1248,9 +1428,63 @@
             dlg = null;
             settleStep();
         }
+        screen.scrollTop = 0;
+        if (previous !== next) {
+            var label = next === "town" && town ? town.name : next === "battle" ? "An incident emerges" : next === "trial" ? "The trial begins" : next === "journal" ? "Chronicle of the five realms" : "The journey continues";
+            transition(label, next === "battle" ? "encounter" : "travel");
+            cue(next === "battle" ? "battle" : "scene");
+        }
         syncAnim();
     }
     function leaveToMap() { town = null; trial = null; battle = null; setScene("map"); stage.focus(); }
+    function openJournal() {
+        if (scene === "journal") {
+            leaveToMap();
+            return;
+        }
+        if (scene !== "map")
+            return;
+        if (dlg)
+            closeDialog();
+        setScene("journal");
+        screen.innerHTML = "";
+        var head = el("div", "gm-title", '<h3>Quest journal</h3><span class="sub">Five regions. One platform to restore.</span>');
+        head.appendChild(btn("Back to the map", leaveToMap, "gm-btn ghost"));
+        screen.appendChild(head);
+        screen.appendChild(note("Choose a town to track its trial and dungeon on your compass. All regions are open; no fast travel or skipped lessons.", ""));
+        var journal = el("div", "gm-journal");
+        D.regions.forEach(function (region) {
+            var towns = D.towns.filter(function (t) { return domainOfSec(t.sec) === region.d; });
+            var cleared = towns.filter(function (t) { return wins(t.dungeon); }).length;
+            var section = el("section", "gm-region");
+            section.appendChild(el("h4", "", '<span class="gm-region-number">0' + region.d + "</span>" + esc(region.name)));
+            section.appendChild(note(cleared + " / " + towns.length + " dungeons restored · keep " + (bossDown(region.d) ? "cleared" : keepOpen(region) ? "open" : "sealed")));
+            var meter = el("progress");
+            meter.max = towns.length;
+            meter.value = cleared;
+            meter.setAttribute("aria-label", region.name + " dungeons restored");
+            section.appendChild(meter);
+            var menu = el("ul", "gm-menu");
+            towns.forEach(function (t) {
+                var won = wins(t.dungeon), passed = has("towns", t.sec);
+                var row = el("li"), button = btn(esc(t.name) + '<span class="k">' + (won ? "restored ✓" : passed ? "dungeon open" : "trial awaits") + "</span>", function () {
+                    trackedTown = t.sec;
+                    leaveToMap();
+                    live.textContent = "Tracking " + t.name + ". Follow the compass and the ring on the minimap.";
+                }, trackedTown === t.sec ? "sel" : "");
+                button.disabled = !!won;
+                button.setAttribute("aria-label", "Track " + t.name + ": " + (won ? "restored" : passed ? "dungeon open" : "trial awaits"));
+                row.appendChild(button);
+                menu.appendChild(row);
+            });
+            section.appendChild(menu);
+            journal.appendChild(section);
+        });
+        screen.appendChild(journal);
+        screen.appendChild(note("The Exam gate: " + (examPassed() ? "conquered. The realms are restored." : gateOpen() ? "open. Your final challenge awaits." : "clear all five keeps to open the final challenge.")));
+        screen.appendChild(btn("Follow nearest objective", function () { trackedTown = null; leaveToMap(); }, "gm-btn ghost"));
+        focusFirst(head);
+    }
     /** the town: header, the menu, and whatever the menu opened on the right,
         over a strip of scenery for the square, the inn, the shop or the people.
         The header and the menu are built once a visit and their lines updated;
@@ -1264,11 +1498,15 @@
         var nav = navOf(t.sec), dom = domainOf(domainOfSec(t.sec));
         screen.innerHTML = "";
         var root = el("div", "gm-town");
+        var scenery = backdrop("square", domainOfSec(t.sec), 304);
+        root.appendChild(scenery);
         var head = el("div", "gm-title", "<h3>" + esc(t.name) + '</h3><span class="sub">' + esc(t.sec) + " · " + esc(nav ? nav.title : "") + "</span>");
         var headRight = el("span", "right", esc(dom ? dom.name : ""));
         head.appendChild(headRight);
         root.appendChild(head);
         var cols = columns(root), left = cols.left, right = cols.right;
+        right.tabIndex = 0;
+        right.setAttribute("aria-label", "Town conversation and services");
         var menu = el("ul", "gm-menu"), items = {};
         var item = function (id, fn) { var li = el("li"); var b = btn("", fn); li.appendChild(b); menu.appendChild(li); items[id] = b; };
         item("talk", function () { paintTown(talkMenu(), "talk"); });
@@ -1279,7 +1517,7 @@
         menu.appendChild(read);
         a.addEventListener("click", function () { savePos(true); });
         item("trial", function () { startTrial(); });
-        item("inn", function () { hp = maxHp(); paintHud(); paintTown(note("You sleep. The pager stays quiet. Health restored to " + hp + ".", "ok"), "inn"); });
+        item("inn", function () { hp = maxHp(); paintHud(); paintTown(note("You sleep. The pager stays quiet. Health restored to " + hp + ".", "ok"), "inn"); transition("A quiet night. A fresh beginning.", "rest"); cue("rest"); });
         item("shop", function () { paintTown(shopMenu(), "shop"); });
         item("dungeon", function () {
             if (!dungeonOpen(t)) {
@@ -1291,7 +1529,7 @@
         item("leave", function () { leaveToMap(); });
         left.appendChild(menu);
         screen.appendChild(root);
-        return { root: root, sec: t.sec, headRight: headRight, menu: menu, items: items, right: right, scene: "square" };
+        return { root: root, sec: t.sec, headRight: headRight, menu: menu, items: items, right: right, scene: "square", scenery: scenery };
     }
     function setItem(b, label, meta, cls) {
         b.innerHTML = label + (meta ? '<span class="k">' + meta + "</span>" : "");
@@ -1312,8 +1550,17 @@
         setItem(v.items.dungeon, "Dungeon", esc(sc.name) + (dungeonOpen(t) ? "" : " · sealed"));
         setItem(v.items.leave, "Leave", "esc");
         v.scene = sceneName || v.scene;
+        Object.keys(v.items).forEach(function (id) {
+            var selected = id === v.scene;
+            v.items[id].classList.toggle("sel", selected);
+            if (selected)
+                v.items[id].setAttribute("aria-current", "true");
+            else
+                v.items[id].removeAttribute("aria-current");
+        });
         v.right.innerHTML = "";
-        v.right.appendChild(backdrop(v.scene, domainOfSec(t.sec)));
+        v.scenery.setAttribute("data-scene", v.scene);
+        paintBackdrop(v.scenery, domainOfSec(t.sec));
         if (right)
             v.right.appendChild(right);
         else
@@ -1321,10 +1568,10 @@
         focusFirst(v.menu);
     }
     /** a strip of scenery: the town square, its people, the inn or the shop, in the region's colours */
-    function backdrop(sceneName, d) {
+    function backdrop(sceneName, d, height) {
         var c = el("canvas", "gm-scene");
         c.width = 480;
-        c.height = 64;
+        c.height = height || 144;
         c.setAttribute("aria-hidden", "true");
         c.setAttribute("data-scene", sceneName);
         paintBackdrop(c, d);
@@ -1388,6 +1635,7 @@
             if (fresh) {
                 addXp(5);
                 save();
+                cue("evidence");
             }
             lines.appendChild(el("div", "teach", (fresh ? "Learned: " : "You know this one: ") + esc(tq.cmd) + "<br>" + esc(tq.about)));
             live.textContent = n.name + (fresh ? " taught you " : " reminded you of ") + tq.cmd;
@@ -1424,6 +1672,7 @@
                 }
                 giveItem(id, 1);
                 save();
+                cue("evidence");
                 paintTown(wrapNote(shopMenu(), "Bought " + it.name + ".", "ok"), "shop");
             }, "gm-item");
             if ((it.permanent && owned) || gold() < it.price)
@@ -1486,6 +1735,10 @@
         col.appendChild(opts);
         var acts = el("div", "gm-acts");
         if (tr.revealed) {
+            var streak = 0;
+            for (var j = tr.marks.length - 1; j >= 0 && tr.marks[j]; j--)
+                streak++;
+            col.appendChild(el("p", "gm-feedback " + (tr.marks[tr.i] ? "ok" : "bad"), tr.marks[tr.i] ? "Correct! +5 xp" + (streak > 1 ? " · " + streak + " answers in a row" : "") : "Not quite. The highlighted answer is the right one. This card will return in your drill."));
             // no answer block under the options: the option marked right now carries the whole answer, and printing it
             // again under four paragraphs is the same paragraph twice (it was the rest of a cut line before)
             acts.appendChild(btn(tr.i + 1 < tr.cards.length ? "Next ▶" : "Finish", function () { nextTrial(); }));
@@ -1521,6 +1774,7 @@
         }
         recordDrill(tr.cards[tr.i], okAns);
         save();
+        cue(okAns ? "evidence" : "hit");
         live.textContent = okAns ? "Right." : "Missed. The answer is shown.";
         paintTrial();
     }
@@ -1551,13 +1805,25 @@
         trial = null;
         enterTown(town);
         paintTown(msg);
+        if (passed) {
+            transition("Trial cleared · the seal is broken", "reward");
+            cue("victory");
+        }
     }
     /* ── the battle ─────────────────────────────────────────── */
     function startBattle(chain, opts) {
+        if (opts.town && !dungeonOpen(opts.town)) {
+            sealedDoor(opts.town);
+            return;
+        }
+        if ((opts.boss && !keepOpen(opts.boss)) || (opts.final && !gateOpen())) {
+            say("The gate holds", ["Clear the dungeons and keeps guarding this entrance first."]);
+            return;
+        }
         if (hp < 1)
             hp = maxHp();
         battle = { chain: chain, idx: 0, sc: scenario(chain[0]), found: {}, turn: 0, log: [], mode: "menu", opts: opts,
-            gained: 0, goldGained: 0, turnsTotal: 0, pick: null, history: [], histAt: 0, draft: "",
+            gained: 0, goldGained: 0, turnsTotal: 0, startLevel: level(), combo: 0, bestCombo: 0, pick: null, history: [], histAt: 0, draft: "",
             tool: SIM.toolOf("kubectl") }; // the terminal opens on kubectl, before any command of your own
         fx = null; // a blow from a lost fight does not land on the next one's first frame
         setScene("battle");
@@ -1574,6 +1840,21 @@
         title.appendChild(sub);
         title.appendChild(turn);
         root.appendChild(title);
+        var arena = el("div", "gm-arena");
+        var scenery = backdrop("battle", b.sc.d);
+        arena.appendChild(scenery);
+        var action = el("div", "gm-action", "YOUR TURN · Gather evidence. Break the guard.");
+        action.setAttribute("role", "status");
+        arena.appendChild(action);
+        var party = el("div", "gm-party");
+        var hero = el("canvas");
+        hero.width = 16;
+        hero.height = 16;
+        hero.setAttribute("aria-hidden", "true");
+        party.appendChild(hero);
+        party.appendChild(el("span", "", "YOU"));
+        arena.appendChild(party);
+        root.appendChild(arena);
         var cols = columns(root), left = cols.left, right = cols.right;
         var figure = el("div", "gm-enemy");
         var sprite = el("canvas");
@@ -1595,7 +1876,7 @@
         // the effect's class comes off when its animation ends; data-fx keeps the last one for the checks
         figure.addEventListener("animationend", function (e) { if (e.target === sprite)
             figure.classList.remove("fx-hit", "fx-stagger", "fx-win"); });
-        left.appendChild(figure);
+        arena.appendChild(figure);
         var ticket = el("p", "gm-ticket");
         left.appendChild(ticket);
         var bar = el("div", "gm-acts"), modes = {};
@@ -1633,6 +1914,10 @@
         input.setAttribute("aria-label", "Command");
         input.placeholder = "type a command, or pick one from Inspect / Fix";
         form.appendChild(input);
+        var execute = el("button", "gm-btn gm-execute", "Cast");
+        execute.type = "submit";
+        execute.setAttribute("aria-label", "Run command");
+        form.appendChild(execute);
         form.addEventListener("submit", function (e) {
             e.preventDefault();
             var cmd = input.value.trim();
@@ -1670,7 +1955,8 @@
         screen.appendChild(root);
         return { root: root, h3: h3, sub: sub, turn: turn, figure: figure, sprite: sprite, nm: nm, lv: lv,
             guard: guard, guardLbl: guardLbl.lastChild, hpWrap: hpWrap, hpBar: hpBar, hpLbl: hpLbl.lastChild,
-            ticket: ticket, modes: modes, flee: fleeBtn, subHost: subHost, tool: tool, found: found, pre: pre, input: input, rendered: 0, scId: "", family: "" };
+            ticket: ticket, modes: modes, flee: fleeBtn, subHost: subHost, tool: tool, found: found, pre: pre, input: input,
+            arena: arena, scenery: scenery, hero: hero, action: action, rendered: 0, scId: "", family: "" };
     }
     /** bring the battle screen up to date: only what changed is touched, and the
         terminal grows by the lines since the last paint, so a long log stays cheap */
@@ -1715,6 +2001,12 @@
             t.family = ART.familyOf(sc.id, sc.d);
             t.h3.textContent = sc.name;
             drawMonster(t.sprite, t.family);
+            paintBackdrop(t.scenery, sc.d);
+            var heroCtx = t.hero.getContext("2d");
+            if (heroCtx) {
+                heroCtx.clearRect(0, 0, 16, 16);
+                heroCtx.drawImage(ART.hero("l", 0), 0, 0);
+            }
             t.sprite.setAttribute("aria-label", "The monster " + sc.name + ", a " + t.family + " fault");
             t.sprite.setAttribute("data-family", t.family);
             t.figure.setAttribute("data-family", t.family);
@@ -1729,6 +2021,11 @@
         t.hpWrap.className = "gm-bar hp" + (hp <= mh * 0.25 ? " crit" : hp <= mh * 0.5 ? " low" : "");
         t.hpBar.style.width = Math.round(hp / mh * 100) + "%";
         t.hpLbl.textContent = hp + " / " + mh + " hp";
+        t.action.textContent = b.over ? "INCIDENT RESOLVED" : nFound === nAll ? "GUARD BROKEN · The repair will strike true!" : b.combo > 1 ? "EVIDENCE CHAIN x" + b.combo + " · Keep investigating!" : b.combo ? "EVIDENCE FOUND · The enemy's guard weakens." : "YOUR TURN · Inspect, then repair.";
+        t.input.disabled = !!b.over;
+        var execute = t.root.querySelector(".gm-execute");
+        if (execute)
+            execute.disabled = !!b.over;
         Object.keys(t.modes).forEach(function (m) { t.modes[m].className = b.mode === m ? "sel" : ""; t.modes[m].disabled = !!b.over; });
         t.flee.disabled = !!b.over; // the monster is falling; the card is on its way
         t.subHost.innerHTML = "";
@@ -1759,6 +2056,7 @@
                 pulse(t.guard.parentNode, "shake", 450);
             if (fx.name === "hit")
                 pulse(screen, "flash", 400);
+            pulse(t.arena, fx.name === "hit" ? "retaliate" : fx.name === "stagger" ? "cast" : "resolve", 600);
             fx = null;
         }
         if (b.mode === "menu" || b.mode === "typed")
@@ -1953,6 +2251,7 @@
             logSys("Cheat sheet, " + fam + ":\n" + (lines.join("\n") || "  (no techniques in this family yet)"));
         }
         save();
+        cue("rest");
         b.mode = "menu";
         paintBattle();
     }
@@ -1970,6 +2269,9 @@
             var ev = sc.evidence.filter(function (e) { return e.id === r.evidence; })[0];
             entry.tell = ev && ev.tell || null;
             b.found[r.evidence] = 1;
+            b.combo++;
+            b.bestCombo = Math.max(b.bestCombo, b.combo);
+            cue("evidence");
             var gain = Math.round(XP_EVIDENCE * (typed ? TYPED : 1));
             addXp(gain);
             b.gained += gain;
@@ -1985,6 +2287,7 @@
             winScenario(typed);
             return;
         }
+        b.combo = 0;
         if (r.wrong) {
             b.log.push({ hit: "That was not it, and the fault bites back." });
             enemyHit(2);
@@ -1999,6 +2302,7 @@
         var b = battle, sc = b.sc;
         var dmg = Math.ceil((1 + sc.difficulty) * mult * (b.opts.final ? 1.5 : 1)) + Math.floor(b.turn / 4);
         hp = Math.max(0, hp - dmg);
+        cue("hit");
         fx = { name: "hit", num: "-" + dmg, from: "enemy" };
         b.log.push({ hit: sc.name + " strikes for " + dmg + ". Health " + hp + " of " + maxHp() + "." });
         if (hp <= 0)
@@ -2006,6 +2310,7 @@
     }
     function winScenario(typed) {
         var b = battle, sc = b.sc;
+        cue("victory");
         var all = Object.keys(b.found).length >= sc.evidence.length;
         var base = (all ? XP_WIN : XP_WIN / 2) * sc.difficulty * (typed ? TYPED : 1);
         var gain = Math.round(base), goldGain = (all ? GOLD_WIN : GOLD_WIN / 2) * sc.difficulty;
@@ -2022,6 +2327,7 @@
             b.sc = scenario(b.chain[b.idx]);
             b.found = {};
             b.turn = 0;
+            b.combo = 0;
             b.mode = "menu";
             logSys("The truth: " + sc.answer);
             logSys("From the dark, another rises: " + b.sc.name + ". A new ticket.");
@@ -2072,8 +2378,6 @@
         var b = battle;
         if (b.over)
             return; // the monster is falling; the card is on its way
-        say("", []);
-        dlg = null;
         logSys("You back away up the stairs. The evidence you found stays found in your head, and the xp for it stays yours.");
         save();
         battle = null;
@@ -2089,9 +2393,20 @@
         screen.innerHTML = "";
         var card = el("div", "gm-result");
         var crit = won && (b.results || []).every(function (r) { return r.all; });
+        var emblem = el("div", "gm-emblem");
+        emblem.setAttribute("aria-hidden", "true");
+        card.appendChild(emblem);
+        card.appendChild(el("p", "gm-overline", won ? "THE REALM REMEMBERS" : "EVERY ATTEMPT TEACHES"));
         card.appendChild(el("h4", won ? (crit ? "crit" : "win") : "lose", won ? (b.opts.final ? "You passed the Exam" : b.opts.boss ? "The keep falls" : crit ? "Critical hit" : "Victory") : "Defeat"));
         card.appendChild(el("p", "gain", (won ? "<b>+" + b.gained + " xp</b> · <b>+" + b.goldGained + " gold</b> · " + b.turnsTotal + (b.turnsTotal === 1 ? " turn" : " turns") : "<b>+" + b.gained + " xp</b> kept for the evidence you found · health restored to half") +
             " · level " + level() + " " + title(level())));
+        if (level() > b.startLevel)
+            card.appendChild(el("p", "gm-level-up", "LEVEL UP! " + b.startLevel + " → " + level() + " · " + title(level())));
+        var rewards = el("div", "gm-rewards");
+        rewards.appendChild(el("div", "", "<b>" + b.turnsTotal + "</b><span>commands cast</span>"));
+        rewards.appendChild(el("div", "", "<b>" + b.bestCombo + "</b><span>best evidence chain</span>"));
+        rewards.appendChild(el("div", "", "<b>" + (crit ? "S" : won ? "A" : "Keep going") + "</b><span>" + (crit ? "all evidence found" : won ? "incident resolved" : "experience retained") + "</span>"));
+        card.appendChild(rewards);
         (b.results || []).forEach(function (r) { card.appendChild(el("div", "ans", "<b>" + esc(r.sc.name) + "</b> was: " + esc(r.sc.answer))); });
         if (!won)
             card.appendChild(el("div", "ans", "The fault stands. Its ticket said: " + esc(b.sc.ticket) + (Object.keys(b.found).length ? " You had found: " + b.sc.evidence.filter(function (e) { return b.found[e.id]; }).map(function (e) { return e.id; }).join(", ") + "." : "")));
@@ -2112,6 +2427,8 @@
             acts.appendChild(btn("Fight again", function () { battle = null; startBattle([back.dungeon], { town: back }); }, "ghost"));
         card.appendChild(acts);
         screen.appendChild(card);
+        if (won)
+            pulse(card, "reward", 600);
         focusFirst(acts);
         live.textContent = won ? "Victory. " + b.gained + " xp gained." : "Defeat.";
     }
@@ -2206,6 +2523,10 @@
                 if (scene === "map") {
                     if (dlg)
                         closeDialog();
+                    else if (route.length) {
+                        cancelRoute();
+                        requestDraw();
+                    }
                     else
                         handled = false;
                 }
@@ -2221,7 +2542,7 @@
                 }
                 else if (scene === "trial")
                     handled = false;
-                else if (scene === "town")
+                else if (scene === "town" || scene === "journal")
                     leaveToMap();
                 else
                     handled = false;
@@ -2237,7 +2558,13 @@
             else if (e.key === "f" || e.key === "F") {
                 toggleFull(); // in any scene, and the terminal's own f is caught above
             }
+            else if ((e.key === "q" || e.key === "Q") && (scene === "map" || scene === "journal")) {
+                openJournal();
+            }
             else if (scene === "map") {
+                // A focused HUD control is a button first, not the map's action key.
+                if ((e.key === "Enter" || e.key === " ") && target.tagName === "BUTTON")
+                    return;
                 switch (e.key) {
                     case "ArrowUp":
                     case "w":
@@ -2275,7 +2602,7 @@
             else if (scene === "trial" && trial) {
                 if (!trial.revealed && /^[1-4]$/.test(e.key) && trial.opts[+e.key - 1])
                     answerTrial(+e.key - 1);
-                else if (trial.revealed && e.key === "Enter")
+                else if (trial.revealed && e.key === "Enter" && target.tagName !== "BUTTON")
                     nextTrial();
                 else
                     handled = menuNav(e) || /^[a-z]$/i.test(e.key);
@@ -2308,6 +2635,23 @@
     function build() {
         host.innerHTML = "";
         host.classList.add("gm");
+        var toolbar = el("div", "gm-toolbar");
+        var brand = el("div", "gm-brand", '<span class="gm-emblem" aria-hidden="true"></span><div><span class="gm-overline">Chronicles of the control plane</span><strong>CNPE QUEST</strong></div>');
+        toolbar.appendChild(brand);
+        var tools = el("div", "gm-tools");
+        journalBtn = btn("Quest journal", openJournal, "gm-btn ghost");
+        journalBtn.title = "Track a town and see your progress (Q)";
+        tools.appendChild(journalBtn);
+        soundBtn = btn("Sound: off", function () { void toggleSound(); }, "gm-btn ghost");
+        soundBtn.setAttribute("aria-pressed", "false");
+        soundBtn.title = "Original synthesized sound effects; off until enabled";
+        if (typeof AudioContext === "undefined") {
+            soundBtn.disabled = true;
+            soundBtn.title = "This browser does not support synthesized audio";
+        }
+        tools.appendChild(soundBtn);
+        toolbar.appendChild(tools);
+        host.appendChild(toolbar);
         stage = el("div", "gm-stage gm-map");
         stage.tabIndex = 0;
         stage.setAttribute("aria-label", "CNPE Quest. Click or tab here, then walk with the arrow keys or WASD; enter acts.");
@@ -2340,6 +2684,10 @@
         stage.appendChild(screen);
         screen.addEventListener("animationend", function (e) { if (e.target === screen)
             screen.classList.remove("fx-flash"); });
+        transitionEl = el("div", "gm-transition");
+        transitionEl.hidden = true;
+        transitionEl.setAttribute("aria-hidden", "true");
+        stage.appendChild(transitionEl);
         live = el("div");
         live.className = "sr-only";
         live.setAttribute("aria-live", "polite");
@@ -2349,7 +2697,7 @@
         // the frame on the minimap follows the border into the accent, so both are repainted
         stage.addEventListener("focus", function () { stage.classList.add("gm-focus"); focused = true; requestDraw(); });
         stage.addEventListener("blur", function () { stage.classList.remove("gm-focus"); focused = false; requestDraw(); });
-        // a click on the map is a step toward where you clicked, and takes focus
+        // A click plans a walkable route, respecting the camera as it was drawn.
         canvas.addEventListener("click", function (e) {
             stage.focus();
             if (scene !== "map" || dlg)
@@ -2357,15 +2705,7 @@
             var r = canvas.getBoundingClientRect();
             var px = (e.clientX - r.left) / r.width * VW, py = (e.clientY - r.top) / r.height * VH;
             var cam = lastCam || camera(player.x * TILE, player.y * TILE); // the camera as drawn: what was clicked is what shows
-            var dx = Math.floor(px + cam.x / TILE) - player.x, dy = Math.floor(py + cam.y / TILE) - player.y;
-            if (dx === 0 && dy === 0) {
-                act();
-                return;
-            }
-            if (Math.abs(dx) >= Math.abs(dy))
-                move(dx > 0 ? 1 : -1, 0);
-            else
-                move(0, dy > 0 ? 1 : -1);
+            walkTo(Math.floor(px + cam.x / TILE), Math.floor(py + cam.y / TILE));
         });
         var pad = el("div", "gm-pad");
         var dpad = el("div", "gm-dpad");
@@ -2380,13 +2720,15 @@
         padBtn("dn", "▼", 0, 1);
         padBtn("r", "▶", 1, 0);
         pad.appendChild(dpad);
-        pad.appendChild(el("div", "gm-keys", "arrows / WASD walk · enter acts · esc leaves · 1-4 answer a trial · f fullscreen"));
+        pad.appendChild(el("div", "gm-keys", "<b>Click a destination. Follow your own path.</b><br>WASD / arrows · enter: act · Q: journal · F: fullscreen"));
         var ab = el("div", "gm-ab");
         fullBtn = btn("⛶<b>full</b>", function () { toggleFull(); }, "gm-fs");
         fullBtn.setAttribute("aria-pressed", "false");
         fullBtn.setAttribute("aria-label", "play fullscreen");
         ab.appendChild(fullBtn);
         ab.appendChild(btn("B<b>back</b>", function () { if (scene === "map") {
+            cancelRoute();
+            requestDraw();
             if (dlg)
                 closeDialog();
         }
@@ -2396,7 +2738,7 @@
                 paintBattle();
             }
         }
-        else if (scene === "town")
+        else if (scene === "town" || scene === "journal")
             leaveToMap(); }));
         ab.appendChild(btn("A<b>act</b>", function () { if (scene === "map") {
             stage.focus();
@@ -2435,11 +2777,8 @@
                     paintBattle();
                 }
                 // a town's menus follow the stylesheet on their own; only the scenery is painted, and focus stays where it was
-                if (scene === "town" && town && tn) {
-                    var sc = tn.right.querySelector(".gm-scene");
-                    if (sc)
-                        paintBackdrop(sc, domainOfSec(town.sec));
-                }
+                if (scene === "town" && town && tn)
+                    paintBackdrop(tn.scenery, domainOfSec(town.sec));
             };
             theme.onChange(onTheme);
             if (themeOff)
@@ -2449,7 +2788,7 @@
         }
         // fonts arrive after first paint, and the town labels are text
         if (document.fonts && document.fonts.ready)
-            document.fonts.ready.then(function () { requestDraw(); });
+            document.fonts.ready.then(function () { fitCanvas(); requestDraw(); });
         // the browser's own way out of fullscreen (esc, F11, the system gesture) leaves ours with it
         var onFullChange = function () {
             if (!host)
@@ -2463,6 +2802,8 @@
         // the screen: a resize or a zoom changes how many device pixels an art pixel gets
         listen(window, "resize", fitCanvas);
         listen(document, "visibilitychange", syncAnim);
+        listen(document, "visibilitychange", function () { if (document.hidden)
+            silence(); });
         if (typeof ResizeObserver !== "undefined") {
             var obs = sizeObs = new ResizeObserver(function () { fitCanvas(); });
             obs.observe(stage);
@@ -2478,6 +2819,8 @@
                     ease = null;
                     if (walk)
                         landStep();
+                    if (transitionEl)
+                        transitionEl.hidden = true;
                 }
                 stand(); // standing, as the next frame will paint it: what debug() reports stays one frame's
                 syncAnim();
@@ -2497,9 +2840,8 @@
         if (has("flags", "intro"))
             return;
         say("A note pinned to the signpost", [
-            "Five regions, one per exam domain, and a town for every section. All roads are open; the dungeons are not.",
-            "In a town, talk to people: they teach the theory and hand you commands. Pass the town's trial and its dungeon opens. Inside is a fault, and you fight it with real commands.",
-            "You start with <code>kubectl get</code>, <code>describe</code>, <code>events</code> and <code>logs</code>, and two hint scrolls. The rest you learn in the towns. Walk with the arrows or WASD; enter acts, and <code>f</code> gives the quest the whole window."
+            "<b>The five realms need an operator.</b> Portmouth is just north of here. Talk to its people, pass their trial, then face the fault beneath the town.",
+            "Click a destination or use <b>WASD / arrows</b> to walk. <b>Q</b> opens your journal; <b>F</b> goes fullscreen. Take these four inspection commands and two hint scrolls. Your journey starts here."
         ]);
         // The starter kit is written when the note is put down, which is the first
         // action: opening the page writes nothing, as reading the console never has.
@@ -2539,6 +2881,10 @@
             fullOn = false;
             wentNative = false;
             fullBtn = null;
+            trackedTown = null;
+            soundOn = false;
+            transitionRun++;
+            reduceMotion = !!(motionQuery && motionQuery.matches);
             host.classList.remove("gm-full");
             document.documentElement.classList.remove("gm-full-lock");
             settleStep();
@@ -2580,6 +2926,18 @@
                 clearTimeout(animTimer);
                 animTimer = 0;
             }
+            soundOn = false;
+            soundRun++;
+            silence();
+            if (audio) {
+                var closing = audio;
+                audio = null;
+                void closing.close().catch(function (error) { console.warn("CNPE Quest could not close audio:", error); });
+            }
+            soundBtn = null;
+            journalBtn = null;
+            transitionEl = null;
+            transitionRun++;
             timers.forEach(function (t) { clearTimeout(t.id); });
             timers = [];
             undo.forEach(function (fn) { fn(); });

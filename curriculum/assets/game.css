@@ -1,30 +1,56 @@
-/* CNPE Quest: the game's own styles. Everything here extends style.css and
-   paints only with its palette variables, so the quest follows the theme the
-   rest of the console is in. The overworld is a canvas; every menu, window,
-   dialogue box and the battle terminal is DOM, so it is readable, focusable and
-   reflows on a phone like the rest of the site. */
-
-.gm { position: relative; font-family: var(--sans); }
+/* Original pixel-art scenes, with game windows inheriting the shared
+   charcoal-and-gold study palette. Terrain retains natural colour accents. */
+[data-study] body[data-id="GM"] article { padding-top: 24px; }
+[data-study] body[data-id="GM"] .pagehead { margin-bottom: 20px; padding-bottom: 16px; }
+[data-study] body[data-id="GM"] .pagehead h1 { margin: 6px 0; }
+[data-study] body[data-id="GM"] .pagehead .eyebrow { display: none; }
+[data-study] body[data-id="GM"] .pagehead .sum { margin: 0; }
+.quest-layout { display: grid; grid-template-columns: minmax(0, 1fr) 160px; align-items: start; gap: 24px; }
+.quest-layout #play { grid-column: 1; grid-row: 1; border: 0; margin: 0; min-width: 0; }
+[data-study] .quest-layout #play > .phdr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); padding: 0; margin: 0; }
+[data-study] .quest-layout #play > .pbody { padding: 0; }
+.quest-layout .quest-stats { grid-column: 2; grid-row: 1; position: sticky; top: 90px; display: flex; flex-direction: column; margin: 0; border: 0; }
+[data-study] .quest-stats .stat { display: flex; flex-direction: column; align-items: flex-start; padding: 18px 0; gap: 6px; }
+[data-study] .quest-stats .stat:first-child { padding-top: 4px; }
+[data-study] .quest-stats .stat .val { font-size: 24px; text-align: left; margin-left: 0; }
+.quest-stats .stat .u { display: block; margin: 4px 0 0; font-size: 11px; }
+.quest-stats .stat .lbl { text-transform: uppercase; letter-spacing: 1px; }
+.gm {
+  --accent-dim: #286582; --warn-dim: #aa7950;
+  --gm-window: linear-gradient(155deg, var(--surface), var(--ink) 65%);
+  --gm-rim: var(--accent);
+  position: relative; font-family: var(--sans); font-size: 14px; line-height: 1.5; color: var(--paper);
+  max-width: 1200px; margin: 0 auto;
+  padding: 16px; background: var(--ink-sunk);
+  border: 1px solid var(--rule-2); border-radius: 8px;
+  box-shadow: 0 16px 48px #0004, inset 0 0 0 3px var(--ink);
+}
+.gm[data-palette="light"] {
+  --accent-dim: #377794; --warn-dim: #ab8352;
+}
+.gm [hidden] { display: none !important; }
 .gm *:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* ── the stage: canvas under, windows over ─────────────────── */
 .gm-stage {
   position: relative; width: 100%; aspect-ratio: 8 / 5; background: var(--ink-sunk);
-  border: 1px solid var(--paper); box-shadow: 8px 8px 0 var(--shadow); overflow: hidden;
+  border: 3px double var(--gm-rim); box-shadow: 0 4px 0 var(--shadow), inset 0 0 0 1px var(--ink-sunk); overflow: hidden;
+  border-radius: 4px;
   outline-offset: 3px;
 }
 /* the map is 30 by 19 tiles; the stage takes that shape so no art pixel is stretched */
-.gm-stage.gm-map { aspect-ratio: 30 / 19; }
+.gm-stage.gm-map { aspect-ratio: 30 / 19; max-width: calc(var(--gm-fit-height, 1000px) * 30 / 19); margin: 0 auto; }
 .gm-stage > canvas {
   display: block; width: 100%; height: 100%;
   image-rendering: pixelated; image-rendering: crisp-edges;
 }
 .gm-stage.gm-focus { border-color: var(--accent); }
 
-/* the FF window: ink ground, paper rule, hard corners */
+/* Bevelled charcoal windows with a gold outer rim and a dark inner rule. */
 .gm-win {
-  position: absolute; background: var(--ink); border: 1px solid var(--paper); color: var(--paper);
-  box-shadow: 4px 4px 0 var(--shadow); padding: 12px 14px; font-size: 14.5px; line-height: 1.5;
+  position: absolute; background: var(--ink); background-image: var(--gm-window); border: 3px double var(--gm-rim); color: var(--paper);
+  border-radius: 4px; box-shadow: 2px 3px 0 #0008, inset 0 0 0 1px var(--ink-sunk);
+  padding: 12px 14px; font-size: 14.5px; line-height: 1.5;
 }
 .gm-hud {
   left: 8px; top: 8px; padding: 6px 10px; font-family: var(--mono); font-size: 12px; color: var(--paper-2);
@@ -37,7 +63,7 @@
 .gm-hud .g { color: var(--warn); }
 .gm-hud .lv { color: var(--accent); }
 
-.gm-dialog { left: 8px; right: 8px; bottom: 8px; max-height: 46%; overflow: auto; }
+.gm-dialog { left: 12px; right: 12px; bottom: 12px; max-height: 60%; overflow: auto; z-index: 4; animation: gm-dialog-in .18s ease-out; }
 .gm-dialog .who { font-family: var(--disp); font-weight: 700; color: var(--accent); font-size: 13px; letter-spacing: .3px; margin-bottom: 4px; }
 .gm-dialog .txt { color: var(--paper); }
 .gm-dialog .txt code { font-family: var(--mono); font-size: .9em; color: var(--accent-lit); }
@@ -61,13 +87,13 @@
 
 /* ── screens: a scene over the whole stage ─────────────────── */
 .gm-screen {
-  position: absolute; inset: 0; background: var(--ink); color: var(--paper); overflow: auto;
-  display: flex; flex-direction: column; padding: 12px;
+  position: absolute; inset: 0; background: var(--ink); background-image: var(--gm-window); color: var(--paper); overflow: auto;
+  display: flex; flex-direction: column; padding: 18px; gap: 10px;
 }
 .gm-title {
   display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; border-bottom: 1px solid var(--rule-2); padding-bottom: 8px; margin-bottom: 10px;
 }
-.gm-title h3 { margin: 0; font-family: var(--disp); font-size: 20px; font-weight: 700; color: var(--paper); }
+.gm-title h3 { margin: 0; font-family: var(--mono); font-size: 22px; font-weight: 500; color: var(--paper); text-shadow: 1px 2px 0 var(--ink-sunk); }
 .gm-title .sub { font-family: var(--serif); font-style: italic; color: var(--paper-3); font-size: 14px; }
 .gm-title .right { margin-left: auto; font-family: var(--mono); font-size: 11.5px; color: var(--paper-3); }
 .gm-body { flex: 1; display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); min-height: 0; }
@@ -79,10 +105,11 @@
 .gm-menu button, .gm-menu a {
   display: flex; align-items: baseline; gap: 10px; width: 100%; text-align: left; cursor: pointer;
   font-family: var(--disp); font-weight: 600; font-size: 14px; letter-spacing: .2px; line-height: 1.3;
-  background: transparent; color: var(--paper); border: 1px solid transparent; padding: 7px 10px 7px 26px; position: relative;
+  background: transparent; color: var(--paper); border: 1px solid transparent; padding: 11px 10px 11px 26px; position: relative;
+  min-height: 44px;
   text-decoration: none;
 }
-.gm-menu button::before, .gm-menu a::before { content: "▶"; position: absolute; left: 8px; color: var(--accent); opacity: 0; font-size: 11px; top: 9px; }
+.gm-menu button::before, .gm-menu a::before { content: "▶"; position: absolute; left: 8px; color: var(--accent); opacity: 0; font-size: 11px; top: 14px; }
 .gm-menu button:hover, .gm-menu a:hover, .gm-menu button:focus-visible, .gm-menu a:focus-visible { border-color: var(--rule-2); background: var(--tint-hi); }
 .gm-menu button:hover::before, .gm-menu a:hover::before, .gm-menu button:focus-visible::before, .gm-menu a:focus-visible::before { opacity: 1; }
 .gm-menu button:disabled { color: var(--paper-3); cursor: default; }
@@ -94,9 +121,10 @@
 .gm-menu button.new { color: var(--accent-lit); }
 .gm-menu .cmd { font-family: var(--mono); font-weight: 400; font-size: 12px; color: var(--paper-2); }
 .gm-menu button.sel { border-color: var(--accent); background: var(--accent-fill); }
+.gm-menu button.sel::before { opacity: 1; }
 
-/* the strip of scenery over a town menu's right column: 480 by 64 art pixels, scaled sharp */
-.gm-scene { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; border: 1px solid var(--rule); }
+/* Complete scene canvases are scaled sharply; each scene layout sets their size. */
+.gm-scene { display: block; width: 100%; height: auto; image-rendering: pixelated; image-rendering: crisp-edges; border: 1px solid var(--rule); border-radius: 3px; }
 
 .gm-note { font-size: 13.5px; color: var(--paper-2); line-height: 1.5; margin: 0; }
 .gm-note.ok { color: var(--ok); } .gm-note.bad { color: var(--bad); } .gm-note.warn { color: var(--warn); }
@@ -110,14 +138,15 @@
 .gm-opts { display: flex; flex-direction: column; gap: 4px; }
 .gm-opt {
   text-align: left; cursor: pointer; background: transparent; color: var(--paper-2); border: 1px solid var(--rule);
-  padding: 8px 10px 8px 34px; font-family: var(--serif); font-size: 14px; line-height: 1.45; position: relative;
+  padding: 12px 14px 12px 38px; font-family: var(--sans); font-size: 14px; line-height: 1.5; position: relative;
+  border-radius: 3px; min-height: 48px;
 }
-.gm-opt .n { position: absolute; left: 10px; top: 8px; font-family: var(--mono); font-size: 12px; color: var(--accent); }
+.gm-opt .n { position: absolute; left: 12px; top: 14px; font-family: var(--mono); font-size: 12px; color: var(--accent); }
 .gm-opt:hover, .gm-opt:focus-visible { border-color: var(--rule-2); color: var(--paper); }
 .gm-opt.right { border-color: var(--ok); background: var(--ok-fill); color: var(--paper); }
 .gm-opt.wrong { border-color: var(--bad); background: var(--bad-fill); }
 .gm-opt:disabled { cursor: default; }
-.gm-prog { display: flex; gap: 2px; height: 4px; }
+.gm-prog { display: flex; gap: 4px; height: 8px; flex: none; margin-bottom: 10px; }
 .gm-prog i { flex: 1; background: var(--surface-3); display: block; }
 .gm-prog i.hit { background: var(--ok); } .gm-prog i.miss { background: var(--bad); } .gm-prog i.now { background: var(--paper-3); }
 
@@ -181,7 +210,7 @@
 }
 .gm-ticket b { font-style: normal; font-family: var(--disp); color: var(--warn); font-size: 12px; letter-spacing: .3px; }
 
-.gm-term { display: flex; flex-direction: column; min-height: 0; flex: 1; background: var(--ink-sunk); border: 1px solid var(--rule-2); }
+.gm-term { display: flex; flex-direction: column; min-height: 0; flex: 1; background: var(--ink-sunk); border: 3px double var(--rule-2); border-radius: 4px; }
 .gm-term .bar { display: flex; gap: 10px; padding: 4px 10px; font-family: var(--mono); font-size: 11px; color: var(--paper-3); border-bottom: 1px solid var(--rule); }
 .gm-term .bar .spacer { flex: 1; }
 .gm-term .bar .turn { color: var(--paper-2); }
@@ -196,7 +225,7 @@
 .gm-term pre .hit { color: var(--bad); } .gm-term pre .gain { color: var(--ok); } .gm-term pre .crit { color: var(--warn-lit); font-weight: 600; }
 .gm-term pre .t-cmd { color: var(--accent); } .gm-term pre .t-flag { color: var(--paper-2); } .gm-term pre .t-str { color: var(--syn-str); }
 .gm-term pre .t-key { color: var(--syn-key); } .gm-term pre .t-num { color: var(--syn-num); } .gm-term pre .t-cm { color: var(--syn-cm); }
-.gm-term form { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--rule); }
+.gm-term form { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--rule); }
 .gm-term form .ps { font-family: var(--mono); color: var(--accent); font-size: 13px; }
 .gm-term input {
   flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: var(--paper);
@@ -206,7 +235,8 @@
 .gm-acts { display: flex; gap: 6px; flex-wrap: wrap; }
 .gm-acts button, .gm-btn {
   font-family: var(--disp); font-weight: 600; font-size: 13px; letter-spacing: .2px; cursor: pointer;
-  background: transparent; color: var(--paper); border: 1px solid var(--paper); padding: 6px 12px; line-height: 1.25;
+  background: var(--surface); color: var(--paper); border: 1px solid var(--rule-2); padding: 10px 14px; line-height: 1.25;
+  min-height: 42px; border-radius: 3px; box-shadow: inset 0 1px 0 #ffffff16, 0 2px 0 var(--ink-sunk);
 }
 .gm-acts button:hover, .gm-btn:hover { background: var(--paper); color: var(--ink); }
 .gm-acts button.ghost, .gm-btn.ghost { color: var(--paper-2); border-color: var(--rule-2); }
@@ -216,7 +246,7 @@
 .gm-sub .hd { font-family: var(--mono); font-size: 11px; color: var(--paper-3); padding: 2px 10px 6px; }
 
 /* the end-of-battle card */
-.gm-result { text-align: center; padding: 18px 12px; }
+.gm-result { text-align: center; padding: 26px 12px; max-width: 760px; margin: auto; width: 100%; }
 .gm-result h4 { font-family: var(--disp); font-size: 26px; margin: 0 0 6px; color: var(--paper); }
 .gm-result h4.win { color: var(--ok); } .gm-result h4.crit { color: var(--warn); } .gm-result h4.lose { color: var(--bad); }
 .gm-result .gain { font-family: var(--mono); font-size: 13px; color: var(--paper-2); margin: 0 0 12px; }
@@ -225,7 +255,7 @@
 
 /* ── the shop and the pack ─────────────────────────────────── */
 .gm-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr)); gap: 6px; }
-.gm-item { border: 1px solid var(--rule); padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; background: none; text-align: left; color: var(--paper); cursor: pointer; }
+.gm-item { border: 1px solid var(--rule); padding: 14px; display: flex; flex-direction: column; gap: 8px; background: var(--ink); text-align: left; color: var(--paper); cursor: pointer; border-radius: 4px; }
 .gm-item:hover { border-color: var(--rule-2); }
 .gm-item:disabled { cursor: default; color: var(--paper-3); }
 .gm-item .nm { font-family: var(--disp); font-weight: 600; font-size: 14px; display: flex; justify-content: space-between; gap: 8px; }
@@ -252,7 +282,92 @@
 .gm-ab .gm-fs { width: 44px; font-size: 14px; }
 .gm-ab .gm-fs[aria-pressed="true"] { border-color: var(--accent); color: var(--paper); }
 .gm-keys { font-family: var(--mono); font-size: 11.5px; color: var(--paper-3); flex: 1; text-align: center; }
+.gm-keys b { font-weight: 400; color: var(--paper-2); line-height: 2; }
 @media (max-width: 560px) { .gm-keys { display: none; } }
+
+.gm-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 2px 2px 18px; }
+.gm-brand { display: flex; align-items: center; gap: 16px; }
+.gm-brand strong { display: block; font-family: var(--serif); font-size: 24px; line-height: 1.2; letter-spacing: 2px; color: var(--paper); }
+.gm-overline { display: block; font-family: var(--mono); font-size: 9px; letter-spacing: 1.5px; color: var(--accent); line-height: 2; text-transform: uppercase; }
+.gm-emblem { display: block; width: 22px; height: 34px; flex: none; background: linear-gradient(115deg, #f6e8bd 0 25%, #d6bd86 25% 48%, #897044 48% 70%, #e2cd9f 70%); clip-path: polygon(50% 0, 100% 35%, 75% 83%, 50% 100%, 25% 83%, 0 35%); }
+.gm-tools { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.gm-tools .gm-btn { font-size: 12px; }
+.gm-tools [aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.gm-tools .gm-btn:disabled { opacity: .55; cursor: default; background: transparent; color: var(--paper-3); }
+.gm-page-number { float: right; font-family: var(--mono); color: var(--paper-3); font-size: 10px; }
+.gm-stage:not(.gm-map) { aspect-ratio: auto; height: var(--gm-fit-height, 740px); }
+.gm-stage[data-scene="town"] > .gm-screen { padding: 0; }
+.gm-town { display: grid; grid-template-columns: minmax(180px, .8fr) minmax(0, 2fr); grid-template-rows: auto minmax(200px, 1fr) auto; height: 100%; min-height: 0; padding: 12px; gap: 12px; }
+.gm-town > .gm-scene { grid-column: 2; grid-row: 2; width: 100%; height: 100%; min-height: 0; object-fit: contain; background: var(--ink-sunk); border: 1px solid var(--rule); border-radius: 4px; }
+.gm-town > .gm-title { grid-column: 1 / -1; grid-row: 1; padding: 10px 14px; margin: 0; background: var(--ink); background-image: var(--gm-window); border: 3px double var(--gm-rim); border-radius: 4px; box-shadow: 2px 3px 0 #0008; }
+.gm-town > .gm-body > .gm-col { padding: 10px; border: 3px double var(--gm-rim); border-radius: 4px; background: var(--ink); background-image: var(--gm-window); box-shadow: 2px 3px 0 #0008; min-height: 0; overflow: auto; }
+.gm-town > .gm-body { display: contents; }
+.gm-town > .gm-body > .gm-col:first-child { grid-column: 1; grid-row: 2; align-self: stretch; }
+.gm-town > .gm-body > .gm-col:first-child .gm-menu button,
+.gm-town > .gm-body > .gm-col:first-child .gm-menu a { min-height: 38px; padding-top: 8px; padding-bottom: 8px; font-family: var(--mono); font-size: 13px; }
+.gm-town .gm-menu button::before, .gm-town .gm-menu a::before { top: 11px; }
+.gm-town > .gm-body > .gm-col:last-child { grid-column: 1 / -1; grid-row: 3; max-height: 160px; padding: 12px 16px; }
+.gm-stage[data-scene="town"] { height: var(--gm-fit-height, 640px); }
+.quest-guide { margin-top: 24px; padding: 16px 0; border-top: 1px solid var(--rule); font-size: 14px; }
+.quest-guide summary { cursor: pointer; font-weight: 600; color: var(--paper-2); }
+.quest-guide p { max-width: 80ch; margin: 14px 0 0; }
+.gm-lines { padding: 8px 2px; }
+.gm-lines .teach { padding: 14px; border: 1px solid var(--ok); background: var(--ok-fill); border-radius: 3px; }
+.gm-feedback { padding: 12px 16px; border-left: 3px solid currentColor; margin: 4px 0; font-size: 14px; background: var(--ink-sunk); }
+.gm-feedback.ok { color: var(--ok); }
+.gm-feedback.bad { color: var(--bad); }
+
+/* The battlefield is separate from the command windows, like a turn-based RPG. */
+.gm-battle { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.gm-battle > .gm-title { margin-bottom: 0; }
+.gm-arena { position: relative; height: 230px; flex: none; overflow: hidden; border: 3px double var(--gm-rim); border-radius: 4px; background: #18384d; isolation: isolate; }
+.gm-arena > .gm-scene { width: 100%; height: 100%; object-fit: cover; border: 0; border-radius: 0; }
+.gm-arena .gm-enemy { position: absolute; inset: 0; display: block; pointer-events: none; }
+.gm-arena .gm-enemy > canvas { position: absolute; width: 128px; height: 128px; left: 12%; bottom: 22px; background: transparent; border: 0; filter: drop-shadow(3px 5px 0 #09192580); transform-origin: 50% 90%; }
+.gm-arena .gm-enemy .side { position: absolute; right: 10px; bottom: 10px; width: 30%; min-width: 165px; padding: 10px 12px; border: 3px double var(--gm-rim); border-radius: 3px; background: var(--ink); background-image: var(--gm-window); box-shadow: 2px 3px 0 #0006; }
+.gm-arena .gm-enemy .nm { font-size: 15px; line-height: 1.3; }
+.gm-arena .gm-enemy .lv { font-size: 10px; }
+.gm-arena .gm-enemy > .gm-float { left: 20%; top: 40%; font-size: 24px; z-index: 3; }
+.gm-arena .gm-bar { height: 7px; margin-top: 8px; box-shadow: 0 0 0 1px var(--ink-sunk); }
+.gm-bar i { background-image: linear-gradient(0deg, #0002, #fff3); }
+.gm-action { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 20px); padding: 7px 14px; border: 1px solid var(--accent); background: var(--ink); color: var(--accent-lit); font: 11px var(--mono); text-align: center; width: max-content; border-radius: 3px; z-index: 2; }
+.gm-party { position: absolute; left: 49%; bottom: 22px; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.gm-party canvas { width: 64px; height: 64px; image-rendering: pixelated; filter: drop-shadow(2px 4px 0 #09192590); }
+.gm-party span { font: 9px var(--mono); color: var(--accent-lit); background: var(--ink); padding: 2px 6px; }
+.gm-arena::after { content: ""; position: absolute; left: 18%; right: 42%; top: 58%; height: 3px; pointer-events: none; opacity: 0; background: #d9fcff; box-shadow: 0 0 12px 5px #8be8eb; transform-origin: right center; }
+.gm-arena.fx-cast::after { animation: gm-spell .5s ease-out; }
+.gm-arena.fx-cast .gm-party canvas { animation: gm-lunge .45s ease-out; }
+.gm-arena.fx-retaliate .gm-party canvas { animation: gm-shake .4s ease-out; }
+.gm-arena.fx-resolve::after { animation: gm-spell .6s ease-out; background: #fff0aa; box-shadow: 0 0 16px 8px #f2cc7777; }
+.gm-battle .gm-ticket { padding: 10px 12px; background: var(--ink); border: 1px solid var(--rule); border-left: 3px solid var(--warn); border-radius: 3px; }
+.gm-battle .gm-acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.gm-battle .gm-acts button { text-align: left; }
+.gm-execute { flex: none; color: var(--accent); }
+.gm-sub { background: var(--ink); border-radius: 3px; }
+.gm-result > .gm-emblem { margin: 0 auto 10px; width: 34px; height: 52px; }
+.gm-result h4 { font-family: var(--serif); font-size: 34px; }
+.gm-rewards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 24px auto; }
+.gm-rewards > div { padding: 16px 8px; border: 3px double var(--rule-2); border-radius: 4px; background: var(--ink); }
+.gm-rewards b { display: block; font: 25px var(--serif); color: var(--accent); }
+.gm-rewards span { display: block; margin-top: 5px; font: 10px var(--mono); color: var(--paper-3); }
+.gm-level-up { color: var(--accent); font: 15px var(--mono); padding: 10px; border: 1px solid var(--accent); background: var(--accent-fill); }
+.gm-journal { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 10px 0; }
+.gm-region { padding: 14px; border: 3px double var(--rule-2); border-radius: 4px; background: var(--ink); }
+.gm-region h4 { margin: 0 0 8px; font: 20px var(--serif); color: var(--paper); display: flex; align-items: center; gap: 10px; }
+.gm-region-number { font: 11px var(--mono); color: var(--accent); }
+.gm-region progress { width: 100%; height: 7px; margin: 10px 0; accent-color: var(--ok); }
+.gm-region .gm-menu button { flex-wrap: wrap; }
+.gm-region .gm-menu .k { white-space: nowrap; }
+
+.gm-transition { position: absolute; inset: 0; z-index: 8; pointer-events: none; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; background: var(--ink-sunk); color: var(--accent-lit); font: 24px var(--serif); letter-spacing: 2px; animation: gm-travel .65s ease-out both; }
+.gm-transition.encounter { background: repeating-linear-gradient(160deg, var(--ink-sunk) 0 30px, var(--surface) 30px 60px); animation-name: gm-encounter; }
+.gm-transition.reward, .gm-transition.rest { background: var(--ink); }
+@keyframes gm-travel { 0% { opacity: .96; } 35% { opacity: .9; } 100% { opacity: 0; } }
+@keyframes gm-encounter { 0% { clip-path: inset(0); opacity: 1; } 40% { clip-path: inset(0); opacity: 1; } 100% { clip-path: inset(50% 0); opacity: 0; } }
+@keyframes gm-dialog-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes gm-spell { 0% { opacity: 0; transform: scaleX(0); } 35% { opacity: 1; transform: scaleX(1); } 100% { opacity: 0; transform: scaleX(1); } }
+@keyframes gm-lunge { 40% { transform: translateX(-10px); } 100% { transform: none; } }
+.gm-result.fx-reward { animation: gm-dialog-in .5s ease-out; }
 
 /* ── fullscreen: the quest over the whole window ───────────
    A trial's four answers run to a paragraph each and a battle's terminal keeps a
@@ -262,6 +377,7 @@
    it has one for an element; this is what the page looks like either way. */
 .gm-full {
   position: fixed; inset: 0; z-index: 90; margin: 0; padding: 8px;
+  max-width: none; border-radius: 0;
   background: var(--ink-sunk); display: flex; flex-direction: column; justify-content: center;
   /* iOS resolves inset against the layout viewport, which is taller than the window the browser's bars leave */
   height: 100dvh;
@@ -280,42 +396,105 @@ html.gm-full-lock .topbar { display: none; }
    rows of 40, the gap over them and this box's own padding) and centred in what is left */
 .gm-full .gm-stage.gm-map {
   flex: 0 0 auto; aspect-ratio: 30 / 19; margin: 0 auto;
-  max-width: calc((100vh - 112px) * 30 / 19);
-  max-width: calc((100dvh - 112px) * 30 / 19);
+  max-width: calc((100vh - 182px) * 30 / 19);
+  max-width: calc((100dvh - 182px) * 30 / 19);
 }
 /* a screen scrolls in place, as on a wide page: on a narrow one the stage is no longer the tall box the phone rules make it */
 .gm-full .gm-screen { position: absolute; inset: 0; min-height: 0; }
 /* and a line of a trial's answer stays a line, not the width of a monitor */
 .gm-full .gm-body { width: 100%; max-width: 1200px; margin: 0 auto; }
 .gm-full .gm-pad { flex: none; margin-top: 8px; }
+.gm-full .gm-toolbar { flex: none; padding-bottom: 10px; min-height: 60px; }
+.gm-full .gm-stage:not(.gm-map) { height: auto; }
 /* The trial hangs its body straight on the screen, so .gm-body's flex: 1 fills it. A battle and a town wrap theirs in a
    box of their own, which is content-tall: without this the screen grows and the fight stays the size it was, the log
    clipped at its 260px with half a window empty under it. Give the wrapper the height, and the log the room. */
-.gm-full .gm-battle, .gm-full .gm-town { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.gm-full .gm-battle { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.gm-full .gm-town { flex: 1 1 auto; min-height: 0; }
 .gm-full .gm-term pre { max-height: none; }
 /* a phone held on its side has no height to spare, so fullscreen there gives the pad's back to the screen */
 @media (max-height: 560px) {
   .gm-full { padding: 4px; }
+  .gm-full .gm-toolbar { min-height: 44px; padding: 0 0 4px; }
+  .gm-full .gm-brand .gm-overline { display: none; }
+  .gm-full .gm-arena { height: 160px; }
   .gm-full .gm-pad { margin-top: 4px; }
   .gm-full .gm-dpad { grid-template-columns: repeat(3, 32px); grid-template-rows: repeat(2, 32px); }
   .gm-full .gm-ab button { width: 44px; height: 44px; }
   .gm-full .gm-ab .gm-fs { width: 38px; }
   .gm-full .gm-stage.gm-map {
-    max-width: calc((100vh - 84px) * 30 / 19);
-    max-width: calc((100dvh - 84px) * 30 / 19);
+    max-width: calc((100vh - 132px) * 30 / 19);
+    max-width: calc((100dvh - 132px) * 30 / 19);
   }
 }
 
 /* ── responsive ───────────────────────────────────────────── */
+@media (max-width: 1000px) {
+  .quest-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .quest-layout .quest-stats { grid-column: 1; grid-row: 1; position: static; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .quest-layout #play { grid-row: 2; }
+  [data-study] .quest-stats .stat, [data-study] .quest-stats .stat:first-child { padding: 0; border: 0; }
+  [data-study] .quest-stats .stat .val { font-size: 18px; }
+  [data-study] .quest-stats .stat .lbl { font-size: 9px; letter-spacing: 0; }
+  .quest-stats .stat .u { font-size: 9px; }
+  [data-study] body[data-id="GM"] .reading-menu { margin-bottom: 14px; }
+}
 @media (max-width: 720px) {
+  .gm { padding: 8px; }
+  .gm-toolbar { flex-wrap: wrap; gap: 12px; padding: 4px 4px 14px; }
+  .gm-brand strong { font-size: 21px; }
+  .gm-tools { justify-content: flex-start; }
   .gm-body { grid-template-columns: minmax(0, 1fr); }
+  .gm-town { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto auto; height: auto; gap: 8px; padding: 8px; }
+  .gm-town > .gm-title { padding: 8px; }
+  .gm-town > .gm-scene { grid-column: 1; grid-row: 2; height: auto; aspect-ratio: 480 / 304; }
+  .gm-town > .gm-body > .gm-col:first-child { grid-column: 1; grid-row: 3; }
+  .gm-town > .gm-body > .gm-col:last-child { grid-column: 1; grid-row: 4; padding: 12px; max-height: 200px; }
   .gm-stage { aspect-ratio: auto; min-height: 420px; }
+  .gm-stage:not(.gm-map) { height: auto; }
   .gm-stage.gm-map { aspect-ratio: 30 / 19; min-height: 0; }
-  .gm-screen { position: relative; inset: auto; min-height: 420px; }
+  .gm-screen { position: relative; inset: auto; min-height: 420px; padding: 12px; }
   /* off the map the screen is in the flow, so the canvas under it must give its box back too: hidden, it would
      hold a phone's first half-screen of a trial empty (on a wide page the screen covers it, and it can stay) */
   .gm-stage:not(.gm-map) > canvas { display: none; }
   .gm-enemy canvas { width: 64px; height: 64px; }
   .gm-term pre { max-height: 200px; }
+  .gm-town > .gm-body > .gm-col:first-child > .gm-menu { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .gm-town > .gm-body > .gm-col:first-child .gm-menu button, .gm-town > .gm-body > .gm-col:first-child .gm-menu a { flex-wrap: wrap; gap: 4px; height: 100%; }
+  .gm-town > .gm-body > .gm-col:first-child .gm-menu .k { margin-left: 0; width: 100%; font-size: 10px; }
+  .gm-arena { height: 210px; }
+  .gm-arena .gm-enemy > canvas { width: 96px; height: 96px; left: 5%; bottom: 32px; }
+  .gm-arena .gm-enemy .side { width: 44%; min-width: 0; font-size: 10px; padding: 8px; right: 6px; bottom: 6px; }
+  .gm-arena .gm-enemy .nm { font-size: 13px; }
+  .gm-arena .gm-enemy .lv { display: none; }
+  .gm-arena .gm-barlbl { font-size: 9px; }
+  .gm-party { left: 39%; bottom: 66px; }
+  .gm-party canvas { width: 48px; height: 48px; }
+  .gm-action { font-size: 9px; padding: 6px 8px; }
+  .gm-journal { grid-template-columns: minmax(0, 1fr); }
+  .gm-full .gm-stage.gm-map { max-width: calc((100dvh - 230px) * 30 / 19); }
+  .gm-full .gm-battle, .gm-full .gm-town { flex: none; }
+  .gm-full .gm-term pre { max-height: 260px; }
 }
-@media (prefers-reduced-motion: reduce) { .gm * { animation: none !important; transition: none !important; } }
+@media (max-width: 460px) {
+  .gm-brand .gm-overline { display: none; }
+  .gm-toolbar { gap: 8px; }
+  .gm-hud { gap: 6px; padding: 5px; font-size: 10px; left: 5px; top: 5px; }
+  .gm-hud .hp { gap: 1px; }
+  .gm-hud .hp i { width: 3px; height: 6px; }
+  .gm-side { right: 5px; top: 5px; max-width: 51%; }
+  .gm-where { font-size: 9px; padding: 4px; }
+  .gm-dialog { inset: auto 5px 5px; max-height: 92%; padding: 8px; font-size: 12px; }
+  .gm-dialog .who { font-size: 11px; }
+  .gm-pad { gap: 6px; }
+  .gm-ab { gap: 4px; }
+  .gm-dpad { grid-template-columns: repeat(3, 36px); grid-template-rows: repeat(2, 40px); }
+  .gm-ab button { width: 44px; height: 48px; }
+  .gm-ab .gm-fs { width: 38px; }
+  .gm-rewards { gap: 4px; }
+  .gm-rewards b { font-size: 20px; }
+  .gm-transition { font-size: 18px; letter-spacing: 1px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gm *, .gm *::before, .gm *::after { animation: none !important; transition: none !important; }
+}

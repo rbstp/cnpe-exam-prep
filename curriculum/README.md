@@ -12,7 +12,7 @@ GitHub will not render it in place; clone the repo (or use raw + a local browser
 - `assets/`: the base and scoped reading stylesheets (`style.css`, `reader.css`), the section manifest (`nav.js`), the two DOM-free modules the runtime reads (`merge.js`, the progress merge and the rules around it, and `syntax.js`, the command-block colouring; neither touches the DOM, storage or the network, which is what lets `tools/merge-test.mjs` and `tools/syntax-test.mjs` drive them in bare node; both are compiled from TypeScript in `src/console/`), the page runtime (`app.js`), the interactive figures (`widgets.js`), the drill (`drill.js`), the optional progress sync (`sync.js`), the theme switch (`theme.js`, loaded from `<head>`; `onChange`/`offChange` for a listener that comes and goes with a mount) and the typefaces
 - The quest is four more scripts and a stylesheet, loaded only by `game.html` (and inlined into the bundle). It is written in TypeScript: the sources are `src/game/*.ts`, `tools/build-ts.sh` (or `make ts`) compiles them with `tsc` into `assets/`, and the compiled scripts are committed, so the site still needs no build step and `file://` still works; `tools/build-ts.sh --check` fails CI when the committed output drifts from its source, the way `extract-drill.py --check` does for the drill bank. The four: `game-data.js` (the map, the towns and their people, the techniques and items, and the 24 fault scenarios with their fake-cluster resource tables, evidence matchers and fixes), `game-sim.js` (the DOM-free command interpreter that normalises a typed command and answers it from a scenario's table, driven in bare node by `tools/game-sim-test.mjs`), `game-art.js` (the art: every tile, the player, the eight enemy families and the town scenery as small palette-indexed pixel grids, painted to canvases from the theme's colours on demand, so the same grids serve both themes and nothing is a picture file), `game.js` (the engine: the canvas overworld, drawn as one whole-map terrain cache blitted per frame at the camera's pixel position, with what moves over it: the water's, the flowers', the chimney smoke's and the door torches' frame on one 420 ms beat and only where in view, the banners and the player; a step is a 120 ms tween, the sprite and the camera sliding over through whole pixels rounded on every frame, the walk cycle keyed to its five sub-positions (four frames a facing: standing, the two halves of a stride and the pass between them; a step shows stride, pass, stride and lands standing), the next step queued behind a step in flight so a held key never skips a tile; coming back to the map from a scene, the camera eases to the player over 180 ms through whole pixels from where it last stood, never through a step and not at all where it already stands or under reduced motion; the cache is repainted in full only for a new palette and patched tile by tile when a door, a keep or the gate changes state; a minimap at a pixel a tile, its backing store scaled for the device's pixel ratio behind the box `game.css` sets in a custom property the engine reads once, is built from the cache when it is painted and touched only where the player's dot, the viewport's one-pixel frame (in the accent while the stage has focus, like the stage's border) and the signpost's ring move; the signpost is where next, as a road sign would put it (the nearest tile still to be reached among the towns, each offering its trial until cleared and its dungeon door until won, then the nearest open keep, then the Exam gate), named with its steps and its way in the where window, ringed on the minimap on the beat's frame the dot sits out, and said in the canvas's label; all on `requestAnimationFrame` behind a dirty flag, with a backing scale chosen for the device's pixel ratio, and instant steps, still tiles and a steady dot under `prefers-reduced-motion`; and the town, trial, battle and shop scenes as DOM, the battle screen built once and updated in place so a long terminal log stays cheap, with a per-battle command history on the prompt's arrows, the damage and the xp floating up from the monster and the guard bar, the guard bar shaking on evidence and the stage's edge flashing on a hit (CSS classes lifted on `animationend`, or by the clock under reduced motion, and recorded in `data-fx`), and a fall per fault family on a win) and `game.css`. `CNPE_GAME.mount()` builds into `#game-app` and `CNPE_GAME.unmount()` takes everything down again, the animation frame, the beat, every timer, the listeners (the theme's through `CNPE_THEME.offChange`), the observers and the caches, so the bundle's router can call the pair around every visit to `#GM`; `CNPE_GAME.debug()` reports the renderer's frame, cache, patch, minimap, camera and step counters for the browser checks and for profiling, and carries two test hooks, `tick()` (one beat of the water's ticker, by hand) and `settle()` (every pending one-shot timer and a keep's pending swap fired now), so the checks drive time rather than wait on it (the shapes are in `assets/cnpe.d.ts`). The game's progress is the `game` bucket of the `cnpe:v2` store: xp, gold and items as per-browser counters that add up across browsers, towns cleared, techniques learned, battles won and where you stood; `merge.js` merges it with the rest and the sync carries it unchanged
 - Two of those ship per page rather than site-wide, because most pages do not use them. `widgets.js` is 52 KB and twelve pages draw a figure, so only those twelve pull it. The question bank splits in two: `drill-data.js` carries every question and answer and only the drill loads it, while the dashboard loads `drill-index.js`, the same cards stripped to id and section, which is all its due-count and weak-spots panel read. Both pairings are asserted by `tools/check-site.sh`, so a page that grows a figure, or reaches for the bank it does not need, fails the deploy
-- `assets/fonts/`: IBM Plex Serif, Sans, Sans Condensed and Mono, shipped so the console needs no network; the sans is one variable file covering wght 100-700, the other eight are static weights. Study pages use sans-serif prose and navigation, serif page titles, and monospaced commands; the quest retains its existing font assignments. SIL OFL 1.1, see `OFL.txt`. Each face carries only the characters the console writes, cut from the latin builds in `tools/fonts-src/` by `tools/subset-fonts.py`. A cut is a Modified Version, and the OFL reserves the name "Plex", so the faces present as `CNPE Serif`, `CNPE Sans`, `CNPE Cond` and `CNPE Mono` (which is what the stylesheet asks for); IBM's copyright, version and licence records travel with them untouched, and each face carries a description naming what it was cut from
+- `assets/fonts/`: IBM Plex Serif, Sans, Sans Condensed and Mono, shipped so the console needs no network; the sans is one variable file covering wght 100-700, the other eight are static weights. Pages use sans-serif prose and navigation, serif page titles, and monospaced commands; the contained quest also uses mono and condensed game menus. SIL OFL 1.1, see `OFL.txt`. Each face carries only the characters the console writes, cut from the latin builds in `tools/fonts-src/` by `tools/subset-fonts.py`. A cut is a Modified Version, and the OFL reserves the name "Plex", so the faces present as `CNPE Serif`, `CNPE Sans`, `CNPE Cond` and `CNPE Mono` (which is what the stylesheet asks for); IBM's copyright, version and licence records travel with them untouched, and each face carries a description naming what it was cut from
 - `tools/bundle.py`: bundles the whole console into one hash-routed HTML file (`python3 tools/bundle.py`, or `--fragment` for a host that supplies its own `<head>`), handy for sharing or reading it somewhere that takes a single document
 - `tools/extract-drill.py`: regenerates `assets/drill-data.js` and `assets/drill-index.js` from the section pages' self-check panels; run it after editing any self-check question (CI fails the deploy if either file is stale)
 - `tools/subset-fonts.py`: re-cuts `assets/fonts/` from the untouched latin builds in `tools/fonts-src/` down to the characters the pages, scripts, stylesheet and generated 404 actually use, which is 118 characters out of everything those builds carry: 336 KB of faces becomes 130 KB, twice over, since the bundle inlines them again. It also renames each face off the reserved "Plex", leaving the attribution records alone. It needs `fonttools` and `brotli`, so the result is committed rather than built, and it writes everything the check needs into `tools/fonts-src/cut.txt`: the codepoints it removed, and a hash of every face on both sides. `--check` reads that file and no font, so CI needs no font library, and it fails on either half — new prose reaching for a character the cut removed, or faces that have drifted from the record. Run `make fonts` and commit `assets/fonts/` with `cut.txt` when it fires
@@ -39,6 +39,39 @@ Thirteen interactive figures sit across twelve sections (QoS and eviction, node 
 binding, right-sizing cost, the request path, the reconciliation loop, sync × health,
 canary weights, counters and `rate()`, alert timing, the admission pipeline, PSS profiles
 and RBAC scope), each wired to the concept it explains.
+
+## Quest presentation
+
+The quest's original 16-bit artwork and bevelled game windows evoke classic
+turn-based RPGs without using another game's characters, music or assets.
+Game windows inherit the shared charcoal-and-gold palette. `game.css` scopes
+natural terrain accents to `.gm`; the engine reads from the game host, so
+standalone and bundled play look alike without recolouring the study pages.
+The shared dark/light switch repaints the art as well as the windows.
+Town artwork is 480 by 304 art pixels, fitted without cropping beside the
+upper-left menu, with a shallow full-width dialogue panel below. On mobile,
+the complete scene, compact menu and dialogue stack. Battle backdrops are
+480 by 144 art pixels; the battlefield layers
+the monster, player, guard/health windows and action feedback above the scenery.
+
+Click or tap the map to plan a walkable route. Intermediate landmarks are not
+entered automatically. Direction keys, Escape and B cancel travel. The quest
+journal (`q` on the map) shows all five regions and lets you track a town's
+trial and then dungeon on the compass and minimap. Tracking is per visit; the
+usual nearest-objective guidance resumes when that dungeon is cleared.
+Dungeons are enclosed in impassable stone, with one approach from the town.
+A sealed entrance stops movement as well as battle entry, including auto-travel.
+The public road visibly bends around the dungeon; it keeps the overworld open,
+not the dungeon, and grants no progress for walking around.
+
+Sound is opt-in for each visit and synthesized locally with Web Audio; no audio
+assets or network requests are involved. Scene wipes, spell effects, inn
+transitions and victory reveals respect reduced motion. Sound nodes and their
+context, transition timers and planned routes are released on unmount. Evidence
+chains, answer streaks, victory ranks and level-up callouts are feedback only:
+the simulator, XP/gold rules, drill records and synchronized progress schema
+are unchanged. `tools/browser-checks/game-presentation.js` covers these surfaces
+alongside the existing renderer, study integration and battle checks.
 
 ## Reading interface
 
@@ -73,8 +106,13 @@ a missing image stays degraded. Models do not connect to a cluster or mark an
 exercise verified. The counter chart scrolls independently on narrow screens
 instead of shrinking its labels.
 
-The bundle inlines the reading stylesheet and switches its scope off for `#GM`.
-The standalone quest does not load it. Both retain the original quest palette,
-layout, and default system theme. `tools/browser-checks/reading.js` checks the
+The bundle and standalone quest both load the reading stylesheet. The quest
+shares the black-and-gold page shell, left navigation and dark/light switch;
+the game windows also inherit that palette, while the scenery retains natural
+terrain colours. Reading-only size/focus controls
+stay off the quest, and the optional quick-help panel starts collapsed.
+Desktop progress sits in a compact right-hand rail and the game fits the
+remaining viewport height; mobile uses a four-column progress strip.
+`tools/browser-checks/reading.js` checks the
 reading controls, original copy payloads, bundle navigation, and all 13 models'
 interactions, type sizes, touch targets, and accessibility in both themes.

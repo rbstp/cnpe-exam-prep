@@ -250,8 +250,9 @@ curl -sS -o /dev/null -w 'apex %{http_code}\n' https://rbstp.dev/
 1. **Fonts.** Open `https://cnpe.rbstp.dev/`, DevTools → Network → filter `Font`, reload.
    Requested `woff2` files should return `200` from the site's own assets directory,
    with no external font requests. Study page titles use `CNPE Serif`, prose and
-   navigation use `CNPE Sans`, and code uses `CNPE Mono`. The quest retains its
-   original serif and condensed assignments. Only faces used by the page need to load.
+   navigation use `CNPE Sans`, and code uses `CNPE Mono`. The quest shares that
+   page shell; inside the game, menus use the local mono and condensed faces.
+   Only faces used by the page need to load.
 2. **Palette.** Press <kbd>/</kbd> → the overlay opens. Type `crossplane` → one hit
    (3.5). <kbd>Enter</kbd> navigates to it. <kbd>?</kbd> lists every shortcut.
 3. **A figure responds.** Go to `/01-architecture/01-networking.html`, find *"Follow one
@@ -269,8 +270,9 @@ curl -sS -o /dev/null -w 'apex %{http_code}\n' https://rbstp.dev/
    light OS setting. Click the masthead theme button (or press <kbd>t</kbd>) to
    alternate light and dark; the tooltip names the current state and next action.
    Reload: the saved theme returns without a flash because `assets/theme.js`
-   runs from `<head>`. The standalone quest and the bundle's `#GM` route retain
-   the original system/light/dark switch and palette.
+   runs from `<head>`. The standalone quest and the bundle's `#GM` route share
+   the same page palette and switch. RPG windows inherit the charcoal-and-gold
+   colours, while pixel-art scenery retains natural light/dark terrain colours.
 7. **The single file.** `/console.html` → same dashboard. Network shows one document and
    **zero** font requests (they are `data:` URIs). Clicking a section only changes the
    `#hash`. Save it with <kbd>Ctrl/Cmd-S</kbd>, turn off wifi, open the saved file: it
