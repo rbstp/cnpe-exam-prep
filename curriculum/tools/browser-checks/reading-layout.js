@@ -91,6 +91,57 @@ module.exports = async function (h) {
     await ctx.close();
   });
 
+  await group('table headers stay on one line', async () => {
+    const { ctx, page } = await fresh();
+    // every page with a table: which label breaks depends on that table's content
+    /** @type {string[]} */
+    const files = [];
+    (function walk(/** @type {string} */ dir) {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith('.html') && fs.readFileSync(full, 'utf8').includes('<thead')) {
+          files.push(path.relative(h.siteDir, full));
+        }
+      }
+    })(h.siteDir);
+    assert(files.length >= 20, 'the sweep found the pages with tables (' + files.length + ')');
+    for (const width of [390, 768, 1180, 1440, 1920]) {
+      await page.setViewportSize({ width, height: 900 });
+      /** @type {string[]} */
+      const wrapped = [];
+      /** @type {string[]} */
+      const overflowed = [];
+      for (const file of files) {
+        await page.goto(url(file));
+        await page.evaluate(() => document.fonts.ready);
+        const state = await page.evaluate(() => {
+          // line boxes, not computed white-space: what the reader actually sees
+          const lines = (/** @type {Element} */ th) => {
+            const range = document.createRange();
+            range.selectNodeContents(th);
+            return new Set(Array.from(range.getClientRects())
+              .filter(r => r.width || r.height).map(r => Math.round(r.top))).size;
+          };
+          return {
+            wrapped: Array.from(document.querySelectorAll('thead th'))
+              .filter(th => lines(th) > 1).map(th => th.textContent.trim()),
+            overflow: document.documentElement.scrollWidth > innerWidth + 1,
+          };
+        });
+        for (const label of state.wrapped) wrapped.push(file + ' "' + label + '"');
+        if (state.overflow) overflowed.push(file);
+      }
+      assert(wrapped.length === 0,
+        width + 'px: every header cell renders on one line' + (wrapped.length ? ': ' + wrapped.join(', ') : ''));
+      // a header row that cannot wrap raises the table's minimum width
+      assert(overflowed.length === 0,
+        width + 'px: no page scrolls sideways to fit a header row' + (overflowed.length ? ': ' + overflowed.join(', ') : ''));
+    }
+    assert(page.errors.length === 0, 'no browser errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  });
+
   await group('reading controls do not overlap wrapped page headings', async () => {
     const { ctx, page } = await fresh();
     /** @type {[string, number][]} */
