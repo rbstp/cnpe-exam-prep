@@ -542,6 +542,8 @@ interface CnpeGameDebug {
   scale: number; dpr: number;
   /** the beat that moves the water, the flowers, the smoke and the torches is running */
   anim: boolean;
+  /** animation frames the quest holds: the draw loop's and the terrain sweep's, 0 once unmount() has run */
+  raf: number;
   /** the visitor asked for reduced motion */
   reduceMotion: boolean;
   /** the beat's frame (the water's, as it always was), the walk cycle's (0 standing, 1 and 2 the two halves of a

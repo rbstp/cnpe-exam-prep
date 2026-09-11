@@ -1259,18 +1259,19 @@ module.exports = async function (h) {
     await page.goto(url('console.html') + '#GM');
     await page.waitForFunction(() => document.body.getAttribute('data-id') === 'GM' && !!document.querySelector('#game-app[data-built] canvas'));
     await skipIntro(page);
-    const pending = () => page.evaluate(() => { const w = /** @type {any} */ (window), d = window.CNPE_GAME.debug(); return { raf: w.__pending.raf.size, beat: w.__pending.beat.size, mounted: d.mounted, mounts: d.mounts, listeners: d.listeners, timers: d.timers, anim: d.anim, frames: d.frames, theme: Object.assign({}, w.__theme) }; });
+    const pending = () => page.evaluate(() => { const w = /** @type {any} */ (window), d = window.CNPE_GAME.debug(); return { raf: d.raf, pageRaf: w.__pending.raf.size, beat: w.__pending.beat.size, mounted: d.mounted, mounts: d.mounts, listeners: d.listeners, timers: d.timers, anim: d.anim, frames: d.frames, theme: Object.assign({}, w.__theme) }; });
     const first = await pending();
     assert(first.mounted && first.mounts === 1 && first.listeners > 0 && first.beat === 1, 'mounted once, holding its listeners, one beat pending: ' + JSON.stringify(first));
     // the page's own theme handler (app.js's button) and the quest's: two held, none let go yet
     assert(first.theme.on === 2 && first.theme.off === 0 && first.theme.held === 2, 'the quest holds one theme listener beside the page\'s: ' + JSON.stringify(first.theme));
     for (let i = 0; i < 3; i++) {
+      // the ids pending while the quest still has the page: none of them may outlive unmount()
+      const held = await page.evaluate(() => Array.from(/** @type {any} */ (window).__pending.raf));
       await page.evaluate(() => { location.hash = '#DR'; });
       await page.waitForFunction(() => document.body.getAttribute('data-id') === 'DR');
-      // the drill page asks for frames of its own as it mounts; the quest's were cancelled, so the set drains and stays empty
-      await page.waitForFunction(() => /** @type {any} */ (window).__pending.raf.size === 0, null, { timeout: 2000 }).catch(() => {});
       const away = await pending();
-      assert(!away.mounted && away.listeners === 0 && away.timers === 0 && away.raf === 0 && away.beat === 0 && !away.anim, 'trip ' + (i + 1) + ', away: unmounted, no listeners, no timers, no frame, no beat: ' + JSON.stringify(away));
+      const stale = await page.evaluate(ids => ids.filter(id => /** @type {any} */ (window).__pending.raf.has(id)), held);
+      assert(!away.mounted && away.listeners === 0 && away.timers === 0 && away.raf === 0 && stale.length === 0 && away.beat === 0 && !away.anim, 'trip ' + (i + 1) + ', away: unmounted, no listeners, no timers, no frame, no beat: ' + JSON.stringify(Object.assign({ stale: stale.length }, away)));
       assert(away.theme.held === 1 && away.theme.off === i + 1, 'trip ' + (i + 1) + ', away: the theme handler was let go through offChange, the page\'s is the one left: ' + JSON.stringify(away.theme));
       await page.evaluate(() => { location.hash = '#GM'; });
       await page.waitForFunction(() => document.body.getAttribute('data-id') === 'GM' && !!document.querySelector('#game-app[data-built] canvas'));
