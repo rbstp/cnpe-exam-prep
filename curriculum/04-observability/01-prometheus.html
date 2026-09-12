@@ -121,6 +121,84 @@ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.serviceMonitor
   </div>
 </section>
 
+<section class="panel accent-c" id="crds-more">
+  <div class="phdr"><h2>The rest of the operator's CRDs</h2><span class="meta">ScrapeConfig, Probe, PodMonitor, the selector family</span></div>
+  <div class="pbody">
+    <p>Every operator CRD is picked up through a pair of selectors on the <code>Prometheus</code> object, and every pair has the same two failure modes: the object's labels do not match, or its namespace is not watched. Learn the pairs as a table and you never lose time to them again.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th class="mono">Kind</th><th>Selected by</th><th>Scrapes</th><th>Field that decides</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">ServiceMonitor</td><td class="mono">serviceMonitorSelector / serviceMonitorNamespaceSelector</td><td>endpoints of matching Services</td><td><code>endpoints[].port</code> is a port <em>name</em>; <code>targetPort</code> exists for numbers</td></tr>
+          <tr><td class="mono">PodMonitor</td><td class="mono">podMonitorSelector / podMonitorNamespaceSelector</td><td>pods directly, no Service needed</td><td><code>podMetricsEndpoints[].port</code> is the container port name; <code>portNumber</code> for numbers</td></tr>
+          <tr><td class="mono">Probe</td><td class="mono">probeSelector / probeNamespaceSelector</td><td>blackbox-exporter checks</td><td><code>prober.url</code> (the exporter), <code>targets.staticConfig.static[]</code> or <code>targets.ingress</code>, <code>module</code></td></tr>
+          <tr><td class="mono">ScrapeConfig</td><td class="mono">scrapeConfigSelector / scrapeConfigNamespaceSelector</td><td>anything: <code>staticConfigs</code>, <code>kubernetesSDConfigs</code>, <code>httpSDConfigs</code>, <code>fileSDConfigs</code>, <code>dnsSDConfigs</code>, consul and cloud SD</td><td>a raw <code>scrape_config</code> as a CRD; use it for a VM, an external database, or a <code>role: node</code> discovery</td></tr>
+          <tr><td class="mono">PrometheusRule</td><td class="mono">ruleSelector / ruleNamespaceSelector</td><td>nothing; evaluated</td><td>see 4.2</td></tr>
+          <tr><td class="mono">AlertmanagerConfig</td><td class="mono">alertmanagerConfigSelector / alertmanagerConfigNamespaceSelector (on the Alertmanager object)</td><td>nothing; merged into routing</td><td>see 4.2</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <ul>
+      <li><strong>Namespace selector semantics.</strong> On the Prometheus object, a nil namespace selector means "this namespace only", <code>{}</code> means every namespace, and <code>matchLabels</code> narrows by namespace label (<code>kubernetes.io/metadata.name: team-a</code> selects one by name). On a ServiceMonitor, <code>spec.namespaceSelector</code> is the second hop: <code>matchNames: [argocd]</code> or <code>any: true</code>; leaving it out means the monitor's own namespace, which is why a monitor in <code>monitoring</code> pointed at Services in <code>argocd</code> scrapes nothing without it.</li>
+      <li><strong>Labels you get for free.</strong> <code>jobLabel</code> names the Service label whose value becomes <code>job</code>; <code>targetLabels</code> and <code>podTargetLabels</code> copy Service or pod labels onto every series. Without them the only identity on the series is <code>namespace</code>, <code>pod</code>, <code>service</code>, <code>endpoint</code>, so "group by team" needs the team label copied here first.</li>
+      <li><strong>Endpoints to EndpointSlice.</strong> Since Kubernetes 1.33 the <code>v1 Endpoints</code> API is deprecated. Newer operators support <code>spec.serviceDiscoveryRole: EndpointSlice</code> on ServiceMonitors (or globally on the Prometheus object) and need <code>discovery.k8s.io/endpointslices</code> in Prometheus's RBAC. A warning in the operator log about <code>v1 Endpoints is deprecated</code> is this migration, not a fault.</li>
+      <li><strong>Limits that protect you.</strong> <code>sampleLimit</code>, <code>labelLimit</code>, <code>labelNameLengthLimit</code> and <code>labelValueLengthLimit</code> on a monitor drop a whole scrape that exceeds them (the target shows down with the reason in Status → Targets), which is the blunt tool when <code>metricRelabelings</code> is too slow to write. <code>scrapeInterval</code> and <code>scrapeTimeout</code> per endpoint override the global 30s; timeout must be shorter than interval or the config is rejected.</li>
+      <li><strong>Relabel actions.</strong> <code>replace</code> (default), <code>keep</code>/<code>drop</code> on a <code>regex</code> over <code>sourceLabels</code>, <code>labelmap</code> (copy <code>__meta_kubernetes_pod_label_(.+)</code> to plain labels), <code>labeldrop</code>/<code>labelkeep</code>, <code>hashmod</code>. The <code>__address__</code>, <code>__scheme__</code>, <code>__metrics_path__</code> targets are how a relabel rewrites where to scrape; a <code>ScrapeConfig</code> with <code>kubernetesSDConfigs</code> almost always needs them because discovery gives you metadata, not a metrics URL.</li>
+    </ul>
+    <div class="callout reflex"><span class="tag">Reflex</span><p>Before writing any monitor: read the six selector pairs off the Prometheus object with <code>kubectl -n monitoring get prometheus -o yaml</code>, then <code>kubectl get svc &lt;name&gt; -o jsonpath='{.spec.ports[*].name}'</code> for the port name, then <code>kubectl get endpointslices -l kubernetes.io/service-name=&lt;name&gt;</code> for ready addresses. Three reads, no guessing.</p></div>
+  </div>
+</section>
+
+<section class="panel accent-p" id="promql-more">
+  <div class="phdr"><h2>PromQL beyond rate, and the metrics platform tools give you</h2><span class="meta">functions a task uses, storage knobs, tool metric names</span></div>
+  <div class="pbody">
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th class="mono">Function / form</th><th>Use it for</th><th>Remember</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">increase(c[1h])</td><td>"how many in the last hour"</td><td>extrapolated; can be non-integer, and it is rate × window</td></tr>
+          <tr><td class="mono">irate(c[5m])</td><td>the last two samples only</td><td>zooming in, never alerting</td></tr>
+          <tr><td class="mono">changes(g[1h]) / resets(c[1h])</td><td>flapping detection; counter restarts</td><td><code>changes(kube_pod_container_status_ready[10m]) &gt; 3</code> is a crash-loop detector</td></tr>
+          <tr><td class="mono">absent(x) / absent_over_time(x[10m])</td><td>alert when a series disappears</td><td>returns 1 with the labels you wrote in the selector</td></tr>
+          <tr><td class="mono">predict_linear(g[1h], 4*3600)</td><td>disk or certificate expiry in N seconds</td><td>gauges only; <code>predict_linear(node_filesystem_avail_bytes[6h], 24*3600) &lt; 0</code></td></tr>
+          <tr><td class="mono">label_replace(v, "dst", "$1", "src", "(.*)")</td><td>derive or rename a label for joins</td><td>regex anchored; <code>label_join</code> concatenates</td></tr>
+          <tr><td class="mono">topk(5, ...) / bottomk</td><td>worst offenders</td><td>instant queries; in a range query it can return more than k series over time</td></tr>
+          <tr><td class="mono">count by (namespace) (kube_pod_info)</td><td>counting objects</td><td><code>count</code> counts series, <code>sum</code> adds values; for kube-state-metrics info series they differ</td></tr>
+          <tr><td class="mono">histogram_quantile(0.99, sum by (le) (rate(b[5m])))</td><td>classic histograms</td><td>keep <code>le</code>; on native histograms drop the <code>by (le)</code> and the <code>_bucket</code> suffix</td></tr>
+          <tr><td class="mono">histogram_count(h) / histogram_sum(h) / histogram_fraction(0, 0.3, h)</td><td>native histograms</td><td>Prometheus 3.8+ stable; scraping still needs <code>scrape_native_histograms: true</code> (operator: <code>scrapeNativeHistograms</code>)</td></tr>
+          <tr><td class="mono">x offset 1w / x @ end()</td><td>compare with last week; pin to a time</td><td>offset goes after the selector, not the function</td></tr>
+          <tr><td class="mono">a / on(pod) group_left(team) b</td><td>joins with mismatched labels</td><td><code>on</code> names the join keys; <code>group_left</code> copies labels from the many side</td></tr>
+          <tr><td class="mono">(sum(...) or vector(0))</td><td>a number instead of empty</td><td>the shape a dashboard "single stat" needs</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Storage, cardinality, scale</h3>
+    <ul>
+      <li><strong>Retention.</strong> <code>--storage.tsdb.retention.time</code> (default 15d when neither is set) and <code>--storage.tsdb.retention.size</code>; the operator exposes them as <code>spec.retention</code> and <code>spec.retentionSize</code>. Size should stay at roughly 80-85% of the volume because compaction briefly overshoots.</li>
+      <li><strong>Finding cardinality.</strong> Status → TSDB Status lists the top series counts by metric name and label; the query form is <code>topk(10, count by (__name__) ({__name__=~".+"}))</code>. Fix at the source (<code>metricRelabelings</code> with <code>action: drop</code> on <code>__name__</code>, or <code>labeldrop</code> on the offending label) rather than by buying memory.</li>
+      <li><strong>Beyond one server.</strong> <code>remoteWrite</code> (protocol 2.0 in Prometheus 3.x) ships samples to Thanos Receive, Mimir, Cortex or a vendor; Thanos sidecar plus object storage is the other long-term pattern; <code>PrometheusAgent</code> is the operator's scrape-only mode that exists solely to remote-write. Federation (<code>/federate?match[]=...</code> scraped with <code>honor_labels: true</code>) pulls aggregated series from another Prometheus and is the older, smaller-scale answer. In a question, "long-term retention across clusters" is remote write or Thanos, not federation.</li>
+      <li><strong>Native histograms in Kubernetes.</strong> Kubernetes 1.36 added the <code>NativeHistograms</code> feature gate (alpha, off) for control-plane metrics; 1.37 makes it beta and on. Until then the components expose classic buckets only, so <code>_bucket</code> queries against <code>apiserver_request_duration_seconds</code> remain right.</li>
+    </ul>
+
+    <h3>Metric names the platform tools expose</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Tool</th><th>Key series</th><th>Scrape via</th></tr></thead>
+        <tbody>
+          <tr><td>Argo CD</td><td><code>argocd_app_info{sync_status,health_status}</code>, <code>argocd_app_sync_total{phase}</code>, <code>argocd_app_reconcile</code>, <code>argocd_appset_info</code></td><td>Services <code>*-metrics</code> in <code>argocd</code>, port <code>http-metrics</code></td></tr>
+          <tr><td>Flux</td><td><code>gotk_reconcile_duration_seconds</code> (per kind/name/namespace), <code>controller_runtime_reconcile_total{controller,result}</code>, and <code>gotk_resource_info{ready,suspended,revision}</code>, which comes from kube-state-metrics with a CustomResourceState config, not from the controllers</td><td>PodMonitor on the <code>flux-system</code> controllers, port <code>http-prom</code></td></tr>
+          <tr><td>Tekton</td><td><code>tekton_pipelines_controller_pipelinerun_total{status}</code>, <code>..._pipelinerun_duration_seconds</code> (histogram or last value, per <code>config-observability</code>), <code>..._running_pipelineruns</code>, <code>..._taskrun_total</code></td><td><code>tekton-pipelines-controller</code> Service, port 9090</td></tr>
+          <tr><td>Crossplane</td><td><code>crossplane_managed_resource_ready</code>, <code>..._synced</code>, <code>..._first_time_to_readiness_seconds</code>, <code>..._drift_seconds</code> (providers, port 8080); core needs <code>metrics.enabled=true</code></td><td>PodMonitor on provider pods, or annotations via <code>DeploymentRuntimeConfig</code></td></tr>
+          <tr><td>Any CRD</td><td><code>kube_customresource_*</code> built from <code>--custom-resource-state-config</code> (<code>groupVersionKind</code>, <code>metrics[].each.gauge.path</code>, <code>labelsFromPath</code>)</td><td>kube-state-metrics, plus RBAC to list the kind</td></tr>
+          <tr><td>Kyverno / Gatekeeper</td><td><code>kyverno_policy_results_total{policy_validation_mode,rule_result}</code>, <code>kyverno_admission_review_duration_seconds</code>; <code>gatekeeper_violations{enforcement_action}</code>, <code>gatekeeper_audit_last_run_time</code></td><td>ServiceMonitors on their metrics Services</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>The recurring shape is "expose tool X's metrics to Prometheus and write a query that shows Y". It is 4.1's selector and port-name drill against an unfamiliar Service, followed by one query from the table above. Discover the Service and its port names first; the metric names you can read from the <code>/metrics</code> page itself once the target is up.</p></div>
+  </div>
+</section>
+
 <section class="panel accent-g" id="exercises">
   <div class="phdr"><h2>Exercises</h2><span class="meta">tick the dot when its check passes</span></div>
   <div class="pbody">
@@ -189,6 +267,16 @@ servicemonitor.monitoring.coreos.com/example created</code></pre></details></div
 
     <details class="quiz"><summary>An exporter added a label with one value per request. What happens, and what is the fix?</summary>
       <div class="answer"><p>Cardinality explosion: a new series per unique value, memory and TSDB growth, slow queries. Fix at ingestion with a <code>metricRelabeling</code> that drops the label or the metric, and upstream by removing it from the exporter. High-cardinality labels (user IDs, URLs with IDs, trace IDs) belong in logs and traces, not metric labels.</p></div></details>
+  
+
+    <details class="quiz"><summary>You need to scrape a database VM outside the cluster with the Prometheus Operator, without editing the Prometheus config by hand. Which CRD, and which selector must match?</summary>
+      <div class="answer"><p>A <code>ScrapeConfig</code> with <code>staticConfigs[].targets: ["db.example.internal:9187"]</code> (or an <code>httpSDConfigs</code>/<code>dnsSDConfigs</code> entry), labelled to match the Prometheus object's <code>scrapeConfigSelector</code>, in a namespace its <code>scrapeConfigNamespaceSelector</code> covers. If that selector is nil, the ScrapeConfig must live in Prometheus's own namespace.</p></div></details>
+
+    <details class="quiz"><summary>Predict that a volume fills within a day, and alert if any series that should exist has vanished. Two expressions?</summary>
+      <div class="answer"><p><code>predict_linear(node_filesystem_avail_bytes{mountpoint="/data"}[6h], 24*3600) &lt; 0</code> for the volume (a gauge extrapolated linearly). <code>absent_over_time(up{job="payments"}[10m])</code> for the disappearance: it yields 1 only when no sample existed in the window, whereas a plain comparison returns nothing when there is nothing to compare.</p></div></details>
+
+    <details class="quiz"><summary>A ServiceMonitor in <code>monitoring</code> selects the right labels and port for Services in <code>argocd</code>, yet no target appears and Prometheus's own selectors are <code>{}</code>. What is missing?</summary>
+      <div class="answer"><p><code>spec.namespaceSelector</code> on the ServiceMonitor itself: <code>matchNames: [argocd]</code> or <code>any: true</code>. Omitted, it means "Services in my own namespace", so the monitor matches nothing in <code>argocd</code>. Prometheus's <code>serviceMonitorNamespaceSelector</code> decides which monitors are read; the monitor's own <code>namespaceSelector</code> decides which Services it may reach.</p></div></details>
   </div>
 </section>
 
@@ -199,6 +287,10 @@ servicemonitor.monitoring.coreos.com/example created</code></pre></details></div
       <li><b>prometheus.io</b>: querying basics and the function reference (<code>rate</code>, <code>increase</code>, <code>histogram_quantile</code>, <code>absent</code>); metric types.</li>
       <li><b>prometheus-operator.dev</b>: the ServiceMonitor troubleshooting page, which is the release-label story in official form; the API reference for ServiceMonitor/PodMonitor/ScrapeConfig.</li>
       <li><b>Offline:</b> <code>kubectl explain servicemonitor.spec.endpoints</code>, the Prometheus UI's Status → Targets and Status → Configuration pages, and its built-in expression autocompletion.</li>
+    
+      <li><b>prometheus-operator.dev/docs/developer/scrapeconfig</b>: the ScrapeConfig page with the selector and namespace rules; the API reference's <code>ServiceMonitor</code> section lists <code>jobLabel</code>, <code>targetLabels</code>, the limits and <code>serviceDiscoveryRole</code>.</li>
+      <li><b>prometheus.io/docs/prometheus/latest/querying/functions</b>: <code>predict_linear</code>, <code>absent_over_time</code>, <code>label_replace</code>, and the native-histogram functions; <b>/storage</b> for the retention flags.</li>
+      <li><b>argo-cd.readthedocs.io/en/stable/operator-manual/metrics</b>, <b>fluxcd.io/flux/monitoring/metrics</b>, <b>tekton.dev/docs/pipelines/metrics</b>, <b>docs.crossplane.io/latest/guides/metrics</b>: the metric-name tables, one page each.</li>
     </ul>
   </div>
 </section>

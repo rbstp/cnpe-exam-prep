@@ -123,6 +123,105 @@
   </div>
 </section>
 
+<section class="panel accent-c" id="repos-promotion">
+  <div class="phdr"><h2>Repos, promotion and rendered manifests</h2><span class="meta">layouts by team shape · promotion as a diff · hydration · OCI as a source · Kustomize vs Helm</span></div>
+  <div class="pbody">
+    <p>The OpenGitOps principles are versioned (v1.0.0); the glossary behind them defines <em>desired state</em>, <em>state store</em>, <em>reconciliation</em> and <em>continuous</em>, and "continuous" is defined there as "continues to happen" rather than instantaneous. The rest of this panel is the layout and promotion decisions that turn the principles into a repository.</p>
+
+    <h3>Three layouts the Flux guide names, and when each wins</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Layout</th><th>Shape</th><th>Choose it when</th><th>Cost</th></tr></thead>
+        <tbody>
+          <tr><td>Monorepo</td><td class="mono">apps/{base,staging,production} · infrastructure/{base,staging,production} · clusters/{staging,production}</td><td>one platform team, few tenants, atomic cross-cutting changes wanted</td><td>everyone can read production config; big PRs hide production changes</td></tr>
+          <tr><td>Repo per environment</td><td>same tree, but production in its own repository</td><td>production access must be narrower than staging access</td><td>promotion is a cross-repo PR; infrastructure changes need two commits</td></tr>
+          <tr><td>Repo per team</td><td>platform repo with <code>teams/</code>, <code>infrastructure/</code>, <code>clusters/</code>; each dev team owns an apps repo the platform registers as a source</td><td>tenants own their delivery; platform owns onboarding and cluster addons</td><td>the platform must reconcile tenant repos under a restricted identity (2.3 serviceAccountName, 2.2 AppProject)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>In all three, <code>clusters/&lt;name&gt;</code> is the entry point a controller is pointed at, and ordering is expressed there: infrastructure (CRDs, controllers, ingress) before apps, via Flux <code>dependsOn</code> or Argo CD waves in an app-of-apps.</p>
+
+    <h3>Promotion patterns</h3>
+    <ul>
+      <li><strong>Tag bump by PR</strong>: CI (or Flux image automation) writes the new image tag into the staging overlay; a human or a bot copies the same change into production. The PR is the change record; approvals hang off it.</li>
+      <li><strong>Pin to a SHA or tag</strong>: production Applications and Kustomizations track an immutable ref; promotion is moving the pin. Nothing reaches production because a branch moved.</li>
+      <li><strong>Environment gates</strong>: Argo CD sync windows, Flux <code>suspend</code>, or a Kargo-style promotion controller in front of the pins. The exam does not name Kargo; it does expect you to say that promotion is a git operation, not a click in a UI.</li>
+      <li><strong>Anti-pattern</strong>: a branch per environment. Merges accumulate conflicts, cherry-picks lie, and the environments drift structurally.</li>
+    </ul>
+
+    <h3>Rendered manifests</h3>
+    <p>Templating hides the YAML that will actually be applied. The rendered manifests pattern renders it in a pipeline and commits the output to a branch or directory the agent watches, so review sees final YAML and the diff between staging and production is a real diff. Argo CD ships this as the <strong>Source Hydrator</strong> (beta since 3.5): <code>spec.sourceHydrator.drySource</code> names the templated source, <code>syncSource.targetBranch</code> and <code>path</code> name where the hydrated output is pushed and synced from, and a push credential is a repo Secret labelled <code>argocd.argoproj.io/secret-type: repository-write</code>. Flux gets the same effect by having CI run <code>flux push artifact</code> and pointing an <code>OCIRepository</code> at the result.</p>
+
+    <h3>OCI artifacts as a source</h3>
+    <ul>
+      <li>Argo CD (3.1+): <code>repoURL: oci://registry/org/config</code>, <code>targetRevision</code> a tag or digest, <code>path: .</code>; Helm charts in OCI are the same shape with <code>chart</code> semantics.</li>
+      <li>Flux: <code>flux push artifact oci://registry/org/config:tag --path ./deploy --source ... --revision ...</code> produces an artifact with Flux media types; an <code>OCIRepository</code> with <code>ref.tag</code>, <code>ref.semver</code> or <code>ref.digest</code> consumes it, optionally with <code>verify.provider: cosign</code> or <code>notation</code>. A Kustomization uses it exactly like a GitRepository.</li>
+      <li>Why: registries already hold the images, so config and image can share signing, retention and promotion (retag), and clusters without git access can still pull.</li>
+    </ul>
+
+    <h3>Kustomize vs Helm, decided</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Question</th><th>Kustomize</th><th>Helm</th></tr></thead>
+        <tbody>
+          <tr><td>You own the manifests and want per-env deltas</td><td>bases and overlays, patches, <code>images</code>, <code>replacements</code>, <code>components</code></td><td>possible via values, heavier</td></tr>
+          <tr><td>You consume third-party software</td><td>possible by vendoring or remote bases (Flux can forbid remote bases)</td><td>the chart is the product; pin <code>version</code>, override <code>values</code></td></tr>
+          <tr><td>Conditionals, loops, generated names</td><td>none by design</td><td>Go templates</td></tr>
+          <tr><td>Review</td><td>plain YAML, <code>kubectl kustomize</code> shows the truth</td><td><code>helm template</code> or the hydrator</td></tr>
+          <tr><td>Lifecycle</td><td>the GitOps agent is the lifecycle</td><td>release history, hooks, tests, rollback (Flux HelmRelease exposes them; Argo CD renders and applies, no Helm release object)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Both engines let you post-render one with the other: Flux <code>HelmRelease.spec.postRenderers[].kustomize</code>, Argo CD <code>spec.source.kustomize</code> on a Helm chart via multiple sources or a plugin. Argo CD does not create Helm release Secrets; <code>helm list</code> shows nothing for an Argo-managed chart, which is a common surprise.</p>
+
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Promote the staging image to production" means: find where production pins the image (overlay <code>images:</code>, HelmRelease <code>values</code>, Application <code>targetRevision</code>), change that in git, and verify by comparing rendered output (<code>kubectl kustomize overlays/production</code>) before the controller does. Changing the live Deployment scores zero even if it looks identical.</p></div>
+  </div>
+</section>
+
+<section class="panel accent-p" id="secrets-and-engine">
+  <div class="phdr"><h2>Secrets and engine choice</h2><span class="meta">Sealed Secrets vs SOPS vs ESO · Argo CD vs Flux · bootstrapping</span></div>
+  <div class="pbody">
+    <h3>The three secret answers, field by field</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Question</th><th>Sealed Secrets</th><th>SOPS</th><th>External Secrets Operator</th></tr></thead>
+        <tbody>
+          <tr><td>What is in git</td><td>a <code>SealedSecret</code> CR with ciphertext, encrypted to the controller's public key</td><td>the Secret manifest with <code>data</code>/<code>stringData</code> encrypted in place, plus a <code>sops</code> metadata block</td><td>an <code>ExternalSecret</code> naming keys in a store; no secret material</td></tr>
+          <tr><td>Who decrypts</td><td>the in-cluster controller only</td><td>the GitOps agent (Flux kustomize-controller natively via <code>spec.decryption.provider: sops</code> and a <code>secretRef</code> to the age or PGP key; Argo CD needs the KSOPS plugin) or a human with the key</td><td>the operator, reading the store with a <code>SecretStore</code>/<code>ClusterSecretStore</code> credential</td></tr>
+          <tr><td>Scope and rotation</td><td><code>--scope strict</code> (name and namespace baked in, default), <code>namespace-wide</code>, <code>cluster-wide</code>; sealing keys renew every 30 days, old ones kept</td><td><code>.sops.yaml</code> <code>creation_rules</code> with <code>encrypted_regex: ^(data|stringData)$</code> so metadata stays readable; age recommended over PGP; KMS backends</td><td><code>refreshInterval</code> (or <code>refreshPolicy: CreatedOnce</code>), templating, <code>PushSecret</code> to write back</td></tr>
+          <tr><td>Weak point</td><td>losing the controller's private key loses everything; cluster-bound</td><td>key distribution to every decrypting agent; secret rotation is a commit</td><td>the store is the truth, so the cluster depends on it; a store outage stops rotation but existing Secrets remain</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Argo CD vs Flux, when the task lets you choose</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Aspect</th><th>Argo CD 3.x</th><th>Flux 2.x</th></tr></thead>
+        <tbody>
+          <tr><td>Unit</td><td>Application (one source or several) and ApplicationSet</td><td>GitRepository/OCIRepository + Kustomization / HelmRelease</td></tr>
+          <tr><td>UI and RBAC</td><td>built in: SSO, project roles, <code>policy.csv</code></td><td>none; Kubernetes RBAC via impersonation (<code>serviceAccountName</code>)</td></tr>
+          <tr><td>Helm</td><td>renders the chart and applies plain manifests; no release history</td><td>real Helm releases with tests, remediation and rollback</td></tr>
+          <tr><td>Drift</td><td><code>selfHeal</code> is opt-in; OutOfSync is reported even when manual</td><td>every interval re-applies; drift correction is implicit</td></tr>
+          <tr><td>Image write-back</td><td>none built in (Argo CD Image Updater is a separate project)</td><td>image-reflector and image-automation controllers</td></tr>
+          <tr><td>Fan-out</td><td>ApplicationSet generators</td><td>one Kustomization per cluster directory; Flux Operator ResourceSets in the wider ecosystem</td></tr>
+          <tr><td>Footprint</td><td>api-server, repo-server, application-controller, redis, dex, applicationset, notifications</td><td>four to six small controllers</td></tr>
+          <tr><td>Multi-tenant lockdown</td><td>AppProject source/destination allow-lists</td><td><code>--no-cross-namespace-refs</code>, <code>--no-remote-bases</code>, <code>--default-service-account</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Where a task does not name the engine, the grader reads the resulting cluster state and the git commit, and either engine produces both. Pick the one whose CLI you can drive without the docs.</p>
+
+    <h3>Bootstrapping, both ways</h3>
+    <ul>
+      <li><strong>Flux</strong>: <code>flux bootstrap github --owner ORG --repository fleet --branch main --path clusters/prod --personal --token-auth</code> (also <code>gitlab</code>, <code>gitea</code>, <code>bitbucket-server</code>, <code>git</code>). It installs the controllers, commits <code>gotk-components.yaml</code> and <code>gotk-sync.yaml</code> under the path, and creates the <code>flux-system</code> GitRepository plus Kustomization that from then on manages Flux itself. <code>--components-extra image-reflector-controller,image-automation-controller</code> adds image automation; <code>flux check</code> verifies; <code>flux migrate</code> moves objects to current API versions before an upgrade (2.9 removed the <code>v1beta2</code> image and notification APIs).</li>
+      <li><strong>Argo CD</strong>: apply the install manifest, then create one Application pointing at the platform repo's <code>argocd/</code> or <code>clusters/</code> directory that contains the Argo CD config and every other Application (app-of-apps). Argo CD then manages its own <code>argocd-cm</code>, <code>argocd-rbac-cm</code> and Applications; the initial admin password in <code>argocd-initial-admin-secret</code> is meant to be rotated and deleted.</li>
+    </ul>
+
+    <div class="callout trap"><span class="tag">Two controllers, same path</span><p>After bootstrapping both engines on one cluster, make the ownership split visible in the repo: Flux reconciles <code>clusters/</code> and <code>infrastructure/</code>, Argo CD owns <code>apps/</code>, or the other way round, never both on the same directory. Argo CD's <code>FailOnSharedResource=true</code> and Flux's <code>kustomize.toolkit.fluxcd.io/ssa: Ignore</code> annotation are the escape hatches when the split is imperfect.</p></div>
+  </div>
+</section>
+
 <section class="panel accent-g" id="exercises">
   <div class="phdr"><h2>Exercises</h2><span class="meta">tick the dot when its check passes</span></div>
   <div class="pbody">
@@ -274,6 +373,19 @@ platform	main@sha1:c7cb9a1e	False    	True 	stored artifact for revision 'main@s
 
     <details class="quiz"><summary>Where do secrets live in a GitOps repo?</summary>
       <div class="answer"><p>Encrypted (Sealed Secrets or SOPS) or by reference (External Secrets pointing at a real store). Never plain, never base64-only. The distinction to state: Sealed Secrets/SOPS keep ciphertext in git; ESO keeps only a pointer and leaves truth in the external store.</p></div></details>
+  
+
+    <details class="quiz"><summary>What is the rendered manifests pattern and how does Argo CD 3.5 implement it?</summary>
+      <div class="answer"><p>Render Helm or Kustomize in a pipeline and commit the resulting plain YAML to a branch or directory the agent syncs from, so reviewers diff final manifests. Argo CD's Source Hydrator (beta since 3.5) does it in the controller: <code>sourceHydrator.drySource</code> is the templated input, <code>syncSource.targetBranch</code>/<code>path</code> is where hydrated output is pushed and synced from, using a <code>repository-write</code> Secret.</p></div></details>
+
+    <details class="quiz"><summary>Which secret approach keeps no secret material in git at all, and what is its dependency?</summary>
+      <div class="answer"><p>External Secrets Operator: git holds an ExternalSecret that names keys in a SecretStore or ClusterSecretStore; the operator fetches and writes the Kubernetes Secret on a refreshInterval. The dependency is the external store and its credential: if it is down, rotation stops, though already-created Secrets keep working. Sealed Secrets and SOPS keep ciphertext in git instead.</p></div></details>
+
+    <details class="quiz"><summary>What does flux bootstrap actually create, and what is the name of the object that then manages Flux itself?</summary>
+      <div class="answer"><p>It installs the controllers, commits <code>gotk-components.yaml</code> and <code>gotk-sync.yaml</code> under <code>--path</code> in the repository, and creates a GitRepository and a Kustomization both named <code>flux-system</code> in the flux-system namespace. From then on that Kustomization reconciles the cluster directory, Flux included, so upgrades are a commit.</p></div></details>
+
+    <details class="quiz"><summary>Why does helm list show nothing for a chart Argo CD deployed?</summary>
+      <div class="answer"><p>Argo CD renders the chart with <code>helm template</code> semantics and applies the manifests itself; it never writes Helm release Secrets. Flux's helm-controller, by contrast, performs real Helm install/upgrade actions and keeps release history, so <code>helm list -n &lt;storageNamespace&gt;</code> shows it. State that difference when comparing engines.</p></div></details>
   </div>
 </section>
 
@@ -285,6 +397,10 @@ platform	main@sha1:c7cb9a1e	False    	True 	stored artifact for revision 'main@s
       <li><b>kustomize.io</b>: bases and overlays, patches, and the transformer list.</li>
       <li><b>argo-cd.readthedocs.io</b> and <b>fluxcd.io</b>: each has a "core concepts" page worth ten minutes before the tool sections.</li>
       <li><b>Offline:</b> <code>kubectl kustomize &lt;dir&gt;</code>, <code>helm template</code>, <code>git log --oneline</code>: your desired state is a repo, so ordinary git tooling is half the diagnosis.</li>
+    
+      <li><b>fluxcd.io/flux/guides/repository-structure</b>: monorepo, repo per environment and repo per team with their trade-offs.</li>
+      <li><b>argo-cd.readthedocs.io: Source Hydrator, OCI, Multiple Sources</b>: the rendered manifests feature, oci:// sources and the $values pattern.</li>
+      <li><b>fluxcd.io/flux/guides/mozilla-sops and github.com/bitnami-labs/sealed-secrets</b>: decryption config for Flux; scopes and key renewal for Sealed Secrets.</li>
     </ul>
   </div>
 </section>

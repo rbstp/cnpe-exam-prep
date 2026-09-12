@@ -86,6 +86,23 @@
       <li><strong>TriggerTemplate</strong>: stamps out the PipelineRun with those values.</li>
       <li>Plus <strong>interceptors</strong>: filter by event type, verify the webhook secret, or evaluate a CEL expression before anything runs. Without one, your EventListener builds anything anyone posts to it.</li>
     </ul>
+  
+
+    <h3>Resolvers, StepActions and Chains, as fields</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>taskRef.resolver</th><th>params</th><th>Use</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">git</td><td class="mono">url, revision, pathInRepo (anonymous clone) or org, repo, revision, pathInRepo (authenticated API)</td><td>a shared task library in a repo, pinned by revision</td></tr>
+          <tr><td class="mono">bundles</td><td class="mono">bundle (OCI ref), name, kind</td><td>tasks packaged as OCI images, signed and promoted like any image</td></tr>
+          <tr><td class="mono">hub</td><td class="mono">catalog, kind, name, version</td><td>Tekton Hub or Artifact Hub catalog tasks</td></tr>
+          <tr><td class="mono">cluster</td><td class="mono">kind, name, namespace</td><td>reference a Task in another namespace; the replacement for the deprecated ClusterTask</td></tr>
+          <tr><td class="mono">http</td><td class="mono">url</td><td>a raw YAML URL</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>A <strong>StepAction</strong> is the reusable unit one level below a Task: <code>image</code>, <code>command</code> or <code>script</code>, <code>args</code>, <code>env</code>, <code>params</code>, <code>results</code>, <code>workingDir</code>, <code>securityContext</code>, <code>volumeMounts</code>. A step uses it with <code>ref: { name: x }</code> (or <code>ref.resolver</code> for a remote one) and must then set none of those fields itself; doing so is a validation error. StepActions are stable; check <code>kubectl api-resources | grep stepaction</code> for the version served on the cluster in front of you. The point for the competency: a platform team ships one <code>kaniko-build</code> StepAction and tenants compose Tasks from it without copying container details.</p>
+    <p><strong>Tekton Chains</strong> is the supply-chain half. It watches completed TaskRuns and PipelineRuns, signs them and any type-hinted image results (<code>IMAGE_URL</code> and <code>IMAGE_DIGEST</code> results, or <code>artifacts.outputs</code>) with a key from the <code>signing-secrets</code> Secret in <code>tekton-chains</code> (cosign, x509 or KMS), produces an in-toto attestation in <code>slsa/v1</code> or <code>slsa/v2alpha4</code> format, stores it in the OCI registry next to the image, in Tekton annotations, or in a bucket, and marks the run <code>chains.tekton.dev/signed: "true"</code>. Formats, storage and signer are settings in the <code>chains-config</code> ConfigMap (<code>artifacts.taskrun.format</code>, <code>artifacts.oci.storage</code>, <code>transparency.enabled</code>). Section 5.6 verifies those signatures at admission; here the fact to hold is that the pipeline pod never holds the signing key.</p>
   </div>
 </section>
 
@@ -111,6 +128,55 @@
       <span class="tag">Tekton vs Argo Workflows</span>
       <p>Both run DAGs of containers, and the exam lists both. The distinction to state: Tekton is CI-shaped: build, test, publish artifacts, triggered by git events, with a task catalog built around that. Argo Workflows (section 3.4) is general orchestration: provisioning sequences, scheduled batch jobs, anything run-to-completion. Overlapping capability, different focus, and section 3.6 makes you defend the choice.</p>
     </div>
+  </div>
+</section>
+
+<section class="panel accent-c" id="tekton-status">
+  <div class="phdr"><h2>Status vocabulary, timeouts, cancellation and control flow</h2><span class="meta">what the condition says · timeouts.pipeline/tasks/finally · spec.status values · when, retries, onError</span></div>
+  <div class="pbody">
+    <p>A run has one condition, type <code>Succeeded</code>, and the pair (status, reason) is the whole story. Learn the table and <code>kubectl get pipelinerun -o jsonpath='{.items[*].status.conditions[0].reason}'</code> becomes a diagnosis.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>status</th><th>reason</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">Unknown</td><td class="mono">Started · Running · Cancelled</td><td>picked up; validated and working; cancellation requested but not finished</td></tr>
+          <tr><td class="mono">True</td><td class="mono">Succeeded</td><td>every task ran and passed</td></tr>
+          <tr><td class="mono">True</td><td class="mono">Completed</td><td>passed, but one or more tasks were skipped by <code>when</code>; the skipped ones are listed under <code>status.skippedTasks</code> with their reason</td></tr>
+          <tr><td class="mono">False</td><td class="mono">Failed</td><td>a TaskRun failed; the message counts "Tasks Completed: N (Failed: M, Cancelled 0), Skipped: K"</td></tr>
+          <tr><td class="mono">False</td><td class="mono">PipelineRunTimeout</td><td><code>timeouts.pipeline</code> elapsed; child TaskRuns are cancelled</td></tr>
+          <tr><td class="mono">False</td><td class="mono">Cancelled · CancelledRunFinally · StoppedRunFinally</td><td>you set <code>spec.status</code></td></tr>
+          <tr><td class="mono">False</td><td class="mono">CreateRunFailed</td><td>could not create a child TaskRun (quota, admission, missing ServiceAccount)</td></tr>
+          <tr><td class="mono">False</td><td class="mono">ParameterMissing · PipelineValidationFailed · InvalidWorkspaceBinding · CouldntGetTask · InvalidTaskResultReference · ResolvingPipelineRef...</td><td>permanent validation errors, often prefixed <code>[User error]</code> in the message; nothing ran</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>TaskRun reasons add the pod-level causes: <code>TaskRunTimeout</code>, <code>TaskRunImagePullFailed</code>, <code>PodEvicted</code>, <code>StepOOM</code> (a step container was OOMKilled: the run fails even if the exit code is 0), <code>InitContainerOOM</code>, <code>StepFailed</code>, <code>ToBeRetried</code> (a retry is pending; previous attempts sit under <code>status.retriesStatus</code>). Each step's <code>terminationReason</code> and exit code are under <code>status.steps[]</code>.</p>
+
+    <h3>Timeouts</h3>
+    <ul>
+      <li><code>spec.timeouts.pipeline</code> (default: the global <code>default-timeout-minutes</code>, 60), <code>timeouts.tasks</code> for the non-finally tasks together, <code>timeouts.finally</code> for the finally tasks; the constraint <code>pipeline &gt;= tasks + finally</code> is validated. <code>"0"</code> disables a section (then <code>pipeline</code> must be 0 too).</li>
+      <li>Per task: <code>pipeline.spec.tasks[].timeout</code>, or at run time <code>taskRunSpecs[].timeout</code>. When <code>timeouts.tasks</code> is hit, finally tasks still run if <code>timeouts.finally</code> allows.</li>
+    </ul>
+
+    <h3>Cancelling and pausing, by setting spec.status</h3>
+    <ul>
+      <li><code>Cancelled</code>: TaskRuns cancelled, pods deleted, retries skipped, pending finally tasks not scheduled.</li>
+      <li><code>CancelledRunFinally</code>: same, but finally tasks run (cleanup and notification still happen).</li>
+      <li><code>StoppedRunFinally</code>: running TaskRuns finish normally with their retries, nothing new starts, then finally runs.</li>
+      <li><code>PipelineRunPending</code>: create the run without starting it (a manual gate or a quota-aware queue); clear the field to start.</li>
+    </ul>
+
+    <h3>Control flow fields</h3>
+    <ul>
+      <li><code>retries: N</code> on a pipeline task re-runs the TaskRun on failure; <code>$(context.pipelineTask.retries)</code> and <code>retry-count</code> are available inside.</li>
+      <li><code>onError: continue</code> on a pipeline task lets the pipeline proceed past a failure (default <code>stopAndFail</code>); on a step, <code>onError: continue</code> lets later steps run and exposes <code>$(steps.&lt;name&gt;.exitCode.path)</code>.</li>
+      <li><code>when</code>: <code>input</code>, <code>operator: in|notin</code>, <code>values</code>; a CEL form (<code>cel: "'$(params.env)' == 'prod'"</code>) exists behind a feature flag. A guarded task's dependents are not automatically guarded: cascade the <code>when</code> or compose a sub-pipeline.</li>
+      <li>In <code>finally</code>, <code>$(tasks.&lt;name&gt;.status)</code> is <code>Succeeded</code>, <code>Failed</code> or <code>None</code> (skipped), and <code>$(tasks.status)</code> aggregates to <code>Succeeded</code>, <code>Completed</code>, <code>Failed</code> or <code>None</code>; finally tasks cannot be ordered among themselves.</li>
+      <li><code>matrix.params</code> fans one pipeline task out over every combination (cap 256 by default, <code>default-max-matrix-combinations-count</code>); TaskRuns are named <code>&lt;run&gt;-&lt;task&gt;-&lt;n&gt;</code> and array results from a fanned-out task are consumed with <code>$(tasks.x.results.y[*])</code>.</li>
+      <li>Results travel in the container termination message, capped at 4096 bytes per step including Tekton's own metadata; larger results need the <code>results-from: sidecar-logs</code> feature flag. "Termination message is above max allowed size" is the error.</li>
+    </ul>
+
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"The pipeline must always publish a report even when the build fails, and a failed scan must not stop the report" is two fields: the report task goes in <code>finally</code>, and either the scan task carries <code>onError: continue</code> or the report reads <code>$(tasks.scan.status)</code> to decide what to say. "Stop the running pipeline but let cleanup run" is <code>spec.status: CancelledRunFinally</code>, not deleting the PipelineRun.</p></div>
   </div>
 </section>
 
@@ -472,6 +538,16 @@ All Steps have completed executing</code></pre></details></div>
 
     <details class="quiz"><summary>Your EventListener is Ready and a push produces nothing. Diagnostic ladder?</summary>
       <div class="answer"><p>Did the webhook deliver (Gitea's webhook delivery log)? Did the listener receive it (its pod logs)? Did an interceptor filter it out (event type, secret mismatch, CEL expression)? Did the binding extract fields the template expects (a missing param yields an invalid PipelineRun)? Each rung produces a different error; check them in order.</p></div></details>
+  
+
+    <details class="quiz"><summary>A PipelineRun shows status True with reason Completed rather than Succeeded. What happened?</summary>
+      <div class="answer"><p>It passed, but at least one task was skipped by a <code>when</code> expression; the skipped tasks and the expressions that evaluated false are listed under <code>status.skippedTasks</code>. Graders and scripts that check for <code>reason == Succeeded</code> will miss this, so check <code>status == "True"</code> on the Succeeded condition instead.</p></div></details>
+
+    <details class="quiz"><summary>Which spec.status value stops new tasks, lets running ones finish and still runs finally?</summary>
+      <div class="answer"><p><code>StoppedRunFinally</code>. <code>CancelledRunFinally</code> kills running TaskRuns but still runs finally; plain <code>Cancelled</code> kills everything and skips finally. <code>PipelineRunPending</code> is the opposite direction: a run created but not yet started.</p></div></details>
+
+    <details class="quiz"><summary>A step referencing a StepAction also sets image. What happens, and why is the design that way?</summary>
+      <div class="answer"><p>Validation error: a step with <code>ref</code> may not set image, command, args, script, env or volumeMounts, because the StepAction owns them and the step only supplies params and results wiring. That separation is what lets a platform team publish one vetted StepAction and let tenants compose Tasks around it without copying container details.</p></div></details>
   </div>
 </section>
 
@@ -481,6 +557,9 @@ All Steps have completed executing</code></pre></details></div>
     <ul class="docs">
       <li><b>tekton.dev</b>: Tasks, Pipelines, and the workspaces page (volumeClaimTemplate binding especially); Triggers' TriggerBinding examples for payload paths; the resolvers page.</li>
       <li><b>Offline:</b> <code>kubectl explain pipelinerun.spec</code>, <code>tkn &lt;verb&gt; --help</code>, and <code>tkn task describe &lt;name&gt;</code> to read a catalog task's params and workspaces without leaving the terminal.</li>
+    
+      <li><b>tekton.dev/docs/pipelines/pipelineruns ("PipelineRun status", "Configuring a failure timeout", "Cancelling")</b>: the status/reason table and the three spec.status cancellation values.</li>
+      <li><b>tekton.dev/docs/pipelines/stepactions and /resolution</b>: StepAction fields and the ref rules; the git, bundles, hub, cluster and http resolver parameters. <b>tekton.dev/docs/chains/config</b> for the chains-config keys.</li>
     </ul>
   </div>
 </section>

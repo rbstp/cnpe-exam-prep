@@ -111,6 +111,61 @@
       <span class="tag">Command reflex</span>
       <p><code>kubectl get sc</code> first, every time: it shows provisioner, reclaim policy, binding mode and expansion in one line, which is four of the five fields above. Then <code>kubectl get pvc -A</code> and look for anything not Bound.</p>
     </div>
+  
+
+    <h3>Backup and restore as objects: Velero</h3>
+    <p>When the DR answer is "a backup tool", Velero is the one the exam pool knows, and its model is four CRDs. A <code>BackupStorageLocation</code> names the object store (bucket, prefix, provider plugin); a <code>VolumeSnapshotLocation</code> names where disk snapshots go; a <code>Backup</code> selects what to copy (<code>includedNamespaces</code>, <code>includedResources</code>, <code>labelSelector</code>, <code>ttl</code>, default 30 days) and a <code>Schedule</code> is a Backup template with a cron expression, producing backups named <code>&lt;schedule&gt;-&lt;timestamp&gt;</code>. Volumes are copied either by CSI snapshot (the snapshot is retained only for the life of the backup, then moved or deleted) or by file-system backup, which reads the mounted files from a node agent and works for any volume type at the cost of consistency. Backup hooks (<code>pre</code> and <code>post</code> exec commands, such as flushing a database) are the honest answer to "is this backup consistent". A <code>Restore</code> replays a backup, optionally mapping namespaces (<code>namespaceMapping: {abc: def}</code>), and restored objects carry the label <code>velero.io/restore-name</code>. In a GitOps cluster the split to state out loud is: manifests come back from git, PV contents come back from Velero (or the operator's own backup), and neither replaces the other.</p>
+  </div>
+</section>
+
+<section class="panel accent-c" id="lifecycle-features">
+  <div class="phdr"><h2>Lifecycle features by version, and copies of data</h2><span class="meta">retention · expansion · snapshots · clones · ephemeral volumes · VolumeAttributesClass</span></div>
+  <div class="pbody">
+    <p>Every item here is a field on a PVC, StatefulSet or StorageClass that a task can ask you to set, plus the version at which it stopped being optional. The cluster is 1.36, so everything marked GA is simply on.</p>
+
+    <h3>StatefulSet PVC retention (GA since 1.32)</h3>
+    <p><code>spec.persistentVolumeClaimRetentionPolicy</code> has two knobs, each <code>Retain</code> (default) or <code>Delete</code>: <code>whenDeleted</code> applies when the StatefulSet is deleted, <code>whenScaled</code> when replicas are reduced. <code>Delete</code> works by putting an ownerReference on the PVC so the garbage collector removes it after the pod is gone; a pod replaced after a node failure keeps its PVC regardless. The common production choice is <code>whenDeleted: Retain, whenScaled: Delete</code>: an accidental delete keeps the data, a deliberate scale-down does not leave orphans.</p>
+
+    <h3>Expansion and its failure path</h3>
+    <ul>
+      <li>Only with <code>allowVolumeExpansion: true</code> on the class and a CSI driver that supports it; you edit <code>spec.resources.requests.storage</code> on the PVC, never the PV (editing the PV first makes the controller think the resize already happened).</li>
+      <li>The block device grows immediately; the filesystem (ext3, ext4, xfs) is resized only when a pod mounts the claim, online if the driver supports it. Until then the PVC shows a <code>FileSystemResizePending</code> condition. "Resize stuck" with no consumer is therefore normal.</li>
+      <li>Shrinking is never allowed, but a failed grow can be retried smaller: <code>RecoverVolumeExpansionFailure</code> is GA since 1.34, so you may lower the request to any value above <code>status.capacity</code>. Progress lives in <code>status.allocatedResources</code> and <code>status.allocatedResourceStatuses</code> (for example <code>ControllerResizeInProgress</code>, <code>NodeResizePending</code>).</li>
+    </ul>
+
+    <h3>Snapshots, clones and populators</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Want</th><th>Write</th><th>Needs</th></tr></thead>
+        <tbody>
+          <tr><td>point-in-time copy</td><td class="mono">VolumeSnapshot { source: { persistentVolumeClaimName } , volumeSnapshotClassName }</td><td>snapshot CRDs + snapshot-controller (installed by the distro), csi-snapshotter sidecar in the driver; a VolumeSnapshotClass with <code>deletionPolicy: Delete</code> or <code>Retain</code></td></tr>
+          <tr><td>new PVC from a snapshot</td><td class="mono">dataSource: { kind: VolumeSnapshot, name, apiGroup: snapshot.storage.k8s.io }</td><td>same namespace and a class from the same driver; wait for <code>status.readyToUse: true</code> on the snapshot first</td></tr>
+          <tr><td>copy an existing PVC</td><td class="mono">dataSource: { kind: PersistentVolumeClaim, name }</td><td>CSI clone support; same namespace; requested size at least the source size</td></tr>
+          <tr><td>populate from anything else</td><td class="mono">dataSourceRef: { apiGroup, kind, name }</td><td>a volume populator controller for that kind (GA since 1.33); cross-namespace sources are still alpha</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Two protections you will meet as "stuck": a PVC being snapshotted cannot be deleted until the snapshot is <code>readyToUse</code>, and a PV bound to a claim carries <code>kubernetes.io/pv-protection</code>. Both clear themselves; do not strip them.</p>
+
+    <h3>Ephemeral volumes</h3>
+    <ul>
+      <li><strong>Generic ephemeral volume</strong> (GA since 1.23): <code>volumes[].ephemeral.volumeClaimTemplate</code> in the pod. The controller creates a real PVC named <code>&lt;pod&gt;-&lt;volume&gt;</code>, owned by the pod, so it is deleted with the pod, yet while it exists it can be snapshotted, cloned or expanded like any PVC. Use <code>WaitForFirstConsumer</code> classes so the scheduler picks the node first.</li>
+      <li><strong>CSI ephemeral volume</strong>: <code>volumes[].csi</code> inline, no PVC object, for drivers that declare the <code>Ephemeral</code> mode (secrets-store style drivers). Data disappears with the pod and never touches a StorageClass.</li>
+      <li><code>emptyDir</code> counts against <code>ephemeral-storage</code> requests and limits; with <code>medium: Memory</code> it counts against memory instead and can be resized in place on cgroup v2 nodes.</li>
+    </ul>
+
+    <h3>VolumeAttributesClass (GA since 1.34)</h3>
+    <p>A StorageClass decides how a volume is created; a <code>VolumeAttributesClass</code> (<code>driverName</code> plus <code>parameters</code> such as IOPS and throughput) decides how it performs, and <code>pvc.spec.volumeAttributesClassName</code> is mutable, so moving a claim from <code>silver</code> to <code>gold</code> is an edit rather than a migration. Quota can cap it per class (<code>&lt;vac&gt;.volumeattributesclass.storage.k8s.io/...</code>). It is the answer to "change the disk tier without recreating the PVC".</p>
+
+    <h3>Smaller facts with a version</h3>
+    <ul>
+      <li>Retroactive default class (GA since 1.28): a PVC created with no class while no default exists is patched when a default appears; a PVC with <code>storageClassName: ""</code> is left alone and binds only to classless PVs.</li>
+      <li><code>ReadWriteOncePod</code> is GA since 1.29 and CSI-only; the scheduler and kubelet enforce it, unlike the other three modes which are matching hints.</li>
+      <li><code>HonorPVReclaimPolicy</code> adds an <code>external-provisioner.volume.kubernetes.io/finalizer</code> so a <code>Delete</code> PV whose PVC outlives it is still cleaned up in the backend when the PV is deleted first.</li>
+      <li>StatefulSet <code>updateStrategy.rollingUpdate.maxUnavailable</code> is beta since 1.35 (default-on in 1.35.0 to 1.35.3, off again from 1.35.4 through 1.36, on by default in 1.37); a <code>Recreate</code> update strategy is also feature-gated. Do not assume either in a task; the default is one pod at a time, highest ordinal first.</li>
+    </ul>
+
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Grow the database volume to 20Gi" is graded on the PVC's <code>status.capacity</code>; the edit alone earns nothing. If the class lacks <code>allowVolumeExpansion</code> the edit is rejected outright ("only dynamically provisioned pvc can be resized and the storageclass that provisions the pvc must support resize"); if no pod mounts the claim, capacity stays at the old value with <code>FileSystemResizePending</code>, and the task is not done until a consumer runs.</p></div>
   </div>
 </section>
 
@@ -214,6 +269,19 @@ spire        spire-data-spire-server-0   standard   ReadWriteOnce   1Gi</code></
 
     <details class="quiz"><summary>Which quota lines cap tenant storage, and why is per-class quota interesting?</summary>
       <div class="answer"><p><code>requests.storage</code> and <code>persistentvolumeclaims</code> cap the total and the count; <code>&lt;class&gt;.storageclass.storage.k8s.io/requests.storage</code> caps a specific class. The per-class form is how a platform team offers a fast expensive tier without every tenant defaulting to it: a pricing decision expressed as a Kubernetes object.</p></div></details>
+  
+
+    <details class="quiz"><summary>You want scale-down to reclaim volumes but deleting the StatefulSet by mistake to keep them. Which fields, and since when is this GA?</summary>
+      <div class="answer"><p><code>persistentVolumeClaimRetentionPolicy: { whenScaled: Delete, whenDeleted: Retain }</code>, GA since Kubernetes 1.32 (StatefulSetAutoDeletePVC). Delete works through an ownerReference on the PVC that the garbage collector honours after the pod is gone; a pod replaced after a node failure is not a scale event and keeps its claim.</p></div></details>
+
+    <details class="quiz"><summary>An expansion to 500Gi failed because the backend has no capacity and the PVC keeps retrying. Can you back out?</summary>
+      <div class="answer"><p>Yes: RecoverVolumeExpansionFailure is GA since 1.34, so edit the request down to any value still above <code>status.capacity</code> (never below it; shrinking is impossible). Watch <code>status.allocatedResourceStatuses</code> and events. Before 1.34 the recovery was the manual dance of Retain, delete the PVC, clear <code>claimRef</code>, recreate.</p></div></details>
+
+    <details class="quiz"><summary>Restore a database volume from last night's snapshot into a new PVC. What is the manifest shape and what must be true first?</summary>
+      <div class="answer"><p>A PVC whose <code>dataSource</code> is <code>{ kind: VolumeSnapshot, name: &lt;snap&gt;, apiGroup: snapshot.storage.k8s.io }</code>, in the same namespace, with a StorageClass from the same CSI driver and a size at least the snapshot's restore size. The VolumeSnapshot must show <code>status.readyToUse: true</code>; a not-ready snapshot leaves the PVC Pending with a provisioner event saying so.</p></div></details>
+
+    <details class="quiz"><summary>How do you change a volume's IOPS tier without recreating it?</summary>
+      <div class="answer"><p>VolumeAttributesClass (GA since 1.34): create a class with the driver's performance <code>parameters</code> and set <code>spec.volumeAttributesClassName</code> on the PVC; the field is mutable and the external-resizer applies the change. StorageClass parameters, by contrast, are fixed at provisioning time.</p></div></details>
   </div>
 </section>
 
@@ -223,6 +291,10 @@ spire        spire-data-spire-server-0   standard   ReadWriteOnce   1Gi</code></
     <ul class="docs">
       <li><b>kubernetes.io</b>: Persistent Volumes (the access-modes and reclaim tables), Storage Classes, Volume Snapshots, StatefulSet <code>volumeClaimTemplates</code>.</li>
       <li><b>Offline:</b> <code>kubectl explain pvc.spec</code>, <code>kubectl explain sc</code>, <code>kubectl get sc -o wide</code>, and PVC <code>status.conditions</code> when a resize misbehaves.</li>
+    
+      <li><b>kubernetes.io: Persistent Volumes, "Expanding Persistent Volumes Claims" and "Recovering from Failure when Expanding Volumes"</b>: the exact rules for grow-only, filesystem-on-mount and the smaller-retry path.</li>
+      <li><b>kubernetes.io: Ephemeral Volumes and Volume Attributes Classes</b>: generic ephemeral volume naming and ownership; the mutable volumeAttributesClassName field.</li>
+      <li><b>velero.io/docs: "How Velero Works" and "CSI snapshot support"</b>: the Backup/Schedule/Restore objects and the CSI versus file-system backup choice.</li>
     </ul>
   </div>
 </section>

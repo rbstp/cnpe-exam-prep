@@ -64,6 +64,41 @@ pod-security.kubernetes.io/audit: restricted</code></pre></div>
   </div>
 </section>
 
+<section class="panel accent-c" id="fields-by-profile">
+  <div class="phdr"><h2>The profiles at field level</h2><span class="meta">what baseline forbids, what restricted demands, path by path</span></div>
+  <div class="pbody">
+    <p>The rejection message names the control (<code>privileged</code>, <code>hostPath volumes</code>, <code>allowPrivilegeEscalation != false</code>, <code>unrestricted capabilities</code>, <code>runAsNonRoot != true</code>, <code>seccompProfile</code>). Knowing which field each control reads turns that message into a one-line edit.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Control</th><th>Field(s), on pod and every container (<code>containers</code>, <code>initContainers</code>, <code>ephemeralContainers</code>)</th><th>Baseline</th><th>Restricted adds</th></tr></thead>
+        <tbody>
+          <tr><td>Host namespaces</td><td class="mono">spec.hostNetwork, hostPID, hostIPC</td><td>must be false/unset</td><td>same</td></tr>
+          <tr><td>Privileged</td><td class="mono">securityContext.privileged</td><td>false/unset</td><td>same</td></tr>
+          <tr><td>Capabilities</td><td class="mono">securityContext.capabilities.add / drop</td><td><code>add</code> only from: AUDIT_WRITE, CHOWN, DAC_OVERRIDE, FOWNER, FSETID, KILL, MKNOD, NET_BIND_SERVICE, SETFCAP, SETGID, SETPCAP, SETUID, SYS_CHROOT</td><td><code>drop: ["ALL"]</code> required; <code>add</code> may contain only NET_BIND_SERVICE</td></tr>
+          <tr><td>HostPath volumes</td><td class="mono">spec.volumes[*].hostPath</td><td>forbidden</td><td>same</td></tr>
+          <tr><td>Host ports</td><td class="mono">containers[*].ports[*].hostPort</td><td>unset or 0</td><td>same</td></tr>
+          <tr><td>AppArmor</td><td class="mono">securityContext.appArmorProfile.type</td><td><code>RuntimeDefault</code>, <code>Localhost</code>, or unset; not <code>Unconfined</code></td><td>same</td></tr>
+          <tr><td>SELinux</td><td class="mono">securityContext.seLinuxOptions.type / user / role</td><td>type in <code>container_t</code>, <code>container_init_t</code>, <code>container_kvm_t</code>, <code>container_engine_t</code> or unset; user and role must be unset</td><td>same</td></tr>
+          <tr><td>/proc mount</td><td class="mono">securityContext.procMount</td><td><code>Default</code> or unset</td><td>same</td></tr>
+          <tr><td>Seccomp</td><td class="mono">securityContext.seccompProfile.type</td><td>not <code>Unconfined</code> (unset allowed)</td><td>must be set: <code>RuntimeDefault</code> or <code>Localhost</code>, at pod level or on every container</td></tr>
+          <tr><td>Sysctls</td><td class="mono">spec.securityContext.sysctls[*].name</td><td>only the safe set (<code>kernel.shm_rmid_forced</code>, <code>net.ipv4.ip_local_port_range</code>, <code>net.ipv4.tcp_syncookies</code>, <code>net.ipv4.ping_group_range</code>, <code>net.ipv4.ip_unprivileged_port_start</code> and a few more)</td><td>same</td></tr>
+          <tr><td>Volume types</td><td class="mono">spec.volumes[*]</td><td>anything but hostPath</td><td>only <code>configMap</code>, <code>csi</code>, <code>downwardAPI</code>, <code>emptyDir</code>, <code>ephemeral</code>, <code>persistentVolumeClaim</code>, <code>projected</code>, <code>secret</code></td></tr>
+          <tr><td>Privilege escalation</td><td class="mono">containers[*].securityContext.allowPrivilegeEscalation</td><td>n/a</td><td>must be <code>false</code> on every container (Linux pods)</td></tr>
+          <tr><td>Non-root</td><td class="mono">securityContext.runAsNonRoot; runAsUser</td><td>n/a</td><td><code>runAsNonRoot: true</code> at pod level or on every container; <code>runAsUser</code> must not be 0 where set</td></tr>
+          <tr><td>Windows HostProcess</td><td class="mono">securityContext.windowsOptions.hostProcess</td><td>false/unset</td><td>same</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <ul>
+      <li><strong>Pod level vs container level.</strong> <code>runAsNonRoot</code>, <code>runAsUser</code>, <code>seccompProfile</code>, <code>appArmorProfile</code> and <code>seLinuxOptions</code> can be set on <code>spec.securityContext</code> and inherited, with a container able to override; <code>allowPrivilegeEscalation</code>, <code>capabilities</code>, <code>privileged</code>, <code>procMount</code> and <code>readOnlyRootFilesystem</code> exist only per container. A restricted failure that says "container x" wants a per-container field; one that names the pod wants the pod-level block.</li>
+      <li><strong>Not required by restricted.</strong> <code>readOnlyRootFilesystem</code>, resource limits, a non-root <code>fsGroup</code>. Tasks that ask for them are asking for a policy engine rule or a hardened manifest, not PSS.</li>
+      <li><strong>Images that run as root.</strong> <code>runAsNonRoot: true</code> with an image whose default user is root fails at container start with <code>container has runAsNonRoot and image will run as root</code> (a <code>CreateContainerConfigError</code>), not at admission. Add <code>runAsUser: 1000</code> (and usually <code>runAsGroup</code>), or use an image built for a non-root user.</li>
+      <li><strong>Ephemeral containers count.</strong> <code>kubectl debug</code> into a restricted namespace fails unless you pass <code>--profile=restricted</code>, because the injected container also has to satisfy the profile.</li>
+    </ul>
+    <div class="callout reflex"><span class="tag">Reflex</span><p>Reading a rejection: split the message on commas; each clause is one row of the table and names the container. Fix them all in one edit; PSS reports every violation at once, so a second apply should be clean.</p></div>
+  </div>
+</section>
+
 <section class="panel accent-y" id="operational">
   <div class="phdr"><h2>Two operational facts that decide troubleshooting tasks</h2><span class="meta">and one preview command</span></div>
   <div class="pbody">
@@ -95,6 +130,49 @@ containers:
       <span class="tag">PSS versus a policy engine</span>
       <p>PSS is fixed, built in, free, and covers exactly the pod-hardening dimension. A policy engine is arbitrary, installable, and covers everything else (image registries, labels, ownership, cross-object rules) at the cost of running a webhook. The professional answer to "which should we use" is <strong>both</strong>: PSS as the always-on floor, an engine for organisation-specific rules. The engine can also enforce PSS-like rules in namespaces where you need exceptions PSS cannot express.</p>
     </div>
+  </div>
+</section>
+
+<section class="panel accent-y" id="defaults-exemptions">
+  <div class="phdr"><h2>Cluster-wide defaults, exemptions and the newer knobs</h2><span class="meta">AdmissionConfiguration, workload resources, user namespaces, AppArmor</span></div>
+  <div class="pbody">
+    <h3>Defaults and exemptions live on the API server</h3>
+    <p>Namespace labels are the per-namespace layer. The cluster-wide layer is the <code>PodSecurity</code> admission plugin's configuration, passed to <code>kube-apiserver</code> with <code>--admission-control-config-file</code>:</p>
+    <div class="cb" data-lang="yaml"><pre><code>apiVersion: apiserver.config.k8s.io/v1
+kind: AdmissionConfiguration
+plugins:
+- name: PodSecurity
+  configuration:
+    apiVersion: pod-security.admission.config.k8s.io/v1
+    kind: PodSecurityConfiguration
+    defaults:                       # applied to namespaces with no label for that mode
+      enforce: baseline
+      enforce-version: latest
+      audit: restricted
+      audit-version: latest
+      warn: restricted
+      warn-version: latest
+    exemptions:
+      usernames: []                 # authenticated or impersonated users
+      runtimeClasses: [kata]        # pods with this runtimeClassName
+      namespaces: [kube-system]     # whole namespaces</code></pre></div>
+    <ul>
+      <li>A namespace label always overrides the default for that mode; the default only fills gaps. So "every new namespace must be at least baseline" is this file, not a Kyverno policy that labels namespaces (though that works too and is the answer when you cannot touch the API server, which on managed clusters you usually cannot).</li>
+      <li>Exempt requests skip all three modes. Exempting a username exempts what that user creates directly, not what a controller creates on their behalf, which is why the docs say not to exempt controller ServiceAccounts such as the ReplicaSet controller: that would exempt everyone who can create a Deployment.</li>
+      <li><code>pod_security_evaluations_total</code> and <code>pod_security_exemptions_total</code> on the API server tell you how often each mode fires; a spike in <code>decision="deny"</code> after a label change is your rollout signal.</li>
+    </ul>
+
+    <h3>Workload resources and updates</h3>
+    <p><code>warn</code> and <code>audit</code> are applied to Deployments, StatefulSets, Jobs and other pod-template resources, so the person applying a Deployment sees the warning; <code>enforce</code> is applied only to the resulting pods, which is the two-level failure from the exercises. Pod updates that touch only metadata (other than seccomp or AppArmor annotations), <code>activeDeadlineSeconds</code> or <code>tolerations</code> are exempt from re-evaluation; anything that creates a new pod, including a Deployment rollout, is evaluated in full, which is when a tightened label first bites a running workload. <code>kubectl label --dry-run=server</code> is the preview for the label change; <code>kubectl apply --dry-run=server</code> on a workload previews the warnings without creating it.</p>
+
+    <h3>Newer knobs that change what "compliant" means</h3>
+    <ul>
+      <li><strong>User namespaces (GA in 1.36).</strong> <code>spec.hostUsers: false</code> maps container UIDs to unprivileged host UIDs, so root in the container is not root on the node. Needs a Linux 6.3+ kernel with idmap mounts on every filesystem the pod uses (tmpfs included), containerd 2.0+ or CRI-O, and runc 1.2+ or crun 1.9+. It is Linux-only and does not apply to <code>hostPath</code> or host namespaces. PSS still evaluates the pod normally; user namespaces are defence in depth under it.</li>
+      <li><strong>AppArmor (GA in 1.30).</strong> The field is <code>securityContext.appArmorProfile: { type: RuntimeDefault | Localhost | Unconfined, localhostProfile: name }</code>; the old <code>container.apparmor.security.beta.kubernetes.io/&lt;container&gt;</code> annotation is deprecated and rejected when it disagrees with the field. Baseline reads the field.</li>
+      <li><strong>Seccomp.</strong> <code>RuntimeDefault</code> uses the container runtime's profile; <code>Localhost</code> needs <code>localhostProfile</code> relative to the kubelet's <code>/var/lib/kubelet/seccomp/</code> directory on every node. The kubelet flag <code>--seccomp-default</code> (or <code>seccompDefault: true</code> in <code>KubeletConfiguration</code>) makes <code>RuntimeDefault</code> the default for pods that set nothing, which is how you satisfy restricted's seccomp requirement fleet-wide without editing manifests; PSS, though, checks the pod spec, not the kubelet default, so restricted still wants the field written.</li>
+      <li><strong>PodSecurityPolicy</strong> was removed in 1.25; a <code>policy/v1beta1 PodSecurityPolicy</code> manifest in a task is a trick, and the answer is labels plus an engine.</li>
+    </ul>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Make namespace X enforce restricted without breaking its current workloads" is: preview with <code>--dry-run=server</code>, fix the manifests the warnings name (usually <code>allowPrivilegeEscalation</code>, <code>capabilities.drop</code>, <code>runAsNonRoot</code>, <code>seccompProfile</code>), then set the label with a pinned <code>enforce-version</code>. "Allow one system workload that needs hostPath in an otherwise restricted cluster" is an exemption by namespace or a separate <code>privileged</code> namespace, never a per-pod exception, because PSS has none.</p></div>
   </div>
 </section>
 
@@ -157,6 +235,16 @@ sneaky   0/1     0            0           11s
 
     <details class="quiz"><summary>PSS or Kyverno for "images must come from our registry"?</summary>
       <div class="answer"><p>Kyverno (or Gatekeeper): PSS covers only the fixed pod-hardening dimension and has no notion of registries. PSS is the floor; the engine is for organisation-specific rules, and it is fine, indeed normal, to run both.</p></div></details>
+  
+
+    <details class="quiz"><summary>A pod passes restricted admission and then sits in <code>CreateContainerConfigError</code> with <code>container has runAsNonRoot and image will run as root</code>. What happened?</summary>
+      <div class="answer"><p>You set <code>runAsNonRoot: true</code>, which satisfies PSS at admission, but the image's default user is root, so the kubelet refuses to start it. Set <code>runAsUser</code> (and <code>runAsGroup</code>) to a non-zero id, or use an image whose <code>USER</code> is non-root. PSS checks the spec; the kubelet checks the image.</p></div></details>
+
+    <details class="quiz"><summary>How do you make every namespace without labels enforce baseline and warn on restricted, cluster-wide, and what does a namespace label do to that default?</summary>
+      <div class="answer"><p>An <code>AdmissionConfiguration</code> with a <code>PodSecurityConfiguration</code> whose <code>defaults</code> set <code>enforce: baseline</code>, <code>warn: restricted</code> (plus versions), passed to the API server with <code>--admission-control-config-file</code>. A namespace label for a mode overrides the default for that mode only. On a managed control plane you cannot set this, so the fallback is a policy engine that labels namespaces at creation.</p></div></details>
+
+    <details class="quiz"><summary>Restricted rejects a container for <code>seccompProfile</code>, yet the kubelet runs with <code>seccompDefault: true</code>. Why is that not enough?</summary>
+      <div class="answer"><p>PSS evaluates the pod spec at admission; the kubelet default is applied later, at container creation, and is invisible to the admission controller. Restricted requires <code>seccompProfile.type</code> to be <code>RuntimeDefault</code> or <code>Localhost</code> in the spec, at pod level or on every container. The kubelet flag is still worth setting: it protects pods in namespaces that are not restricted.</p></div></details>
   </div>
 </section>
 
@@ -166,6 +254,9 @@ sneaky   0/1     0            0           11s
     <ul class="docs">
       <li><b>kubernetes.io</b>: Pod Security Standards (the profile tables; do not memorise the capability lists, know where they are) and Enforce Pod Security Standards with Namespace Labels.</li>
       <li><b>Offline:</b> the rejection messages themselves; PSS names every violated control, which makes it the most self-documenting admission mechanism in the cluster; plus <code>kubectl explain pod.spec.securityContext</code>.</li>
+    
+      <li><b>kubernetes.io/docs/concepts/security/pod-security-standards</b>: the field-by-field tables (use them, do not memorise the capability list); <b>/docs/concepts/security/pod-security-admission</b> for workload-resource behaviour and exemptions.</li>
+      <li><b>kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-admission-controller</b>: the <code>AdmissionConfiguration</code> file; <b>/docs/concepts/workloads/pods/user-namespaces</b> for <code>hostUsers</code> and its runtime requirements.</li>
     </ul>
   </div>
 </section>

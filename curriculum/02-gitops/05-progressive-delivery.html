@@ -152,7 +152,7 @@ Error: Rollout status watch exceeded timeout</code></pre></details></div>
 
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th></th><th>Argo Rollouts</th><th>Flagger</th></tr></thead>
+        <thead><tr><th>Aspect</th><th>Argo Rollouts</th><th>Flagger</th></tr></thead>
         <tbody>
           <tr><td>What you author</td><td>a Rollout (replaces the Deployment)</td><td>a Canary next to an untouched Deployment</td></tr>
           <tr><td>Traffic control</td><td>replica ratio, or a traffic provider</td><td>mesh/gateway route weights, always</td></tr>
@@ -182,6 +182,102 @@ Error: Rollout status watch exceeded timeout</code></pre></details></div>
       <li><strong>Enough traffic to be significant.</strong> With three requests a minute, a 20% canary measures noise. Either drive load (Flagger's loadtester, or your own) or lengthen the interval.</li>
       <li><strong>Where GitOps meets this.</strong> The rollout object lives in git like everything else; the promotion decision does not. Argo CD syncing a Rollout is fine, but if you <code>abort</code> without reverting git, the next sync re-applies the bad image.</li>
     </ul>
+  </div>
+</section>
+
+<section class="panel accent-c" id="decisive-fields">
+  <div class="phdr"><h2>Fields that decide the outcome</h2><span class="meta">Rollouts analysis limits · blue-green extras · traffic routers · Flagger analysis, phases and strategy selection</span></div>
+  <div class="pbody">
+    <h3>Argo Rollouts: the analysis budget</h3>
+    <ul>
+      <li><code>failureLimit</code> defaults to <strong>0</strong>: a single failed measurement fails the analysis and aborts the rollout. Set it deliberately. <code>consecutiveSuccessLimit</code> (1.8+) requires N successes in a row; with <code>failureLimit: -1</code> it turns the analysis into "wait until the metric is good".</li>
+      <li><code>inconclusiveLimit</code> counts measurements that met neither <code>successCondition</code> nor <code>failureCondition</code>; a run ending <code>Inconclusive</code> <em>pauses</em> the rollout for a human, it does not abort. A metric with no conditions at all is always inconclusive by design.</li>
+      <li><code>count</code> and <code>interval</code> bound how many measurements; no <code>count</code> means run until the rollout finishes (background analysis). <code>initialDelay</code> per metric and <code>analysis.startingStep</code> on the rollout delay the start so the canary has traffic before it is judged.</li>
+      <li>Where analysis runs: <code>canary.steps[].analysis</code> (inline, blocks the step), <code>canary.analysis</code> (background, whole rollout), <code>blueGreen.prePromotionAnalysis</code> (blocks the selector switch), <code>blueGreen.postPromotionAnalysis</code> (aborts and switches back on failure). <code>args</code> flow from the rollout; <code>ClusterAnalysisTemplate</code> is the cluster-scoped form.</li>
+      <li>Prometheus provider: <code>address</code>, <code>query</code>, optional <code>rangeQuery</code>; results are a vector, so conditions read <code>result[0]</code>, and for range queries <code>all(result, # &lt; 1000)</code>. Other providers: <code>web</code> (jsonPath over an HTTP response), <code>job</code> (a Kubernetes Job's exit), <code>datadog</code>, <code>newrelic</code>, <code>wavefront</code>, <code>graphite</code>, <code>influxdb</code>, <code>skywalking</code>, and metric plugins.</li>
+      <li><code>dryRun</code> per metric records results without affecting the rollout; <code>measurementRetention</code> keeps more than the default 10 measurements.</li>
+    </ul>
+
+    <h3>Rollout spec fields not yet named</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Field</th><th>Default</th><th>Effect</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">progressDeadlineSeconds · progressDeadlineAbort</td><td>600 · false</td><td>stalled for this long marks Degraded; with abort true it also rolls back</td></tr>
+          <tr><td class="mono">workloadRef + scaleDown</td><td>never</td><td>adopt an existing Deployment as the template; <code>onsuccess</code> or <code>progressively</code> scale the Deployment down as the Rollout takes over (the migration path)</td></tr>
+          <tr><td class="mono">rollbackWindow.revisions</td><td>unset</td><td>a rollback to one of the last N revisions skips analysis and pauses</td></tr>
+          <tr><td class="mono">canary.dynamicStableScale · abortScaleDownDelaySeconds</td><td>false · 30</td><td>with traffic routing, shrink the stable set as canary weight grows; delay shrinking the canary after abort</td></tr>
+          <tr><td class="mono">canary.maxSurge · maxUnavailable</td><td>25% · 25%</td><td>only meaningful without traffic routing; with it the stable set stays at 100%</td></tr>
+          <tr><td class="mono">blueGreen.autoPromotionSeconds · previewReplicaCount · scaleDownDelayRevisionLimit</td><td>unset · full · unset</td><td>timed auto-promote; a smaller preview stack until promotion; how many old ReplicaSets to keep warm</td></tr>
+          <tr><td class="mono">paused: true · restartAt</td><td></td><td>manual pause outside the step list; a timestamp that triggers a restart of all pods without a spec change</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Traffic routers and header routing</h3>
+    <p><code>canary.trafficRouting</code> takes one provider block: <code>istio</code> (a VirtualService and route names, or DestinationRule subsets), <code>nginx</code> (stableIngress), <code>alb</code>, <code>smi</code>, <code>traefik</code>, <code>apisix</code>, or <code>plugins</code> such as <code>argoproj-labs/gatewayAPI</code> with <code>httpRoute</code> and <code>namespace</code>, which drives HTTPRoute <code>backendRefs</code> weights on any conformant gateway (Cilium, Envoy Gateway, kgateway, Traefik). With a router present, <code>canaryService</code> and <code>stableService</code> are required. Extra steps become available: <code>setHeaderRoute</code> (match <code>headerName</code> with <code>exact</code>, <code>prefix</code> or <code>regex</code>, so testers reach the canary at weight 0), <code>setMirrorRoute</code> (Istio: shadow a percentage), and <code>setCanaryScale</code> (replicas independent of weight). Routes Rollouts creates must be listed in <code>trafficRouting.managedRoutes</code> and are removed on completion or abort. Plugin-style traffic routers and canary step plugins are how Rollouts 1.9 and 1.10 add integrations; the core no longer accepts new built-in providers.</p>
+
+    <h3>Flagger: analysis fields, phases, strategy selection</h3>
+    <p>Flagger has one CR and picks the strategy from which analysis fields you fill:</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>You set</th><th>You get</th><th>Timing</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">stepWeight + maxWeight (or stepWeights list)</td><td>canary with progressive traffic shift; <code>stepWeightPromotion</code> makes the promotion gradual too</td><td>minimum <code>interval × (maxWeight / stepWeight)</code>; rollback after <code>interval × threshold</code></td></tr>
+          <tr><td class="mono">match (headers or cookie regex) + iterations</td><td>A/B testing: matched users go to the canary for the whole analysis; maxWeight and stepWeight are ignored</td><td class="mono">interval × iterations</td></tr>
+          <tr><td class="mono">iterations only</td><td>blue/green: canary is tested with conformance and load webhooks, then traffic is switched at once; works with <code>provider: kubernetes</code> (L4, no mesh)</td><td class="mono">interval × iterations</td></tr>
+          <tr><td class="mono">mirror: true (+ mirrorWeight)</td><td>blue/green with traffic shadowing (Istio, Gateway API)</td><td>as above</td></tr>
+          <tr><td class="mono">skipAnalysis: true</td><td>promote as soon as the canary is healthy; the emergency lever</td><td>immediate</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <ul>
+      <li><code>threshold</code> is the number of failed checks (metrics or webhooks) before rollback, default 1; <code>interval</code> default 60s; <code>progressDeadlineSeconds</code> (default 600) rolls back a canary that never becomes ready.</li>
+      <li>Built-in metrics: <code>request-success-rate</code> with <code>thresholdRange.min</code> in percent and <code>request-duration</code> with <code>thresholdRange.max</code> in milliseconds (P99). Custom metrics are a <code>MetricTemplate</code> (<code>provider.type</code> prometheus, datadog, cloudwatch, newrelic, graphite, influxdb, dynatrace, keptn, splunk, external metrics; <code>query</code> with <code>{{ namespace }}</code>, <code>{{ target }}</code>, <code>{{ interval }}</code> variables) referenced by <code>templateRef</code> and judged by <code>thresholdRange</code>.</li>
+      <li><code>service.port</code>, <code>targetPort</code>, <code>portDiscovery</code>, and for Gateway API <code>service.gatewayRefs</code> and <code>hosts</code>; the target Deployment must have a single-label selector (<code>app</code>, <code>name</code> or <code>app.kubernetes.io/name</code>). ConfigMaps and Secrets mounted by the target are tracked and copied to <code>-primary</code> unless annotated <code>flagger.app/config-tracking: disabled</code>.</li>
+      <li>Phases in <code>status.phase</code>: <code>Initializing</code> → <code>Initialized</code> → (<code>Waiting</code> if a confirm-rollout webhook gates) → <code>Progressing</code> → (<code>WaitingPromotion</code>) → <code>Promoting</code> → <code>Finalising</code> → <code>Succeeded</code> or <code>Failed</code>. <code>kubectl wait canary/x --for=condition=promoted</code> is the scriptable gate. <code>suspend: true</code> freezes the Canary entirely; <code>revertOnDeletion: true</code> restores the original Deployment and Service when the Canary is deleted.</li>
+      <li>Webhook types beyond the ones above: <code>confirm-traffic-increase</code> (gate each weight step), <code>rollback</code> (a 2xx from it fails the canary on demand), <code>event</code> (receive every Flagger event as JSON). Non-2xx from a rollout webhook counts toward <code>threshold</code>; the sum of rollout webhook timeouts must fit inside <code>interval</code>.</li>
+    </ul>
+
+    <div class="callout trap"><span class="tag">Defaults that bite</span><p>Rollouts: <code>failureLimit</code> 0 means one bad sample aborts. Flagger: <code>threshold</code> 1 means one failed check rolls back, and a canary with <code>maxWeight</code> unset runs to 50 in steps of <code>stepWeight</code>. Both tools promote a first-ever deployment straight through with no analysis, because there is no stable version to compare against; do not read that as "analysis is broken".</p></div>
+  </div>
+</section>
+
+<section class="panel accent-y" id="baseline-decision">
+  <div class="phdr"><h2>The baseline and the decision table</h2><span class="meta">Deployment rolling update fields · when canary, blue-green, A/B or shadow</span></div>
+  <div class="pbody">
+    <h3>What a plain Deployment already gives you</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Field</th><th>Default</th><th>Behaviour</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">strategy.type</td><td class="mono">RollingUpdate</td><td><code>Recreate</code> kills everything first; the only option when two versions cannot coexist</td></tr>
+          <tr><td class="mono">rollingUpdate.maxSurge · maxUnavailable</td><td class="mono">25% · 25%</td><td>extra pods allowed above replicas · pods allowed missing; <code>maxSurge: 0, maxUnavailable: 1</code> for capacity-bound clusters, <code>maxUnavailable: 0</code> for zero-dip</td></tr>
+          <tr><td class="mono">minReadySeconds</td><td class="mono">0</td><td>a pod must be Ready this long before it counts, the poor man's soak</td></tr>
+          <tr><td class="mono">progressDeadlineSeconds</td><td class="mono">600</td><td>no progress for this long sets condition <code>Progressing=False</code>, reason <code>ProgressDeadlineExceeded</code>; nothing rolls back automatically, and Argo CD flips health to Degraded at the same moment</td></tr>
+          <tr><td class="mono">revisionHistoryLimit</td><td class="mono">10</td><td>old ReplicaSets kept for <code>kubectl rollout undo --to-revision</code></td></tr>
+          <tr><td class="mono">paused</td><td class="mono">false</td><td><code>kubectl rollout pause</code> / <code>resume</code>; a paused Deployment accepts spec changes without rolling</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>A rolling update has no traffic control and no analysis: readiness is the only gate, and the Service sends new pods their share the moment they are Ready. That is the baseline every progressive strategy is measured against, and under GitOps an "undo" is a revert commit, since <code>kubectl rollout undo</code> is drift.</p>
+
+    <h3>Choosing</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Constraint in the scenario</th><th>Strategy</th><th>What it needs</th><th>Rollback shape</th></tr></thead>
+        <tbody>
+          <tr><td>"cannot afford double capacity", "measure before exposing everyone"</td><td>canary</td><td>metrics that reflect users (success rate, latency) and a router for exact weights; enough traffic to be significant</td><td>shift weight back; only the slice was exposed</td></tr>
+          <tr><td>"instant cutover", "instant rollback", "test the new version privately first"</td><td>blue-green</td><td>2× capacity for the window; a preview Service or hostname; schema compatible both ways</td><td>flip the selector back; old stack kept for <code>scaleDownDelaySeconds</code></td></tr>
+          <tr><td>"specific users or a header must see the new version", "same user must stay on one version"</td><td>A/B (header or cookie routing)</td><td>L7 routing: mesh or Gateway API; sticky sessions for cookies</td><td>remove the match; nobody else was affected</td></tr>
+          <tr><td>"validate against real traffic with zero user risk"</td><td>shadow / mirror</td><td>Istio or Gateway API mirroring; side-effect-free requests</td><td>none needed; responses were discarded</td></tr>
+          <tr><td>"two versions can never run at once"</td><td>Recreate</td><td>a maintenance window</td><td>redeploy the old version</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Two things decide between the tools. First, what the app team authors: a Rollout (Argo Rollouts replaces the Deployment kind and works without a mesh by replica ratio) or a plain Deployment with a Canary beside it (Flagger always needs a mesh or gateway, except for L4 blue/green). Second, who promotes: a step list with manual <code>promote</code> points, or an automatic threshold loop with optional confirm webhooks. Both integrate with Argo CD and Flux the same way: the Rollout or Canary lives in git and the promotion decision stays outside it.</p>
+
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>A task that says "route requests with header <code>X-Beta: true</code> to the new version and nobody else" is A/B rather than canary: in Rollouts a <code>setHeaderRoute</code> step with a router, in Flagger <code>analysis.match</code> with <code>iterations</code>. A task that says "10% of traffic, then 50%, then all, only if error rate stays under 1%" is a canary with analysis, and the grader will look for the weight steps and the metric threshold in the object, not for a working dashboard.</p></div>
   </div>
 </section>
 
@@ -385,6 +481,19 @@ rollout "demo" image updated</code></pre></details></div>
 
     <details class="quiz"><summary>Name two things that make progressive delivery unsafe regardless of tooling.</summary>
       <div class="answer"><p>Database or API changes that both versions cannot tolerate simultaneously (fix with expand-and-contract migrations and backwards-compatible contracts), and metrics too sparse or too coarse to detect harm within the canary window. A third: analysis that measures the stable version by accident.</p></div></details>
+  
+
+    <details class="quiz"><summary>An AnalysisRun ended Inconclusive and the rollout stopped. Did it abort?</summary>
+      <div class="answer"><p>No: inconclusive pauses the rollout at its current step and waits for a human to <code>promote</code> or <code>abort</code>. It happens when measurements satisfy neither <code>successCondition</code> nor <code>failureCondition</code> (or when a metric defines neither) more than <code>inconclusiveLimit</code> times. Failure aborts; error beyond <code>consecutiveErrorLimit</code> aborts; inconclusive asks.</p></div></details>
+
+    <details class="quiz"><summary>Flagger: you set match on a header and also stepWeight/maxWeight. What runs?</summary>
+      <div class="answer"><p>A/B testing: when Flagger finds an HTTP match condition it ignores <code>maxWeight</code> and <code>stepWeight</code> and runs <code>iterations</code> rounds with matched traffic routed to the canary. Remove <code>match</code> for a weighted canary; keep only <code>iterations</code> for blue/green.</p></div></details>
+
+    <details class="quiz"><summary>What does progressDeadlineSeconds do on a plain Deployment, and what does it not do?</summary>
+      <div class="answer"><p>After 600 s (default) without progress it sets the Deployment condition <code>Progressing=False</code> with reason <code>ProgressDeadlineExceeded</code>, which is what Argo CD reads as Degraded. It does not roll back or pause anything; the old ReplicaSet keeps whatever pods <code>maxUnavailable</code> left it. Rollouts' <code>progressDeadlineAbort: true</code> is the version that also rolls back.</p></div></details>
+
+    <details class="quiz"><summary>Why must canaryService and stableService exist when you add trafficRouting to a Rollout?</summary>
+      <div class="answer"><p>The router splits traffic between two Services, so Rollouts needs one Service whose selector it points at the canary ReplicaSet and one for the stable set (it injects <code>rollouts-pod-template-hash</code> into their selectors). Without a router there is one Service and the split is by replica count, so neither field is needed.</p></div></details>
   </div>
 </section>
 
@@ -395,6 +504,9 @@ rollout "demo" image updated</code></pre></details></div>
       <li><b>argo-rollouts.readthedocs.io</b>: canary and blueGreen strategy references, AnalysisTemplate spec, the kubectl plugin page, traffic-router support matrix.</li>
       <li><b>flagger.app</b>: the Istio canary tutorial and the webhook reference.</li>
       <li><b>Offline:</b> <code>kubectl argo rollouts --help</code>, <code>kubectl explain rollout.spec.strategy.canary --recursive</code>, <code>kubectl explain canary.spec.analysis</code>.</li>
+    
+      <li><b>argo-rollouts.readthedocs.io: Analysis ("Failure Conditions and Failure Limit", "Inconclusive Runs"), Traffic Management ("Managed Routes", "Header Values"), Specification</b>: every default quoted above is on those pages.</li>
+      <li><b>docs.flagger.app: Deployment Strategies, Webhooks, Metrics</b>: the strategy-selection rules (match, iterations, mirror), the eight webhook types and the MetricTemplate variables.</li>
     </ul>
   </div>
 </section>

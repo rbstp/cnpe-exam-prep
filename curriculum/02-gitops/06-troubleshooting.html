@@ -145,6 +145,79 @@ staging-demo-66955f8974-tzpqx   1/1     Running   0          4m22s
   </div>
 </section>
 
+<section class="panel accent-c" id="status-vocabulary">
+  <div class="phdr"><h2>The status vocabulary, engine by engine</h2><span class="meta">every string you will see in a status field, and the bucket it points at</span></div>
+  <div class="pbody">
+    <p>Bucketing is faster when you read the exact word rather than the colour. Both engines write stable strings; a scenario quotes them.</p>
+
+    <h3>Argo CD</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Field</th><th>Value</th><th>Bucket</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">status.sync.status</td><td class="mono">OutOfSync</td><td>1 if auto-sync is off and git moved; 4 if auto-sync should have acted; check <code>syncPolicy</code> and sync windows</td></tr>
+          <tr><td class="mono">status.sync.status</td><td class="mono">Unknown</td><td>3: comparison failed; read <code>conditions</code></td></tr>
+          <tr><td class="mono">status.health.status</td><td class="mono">Degraded · Missing</td><td>1: the workload cannot run, or a desired resource is absent (often pruned by another app, or refused: bucket 5)</td></tr>
+          <tr><td class="mono">status.health.status</td><td class="mono">Progressing (for long)</td><td>1, or a CRD with no health check that never settles</td></tr>
+          <tr><td class="mono">status.health.status</td><td class="mono">Suspended</td><td>a paused Deployment, suspended CronJob or paused Rollout: intentional, not a fault</td></tr>
+          <tr><td class="mono">status.operationState.phase</td><td class="mono">Failed</td><td>2 or 5: the API server rejected an apply; the text is in <code>syncResult.resources[].message</code></td></tr>
+          <tr><td class="mono">status.operationState.phase</td><td class="mono">Error</td><td>3: Argo could not run the operation (render, repo, hook creation)</td></tr>
+          <tr><td class="mono">conditions[].type</td><td class="mono">ComparisonError</td><td>3: repo unreachable, bad credentials, render failure, cluster unreachable</td></tr>
+          <tr><td class="mono">conditions[].type</td><td class="mono">InvalidSpecError</td><td>3: the AppProject forbids the repo, destination or kind; or the spec references a missing project</td></tr>
+          <tr><td class="mono">conditions[].type</td><td class="mono">SyncError</td><td>2 or 5</td></tr>
+          <tr><td class="mono">conditions[].type</td><td class="mono">SharedResourceWarning · RepeatedResourceWarning · OrphanedResourceWarning · ExcludedResourceWarning</td><td>warnings: two apps own one resource; one source yields a resource twice; untracked resources in the namespace; a kind excluded by <code>resource.exclusions</code></td></tr>
+          <tr><td class="mono">conditions[].type</td><td class="mono">DeletionError</td><td>a PreDelete or PostDelete hook failed; the Application stays Terminating</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Flux</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Object</th><th>Ready reason</th><th>Bucket</th></tr></thead>
+        <tbody>
+          <tr><td>GitRepository / OCIRepository</td><td class="mono">AuthenticationFailed · GitOperationFailed · OCIArtifactPullFailed · VerificationError</td><td>3: credentials, URL, ref, signature</td></tr>
+          <tr><td>Kustomization</td><td class="mono">ArtifactFailed</td><td>3, upstream: the source has no artifact; fix the source first</td></tr>
+          <tr><td>Kustomization</td><td class="mono">BuildFailed</td><td>1: bad path, invalid kustomization, missing substituteFrom ConfigMap</td></tr>
+          <tr><td>Kustomization</td><td class="mono">DependencyNotReady</td><td>look at the named dependency, same ladder</td></tr>
+          <tr><td>Kustomization</td><td class="mono">ReconciliationFailed</td><td>2 or 5: the apply was rejected; the message quotes the API server or webhook</td></tr>
+          <tr><td>Kustomization</td><td class="mono">HealthCheckFailed</td><td>1: applied, never became healthy within <code>timeout</code></td></tr>
+          <tr><td>Kustomization</td><td class="mono">PruneFailed</td><td>2: garbage collection blocked (finalizers, protected resource)</td></tr>
+          <tr><td>HelmRelease</td><td class="mono">InstallFailed · UpgradeFailed</td><td>1 or 2: Helm's own error; run the descend with <code>kubectl describe hr</code> and <code>flux logs --kind HelmRelease</code></td></tr>
+          <tr><td>HelmRelease</td><td class="mono">TestFailed</td><td>1: the chart's tests failed; remediation follows unless ignored</td></tr>
+          <tr><td>HelmRelease</td><td class="mono">RollbackSucceeded · UninstallSucceeded · RetriesExceeded</td><td>remediated: last good revision is running; a new generation or <code>flux reconcile hr --reset</code> tries again</td></tr>
+          <tr><td>any</td><td class="mono">Reconciling=True, reason ProgressingWithRetry</td><td>the last attempt failed and a retry is scheduled; the Ready reason names why</td></tr>
+          <tr><td>any</td><td class="mono">spec.suspend: true (Suspended column)</td><td>4</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout reflex"><span class="tag">Reflex</span><p>Argo: <code>argocd app get X</code> then <code>kubectl -n argocd get app X -o jsonpath='{.status.conditions[*].type}'</code>. Flux: <code>flux get all -A --status-selector ready=false</code> then <code>kubectl get kustomization X -n flux-system -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'</code>. The reason string is the bucket; only then read the message.</p></div>
+  </div>
+</section>
+
+<section class="panel accent-r" id="bucket-admission">
+  <div class="phdr"><h2>Bucket 5: admission refused it</h2><span class="meta">webhooks and policy engines between the controller and etcd</span></div>
+  <div class="pbody">
+    <p>The four buckets assume the API server is the last word. On a platform with Kyverno, Gatekeeper, ValidatingAdmissionPolicy or an operator's webhook, there is a fifth place a manifest dies, and it produces its own vocabulary.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Message fragment</th><th>Who</th><th>Fix lives in</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">admission webhook "validate.kyverno.svc-fail" denied the request: ... policy X rule Y</td><td>Kyverno validate, <code>Enforce</code></td><td>the manifest (satisfy the rule) or the policy (exclude, Audit); never the controller</td></tr>
+          <tr><td class="mono">admission webhook "validation.gatekeeper.sh" denied the request: [constraint-name] ...</td><td>Gatekeeper constraint</td><td>same choice; <code>enforcementAction: dryrun</code> is the audit mode</td></tr>
+          <tr><td class="mono">ValidatingAdmissionPolicy 'x' with binding 'y' denied request: ...</td><td>VAP (GA 1.30), MutatingAdmissionPolicy (GA 1.36) for mutations</td><td>the policy's CEL or the binding's match; no webhook pod involved</td></tr>
+          <tr><td class="mono">failed calling webhook "x": ... connection refused / context deadline exceeded / no endpoints available</td><td>a webhook whose backing pod is down, with <code>failurePolicy: Fail</code></td><td>the webhook's Deployment or Service; every matching write is blocked until it is back, including the controller's own</td></tr>
+          <tr><td class="mono">dry-run failed ... admission webhook "x" does not support dry run</td><td>Flux (server-side dry-run before apply) meets a webhook without <code>sideEffects: None</code> or <code>NoneOnDryRun</code></td><td>the webhook configuration</td></tr>
+          <tr><td class="mono">the server could not find the requested resource</td><td>a CR whose CRD is not installed yet (Argo CD dry-run)</td><td><code>SkipDryRunOnMissingResource=true</code> or a wave; Flux: <code>dependsOn</code> the CRD Kustomization</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The tell that separates bucket 5 from bucket 2: the rejection names a webhook or policy rather than a field. The controller-side symptom is identical (Argo <code>SyncFailed</code> on the resource, Flux <code>ReconciliationFailed</code>), and for Deployments the refusal can again land one level down on the ReplicaSet when a pod-level policy is violated. A mutating policy that changes what git said (adds labels, injects a sidecar, sets requests) shows up as permanent OutOfSync in Argo CD and as "configured" events every interval in Flux: the answer there is <code>ignoreDifferences</code> or <code>kustomize.toolkit.fluxcd.io/ssa: Merge</code>, not fighting the policy.</p>
+    <div class="callout trap"><span class="tag">The webhook that blocks its own fix</span><p>A dead webhook with <code>failurePolicy: Fail</code> and a broad match (all pods, all namespaces) stops the GitOps controller from applying the very manifest that would repair it. Diagnose from <code>kubectl get validatingwebhookconfiguration,mutatingwebhookconfiguration</code> and the webhook Service's endpoints; the sanctioned repair is fixing the pod, and the emergency one is switching that webhook to <code>Ignore</code> or narrowing its <code>namespaceSelector</code>, which is itself a change to record in git.</p></div>
+  </div>
+</section>
+
 <section class="panel accent-g" id="exercises">
   <div class="phdr"><h2>Exercises</h2><span class="meta">each one stages a failure; diagnose before fixing</span></div>
   <div class="pbody">
@@ -222,6 +295,16 @@ apps   Deployment  team-a     staging-demo  Unknown  Healthy        deployment.a
 
     <details class="quiz"><summary>"I keep deleting this ConfigMap and it keeps coming back."</summary>
       <div class="answer"><p>Something reconciles it: self-heal, a Flux Kustomization at interval, or an operator that owns it. Prove which with <code>ownerReferences</code>, the <code>app.kubernetes.io/instance</code> label, or <code>flux trace</code>. Then change the source of truth instead of the live object, or suspend first if you need a temporary window.</p></div></details>
+  
+
+    <details class="quiz"><summary>"Sync failed: admission webhook "validate.kyverno.svc-fail" denied the request". Which bucket, and where does the fix go?</summary>
+      <div class="answer"><p>Bucket 5, admission. The manifest reached the API server and a policy engine refused it. Fix either the manifest so it satisfies the policy (the usual grading intent) or, if the task says the policy is wrong, the policy itself. Re-syncing changes nothing; Argo CD marks the resource SyncFailed, Flux reports ReconciliationFailed with the same text.</p></div></details>
+
+    <details class="quiz"><summary>A Flux Kustomization reports ArtifactFailed. What is broken and where do you look first?</summary>
+      <div class="answer"><p>The source it references has no artifact: the GitRepository or OCIRepository is not Ready (AuthenticationFailed, GitOperationFailed, bad ref) or has not fetched yet. Bucket 3, upstream of the Kustomization. <code>flux get sources all -A</code> and <code>kubectl describe gitrepository</code> first; the Kustomization will recover on its own once the source publishes.</p></div></details>
+
+    <details class="quiz"><summary>Argo CD shows sync status Unknown with a ComparisonError condition. Bucket?</summary>
+      <div class="answer"><p>Bucket 3: comparison itself failed, so Argo does not even know whether live matches git. Causes are repo access (credentials, URL, revision), a render error in repo-server, or an unreachable destination cluster. The condition message names it; the workload is untouched, which is the tell.</p></div></details>
   </div>
 </section>
 
@@ -232,6 +315,9 @@ apps   Deployment  team-a     staging-demo  Unknown  Healthy        deployment.a
       <li><b>argo-cd.readthedocs.io</b>: sync options (Replace, ServerSideApply), resource health checks, the troubleshooting section.</li>
       <li><b>fluxcd.io</b>: the troubleshooting cheatsheet (flux logs, flux events, tracing a resource to its Kustomization).</li>
       <li><b>Offline:</b> <code>argocd app manifests</code>, <code>argocd app diff</code>, <code>flux build kustomization &lt;name&gt; --path ./…</code>, and <code>kubectl get events -A --sort-by=.lastTimestamp</code>.</li>
+    
+      <li><b>argo-cd.readthedocs.io: Application specification (status fields) and the gitops-engine health package</b>: the exact sync, health, operation phase and condition strings.</li>
+      <li><b>fluxcd.io troubleshooting cheatsheet ("webhook does not support dry run")</b> and each component's Conditions section: the reason strings and the Flux-specific admission failure.</li>
     </ul>
   </div>
 </section>

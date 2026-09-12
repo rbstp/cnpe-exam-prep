@@ -115,6 +115,25 @@ spec:
       </table>
     </div>
     <p>They can be set per-Application (<code>spec.syncPolicy.syncOptions</code>) or per-resource with the <code>argocd.argoproj.io/sync-options</code> annotation. Know both placements.</p>
+  
+
+    <h3>The rest of the sync options</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Option</th><th>What it does</th><th>Placement</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">Prune=false · Delete=false</td><td>never prune this resource / keep it when the Application is deleted (PVCs, namespaces)</td><td>resource annotation, or app-wide</td></tr>
+          <tr><td class="mono">Prune=confirm · Delete=confirm</td><td>the sync stays in Syncing until a human confirms; confirmation is the <code>argocd.argoproj.io/deletion-approved</code> annotation on the Application (UI button, CLI <code>argocd app confirm-deletion</code>)</td><td>either</td></tr>
+          <tr><td class="mono">PruneLast=true</td><td>prune as a final implicit wave after everything else is healthy</td><td>either</td></tr>
+          <tr><td class="mono">RespectIgnoreDifferences=true</td><td>also honour <code>ignoreDifferences</code> when applying, so Argo stops overwriting the HPA's replica count</td><td>app</td></tr>
+          <tr><td class="mono">FailOnSharedResource=true</td><td>fail the sync if another Application already manages a resource</td><td>app</td></tr>
+          <tr><td class="mono">Validate=false</td><td>skip schema validation (needed with ServerSideApply partial manifests, RawExtension kinds)</td><td>either</td></tr>
+          <tr><td class="mono">Force=true</td><td>delete-and-recreate; only meaningful with <code>Replace=true</code> or client-side apply</td><td>resource annotation</td></tr>
+          <tr><td class="mono">ServerSideApply=true</td><td><code>kubectl apply --server-side --force-conflicts</code>; also enables patching partial manifests and the automatic client-side-apply migration of managedFields</td><td>either; <code>ServerSideApply=false</code> opts one resource out</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><code>Replace=true</code> takes precedence over <code>ServerSideApply=true</code>. Namespace metadata is the special case: <code>syncPolicy.managedNamespaceMetadata</code> sets labels and annotations on a namespace created by <code>CreateNamespace=true</code>; a Namespace manifest in the repo with the same name wins over it.</p>
   </div>
 </section>
 
@@ -240,6 +259,93 @@ ID      DATE                           REVISION
   </div>
 </section>
 
+<section class="panel accent-c" id="argocd3-status">
+  <div class="phdr"><h2>Argo CD 3.x defaults and the vocabulary of status</h2><span class="meta">what changed in 3.0 to 3.5 · conditions · operation phases · deletion · refresh</span></div>
+  <div class="pbody">
+    <h3>Defaults that differ from what older tutorials assume</h3>
+    <ul>
+      <li><strong>Annotation tracking</strong> is the default (<code>application.resourceTrackingMethod: annotation</code>): resources carry <code>argocd.argoproj.io/tracking-id: &lt;app&gt;:&lt;group&gt;/&lt;kind&gt;:&lt;ns&gt;/&lt;name&gt;</code> instead of the <code>app.kubernetes.io/instance</code> label. <code>annotation+label</code> keeps the label for other tools. A copied resource whose annotation names a different object is ignored, which is how HNC copies stop showing as drift.</li>
+      <li><strong>Fine-grained RBAC</strong>: <code>update</code> and <code>delete</code> on <code>applications</code> no longer cover the Application's child resources; those need <code>update/*</code> and <code>delete/*</code> (or a specific <code>update/apps/Deployment/ns/name</code>). <code>logs, get</code> is a first-class permission; without it the logs tab is blank.</li>
+      <li><strong>Default <code>resource.exclusions</code></strong> drop high-churn kinds from the cache: Endpoints, EndpointSlice, Lease, the SubjectAccessReview family, CertificateSigningRequest, Kyverno reports, cert-manager CertificateRequest, Cilium identities and endpoints. If a task asks why Argo CD "does not see" a Lease, that is why.</li>
+      <li><strong>Status ignored in diffs</strong> for all kinds (previously CRDs only), so a controller writing <code>.status</code> never causes OutOfSync.</li>
+      <li>3.1 added <code>oci://</code> sources and CLI plugins; 3.2 loosened OCI layer rules and made UI deletion consistent; 3.3 requires server-side apply to install the ApplicationSet CRD (it exceeds the client-side annotation limit); 3.4 changed the cluster version format and Teams notifications; 3.5 (August 2026) made the Source Hydrator and impersonation beta, added internal mTLS, git commit signature verification, ApplicationSets in any namespace and Helm 4 support.</li>
+    </ul>
+
+    <h3>Status fields, exactly</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Field</th><th>Values</th><th>Read it when</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">status.sync.status</td><td class="mono">Synced · OutOfSync · Unknown</td><td>Unknown means comparison itself failed: look at conditions</td></tr>
+          <tr><td class="mono">status.health.status</td><td class="mono">Healthy · Progressing · Degraded · Suspended · Missing · Unknown</td><td>aggregate of resource health; Missing means a desired resource does not exist live</td></tr>
+          <tr><td class="mono">status.operationState.phase</td><td class="mono">Running · Terminating · Succeeded · Failed · Error</td><td>Failed is an apply rejected by the API server; Error is Argo itself failing (render, network); Terminating follows <code>argocd app terminate-op</code></td></tr>
+          <tr><td class="mono">status.operationState.syncResult.resources[].status</td><td class="mono">Synced · SyncFailed · Pruned · PruneSkipped</td><td>per-resource result with the API server's message verbatim</td></tr>
+          <tr><td class="mono">status.conditions[].type</td><td class="mono">ComparisonError · InvalidSpecError · SyncError · DeletionError · UnknownError · SharedResourceWarning · RepeatedResourceWarning · ExcludedResourceWarning · OrphanedResourceWarning</td><td>errors block, warnings do not; <code>SharedResourceWarning</code> is the two-apps-one-resource case, <code>InvalidSpecError</code> the AppProject refusal</td></tr>
+          <tr><td class="mono">status.sourceHydrator.currentOperation.phase</td><td class="mono">Hydrating · Hydrated · Failed</td><td>only with the hydrator</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>An <code>InvalidSpecError</code> with "application repo X is not permitted in project Y" or "destination namespace Z is not permitted" is the AppProject speaking; the fix is the project's <code>sourceRepos</code> or <code>destinations</code>, not the Application.</p>
+
+    <h3>Deletion and refresh mechanics</h3>
+    <ul>
+      <li>Cascade deletion is the finalizer <code>resources-finalizer.argocd.argoproj.io</code> (foreground) or <code>resources-finalizer.argocd.argoproj.io/background</code>. <code>argocd app delete X</code> adds it; <code>--cascade=false</code> removes it and leaves the workload running (the "stop managing but keep" move). With kubectl, patch the finalizer in or out before deleting. <code>PreDelete</code> and <code>PostDelete</code> hooks run only on Application deletion and block it with a <code>DeletionError</code> condition if they fail.</li>
+      <li>Refresh without the CLI: annotate the Application <code>argocd.argoproj.io/refresh: normal</code> or <code>hard</code>; the controller removes the annotation when done. <code>argocd.argoproj.io/skip-reconcile: "true"</code> freezes an Application entirely (alpha; status stops updating).</li>
+      <li>Hook cleanup defaults to <code>BeforeHookCreation</code> when no <code>hook-delete-policy</code> is set; do not add <code>ttlSecondsAfterFinished</code> to hook Jobs, because Argo may then wait for a Job Kubernetes already deleted. Pruning runs waves in reverse; the delay between waves is 2 s (<code>ARGOCD_SYNC_WAVE_DELAY</code>).</li>
+    </ul>
+
+    <div class="callout reflex"><span class="tag">Reflex</span><p><code>argocd app get X</code> then <code>kubectl -n argocd get app X -o jsonpath='{.status.conditions}'</code>. The first tells you sync and health; the second names the error type, and the type tells you which object to edit: InvalidSpecError → AppProject or spec; ComparisonError → repo-server or credentials; SyncError → the API server's rejection.</p></div>
+  </div>
+</section>
+
+<section class="panel accent-p" id="appset-rbac-notify">
+  <div class="phdr"><h2>ApplicationSet behaviour, RBAC and notifications</h2><span class="meta">generator specifics · policies · progressive syncs · policy.csv · subscriptions · sync windows</span></div>
+  <div class="pbody">
+    <h3>Generators: what each one yields</h3>
+    <ul>
+      <li><strong>list</strong>: literal <code>elements</code>; the simplest fan-out and the one to reach for when a task gives you three clusters by name.</li>
+      <li><strong>clusters</strong>: one set of parameters per cluster Secret (<code>name</code>, <code>server</code>, and the Secret's labels as <code>metadata.labels.*</code>); <code>selector</code> filters on those labels; the local cluster appears only if registered.</li>
+      <li><strong>git directories</strong>: <code>path: apps/*</code> yields <code>path.path</code>, <code>path.basename</code>, <code>path.basenameNormalized</code>, <code>path.segments</code>; <code>exclude: true</code> entries remove directories; dot-directories are skipped. <strong>git files</strong>: every matching JSON or YAML file becomes one set of parameters with its keys.</li>
+      <li><strong>matrix</strong>: cartesian product of exactly two generators; a child may use the other's parameters only if it comes second; combination generators nest one level only.</li>
+      <li><strong>merge</strong>: base generator overridden by later generators on <code>mergeKeys</code>; same nesting rules.</li>
+      <li><strong>scmProvider</strong> (repos in an org) and <strong>pullRequest</strong> (open PRs matching <code>labels</code>, <code>branchMatch</code>, <code>titleMatch</code>): Applications appear and disappear with the repo or PR, which is the preview-environment pattern. <code>requeueAfterSeconds</code> polls; webhooks make it instant.</li>
+      <li><strong>plugin</strong> (RPC to your own service), <strong>clusterDecisionResource</strong> (a placement CR), <strong>oci</strong> (directories or files in an OCI artifact).</li>
+    </ul>
+    <p>Templating: <code>goTemplate: true</code> with <code>goTemplateOptions: ["missingkey=error"]</code> so a typo fails loudly instead of rendering an empty string; <code>normalize</code> and <code>slugify</code> make names DNS-safe. Two generated Applications with the same name silently collapse into one.</p>
+
+    <h3>Controlling what the controller may do</h3>
+    <ul>
+      <li><code>spec.syncPolicy.applicationsSync</code>: <code>sync</code> (default: create, update, delete), <code>create-only</code>, <code>create-update</code>, <code>create-delete</code>. The controller flag <code>--policy</code> overrides unless policy override is enabled.</li>
+      <li><code>spec.syncPolicy.preserveResourcesOnDeletion: true</code> keeps child resources when the ApplicationSet is deleted; to keep the Applications themselves you also need the finalizer on the ApplicationSet and background deletion.</li>
+      <li><code>spec.ignoreApplicationDifferences</code> lets humans toggle auto-sync on a generated Application without the controller reverting it.</li>
+      <li><strong>Progressive syncs</strong> (experimental, must be enabled): <code>strategy.type: RollingSync</code> with <code>steps[].matchExpressions</code> over Application labels and <code>maxUpdate</code>; each group must be Healthy before the next starts, and it forces generated Applications to auto-sync disabled.</li>
+    </ul>
+
+    <h3>RBAC in one table</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Line in policy.csv</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">p, role:team-a, applications, get, team-a/*, allow</td><td>role may read every Application in project team-a (object is <code>&lt;project&gt;/&lt;app&gt;</code>)</td></tr>
+          <tr><td class="mono">p, role:team-a, applications, sync, team-a/*, allow</td><td>may sync them; <code>update</code>, <code>delete</code>, <code>override</code>, <code>action/*</code> are separate verbs</td></tr>
+          <tr><td class="mono">p, role:team-a, logs, get, team-a/*, allow</td><td>needed since 3.0 to see pod logs in the UI</td></tr>
+          <tr><td class="mono">g, oidc-group-team-a, role:team-a</td><td>binds an SSO group (or user) to the role</td></tr>
+          <tr><td class="mono">policy.default: role:readonly</td><td>what an authenticated user gets with no other rule; empty means nothing</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Resources you can name: <code>applications</code>, <code>applicationsets</code>, <code>clusters</code>, <code>projects</code>, <code>repositories</code>, <code>accounts</code>, <code>certificates</code>, <code>gpgkeys</code>, <code>logs</code>, <code>exec</code>, <code>extensions</code>. The same grammar works inside an AppProject's <code>spec.roles[].policies</code>, scoped to that project, and project roles can mint JWTs for CI. Project-scoped repositories and clusters (a <code>project:</code> field on the Secret) let a team register its own sources without seeing anyone else's.</p>
+
+    <h3>Notifications and sync windows</h3>
+    <ul>
+      <li>Config lives in <code>argocd-notifications-cm</code>: <code>service.slack</code>, <code>service.webhook.&lt;name&gt;</code>, <code>trigger.on-sync-failed</code>, <code>template.app-sync-failed</code>; secrets in <code>argocd-notifications-secret</code>. Subscribing is an annotation on the Application or AppProject: <code>notifications.argoproj.io/subscribe.on-sync-succeeded.slack: my-channel</code>. Installing the catalog gives you the standard triggers (<code>on-deployed</code>, <code>on-health-degraded</code>, <code>on-sync-failed</code>, <code>on-sync-status-unknown</code>).</li>
+      <li>Sync windows on the AppProject: <code>kind: allow|deny</code>, cron <code>schedule</code>, <code>duration</code>, and selectors by <code>applications</code>, <code>namespaces</code>, <code>clusters</code>; <code>manualSync: true</code> lets a human sync during a deny window; active deny beats active allow.</li>
+    </ul>
+
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Team A may deploy only from repo R into namespace N and must be able to sync but not delete" is an AppProject with <code>sourceRepos: [R]</code>, <code>destinations: [{server, namespace: N}]</code>, and a project role whose policies grant <code>applications, get</code> and <code>applications, sync</code> but not <code>delete</code>, bound to the team's group. Verify by reading the Application's conditions after pointing it somewhere forbidden: <code>InvalidSpecError</code> is the proof the guardrail works.</p></div>
+  </div>
+</section>
+
 <section class="panel accent-g" id="exercises">
   <div class="phdr"><h2>Exercises</h2><span class="meta">tick the dot when its check passes</span></div>
   <div class="pbody">
@@ -322,6 +428,19 @@ staging-demo   3/3     3            3           55s
 
     <details class="quiz"><summary>You changed the repo but Argo insists nothing changed. Sequence of moves?</summary>
       <div class="answer"><p><code>argocd app get --refresh</code> first (recompare), then <code>--hard-refresh</code> (drop the manifest cache), then check the app is on the branch you pushed to (<code>targetRevision</code>), then check repo-server logs for auth or render errors. Cheapest first, always.</p></div></details>
+  
+
+    <details class="quiz"><summary>A sync ends with operation phase Error rather than Failed. What is the difference and where do you look?</summary>
+      <div class="answer"><p><code>Failed</code> means the apply reached the API server and was rejected (immutable field, admission denial); the message is in <code>syncResult.resources[]</code>. <code>Error</code> means Argo CD itself could not complete the operation: rendering failed, the repo was unreachable, a hook could not be created. For Error, read repo-server and application-controller logs; for Failed, read the resource message.</p></div></details>
+
+    <details class="quiz"><summary>You must stop managing an Application but keep its workloads running. Exact move?</summary>
+      <div class="answer"><p><code>argocd app delete X --cascade=false</code>, or with kubectl: patch <code>metadata.finalizers</code> to remove <code>resources-finalizer.argocd.argoproj.io</code>, then delete the Application. Deleting with the finalizer present cascades in the foreground and removes every managed resource. <code>Delete=false</code> as a resource annotation is the per-resource version of the same protection.</p></div></details>
+
+    <details class="quiz"><summary>An ApplicationSet with a matrix of a git directories generator and a clusters generator: how many Applications, and what breaks if you nest another matrix inside?</summary>
+      <div class="answer"><p>directories × clusters, one Application per pair, named by the template (collisions silently merge). Matrix takes exactly two child generators and combination generators nest only one level deep, so a matrix inside a matrix inside a matrix is rejected at generation time, not by the API server's schema validation.</p></div></details>
+
+    <details class="quiz"><summary>A user can see Applications and sync them but the Logs tab is empty. Which policy line is missing since 3.0?</summary>
+      <div class="answer"><p><code>p, role:&lt;their-role&gt;, logs, get, &lt;project&gt;/*, allow</code>. From 3.0, logs RBAC is enforced by default and is no longer implied by <code>applications, get</code>. The same 3.0 change split <code>update</code> and <code>delete</code> on child resources into <code>update/*</code> and <code>delete/*</code>.</p></div></details>
   </div>
 </section>
 
@@ -331,6 +450,10 @@ staging-demo   3/3     3            3           55s
     <ul class="docs">
       <li><b>argo-cd.readthedocs.io</b>: Application spec reference, sync options, sync waves and hooks, AppProject, ApplicationSet generators.</li>
       <li><b>Offline:</b> <code>argocd app --help</code> covers most of what the docs would, and <code>kubectl explain application.spec --recursive</code> works because the Application is just a CRD.</li>
+    
+      <li><b>argo-cd.readthedocs.io: Upgrading v2.14 to 3.0 (and 3.x to 3.y)</b>: annotation tracking, fine-grained RBAC, logs RBAC, default resource exclusions, ignored status; the per-minor pages list every behavioural change since.</li>
+      <li><b>argo-cd.readthedocs.io: RBAC Configuration and Projects</b>: the policy.csv grammar, resource and action lists, project roles and JWT tokens, sync windows.</li>
+      <li><b>argo-cd.readthedocs.io: ApplicationSet Generators (per generator) and Controlling Resource Modification</b>: parameters each generator emits, matrix/merge restrictions, applicationsSync policies, preserveResourcesOnDeletion.</li>
     </ul>
   </div>
 </section>

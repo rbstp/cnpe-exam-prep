@@ -194,6 +194,135 @@
   </div>
 </section>
 
+<section class="panel accent-c" id="gateway-fields">
+  <div class="phdr"><h2>Gateway API, field by field</h2><span class="meta">listeners · matches · filters · weights · ReferenceGrant · status reasons</span></div>
+  <div class="pbody">
+    <p>The role table above is the model. A task hands you the fields. Gateway API v1.5 (April 2026) is the current release; everything below is Standard channel unless marked. On the exam cluster, <code>kubectl explain gateway.spec.listeners --recursive</code> and <code>kubectl explain httproute.spec.rules --recursive</code> print the same shape, version-correct.</p>
+
+    <h3>Gateway listeners</h3>
+    <ul>
+      <li><strong><code>name</code>, <code>port</code>, <code>protocol</code></strong> (HTTP, HTTPS, TLS, TCP, UDP) and an optional <code>hostname</code>. Two listeners with the same port, protocol and hostname conflict; the loser carries <code>Conflicted: True</code> with reason <code>HostnameConflict</code> or <code>ProtocolConflict</code>.</li>
+      <li><strong><code>tls.mode</code></strong>: <code>Terminate</code> (the Gateway decrypts; needs <code>tls.certificateRefs</code> pointing at a <code>kubernetes.io/tls</code> Secret) or <code>Passthrough</code> (SNI routing only, used with TLSRoute). A Secret in another namespace needs a ReferenceGrant in the Secret's namespace, otherwise <code>ResolvedRefs: False</code> with <code>RefNotPermitted</code>.</li>
+      <li><strong><code>allowedRoutes.namespaces.from</code></strong>: <code>Same</code> (default), <code>All</code>, or <code>Selector</code> with a label selector; <code>allowedRoutes.kinds</code> restricts route kinds. This is the Gateway's half of attachment consent.</li>
+      <li><strong>Gateway conditions</strong>: <code>Accepted</code> (reasons include <code>ListenersNotValid</code>, <code>Pending</code>), <code>Programmed</code> (<code>AddressNotAssigned</code>, <code>NoResources</code>), per-listener <code>Accepted</code>, <code>ResolvedRefs</code>, <code>Programmed</code>. A Gateway whose class has no controller sits at <code>Accepted: Unknown</code> forever.</li>
+    </ul>
+
+    <h3>HTTPRoute rules</h3>
+    <ul>
+      <li><strong><code>parentRefs</code></strong> name the Gateway; add <code>sectionName</code> (listener name) or <code>port</code> to bind to one listener rather than all of them. <code>hostnames</code> on the route must intersect the listener hostname or you get <code>Accepted: False</code>, <code>NoMatchingListenerHostname</code>.</li>
+      <li><strong><code>matches</code></strong>: a list where each item is ANDed inside (path AND headers AND queryParams AND method) and items are ORed against each other. Path types: <code>PathPrefix</code> (default), <code>Exact</code>, <code>RegularExpression</code> (implementation-specific). No matches at all means <code>PathPrefix /</code>, which matches everything.</li>
+      <li><strong><code>filters</code></strong>: <code>RequestHeaderModifier</code>, <code>ResponseHeaderModifier</code>, <code>RequestRedirect</code>, <code>URLRewrite</code> (these two cannot be combined), <code>RequestMirror</code>, <code>CORS</code> (Standard since v1.5) and <code>ExtensionRef</code> for vendor CRDs. Filters replace almost every Ingress annotation you used to write.</li>
+      <li><strong><code>backendRefs</code></strong>: <code>name</code>, <code>port</code>, optional <code>namespace</code> (needs a ReferenceGrant) and <code>weight</code> (default 1). Weights are shares of the total: 90 and 10 split 90/10, 3 and 1 split 75/25. A rule with no backendRefs and no redirect answers 500. A missing Service gives <code>ResolvedRefs: False</code>, <code>BackendNotFound</code>.</li>
+      <li><strong><code>timeouts</code></strong> (Standard since v1.2): <code>request</code> for the whole exchange, <code>backendRequest</code> for one attempt; <code>backendRequest</code> may not exceed <code>request</code>; <code>0s</code> disables.</li>
+    </ul>
+
+    <div class="cb" data-lang="yaml"><pre><code>apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata: { name: web, namespace: infra }
+spec:
+  gatewayClassName: istio
+  listeners:
+    - name: https
+      port: 443
+      protocol: HTTPS
+      hostname: "*.example.com"
+      tls: { mode: Terminate, certificateRefs: [{ kind: Secret, name: wildcard-tls }] }
+      allowedRoutes: { namespaces: { from: Selector, selector: { matchLabels: { tenant: "true" } } } }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: { name: demo, namespace: team-a }
+spec:
+  parentRefs: [{ name: web, namespace: infra, sectionName: https }]
+  hostnames: ["demo.example.com"]
+  rules:
+    - matches: [{ path: { type: PathPrefix, value: /api } }]
+      filters: [{ type: RequestHeaderModifier, requestHeaderModifier: { add: [{ name: X-Env, value: staging }] } }]
+      backendRefs:
+        - { name: demo-stable, port: 80, weight: 90 }
+        - { name: demo-canary, port: 80, weight: 10 }</code></pre></div>
+
+    <h3>The neighbours that arrived recently</h3>
+    <ul>
+      <li><strong>ReferenceGrant</strong> is <code>v1</code> since v1.5: <code>from</code> (group, kind, namespace of the referrer) and <code>to</code> (group, kind, optionally name) in the namespace being referenced. It is consent, never a route: it grants nothing by itself.</li>
+      <li><strong>BackendTLSPolicy</strong> (Standard since v1.4) configures TLS from the Gateway to the backend pods: <code>targetRefs</code> a Service, <code>validation.hostname</code> as SNI, and either <code>caCertificateRefs</code> or <code>wellKnownCACertificates: System</code>. Same namespace as the Service, by design.</li>
+      <li><strong>ListenerSet</strong> (Standard since v1.5) lets a team add listeners to a shared Gateway without editing it; the Gateway must opt in with <code>spec.allowedListeners.namespaces.from</code> (default <code>None</code>). Parent listeners win conflicts. It also lifts the 64-listener ceiling.</li>
+      <li><strong>TLSRoute</strong> is <code>v1</code> since v1.5; GRPCRoute has been Standard since v1.1.</li>
+    </ul>
+
+    <h3>Ingress to Gateway, mapped</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Ingress</th><th>Gateway API</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">IngressClass</td><td class="mono">GatewayClass (controllerName instead of controller)</td></tr>
+          <tr><td class="mono">spec.tls[].secretName + hosts</td><td class="mono">Gateway listener protocol HTTPS, tls.certificateRefs, hostname</td></tr>
+          <tr><td class="mono">spec.rules[].host + paths</td><td class="mono">HTTPRoute hostnames + rules[].matches[].path</td></tr>
+          <tr><td class="mono">pathType Prefix / Exact / ImplementationSpecific</td><td class="mono">PathPrefix / Exact / RegularExpression</td></tr>
+          <tr><td class="mono">backend.service.name/port</td><td class="mono">backendRefs[].name/port (+ weight)</td></tr>
+          <tr><td class="mono">controller annotations (rewrite, redirect, canary weight, CORS)</td><td class="mono">filters and backendRefs weights, portable across controllers</td></tr>
+          <tr><td class="mono">one object, one owner</td><td class="mono">Gateway owned by platform, HTTPRoute owned by the app team, ReferenceGrant by the referenced namespace</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The community <code>ingress2gateway</code> tool does the mechanical conversion for common controllers; the judgement it cannot do for you is deciding who owns the Gateway and which namespaces its listeners admit.</p>
+
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Expose service X on host Y through the existing Gateway in namespace infra" is three checks: does the Gateway's listener admit routes from your namespace (<code>allowedRoutes</code>), does your hostname fit the listener hostname, and does <code>status.parents[].conditions</code> read <code>Accepted: True</code> and <code>ResolvedRefs: True</code>. A cross-namespace backend adds a fourth object, the ReferenceGrant, in the backend's namespace, not yours.</p></div>
+  </div>
+</section>
+
+<section class="panel accent-p" id="datapath-details">
+  <div class="phdr"><h2>Datapath and architecture details a scenario can name</h2><span class="meta">kube-proxy modes · Cilium replacement · traffic distribution · Corefile knobs · HA and zones</span></div>
+  <div class="pbody">
+    <h3>kube-proxy modes and their replacement</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Mode</th><th>Status</th><th>What to remember</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">iptables</td><td>default</td><td>DNAT chains; rule count grows with services; <code>minSyncPeriod</code> and <code>syncPeriod</code> tune programming latency</td></tr>
+          <tr><td class="mono">ipvs</td><td>deprecated since v1.35</td><td>kernel load balancing with real algorithms (rr, lc, sh); needs ipvs kernel modules</td></tr>
+          <tr><td class="mono">nftables</td><td>GA since v1.33</td><td>kernel 5.13+; faster endpoint updates; NodePorts default to <code>--nodeport-addresses primary</code> (the node primary IP only)</td></tr>
+          <tr><td class="mono">kernelspace</td><td>Windows only</td><td>the Windows equivalent</td></tr>
+          <tr><td class="mono">Cilium kube-proxy replacement</td><td>Helm <code>kubeProxyReplacement=true</code></td><td>ClusterIP, NodePort, LoadBalancer, hostPort all in eBPF; socket-level LB for east-west (the connect() is rewritten, so there is no per-packet DNAT to trace); DSR and Maglev options; <code>cilium status</code> reports the mode</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Two Service fields that ride on this layer. <code>spec.trafficDistribution</code> (GA since v1.33) takes <code>PreferSameZone</code> or <code>PreferSameNode</code> (<code>PreferClose</code> is the deprecated older alias); it is a preference, and <code>externalTrafficPolicy</code> / <code>internalTrafficPolicy: Local</code> override it. The old <code>Endpoints</code> API is deprecated since v1.33 in favour of EndpointSlice, and <code>spec.externalIPs</code> is deprecated since v1.36; when a task says "expose", the modern answers are LoadBalancer or a Gateway.</p>
+
+    <h3>CoreDNS: the Corefile you will be asked to read or edit</h3>
+    <p>The ConfigMap is <code>coredns</code> in <code>kube-system</code>; the <code>reload</code> plugin picks up edits within about two minutes, so do not restart pods to make a change land. The stock server block and what each line buys you:</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Line</th><th>Effect</th><th>Knob a task turns</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">kubernetes cluster.local in-addr.arpa ip6.arpa { pods insecure; fallthrough in-addr.arpa ip6.arpa; ttl 30 }</td><td>serves Service and Pod records for the cluster domain</td><td><code>pods verified</code> returns pod A records only for pods that exist; <code>ttl</code> 0-3600 s (default 5)</td></tr>
+          <tr><td class="mono">forward . /etc/resolv.conf</td><td>everything not in the cluster domain goes upstream</td><td><code>forward . 172.16.0.1</code> pins the upstream; a second server block <code>corp.example:53 { forward . 10.0.0.53 }</code> is a stub domain</td></tr>
+          <tr><td class="mono">cache 30</td><td>response cache</td><td>raise it for DNS-heavy tenants, or add NodeLocal DNSCache (a DaemonSet cache on each node that also upgrades upstream queries to TCP and avoids conntrack races)</td></tr>
+          <tr><td class="mono">loop · reload · loadbalance · errors · health · ready · prometheus :9153</td><td>loop detection, live config reload, A-record shuffling, logging, probes, metrics</td><td>mostly leave alone; <code>log</code> is the debugging plugin you add temporarily</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Pod side: <code>dnsPolicy</code> is <code>ClusterFirst</code> unless you say otherwise; a <code>hostNetwork: true</code> pod needs <code>ClusterFirstWithHostNet</code> or it silently falls back to the node's resolver; <code>None</code> plus <code>dnsConfig</code> (at most 3 nameservers, up to 32 search domains, <code>options: [{name: ndots, value: "2"}]</code>) is how you cut the search-list storm without a trailing dot. The <code>autopath</code> plugin does the same server-side but requires <code>pods verified</code>.</p>
+
+    <h3>Policy details that differ between engines</h3>
+    <ul>
+      <li>Target a namespace by name with the immutable label <code>kubernetes.io/metadata.name</code> in a <code>namespaceSelector</code>; do not use an empty <code>{}</code> selector, which matches every namespace.</li>
+      <li>In Cilium, <code>ipBlock</code> rules do not match pod or node IPs by default (<code>policyCIDRMatchMode</code> changes it); pods are selected by labels and identities. That is a second reason, beyond DNAT, why CIDR rules "do nothing".</li>
+      <li><code>CiliumClusterwideNetworkPolicy</code> is the cluster-scoped twin of <code>CiliumNetworkPolicy</code>: same spec, no namespace, for baseline rules such as "everyone may reach DNS and the API server". Cilium 1.20 also implements the upstream <code>ClusterNetworkPolicy</code> API with admin and baseline tiers that ordinary NetworkPolicy cannot override.</li>
+    </ul>
+
+    <h3>Architecture decisions a scenario can name</h3>
+    <ul>
+      <li><strong>HA control plane</strong>: three control plane nodes minimum. Stacked etcd (etcd on the control plane nodes, kubeadm's default) is simpler; external etcd needs six hosts but losing a node no longer removes both an API server and an etcd member. Either way the API server sits behind a load balancer; Kubernetes itself does not fail over the endpoint.</li>
+      <li><strong>Zones</strong>: nodes carry <code>topology.kubernetes.io/zone</code> and <code>region</code>; spread control plane replicas over at least three zones, spread workloads with topologySpreadConstraints, and use <code>WaitForFirstConsumer</code> storage so a volume is not provisioned in a zone the pod cannot reach.</li>
+      <li><strong>Scale limits</strong> worth quoting: 110 pods per node by default, 5000 nodes, 150000 pods per cluster.</li>
+      <li><strong>Multi-cluster</strong>: a hub Argo CD with cluster Secrets and an ApplicationSet clusters generator, or one Flux per cluster each reconciling <code>clusters/&lt;name&gt;</code> from a shared repo. Hub-and-spoke centralises credentials and UI; agent-per-cluster survives hub loss and keeps credentials local. Section 2.2 covers the objects.</li>
+    </ul>
+
+    <div class="callout trap"><span class="tag">The hostNetwork DNS trap</span><p>A monitoring or CNI-adjacent pod on <code>hostNetwork: true</code> that "cannot resolve services" is almost always <code>dnsPolicy: ClusterFirst</code> behaving as <code>Default</code>. Set <code>ClusterFirstWithHostNet</code>. The symptom looks exactly like a NetworkPolicy drop, and Hubble shows nothing because the query never went to CoreDNS.</p></div>
+  </div>
+</section>
+
 <section class="panel accent-g" id="exercises">
   <div class="phdr"><h2>Exercises</h2><span class="meta">click a title to collapse · tick the dot when its check passes</span></div>
   <div class="pbody">
@@ -296,6 +425,19 @@ pod "dnsprobe" deleted from default namespace</code></pre></details></div>
 
     <details class="quiz"><summary>An HTTPRoute applies cleanly but nothing routes. Where do you look first?</summary>
       <div class="answer"><p><code>status.parents[].conditions</code> on the route: <em>Accepted</em> false usually means attachment was refused by the Gateway's <code>allowedRoutes</code>; <em>ResolvedRefs</em> false means a backend Service or a TLS secret is missing (or needs a ReferenceGrant across namespaces). On the Gateway, <em>Programmed</em> false means no data plane, which is the permanent state on this lab's main cluster.</p></div></details>
+  
+
+    <details class="quiz"><summary>An HTTPRoute in team-a references a Service in team-b. Which object, in which namespace, and what does status say until it exists?</summary>
+      <div class="answer"><p>A ReferenceGrant in team-b (the namespace being referenced) with <code>from</code> group gateway.networking.k8s.io kind HTTPRoute namespace team-a and <code>to</code> kind Service. Until it exists the route reports <code>ResolvedRefs: False</code> with reason <code>RefNotPermitted</code>, and the implementation answers 500 for that backend.</p></div></details>
+
+    <details class="quiz"><summary>Two backendRefs carry weight 3 and weight 1. What split is that, and what happens if one backend Service is missing?</summary>
+      <div class="answer"><p>75/25: each weight is a share of the total, so 3 and 1 make four shares. A missing backend produces <code>ResolvedRefs: False</code>, <code>BackendNotFound</code>; the implementation must still route the valid share and return 500 for the share that points at the invalid backend, so users see intermittent errors proportional to the weight.</p></div></details>
+
+    <details class="quiz"><summary>A stub domain for corp.example must resolve via 10.0.0.53. Where does the change go and how long before it applies?</summary>
+      <div class="answer"><p>A second server block in the <code>coredns</code> ConfigMap in kube-system: <code>corp.example:53 { errors; cache 30; forward . 10.0.0.53 }</code>. The <code>reload</code> plugin applies it within about two minutes without restarting pods. Verify from a pod with nslookup, and check <code>kubectl -n kube-system logs deploy/coredns</code> for a Corefile parse error if nothing changes.</p></div></details>
+
+    <details class="quiz"><summary>Which kube-proxy mode is GA and newest, and what changes for NodePort when you switch to it?</summary>
+      <div class="answer"><p>nftables, GA since Kubernetes 1.33 (kernel 5.13+). NodePorts default to <code>--nodeport-addresses primary</code>, so they answer on the node's primary IP only; other interfaces and localhost stop answering, and kube-proxy no longer punches firewall holes for the NodePort range. IPVS is deprecated since 1.35; iptables remains the default.</p></div></details>
   </div>
 </section>
 
@@ -307,6 +449,10 @@ pod "dnsprobe" deleted from default namespace</code></pre></details></div>
       <li><b>gateway-api.sigs.k8s.io</b>: the API model page with the role diagram; the "route attachment" section.</li>
       <li><b>docs.cilium.io</b>: Hubble observe reference; CiliumNetworkPolicy entities and FQDN rules.</li>
       <li><b>Offline, in the exam:</b> <code>kubectl explain service.spec</code>, <code>kubectl explain networkpolicy.spec.egress</code>, <code>kubectl explain httproute.spec.rules --recursive</code>. Faster than docs and always version-correct for the cluster in front of you.</li>
+    
+      <li><b>gateway-api.sigs.k8s.io/reference/spec</b>: the field reference for Gateway listeners, HTTPRoute matches/filters/backendRefs, ReferenceGrant, BackendTLSPolicy and ListenerSet; the condition reasons (NotAllowedByListeners, RefNotPermitted, BackendNotFound) are listed there verbatim.</li>
+      <li><b>kubernetes.io/docs/reference/networking/virtual-ips</b>: kube-proxy modes, traffic policies, terminating endpoints and trafficDistribution on one page.</li>
+      <li><b>kubernetes.io/docs/tasks/administer-cluster/dns-custom-nameservers</b>: the stock Corefile with every plugin explained, and the stub-domain example you will copy under time pressure.</li>
     </ul>
   </div>
 </section>

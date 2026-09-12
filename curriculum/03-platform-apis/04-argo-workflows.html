@@ -134,6 +134,115 @@ time=2026-08-27T03:31:18.375Z level=WARN msg="Non-transient error" argo=true err
   </div>
 </section>
 
+<section class="panel accent-c" id="controls">
+  <div class="phdr"><h2>The fields that decide behaviour</h2><span class="meta">retries, deadlines, exit handlers, locks, cleanup</span></div>
+  <div class="pbody">
+    <p>The six template types above cover the lab. The exam's cluster may hand you a workflow using one of the other four, so recognise them on sight:</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th class="mono">Template type</th><th>Does</th><th>Wrinkle</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">http</td><td>issues an HTTP request; the response body becomes <code>outputs.result</code>; <code>successCondition</code> evaluates <code>response.statusCode</code> or <code>response.body</code></td><td>runs in the per-workflow <em>agent</em> pod, which talks to the controller through the <code>WorkflowTaskSet</code> CRD, so the SA needs an agent role too</td></tr>
+          <tr><td class="mono">containerSet</td><td>several containers in one pod, ordered with <code>dependencies</code>, sharing an <code>emptyDir</code> workspace</td><td>the container named <code>main</code> must finish last if you want base-layer output artifacts</td></tr>
+          <tr><td class="mono">data</td><td>lists artifact paths from a repository (<code>source.artifactPaths</code>) and filters them with <code>transformation[].expression</code></td><td>bare-bones by design; the only source today is the artifact repository</td></tr>
+          <tr><td class="mono">plugin</td><td>hands the step to an executor plugin (an <code>ExecutorPlugin</code> CR) running in the agent pod</td><td>an admin-installed extension; treat "plugin" in a task as "check the ExecutorPlugin exists"</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Retries, deadlines, garbage collection</h3>
+    <ul>
+      <li><strong><code>retryStrategy</code>.</strong> <code>limit</code> (a string, "3"), <code>retryPolicy</code> and optional <code>backoff</code> (<code>duration</code>, <code>factor</code>, <code>maxDuration</code>). The policy chooses what counts: <code>OnFailure</code> retries a main container that exited non-zero (the default), <code>OnError</code> retries controller errors and init/wait container failures, <code>OnTransientError</code> retries only errors matching Argo's transient list, <code>Always</code> retries everything. An <code>expression</code> over <code>lastRetry.exitCode</code>, <code>lastRetry.status</code>, <code>lastRetry.duration</code> and <code>lastRetry.message</code> narrows it further; from v3.5, if you give an expression and no policy the expression alone decides.</li>
+      <li><strong><code>activeDeadlineSeconds</code>.</strong> On the workflow spec it bounds the whole run; on a template it bounds one step. The node message when it trips is <code>Pod was active on the node longer than the specified deadline</code>. A workflow that must never run forever gets this field, not a hope.</li>
+      <li><strong><code>ttlStrategy</code></strong> (<code>secondsAfterCompletion</code>, <code>secondsAfterSuccess</code>, <code>secondsAfterFailure</code>) deletes the Workflow object; <strong><code>podGC.strategy</code></strong> (<code>OnPodCompletion</code>, <code>OnPodSuccess</code>, <code>OnWorkflowCompletion</code>, <code>OnWorkflowSuccess</code>) deletes the pods. Set cluster-wide defaults for both under <code>workflowDefaults</code> in <code>workflow-controller-configmap</code>; a Workflow's own value wins over the default.</li>
+      <li><strong><code>parallelism</code></strong> caps concurrent pods per workflow (or globally in the config map).</li>
+    </ul>
+
+    <h3>Exit handlers, hooks and richer dependencies</h3>
+    <p><code>spec.onExit: &lt;template&gt;</code> names a template that always runs after the entrypoint finishes; inside it, <code>{{workflow.status}}</code> is <code>Succeeded</code>, <code>Failed</code> or <code>Error</code>, and <code>{{workflow.failures}}</code> lists what broke. That is how notification, cleanup and "register the tenant only on success" get expressed. <code>hooks</code> generalise this: a workflow-level or template-level <code>hooks.exit</code> plus arbitrary named hooks with an <code>expression</code> such as <code>workflow.status == "Running"</code>.</p>
+    <p>In a DAG, <code>depends</code> replaces <code>dependencies</code> with a boolean over task results: <code>task-a.Succeeded</code>, <code>.Failed</code>, <code>.Errored</code>, <code>.Skipped</code>, <code>.Omitted</code>, <code>.Daemoned</code>, combined with <code>&amp;&amp;</code>, <code>||</code> and <code>!</code>. A bare task name means "succeeded, skipped or daemoned". You cannot mix <code>dependencies</code> and <code>depends</code> in one DAG, and <code>continueOn</code> disappears when you use <code>depends</code> (write <code>.Failed</code> instead).</p>
+
+    <div class="cb" data-lang="yaml"><pre><code>spec:
+  entrypoint: main
+  onExit: notify                      # always runs; sees {{workflow.status}}
+  activeDeadlineSeconds: 900
+  ttlStrategy: { secondsAfterSuccess: 3600 }
+  podGC: { strategy: OnWorkflowSuccess }
+  synchronization:
+    mutexes: [{ name: provision-lock }]   # one run at a time per namespace
+  templates:
+    - name: flaky-step
+      retryStrategy:
+        limit: "3"
+        retryPolicy: OnFailure
+        backoff: { duration: "10s", factor: "2", maxDuration: "2m" }
+      container: { image: alpine:3.20, command: [sh, -c, "exit 1"] }</code></pre></div>
+
+    <h3>Locks and resource templates</h3>
+    <ul>
+      <li><strong><code>synchronization</code>.</strong> <code>mutexes</code> allow one holder; <code>semaphores</code> take a size from a ConfigMap key (<code>configMapKeyRef</code>) and allow N. Both work at workflow level or template level, and both are namespace-scoped unless you configure the database-backed multi-controller variant. A workflow waiting on a lock sits in <code>Pending</code> with a message naming the lock, which is easy to misread as a scheduling problem. Note the plural field names (<code>mutexes</code>, <code>semaphores</code>): v3.6 made them lists.</li>
+      <li><strong><code>resource</code> templates.</strong> <code>action</code> is any kubectl verb (<code>create</code>, <code>apply</code>, <code>patch</code>, <code>delete</code>, <code>get</code>); <code>successCondition</code> and <code>failureCondition</code> poll the created object (for example <code>status.succeeded &gt; 0</code> / <code>status.failed &gt; 3</code> on a Job) so a step waits for a real outcome; <code>patch</code> takes <code>mergeStrategy: strategic|merge|json</code>, and custom resources cannot use <code>strategic</code>; <code>setOwnerReference: true</code> makes the created object die with the workflow, which is the opposite of what a provisioning workflow usually wants.</li>
+      <li><strong>Outputs.</strong> <code>outputs.parameters[].valueFrom.path</code> reads a file the container wrote; <code>outputs.result</code> captures up to 256 kB of stdout (or the HTTP body). A reference to an output the producer never wrote fails the consuming node terminally unless you give <code>valueFrom.default</code> or an expression fallback (<code>??</code>).</li>
+      <li><strong>Artifacts without plumbing.</strong> A key-only artifact (<code>s3: { key: my-file }</code>, nothing else) inherits bucket and credentials from the configured artifact repository (<code>artifactRepositoryRef</code> or the controller default), which is how templates stay portable between clusters.</li>
+    </ul>
+
+    <div class="callout trap"><span class="tag">Trap</span><p>The executor has been <code>emissary</code> only since v3.4; an <code>Error (exit code 64)</code> on a node is the emissary itself failing, not your command. The lab's <code>workflowtaskresults</code> RBAC lesson is the usual cause of the wait container failing shortly after.</p></div>
+  </div>
+</section>
+
+<section class="panel accent-y" id="surface">
+  <div class="phdr"><h2>The submission surface and what fails on it</h2><span class="meta">templates, cron, events, server, archive, messages</span></div>
+  <div class="pbody">
+    <h3>Three ways to reference a template</h3>
+    <ul>
+      <li><strong><code>workflowTemplateRef</code></strong> at the top of a Workflow spec runs a whole WorkflowTemplate; the Workflow's own <code>arguments</code> and <code>entrypoint</code> override the template's. <code>argo submit --from workflowtemplate/&lt;name&gt; -p key=value</code> is the CLI form; the UI's submit button is the same call.</li>
+      <li><strong><code>templateRef</code></strong> inside a step or task borrows one template from a WorkflowTemplate (<code>name</code> + <code>template</code>); add <code>clusterScope: true</code> to reach a ClusterWorkflowTemplate. Forgetting <code>clusterScope</code> produces a "not found" error against a namespaced lookup.</li>
+      <li><strong>Restrictions.</strong> A controller with <code>workflowRestrictions.templateReferencing: Strict</code> accepts only Workflows that use <code>workflowTemplateRef</code>; <code>Secure</code> additionally fails a running Workflow if its template changes underneath it. Under either, a submitted Workflow may only set an allow-listed set of fields (<code>arguments</code>, <code>entrypoint</code>, <code>ttlStrategy</code>, <code>podGC</code>, and a few more); a <code>serviceAccountName</code> or <code>volumes</code> on the submission is rejected. If your submit is refused for a field you are sure is valid, that is the reason.</li>
+    </ul>
+
+    <h3>CronWorkflow, the fields that bite</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th class="mono">Field</th><th>Default</th><th>Means</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">schedules</td><td>required</td><td>a <em>list</em> of cron expressions (v3.6+; older manifests use singular <code>schedule</code>)</td></tr>
+          <tr><td class="mono">concurrencyPolicy</td><td class="mono">Allow</td><td><code>Forbid</code> skips a tick while the previous run is alive; <code>Replace</code> kills the old run first</td></tr>
+          <tr><td class="mono">startingDeadlineSeconds</td><td>0</td><td>grace period after a missed tick (controller was down) during which one catch-up run still starts</td></tr>
+          <tr><td class="mono">timezone</td><td>machine tz</td><td>IANA name; DST is honoured, so 02:30 can be skipped or run twice</td></tr>
+          <tr><td class="mono">suspend</td><td>false</td><td>the GitOps-friendly pause; <code>argo cron suspend</code> flips the same field</td></tr>
+          <tr><td class="mono">successfulJobsHistoryLimit / failedJobsHistoryLimit</td><td>3 / 1</td><td>how many finished Workflows to keep</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Submitting from outside the shell</h3>
+    <p>The Argo Server exposes <code>POST /api/v1/workflows/{namespace}</code> and, for webhooks, <code>POST /api/v1/events/{namespace}/{discriminator}</code>. A <code>WorkflowEventBinding</code> turns an event into a submission: its <code>event.selector</code> is an expression over <code>payload</code>, <code>metadata</code> (header names lower-cased) and <code>discriminator</code>, and its <code>submit</code> block names the WorkflowTemplate and maps payload fields into parameters. Clients authenticate with a ServiceAccount bearer token (<code>Authorization: Bearer ...</code>), and the server's <code>--auth-mode</code> decides what it accepts: <code>client</code> (default since v3.0, use the caller's token), <code>server</code> (act as the server's own SA), <code>sso</code>. Under SSO, RBAC maps OIDC groups to ServiceAccounts through the <code>workflows.argoproj.io/rbac-rule</code> and <code>rbac-rule-precedence</code> annotations on the SA. Argo Events (Sensor plus EventSource) is the separate project that turns queues and webhooks into Workflows at scale; the built-in events endpoint is the lightweight version.</p>
+
+    <h3>The archive</h3>
+    <p>Finished Workflows are Kubernetes objects and vanish with <code>ttlStrategy</code>. Setting <code>persistence.archive: true</code> with a PostgreSQL or MySQL connection in the controller config map copies every completed Workflow (not pod logs) into <code>argo_archived_workflows</code>, queryable from the UI and CLI (<code>argo archive list</code>). "Keep an auditable record of every provisioning run" is the exam sentence that means the archive plus a log shipper for pod output.</p>
+
+    <h3>Reading failures</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Node message</th><th>Means</th><th>Fix lives in</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">Error (exit code 1)</td><td>the main container failed</td><td>your command; read the pod log</td></tr>
+          <tr><td class="mono">OOMKilled (exit code 137)</td><td>memory limit</td><td>the template's <code>resources</code></td></tr>
+          <tr><td class="mono">Pod was active on the node longer than the specified deadline</td><td><code>activeDeadlineSeconds</code> tripped</td><td>the deadline or the step's speed</td></tr>
+          <tr><td class="mono">No more retries left</td><td><code>retryStrategy.limit</code> exhausted</td><td>the underlying child's message</td></tr>
+          <tr><td class="mono">... is forbidden: User "system:serviceaccount:..." cannot create resource "workflowtaskresults"</td><td>executor RBAC</td><td>Role/RoleBinding for the workflow SA</td></tr>
+          <tr><td class="mono">child 'name' failed</td><td>a DAG or steps parent summarising a child</td><td>descend to the child node</td></tr>
+          <tr><td class="mono">Error (exit code 64)</td><td>emissary executor failure</td><td>usually RBAC or image command resolution</td></tr>
+          <tr><td>node stays <code>Pending</code>, message names a lock or a ConfigMap key</td><td>waiting on <code>synchronization</code></td><td>the other holder, or the semaphore size</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Two other silent stalls: a Workflow in a namespace the controller does not watch (this lab: only <code>argo</code> and <code>default</code>) shows no status at all, and a Workflow whose SA lacks <code>pods</code> permissions in <code>server</code> auth mode fails at the server, not in a node. <code>argo retry</code> resumes a failed Workflow from the failed nodes; <code>argo resubmit</code> starts a fresh one; <code>argo stop</code> runs exit handlers, <code>argo terminate</code> does not.</p>
+
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>Expect tasks of the shape "make this workflow retry up to three times with backoff", "notify on completion regardless of outcome", "run this nightly and never overlap", or "expose this Workflow so a user can submit it with a parameter". Each maps to one field above: <code>retryStrategy</code>, <code>onExit</code>, <code>CronWorkflow</code> with <code>concurrencyPolicy: Forbid</code>, and promotion to a <code>WorkflowTemplate</code>. Verify by reading <code>status.nodes</code>, not the UI's colour.</p></div>
+  </div>
+</section>
+
 <section class="panel accent-g" id="exercises">
   <div class="phdr"><h2>Exercises</h2><span class="meta">tick the dot when its check passes</span></div>
   <div class="pbody">
@@ -234,6 +343,19 @@ spec:
 
     <details class="quiz"><summary>What turns a Workflow into a self-service product?</summary>
       <div class="answer"><p>Promotion to a WorkflowTemplate with typed, documented, defaulted parameters, a submit surface (UI, CLI, portal, or a Backstage action), input validation before side effects, and an auditable record of who requested what. Same content, packaged as an interface.</p></div></details>
+  
+
+    <details class="quiz"><summary>A step must run after <code>build</code> whether <code>build</code> succeeded or failed, but only if <code>lint</code> succeeded. How do you express that in a DAG?</summary>
+      <div class="answer"><p>Use <code>depends</code> rather than <code>dependencies</code>: <code>depends: "(build.Succeeded || build.Failed) &amp;&amp; lint.Succeeded"</code>. The result operands (<code>.Succeeded</code>, <code>.Failed</code>, <code>.Errored</code>, <code>.Skipped</code>, <code>.Omitted</code>, <code>.Daemoned</code>) are what make outcome-based ordering possible; <code>dependencies</code> can only say "after it finished successfully".</p></div></details>
+
+    <details class="quiz"><summary>Two provisioning runs for the same tenant must never execute concurrently, and a nightly job must skip its tick if the previous one is still running. Fields?</summary>
+      <div class="answer"><p>A workflow-level <code>synchronization.mutexes</code> entry named per tenant (or a ConfigMap-backed <code>semaphores</code> entry of size 1) serialises submissions in a namespace. For the schedule, <code>CronWorkflow.spec.concurrencyPolicy: Forbid</code>; <code>Replace</code> would kill the running one instead. A waiting Workflow shows <code>Pending</code> with a message naming the lock, not a scheduling error.</p></div></details>
+
+    <details class="quiz"><summary>You submit a Workflow with <code>serviceAccountName</code> set and the controller rejects it, although the SA exists. Likely cause?</summary>
+      <div class="answer"><p>The controller runs with <code>workflowRestrictions.templateReferencing: Strict</code> or <code>Secure</code>: submissions must use <code>workflowTemplateRef</code> and may only override an allow-listed set of fields (<code>arguments</code>, <code>entrypoint</code>, GC settings and a few more). Security-sensitive fields such as <code>serviceAccountName</code>, <code>volumes</code> or <code>podSpecPatch</code> must live in the WorkflowTemplate. Move the field there and resubmit.</p></div></details>
+
+    <details class="quiz"><summary>What does an exit handler see that a normal template does not, and what is the difference between <code>argo stop</code> and <code>argo terminate</code>?</summary>
+      <div class="answer"><p>An <code>onExit</code> template (or <code>hooks.exit</code>) runs after the entrypoint and can read <code>{{workflow.status}}</code> (<code>Succeeded</code>, <code>Failed</code>, <code>Error</code>) and <code>{{workflow.failures}}</code>, so it can branch with <code>when</code>. <code>argo stop</code> stops the running nodes and still runs exit handlers; <code>argo terminate</code> kills everything and skips them, which is why cleanup logic belongs in a hook you know will run.</p></div></details>
   </div>
 </section>
 
@@ -244,6 +366,9 @@ spec:
       <li><b>argo-workflows.readthedocs.io</b>: core concepts, the fields reference for <code>resource</code> templates, DAG examples, and the WorkflowTemplate page.</li>
       <li>The Workflows UI's built-in examples (submit → examples) are a legitimate crib sheet during practice.</li>
       <li><b>Offline:</b> <code>kubectl explain workflow.spec.templates --recursive</code> and <code>argo submit --help</code>.</li>
+    
+      <li><b>argo-workflows.readthedocs.io/en/latest/retries</b> and <b>/synchronization</b>: the two pages whose field names appear verbatim in tasks; <b>/cron-workflows</b> has the option table with defaults.</li>
+      <li><b>argo-workflows.readthedocs.io/en/latest/workflow-rbac</b>: the minimal executor Role, plus <b>/argo-server-auth-mode</b> and <b>/access-token</b> for submitting through the API with a ServiceAccount token.</li>
     </ul>
   </div>
 </section>
