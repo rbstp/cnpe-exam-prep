@@ -719,9 +719,9 @@ service "bg-preview" deleted from team-a namespace</code></pre></details></div>
     </div>
 
     <div class="exercise" data-title="Route by header to a canary at zero weight">
-      <p>Weight sends a slice of everyone's traffic to the new version. A header route sends all of one person's, which is how you let a tester see the canary before any customer does. It needs a mesh, so this one is on <code>kind-mesh</code>.</p>
+      <p>Weight sends a slice of everyone's traffic to the new version. A header route sends all of one person's, which is how you let a tester see the canary before any customer does. It needs a mesh, so this one is on <code>kind-mesh</code>, which has no Rollouts controller until the first line installs one. Note the <code>--server-side</code>: a plain apply of these CRDs is refused because the last-applied annotation would exceed the 256KB limit on annotations.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl --context kind-mesh create ns argo-rollouts --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -
-kubectl --context kind-mesh -n argo-rollouts apply -f https://github.com/argoproj/argo-rollouts/releases/latest/download/install.yaml
+kubectl --context kind-mesh -n argo-rollouts apply --server-side -f https://github.com/argoproj/argo-rollouts/releases/latest/download/install.yaml
 kubectl --context kind-mesh -n argo-rollouts rollout status deploy/argo-rollouts --timeout=180s
 kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'
 apiVersion: argoproj.io/v1alpha1
@@ -787,9 +787,26 @@ kubectl --context kind-mesh get virtualservice hdr -o yaml | sed -n '/http:/,$p'
 kubectl argo rollouts abort hdr --context kind-mesh
 kubectl --context kind-mesh delete rollout hdr
 kubectl --context kind-mesh delete svc hdr-canary hdr-stable
-kubectl --context kind-mesh delete virtualservice hdr</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl --context kind-mesh create ns argo-rollouts --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -</b>
-<b>$ kubectl --context kind-mesh -n argo-rollouts apply -f https://github.com/argoproj/argo-rollouts/releases/latest/download/install.yaml</b>
+kubectl --context kind-mesh delete virtualservice hdr</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl --context kind-mesh create ns argo-rollouts --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -</b>
+namespace/argo-rollouts unchanged
+<b>$ kubectl --context kind-mesh -n argo-rollouts apply --server-side -f https://github.com/argoproj/argo-rollouts/releases/latest/download/install.yaml</b>
+customresourcedefinition.apiextensions.k8s.io/analysisruns.argoproj.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/analysistemplates.argoproj.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/clusteranalysistemplates.argoproj.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/experiments.argoproj.io serverside-applied
+customresourcedefinition.apiextensions.k8s.io/rollouts.argoproj.io serverside-applied
+serviceaccount/argo-rollouts serverside-applied
+clusterrole.rbac.authorization.k8s.io/argo-rollouts serverside-applied
+clusterrole.rbac.authorization.k8s.io/argo-rollouts-aggregate-to-admin serverside-applied
+clusterrole.rbac.authorization.k8s.io/argo-rollouts-aggregate-to-edit serverside-applied
+clusterrole.rbac.authorization.k8s.io/argo-rollouts-aggregate-to-view serverside-applied
+clusterrolebinding.rbac.authorization.k8s.io/argo-rollouts serverside-applied
+configmap/argo-rollouts-config serverside-applied
+secret/argo-rollouts-notification-secret serverside-applied
+service/argo-rollouts-metrics serverside-applied
+deployment.apps/argo-rollouts serverside-applied
 <b>$ kubectl --context kind-mesh -n argo-rollouts rollout status deploy/argo-rollouts --timeout=180s</b>
+deployment "argo-rollouts" successfully rolled out
 <b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: Rollout</b>
@@ -823,6 +840,7 @@ kubectl --context kind-mesh delete virtualservice hdr</code></pre><details class
 <b>                headerValue: { exact: "true" }</b>
 <b>        - pause: {}</b>
 <b>EOF</b>
+rollout.argoproj.io/hdr created
 <b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: v1</b>
 <b>kind: Service</b>
@@ -847,15 +865,44 @@ kubectl --context kind-mesh delete virtualservice hdr</code></pre><details class
 <b>        - destination: { host: hdr-canary }</b>
 <b>          weight: 0</b>
 <b>EOF</b>
+service/hdr-canary unchanged
+service/hdr-stable unchanged
+virtualservice.networking.istio.io/hdr unchanged
 <b>$ kubectl argo rollouts status hdr --context kind-mesh --timeout 90s || true</b>
+Progressing - more replicas need to be updated
+Progressing - updated replicas are still becoming available
+Healthy
 <b>$ kubectl argo rollouts set image hdr web=ghcr.io/stefanprodan/podinfo:6.7.0 --context kind-mesh</b>
+rollout "hdr" image updated
 <b>$ sleep 45</b>
 <b>$ kubectl --context kind-mesh get virtualservice hdr -o yaml | sed -n '/http:/,$p'</b>
+  http:
+  - match:
+    - headers:
+        x-canary:
+          exact: "true"
+    name: header-route
+    route:
+    - destination:
+        host: hdr-canary
+      weight: 100
+  - name: primary
+    route:
+    - destination:
+        host: hdr-stable
+      weight: 100
+    - destination:
+        host: hdr-canary
+      weight: 0
 <b>$ kubectl argo rollouts abort hdr --context kind-mesh</b>
+rollout 'hdr' aborted
 <b>$ kubectl --context kind-mesh delete rollout hdr</b>
+rollout.argoproj.io "hdr" deleted from default namespace
 <b>$ kubectl --context kind-mesh delete svc hdr-canary hdr-stable</b>
+service "hdr-canary" deleted from default namespace
+service "hdr-stable" deleted from default namespace
 <b>$ kubectl --context kind-mesh delete virtualservice hdr</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+virtualservice.networking.istio.io "hdr" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the controller has written a second HTTP route into the VirtualService, above the weighted one, matching the header and sending it to the canary destination. The weighted route is still 0/100, which is the point: nobody else is affected.</div>
     </div>
 
