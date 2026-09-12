@@ -195,7 +195,7 @@ window.CNPE_EXAM_KEYS = %s;
 """ % (
     read("assets/theme.js"),
     # game.css follows the stylesheet it extends, through the same font inliner
-    inline_fonts(read("assets/style.css") + "\n" + read("assets/reader.css") + "\n" + read("assets/game.css")),
+    inline_fonts(read("assets/style.css") + "\n" + read("assets/game.css")),
     read("assets/nav.js"),
     read("assets/drill-data.js"),
     read("assets/merge.js"),

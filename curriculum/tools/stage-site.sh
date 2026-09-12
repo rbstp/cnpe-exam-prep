@@ -44,7 +44,6 @@ cat > "$OUT/404.html" <<'HTML'
 <meta name="theme-color" content="#f6f5f0" media="(prefers-color-scheme: light)">
 <title>Not found · CNPE study console</title>
 <link rel="stylesheet" href="/assets/style.css">
-<link rel="stylesheet" href="/assets/reader.css">
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
 <script src="/assets/theme.js"></script>
 </head>

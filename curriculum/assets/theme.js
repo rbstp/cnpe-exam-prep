@@ -12,7 +12,7 @@
     return MODES.indexOf(v) >= 0 ? v : "dark";
   })();
 
-  // browser chrome, kept in sync with --ink in reader.css and the theme-color metas (check-site.sh)
+  // browser chrome, kept in sync with --ink in style.css and the theme-color metas (check-site.sh)
   var CHROME = { dark: "#171c1d", light: "#f6f5f0" };
 
   function paint() {

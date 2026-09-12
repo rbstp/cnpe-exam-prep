@@ -110,7 +110,7 @@ module.exports = async function (h) {
     assert((await state(page)).pref === 'light', 'quest switches to the shared light theme');
     await page.click('.themebtn');
     assert((await state(page)).pref === 'dark', 'quest switches back to dark');
-    assert(await page.locator('link[href*="reader.css"]').count() === 1, 'standalone quest loads the shared reading stylesheet');
+    assert(await page.locator('link[rel="stylesheet"]').count() === 2, 'standalone quest loads the shared stylesheet and its own');
     const shell = () => page.evaluate(() => {
       const logo = document.querySelector('.logo'), heading = document.querySelector('.pagehead h1');
       return { header: getComputedStyle(document.querySelector('.topbar')).height, logo: getComputedStyle(logo).fontFamily,
