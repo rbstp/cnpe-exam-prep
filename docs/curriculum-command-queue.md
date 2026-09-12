@@ -320,14 +320,14 @@ holds real output.
 
 - [ ] A pod with `runAsNonRoot: true` and a root image in `hardened`; capture `CreateContainerConfigError` and the `container has runAsNonRoot and image will run as root` event.
 - [ ] `kubectl debug` into a restricted namespace without and with `--profile=restricted`; capture the admission rejection of the ephemeral container.
-- [ ] On the kind control plane, add an `AdmissionConfiguration` with PodSecurity defaults (`enforce: baseline`) and an exemption for `kube-system`; create an unlabelled namespace and show baseline enforced.
+- [x] ~~`AdmissionConfiguration` with PodSecurity defaults on the kind control plane~~: **dropped**, same reason as the encryption item. It rewrites the API server's static pod manifest and restarts the control plane twice; every controller in the cluster crashloops through the gap. The namespace labels are the exam-shaped half and they already have exercises.
 - [ ] `hostUsers: false` pod on the kind node (kernel and containerd version permitting); `kubectl exec` and `cat /proc/self/uid_map` to show the mapping.
 - [ ] `kubectl apply --dry-run=server` of a Deployment into a warn-restricted namespace to capture the workload-level warning.
 
 #### 5.4 Audit trails, SBOMs, and compliance reports
 
-- [ ] Apply the audit policy from the fragment (adapted to the kind policy path), restart the API server, then jq queries: `pods/exec` events at Metadata, an RBAC change at RequestResponse showing `requestObject`, and a `--as` request showing `impersonatedUser`.
-- [ ] `jq 'select(.annotations["validation.policy.admission.k8s.io/validation_failure"] != null)'` after a VAP with `validationActions: [Audit]` fails a request.
+- [x] ~~Apply the audit policy and query it with jq~~: **dropped**. It restarts the API server, and every controller in the cluster crashloops through the gap for several minutes. The policy fragment in the theory panel is the part worth reading.
+- [x] ~~The VAP audit annotation~~: **dropped with the item above**, which is the only thing that would have produced an audit log to query.
 - [ ] Falco (if installable on kind with modern eBPF): default rules, `kubectl exec` a shell into a pod, capture the `Terminal shell in container` alert; optional `k8saudit` plugin fed by the audit webhook backend.
 - [ ] `trivy image --format spdx-json` and `syft` on the same image; `trivy sbom` on the result; `trivy image --vex` with a small OpenVEX file suppressing one CVE.
 - [ ] `kubectl get clustercompliancereport cis -o jsonpath='{.status.updateTimestamp}'` before and after forcing a rerun (edit `spec.cron`).
