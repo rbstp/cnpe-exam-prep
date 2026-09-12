@@ -592,24 +592,26 @@ resourcegraphdefinition.kro.run "needsmore" deleted
 
     <div class="exercise" data-title="Break a scaffolder template on purpose">
       <p>A golden path fails in two places: the form, before anything is created, and the publish step, after the user has already committed to it. Produce both, because the second one leaves half a repo behind.</p>
-      <p>Backstage runs on the host from <code>make portal</code>; these commands read its API rather than clicking through the UI.</p>
+      <p>Backstage runs on the host from <code>make portal</code>, which is not part of <code>make full</code>: with nothing listening on 7007 every command here returns nothing at all, which is why this drawer is still empty. Bring the portal up first; these commands read its API rather than clicking through the UI.</p>
       <div class="cb" data-lang="bash"><pre><code>curl -s http://localhost:7007/api/catalog/entities?filter=kind=template | jq '.[] | {name: .metadata.name, steps: [.spec.steps[].action]}'
 curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=template' | jq '.[] | .spec.parameters[]? | .properties.repoUrl?.["ui:options"]?.allowedHosts' | head
 curl -s http://localhost:7007/api/scaffolder/v2/tasks | jq '.tasks[0] | {id, status, spec: .spec.templateInfo.entityRef}'
-curl -s http://localhost:7007/api/scaffolder/v2/tasks/$(curl -s http://localhost:7007/api/scaffolder/v2/tasks | jq -r '.tasks[0].id')/events | jq -r '.[] | select(.type=="log") | .body.message' | tail -20</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ curl -s http://localhost:7007/api/catalog/entities?filter=kind=template | jq '.[] | {name: .metadata.name, steps: [.spec.steps[].action]}'</b>
+curl -s http://localhost:7007/api/scaffolder/v2/tasks/$(curl -s http://localhost:7007/api/scaffolder/v2/tasks | jq -r '.tasks[0].id')/events | jq -r '.[] | select(.type=="log") | .body.message' | tail -20</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ curl -s http://localhost:7007/api/catalog/entities?filter=kind=template | jq '.[] | {name: .metadata.name, steps: [.spec.steps[].action]}'</b>
 <b>$ curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=template' | jq '.[] | .spec.parameters[]? | .properties.repoUrl?.["ui:options"]?.allowedHosts' | head</b>
 <b>$ curl -s http://localhost:7007/api/scaffolder/v2/tasks | jq '.tasks[0] | {id, status, spec: .spec.templateInfo.entityRef}'</b>
-<b>$ curl -s http://localhost:7007/api/scaffolder/v2/tasks/$(curl -s http://localhost:7007/api/scaffolder/v2/tasks | jq -r '.tasks[0].id')/events | jq -r '.[] | select(.type=="log") | .body.message' | tail -20</b></code></pre></details></div>
+<b>$ curl -s http://localhost:7007/api/scaffolder/v2/tasks/$(curl -s http://localhost:7007/api/scaffolder/v2/tasks | jq -r '.tasks[0].id')/events | jq -r '.[] | select(.type=="log") | .body.message' | tail -20</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> you can name the allowed hosts the RepoUrlPicker enforces and read one task's log to the line that failed. Remove <code>gitea.lab</code> from <code>allowedHosts</code> and the form refuses before any task exists; break the integration token instead and the task fails at <code>publish:gitea</code> with a message you can quote.</div>
     </div>
 
     <div class="exercise" data-title="Ask the catalog what it knows">
-      <p>The catalog is an API, not a web page. Query it directly and the entities, their owners and the relations between them come back as data you can check in a script, which is how a portal stays true as the platform grows.</p>
+      <p>The catalog is an API, not a web page, and it needs <code>make portal</code> running on the host. Query it directly and the entities, their owners and the relations between them come back as data you can check in a script, which is how a portal stays true as the platform grows.</p>
       <div class="cb" data-lang="bash"><pre><code>curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, owner: .spec.owner, type: .spec.type}]'
 curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, relations: [.relations[]? | {type, targetRef}]}]'
-curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=group' | jq '[.[] | .metadata.name]'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, owner: .spec.owner, type: .spec.type}]'</b>
+curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=group' | jq '[.[] | .metadata.name]'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, owner: .spec.owner, type: .spec.type}]'</b>
 <b>$ curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, relations: [.relations[]? | {type, targetRef}]}]'</b>
-<b>$ curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=group' | jq '[.[] | .metadata.name]'</b></code></pre></details></div>
+<b>$ curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=group' | jq '[.[] | .metadata.name]'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> every component names an owner that exists as a group, and the relations show <code>ownedBy</code> and <code>partOf</code> derived from the descriptor files rather than typed in twice. A component whose owner does not resolve is the catalog's version of a dangling pointer; say how you would catch that in CI.</div>
     </div>
 
