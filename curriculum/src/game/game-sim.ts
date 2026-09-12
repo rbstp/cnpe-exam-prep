@@ -445,7 +445,7 @@
   }
 
   /** the reply to a get, in whatever output the flags ask for */
-  function renderGet(sc: CnpeGameScenario, kind: string, res: CnpeGameResource[], f: Flags, many: boolean): string {
+  function renderGet(kind: string, res: CnpeGameResource[], f: Flags, many: boolean): string {
     var o = f["-o"] || "";
     if (/^yaml$/.test(o) || /^json$/.test(o)) {
       var docs = res.map(function (r) { return yamlOf(kind, r); });
@@ -548,11 +548,11 @@
     if (f["--help"]) return HELP[tool] || ("bash: " + tool + ": command not found");
     if (tool === "kubectl") return kubectl(sc, pos, f, ns, verb);
     if (tool === "flux") return flux(sc, pos, f, ns, verb);
-    if (tool === "argocd") return argocd(sc, pos, f, verb);
-    if (tool === "tkn") return tkn(sc, pos, f, ns);
-    if (tool === "kubectl argo rollouts") return rollouts(sc, pos, f, ns, verb);
-    if (tool === "crossplane beta") return trace(sc, pos, f, ns, verb);
-    if (tool === "cosign") return cosign(sc, pos, f, verb);
+    if (tool === "argocd") return argocd(sc, pos, verb);
+    if (tool === "tkn") return tkn(sc, pos, ns);
+    if (tool === "kubectl argo rollouts") return rollouts(sc, pos, ns, verb);
+    if (tool === "crossplane beta") return trace(sc, pos, ns, verb);
+    if (tool === "cosign") return cosign(sc, pos, verb);
     if (tool === "helm") return "Error: no releases found here; this cluster's apps are managed by Argo CD and Flux";
     if (tool === "curl" || tool === "wget") return "curl: (7) Failed to connect: the terminal runs outside the cluster; kubectl exec into a pod to probe from inside";
     if (tool === "ls" || tool === "cat" || tool === "cd" || tool === "vim" || tool === "vi" || tool === "nano") return "bash: " + tool + ": this terminal has no filesystem; every repair is a kubectl, flux, argocd or tkn command";
@@ -572,7 +572,7 @@
           var all = ["pods", "services", "deployments", "replicasets", "horizontalpodautoscalers", "rollouts"], blocks: string[] = [];
           all.forEach(function (k) {
             var rs = find(sc, k, "", ns, !!f["-A"], f["-l"]);
-            if (rs && rs.length) blocks.push(renderGet(sc, k, rs, f, true));
+            if (rs && rs.length) blocks.push(renderGet(k, rs, f, true));
           });
           return blocks.length ? blocks.join("\n\n") : none("pods", ns);
         }
@@ -584,7 +584,7 @@
           if (res === null) return 'error: the server doesn\'t have a resource type "' + kind + '"';
           if (name && !res.length) return notFound(kind, name);
           if (!res.length) { if (kinds.length === 1) return none(kind, ns); continue; }
-          out.push(renderGet(sc, kind, res, f, kinds.length > 1));
+          out.push(renderGet(kind, res, f, kinds.length > 1));
         }
         return out.length ? out.join("\n\n") : none(kinds[0], ns);
       case "describe":
@@ -804,7 +804,7 @@
     }
   }
 
-  function cosign(sc: CnpeGameScenario, pos: string[], f: Flags, verb: string): string {
+  function cosign(sc: CnpeGameScenario, pos: string[], verb: string): string {
     var ref = pos[1] || "";
     if (verb === "verify") {
       if (!ref) return "Error: accepts 1 arg(s), received 0";
@@ -840,7 +840,7 @@
     return HELP.flux;
   }
 
-  function argocd(sc: CnpeGameScenario, pos: string[], f: Flags, verb: string): string {
+  function argocd(sc: CnpeGameScenario, pos: string[], verb: string): string {
     if (verb !== "app") return verb ? 'Error: unknown command "' + verb + '" for "argocd"' : HELP.argocd;
     var sub = pos[1] || "", name = pos[2];
     var apps = find(sc, "applications", "", "argocd", true) || [];
@@ -869,7 +869,7 @@
     return 'Error: unknown command "' + sub + '" for "argocd app"';
   }
 
-  function tkn(sc: CnpeGameScenario, pos: string[], f: Flags, ns: string): string {
+  function tkn(sc: CnpeGameScenario, pos: string[], ns: string): string {
     var kind = pos[0] || "", sub = pos[1] || "", name = pos[2];
     if (!kind) return HELP.tkn;
     if (!(kind in COLS)) return 'Error: unknown command "' + kind + '" for "tkn"';
@@ -890,7 +890,7 @@
     return 'Error: unknown command "' + sub + '" for "tkn ' + kind + '"';
   }
 
-  function rollouts(sc: CnpeGameScenario, pos: string[], f: Flags, ns: string, verb: string): string {
+  function rollouts(sc: CnpeGameScenario, pos: string[], ns: string, verb: string): string {
     var name = pos[2];
     if (!verb) return HELP["kubectl argo rollouts"];
     if (pos[1] && pos[1] !== "rollouts") return 'Error: unknown resource "' + pos[1] + '" for "kubectl argo rollouts ' + verb + '"';
@@ -904,7 +904,7 @@
     return 'Error: unknown command "' + verb + '" for "kubectl argo rollouts"';
   }
 
-  function trace(sc: CnpeGameScenario, pos: string[], f: Flags, ns: string, verb: string): string {
+  function trace(sc: CnpeGameScenario, pos: string[], ns: string, verb: string): string {
     if (verb !== "trace") return HELP["crossplane beta"];
     var kind = pos[1] || "", name = pos[2];
     if (!kind || !name) return "Error: accepts 2 arg(s): crossplane beta trace <kind> <name>";

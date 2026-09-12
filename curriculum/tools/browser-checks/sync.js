@@ -36,7 +36,7 @@ module.exports = async function (h) {
    * @param {*} [o.seed] cnpe:v2 to start from
    * @param {boolean} [o.signedIn] start with the sync opt-in flag set
    * @param {*} [o.base] cnpe:sync-base to start from
-   * @param {(req: import('playwright').Route, url: URL, method: string, body: string) => *} [o.api]
+   * @param {(req: { route: import('playwright').Route, url: URL, method: string, body: string }) => *} [o.api]
    * @param {boolean} [o.avatar] false to make GitHub's avatar CDN fail
    * @param {boolean} [o.repaint] let a pull that moved something reload the dashboard
    */
@@ -102,7 +102,7 @@ module.exports = async function (h) {
         });
       }
       const body = req.postData() || '';
-      const out = o.api ? await o.api(route, url, method, body) : null;
+      const out = o.api ? await o.api({ route, url, method, body }) : null;
       if (out === undefined) return;                    // the stub fulfilled it itself
       const r = out || { status: 404, json: { error: 'unstubbed' } };
       return route.fulfill({
@@ -226,7 +226,7 @@ module.exports = async function (h) {
     /** @type {string|null} */
     let started = null;
     const s = await site({
-      api: (route, url) => {
+      api: ({ route, url }) => {
         if (url.pathname === '/auth/start') {
           started = url.searchParams.get('return');
           // The Worker answers with a 302, but a redirect from route.fulfill
@@ -265,7 +265,7 @@ module.exports = async function (h) {
       repaint: true,      // this one is about the reload the merge triggers
       signedIn: true,
       seed: { done: { '1.1': 1 }, ex: { '1.1#local-only': 1 } },
-      api: (route, url, method, body) => {
+      api: ({ method, body }) => {
         if (method === 'GET') {
           return { status: 200, json: {
             user: { login: 'octocat', id: '1' }, rev: 7, updated: '2026-08-01T00:00:00Z',
@@ -300,7 +300,7 @@ module.exports = async function (h) {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1 }, exam: { tasks: { 0: 1 }, startedAt: 1770000000000, running: true, spent: 42 } },
-      api: (route, url, method, body) => {
+      api: ({ method, body }) => {
         if (method === 'GET') return { status: 200, json: { user: { login: 'octocat', id: '1' }, rev: 2, progress: null, updated: null } };
         if (method === 'PUT') { put = JSON.parse(body); return { status: 200, json: { rev: 3, updated: 'now' } }; }
         return { status: 405, json: {} };
@@ -359,7 +359,7 @@ module.exports = async function (h) {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1 } },
-      api: (route, url, method) => {
+      api: ({ method }) => {
         if (method === 'GET') return { status: 200, json: { user: { login: 'octocat', id: '1' }, rev: 1, progress: null, updated: null } };
         if (method === 'PUT') return { status: 200, json: { rev: 2, updated: 'now' } };
         if (method === 'POST') return { status: 204, json: {} };
@@ -390,7 +390,7 @@ module.exports = async function (h) {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1 } },
-      api: (route, url, method) => {
+      api: ({ method }) => {
         if (method === 'GET') return { status: 200, json: { user: { login: 'octocat', id: '1' }, rev: 1, progress: null, updated: null } };
         if (method === 'PUT') return { status: 200, json: { rev: 2, updated: 'now' } };
         if (method === 'DELETE') return { status: 200, json: { deleted: true } };
@@ -419,7 +419,7 @@ module.exports = async function (h) {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1, '2.1': 1 } },
-      api: (route, url, method) => {
+      api: ({ method }) => {
         if (method === 'GET') return { status: 200, json: { user: { login: 'octocat', id: '1' }, rev: 1, progress: null, updated: null } };
         if (method === 'PUT') return { status: 200, json: { rev: 2, updated: 'now' } };
         if (method === 'DELETE') return { status: 200, json: { deleted: true } };
@@ -483,7 +483,7 @@ module.exports = async function (h) {
       signedIn: true,
       seed: { done: { '1.1': 1 } },
       base: { uid: '1', rev: 1, done: ['1.1', 'toString'], ex: [], exam: [], exam2: [] },
-      api: (route, url, method) => {
+      api: ({ route, method }) => {
         if (method === 'GET') {
           route.fulfill({
             status: 200,
@@ -534,7 +534,7 @@ module.exports = async function (h) {
       signedIn: true,
       // this browser got q1 right at t=200; the other missed it at t=300
       seed: { drill: { q1: { r: 11, m: 2, ok: true, t: 200 } }, drillmeta: { day: '2026-08-28', n: 9, best: 7, t: 200 } },
-      api: (route, url, method, body) => {
+      api: ({ method, body }) => {
         if (method === 'GET') {
           return { status: 200, json: { user: { login: 'octocat', id: '1' }, rev: 1, updated: 'then',
             progress: { drill: { q1: { r: 10, m: 3, ok: false, t: 300 } },
@@ -567,7 +567,7 @@ module.exports = async function (h) {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1 }, last: '1.1', lastAt: 1000 },
-      api: (route, url, method, body) => {
+      api: ({ method, body }) => {
         if (method === 'GET') return { status: 200, json: { user: { login: 'octocat', id: '1' }, rev: 1, progress: null, updated: null } };
         put = JSON.parse(body);
         return { status: 200, json: { rev: 2, updated: 'now' } };
@@ -590,7 +590,7 @@ module.exports = async function (h) {
       repaint: true,      // this one is about the reload the merge triggers
       signedIn: true,
       seed: { last: '1.1', lastAt: 1000 },
-      api: (route, url, method, body) => {
+      api: ({ method, body }) => {
         if (method === 'GET') {
           return { status: 200, json: {
             user: { login: 'octocat', id: '1' }, rev: 3, updated: 'then',
@@ -639,7 +639,7 @@ module.exports = async function (h) {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1 } },
-      api: (route, url, method) => {
+      api: ({ method }) => {
         if (method === 'GET') return { status: 200, json: { user: { login: 'octocat', id: '1' }, rev: 1, progress: null, updated: null } };
         if (method === 'PUT') return { status: 200, json: { rev: 2, updated: 'now' } };
         if (method === 'POST') return { status: 204, json: {} };
@@ -680,7 +680,7 @@ module.exports = async function (h) {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1 } },
-      api: (route, url, method) => {
+      api: ({ method }) => {
         if (method === 'GET') {
           return { status: 200, json: { user: { login: 'octocat', id: '583231' }, rev: 1, progress: null, updated: null } };
         }
@@ -709,7 +709,7 @@ module.exports = async function (h) {
       signedIn: true,
       avatar: false,
       seed: { done: { '1.1': 1 } },
-      api: (route, url, method) => {
+      api: ({ method }) => {
         if (method === 'GET') return { status: 200, json: { user: { login: 'octocat', id: '583231' }, rev: 1, progress: null, updated: null } };
         if (method === 'PUT') return { status: 200, json: { rev: 2, updated: 'now' } };
         return { status: 405, json: {} };
@@ -738,7 +738,7 @@ module.exports = async function (h) {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1 } },
-      api: (route, url, method) => {
+      api: ({ method }) => {
         if (method === 'GET') {
           return { status: 200, json: {
             user: { login: 'octocat', id: '../../evil?x=' }, rev: 1, progress: null, updated: null } };
@@ -770,7 +770,7 @@ module.exports = async function (h) {
       // them must not send them: each browser would answer the other's copy
       // with its own, one revision per page load, for as long as both existed.
       seed: { done: { '1.1': 1 }, drillmeta: { day: '2026-01-01', n: 4 } },
-      api: (route, url, method, body) => {
+      api: ({ method, body }) => {
         if (method === 'GET') {
           return { status: 200, json: { user: { login: 'octocat', id: '1' }, rev, updated: 'then', progress: stored } };
         }
@@ -807,7 +807,7 @@ module.exports = async function (h) {
         exam: { tasks: { 0: 0, 1: 1 } },
       },
       base: { uid: '1', rev: 1, done: ['1.1', '2.1'], ex: ['1.1#gone', '1.1#kept'], exam: ['0', '1'], exam2: [] },
-      api: (route, url, method, body) => {
+      api: ({ method, body }) => {
         if (method === 'GET') {
           return { status: 200, json: {
             user: { login: 'octocat', id: '1' }, rev: 1, updated: 'then',
@@ -843,7 +843,7 @@ module.exports = async function (h) {
       repaint: true,
       seed: { done: { '1.1': 1, '2.1': 1 } },
       base: { uid: '1', rev: 1, done: ['1.1', '2.1'], ex: [], exam: [], exam2: [] },
-      api: (route, url, method) => {
+      api: ({ method }) => {
         if (method === 'GET') {
           return { status: 200, json: {
             user: { login: 'octocat', id: '1' }, rev: 2, updated: 'then',
@@ -873,7 +873,7 @@ module.exports = async function (h) {
       signedIn: true,
       seed: { done: { '1.1': 1, '2.1': 1, '3.1': 1 } },
       base: { uid: '1', rev: 1, done: ['1.1', '2.1'], ex: [], exam: [], exam2: [] },
-      api: (route, url, method, body) => {
+      api: ({ method, body }) => {
         if (method === 'GET') {
           return { status: 200, json: {
             user: { login: 'octocat', id: '1' }, rev: 1, updated: 'then',
@@ -908,7 +908,7 @@ module.exports = async function (h) {
       signedIn: true,
       seed: { done: { '1.1': 1 }, ex: { '1.1#keep-me': 1 } },
       base: { uid: '1', rev: 1, done: ['1.1'], ex: ['1.1#keep-me'], exam: [], exam2: [] },
-      api: (route, url, method) => {
+      api: ({ method }) => {
         if (method === 'GET') {
           return { status: 200, json: {
             user: { login: 'octocat', id: '1' }, rev: 2, updated: 'then',
@@ -935,7 +935,7 @@ module.exports = async function (h) {
       signedIn: true,
       seed: { done: { '1.1': 0 } },
       base: { uid: '1', rev: 5, done: ['1.1'], ex: [], exam: [], exam2: [] },
-      api: (route, url, method) => {
+      api: ({ method }) => {
         if (method === 'GET') {
           return { status: 200, json: {
             user: { login: 'octocat', id: '1' }, rev: 1, updated: 'then', progress: { done: { '1.1': 1 } },
@@ -963,7 +963,7 @@ module.exports = async function (h) {
       signedIn: true,
       seed: { done: { '1.1': 1, '2.1': 1 } },
       base: { uid: '1', rev: 1, done: ['1.1', '2.1'], ex: [], exam: [], exam2: [] },
-      api: (route, url, method, body) => {
+      api: ({ method, body }) => {
         if (method === 'GET') {
           return { status: 200, json: {
             user: { login: 'octocat', id: '1' }, rev: 2, updated: 'then',
@@ -998,7 +998,7 @@ module.exports = async function (h) {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1 } },
-      api: (route, url, method) => {
+      api: ({ method }) => {
         if (method === 'GET') {
           return { status: 200, json: {
             user: { login: 'octocat', id: '1' }, rev: 2, updated: 'then',
@@ -1029,7 +1029,7 @@ module.exports = async function (h) {
       signedIn: true,
       seed: { done: { '1.1': 1, '2.1': 1 } },
       base: { uid: '1', rev: 1, done: ['1.1', '2.1'], ex: [], exam: [], exam2: [] },
-      api: (route, url, method) => {
+      api: ({ method }) => {
         if (method === 'GET') {
           return { status: 200, json: {
             user: { login: 'octocat', id: '1' }, rev: 1, updated: 'then',
@@ -1065,8 +1065,8 @@ module.exports = async function (h) {
   await group('two browsers, one row: a tick travels, and so does taking it back', async () => {
     /** @type {{rev: number, blob: *}} */
     const row = { rev: 0, blob: null };
-    /** @type {(route: import('playwright').Route, url: URL, method: string, body: string) => *} */
-    const worker = (route, url, method, body) => {
+    /** @type {(req: { route: import('playwright').Route, url: URL, method: string, body: string }) => *} */
+    const worker = ({ method, body }) => {
       if (method === 'GET') {
         return { status: 200, json: { user: { login: 'octocat', id: '1' }, rev: row.rev, updated: 'then', progress: row.blob } };
       }
@@ -1136,7 +1136,7 @@ module.exports = async function (h) {
     const s = await site({
       signedIn: true,
       seed: { done: { '2.1': 1 } },
-      api: (route, url, method, body) => {
+      api: ({ method, body }) => {
         if (method === 'GET') {
           return { status: 200, json: { user: { login: 'octocat', id: '1' }, rev: row.rev, updated: 'then', progress: row.blob } };
         }
@@ -1177,7 +1177,7 @@ module.exports = async function (h) {
     const s = await site({
       signedIn: true,
       seed: { done: { '1.1': 1 } },
-      api: (route, url, method) => method === 'GET'
+      api: ({ method }) => method === 'GET'
         ? { status: 200, json: { user: { login: 'octocat', id: '1' }, rev, updated: 'then', progress: { done: { '1.1': 1 } } } }
         : { status: 200, json: { rev: ++rev, updated: 'now' } },
     });
