@@ -592,26 +592,90 @@ resourcegraphdefinition.kro.run "needsmore" deleted
 
     <div class="exercise" data-title="Break a scaffolder template on purpose">
       <p>A golden path fails in two places: the form, before anything is created, and the publish step, after the user has already committed to it. Produce both, because the second one leaves half a repo behind.</p>
-      <p>Backstage runs on the host from <code>make portal</code>, which is not part of <code>make full</code>: with nothing listening on 7007 every command here returns nothing at all, which is why this drawer is still empty. Bring the portal up first; these commands read its API rather than clicking through the UI.</p>
-      <div class="cb" data-lang="bash"><pre><code>curl -s http://localhost:7007/api/catalog/entities?filter=kind=template | jq '.[] | {name: .metadata.name, steps: [.spec.steps[].action]}'
-curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=template' | jq '.[] | .spec.parameters[]? | .properties.repoUrl?.["ui:options"]?.allowedHosts' | head
-curl -s http://localhost:7007/api/scaffolder/v2/tasks | jq '.tasks[0] | {id, status, spec: .spec.templateInfo.entityRef}'
-curl -s http://localhost:7007/api/scaffolder/v2/tasks/$(curl -s http://localhost:7007/api/scaffolder/v2/tasks | jq -r '.tasks[0].id')/events | jq -r '.[] | select(.type=="log") | .body.message' | tail -20</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ curl -s http://localhost:7007/api/catalog/entities?filter=kind=template | jq '.[] | {name: .metadata.name, steps: [.spec.steps[].action]}'</b>
-<b>$ curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=template' | jq '.[] | .spec.parameters[]? | .properties.repoUrl?.["ui:options"]?.allowedHosts' | head</b>
-<b>$ curl -s http://localhost:7007/api/scaffolder/v2/tasks | jq '.tasks[0] | {id, status, spec: .spec.templateInfo.entityRef}'</b>
-<b>$ curl -s http://localhost:7007/api/scaffolder/v2/tasks/$(curl -s http://localhost:7007/api/scaffolder/v2/tasks | jq -r '.tasks[0].id')/events | jq -r '.[] | select(.type=="log") | .body.message' | tail -20</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
-      <div class="verify"><b>verify:</b> you can name the allowed hosts the RepoUrlPicker enforces and read one task's log to the line that failed. Remove <code>gitea.lab</code> from <code>allowedHosts</code> and the form refuses before any task exists; break the integration token instead and the task fails at <code>publish:gitea</code> with a message you can quote.</div>
+      <p>Backstage runs on the host from <code>make portal</code>, which is not part of <code>make full</code>; start it with <code>cd portal &amp;&amp; yarn start</code>. Its API wants a token even for reads, so the first line trades the guest provider for one. These commands read the API rather than clicking through the UI.</p>
+      <div class="cb" data-lang="bash"><pre><code>TOKEN=$(curl -s http://localhost:7007/api/auth/guest/refresh | jq -r .backstageIdentity.token)
+curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=template' | jq '.[] | {name: .metadata.name, steps: [.spec.steps[].action]}'
+curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=template' | jq '.[] | .spec.parameters[]? | .properties.repoUrl?."ui:options"?.allowedHosts'
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:7007/api/scaffolder/v2/tasks | jq '{tasks: (.tasks | length), first: (.tasks[0] // null | if . == null then null else {id, status} end)}'
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:7007/api/scaffolder/v2/templates | jq 'keys' 2&gt;/dev/null || echo 'no template listing on this version'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ TOKEN=$(curl -s http://localhost:7007/api/auth/guest/refresh | jq -r .backstageIdentity.token)</b>
+<b>$ curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=template' | jq '.[] | {name: .metadata.name, steps: [.spec.steps[].action]}'</b>
+{
+  "name": "golden-path-service",
+  "steps": [
+    "fetch:template",
+    "publish:gitea",
+    "catalog:register"
+  ]
+}
+{
+  "name": "example-nodejs-template",
+  "steps": [
+    "fetch:template",
+    "publish:github",
+    "catalog:register",
+    "notification:send"
+  ]
+}
+<b>$ curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=template' | jq '.[] | .spec.parameters[]? | .properties.repoUrl?."ui:options"?.allowedHosts'</b>
+null
+null
+[
+  "gitea.lab:3000"
+]
+null
+[
+  "github.com"
+]
+<b>$ curl -s -H "Authorization: Bearer $TOKEN" http://localhost:7007/api/scaffolder/v2/tasks | jq '{tasks: (.tasks | length), first: (.tasks[0] // null | if . == null then null else {id, status} end)}'</b>
+{
+  "tasks": 0,
+  "first": null
+}
+<b>$ curl -s -H "Authorization: Bearer $TOKEN" http://localhost:7007/api/scaffolder/v2/templates | jq 'keys' 2&gt;/dev/null || echo 'no template listing on this version'</b></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the golden path template's steps end in <code>publish:gitea</code> and its RepoUrlPicker allows exactly one host, the lab's Gitea. The task list is empty until somebody runs the template, which is the point of the two failures to produce next: remove that host from <code>allowedHosts</code> and the form refuses before any task exists, so the list stays empty; break the Gitea token instead and a task appears and dies at <code>publish:gitea</code> with a message you can quote.</div>
     </div>
 
     <div class="exercise" data-title="Ask the catalog what it knows">
-      <p>The catalog is an API, not a web page, and it needs <code>make portal</code> running on the host. Query it directly and the entities, their owners and the relations between them come back as data you can check in a script, which is how a portal stays true as the platform grows.</p>
-      <div class="cb" data-lang="bash"><pre><code>curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, owner: .spec.owner, type: .spec.type}]'
-curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, relations: [.relations[]? | {type, targetRef}]}]'
-curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=group' | jq '[.[] | .metadata.name]'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, owner: .spec.owner, type: .spec.type}]'</b>
-<b>$ curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, relations: [.relations[]? | {type, targetRef}]}]'</b>
-<b>$ curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=group' | jq '[.[] | .metadata.name]'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <p>The catalog is an API, not a web page, and it needs <code>make portal</code> running on the host. Note the last line: an unauthenticated read is refused, which is worth knowing before you wire anything to it. Query it directly and the entities, their owners and the relations between them come back as data you can check in a script, which is how a portal stays true as the platform grows.</p>
+      <div class="cb" data-lang="bash"><pre><code>TOKEN=$(curl -s http://localhost:7007/api/auth/guest/refresh | jq -r .backstageIdentity.token)
+curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, owner: .spec.owner, type: .spec.type}]'
+curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, relations: [.relations[]? | {type, targetRef}]}]'
+curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=group' | jq '[.[] | .metadata.name]'
+curl -s -o /dev/null -w 'without a token: %{http_code}\n' 'http://localhost:7007/api/catalog/entities?filter=kind=component'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ TOKEN=$(curl -s http://localhost:7007/api/auth/guest/refresh | jq -r .backstageIdentity.token)</b>
+<b>$ curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, owner: .spec.owner, type: .spec.type}]'</b>
+[
+  {
+    "name": "example-website",
+    "owner": "guests",
+    "type": "website"
+  }
+]
+<b>$ curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, relations: [.relations[]? | {type, targetRef}]}]'</b>
+[
+  {
+    "name": "example-website",
+    "relations": [
+      {
+        "type": "ownedBy",
+        "targetRef": "group:default/guests"
+      },
+      {
+        "type": "partOf",
+        "targetRef": "system:default/examples"
+      },
+      {
+        "type": "providesApi",
+        "targetRef": "api:default/example-grpc-api"
+      }
+    ]
+  }
+]
+<b>$ curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=group' | jq '[.[] | .metadata.name]'</b>
+[
+  "guests"
+]
+<b>$ curl -s -o /dev/null -w 'without a token: %{http_code}\n' 'http://localhost:7007/api/catalog/entities?filter=kind=component'</b>
+without a token: 401</code></pre></details></div>
       <div class="verify"><b>verify:</b> every component names an owner that exists as a group, and the relations show <code>ownedBy</code> and <code>partOf</code> derived from the descriptor files rather than typed in twice. A component whose owner does not resolve is the catalog's version of a dangling pointer; say how you would catch that in CI.</div>
     </div>
 

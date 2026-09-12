@@ -477,7 +477,43 @@ customresourcedefinition.apiextensions.k8s.io "budgets.platform.lab.local" delet
 
     <div class="exercise" data-title="A rule that only applies to updates">
       <p><code>oldSelf</code> turns a validation into a transition rule, and transition rules are skipped on create because there is nothing to compare against. That asymmetry is the whole feature and the whole trap.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"add","path":"/spec/versions/0/schema/openAPIV3Schema/properties/spec/x-kubernetes-validations/-","value":{"rule":"self.tier == oldSelf.tier","message":"tier is immutable once set"}}]'
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata: { name: tenantbuckets.platform.lab.local }
+spec:
+  group: platform.lab.local
+  scope: Namespaced
+  names: { plural: tenantbuckets, singular: tenantbucket, kind: TenantBucket, shortNames: [tb] }
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources: { status: {} }
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [tier]
+              properties:
+                tier:   { type: string, enum: [bronze, silver, gold] }
+                sizeGB: { type: integer, minimum: 1, maximum: 500, default: 10 }
+            status:
+              type: object
+              properties:
+                phase: { type: string }
+EOF
+kubectl wait --for=condition=Established crd/tenantbuckets.platform.lab.local --timeout=60s
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: platform.lab.local/v1alpha1
+kind: TenantBucket
+metadata: { name: good, namespace: default }
+spec: { tier: silver, sizeGB: 100 }
+EOF
+kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"add","path":"/spec/versions/0/schema/openAPIV3Schema/properties/spec/x-kubernetes-validations","value":[{"rule":"self.tier == oldSelf.tier","message":"tier is immutable once set"}]}]'
+sleep 5
 kubectl patch tenantbucket good --type merge -p '{"spec":{"tier":"gold"}}'
 kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: platform.lab.local/v1alpha1
@@ -486,58 +522,175 @@ metadata: { name: fresh, namespace: default }
 spec: { tier: gold, sizeGB: 20 }
 EOF
 kubectl get tb
-kubectl delete tb fresh</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"add","path":"/spec/versions/0/schema/openAPIV3Schema/properties/spec/x-kubernetes-validations/-","value":{"rule":"self.tier == oldSelf.tier","message":"tier is immutable once set"}}]'</b>
-Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "tenantbuckets.platform.lab.local" not found
+kubectl delete tb fresh</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: apiextensions.k8s.io/v1</b>
+<b>kind: CustomResourceDefinition</b>
+<b>metadata: { name: tenantbuckets.platform.lab.local }</b>
+<b>spec:</b>
+<b>  group: platform.lab.local</b>
+<b>  scope: Namespaced</b>
+<b>  names: { plural: tenantbuckets, singular: tenantbucket, kind: TenantBucket, shortNames: [tb] }</b>
+<b>  versions:</b>
+<b>    - name: v1alpha1</b>
+<b>      served: true</b>
+<b>      storage: true</b>
+<b>      subresources: { status: {} }</b>
+<b>      schema:</b>
+<b>        openAPIV3Schema:</b>
+<b>          type: object</b>
+<b>          properties:</b>
+<b>            spec:</b>
+<b>              type: object</b>
+<b>              required: [tier]</b>
+<b>              properties:</b>
+<b>                tier:   { type: string, enum: [bronze, silver, gold] }</b>
+<b>                sizeGB: { type: integer, minimum: 1, maximum: 500, default: 10 }</b>
+<b>            status:</b>
+<b>              type: object</b>
+<b>              properties:</b>
+<b>                phase: { type: string }</b>
+<b>EOF</b>
+customresourcedefinition.apiextensions.k8s.io/tenantbuckets.platform.lab.local created
+<b>$ kubectl wait --for=condition=Established crd/tenantbuckets.platform.lab.local --timeout=60s</b>
+customresourcedefinition.apiextensions.k8s.io/tenantbuckets.platform.lab.local condition met
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: platform.lab.local/v1alpha1</b>
+<b>kind: TenantBucket</b>
+<b>metadata: { name: good, namespace: default }</b>
+<b>spec: { tier: silver, sizeGB: 100 }</b>
+<b>EOF</b>
+tenantbucket.platform.lab.local/good created
+<b>$ kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"add","path":"/spec/versions/0/schema/openAPIV3Schema/properties/spec/x-kubernetes-validations","value":[{"rule":"self.tier == oldSelf.tier","message":"tier is immutable once set"}]}]'</b>
+customresourcedefinition.apiextensions.k8s.io/tenantbuckets.platform.lab.local patched
+<b>$ sleep 5</b>
 <b>$ kubectl patch tenantbucket good --type merge -p '{"spec":{"tier":"gold"}}'</b>
-error: the server doesn't have a resource type "tenantbucket"
+The TenantBucket "good" is invalid: spec: Invalid value: tier is immutable once set
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: platform.lab.local/v1alpha1</b>
 <b>kind: TenantBucket</b>
 <b>metadata: { name: fresh, namespace: default }</b>
 <b>spec: { tier: gold, sizeGB: 20 }</b>
 <b>EOF</b>
-error: resource mapping not found for name: "fresh" namespace: "default" from "STDIN": no matches for kind "TenantBucket" in version "platform.lab.local/v1alpha1"
-ensure CRDs are installed first
+tenantbucket.platform.lab.local/fresh created
 <b>$ kubectl get tb</b>
-No resources found in default namespace.
+Warning: short name "tb" could also match lower priority resource triggerbindings.triggers.tekton.dev
+NAME    AGE
+fresh   0s
+good    6s
 <b>$ kubectl delete tb fresh</b>
-Error from server (NotFound): triggerbindings.triggers.tekton.dev "fresh" not found</code></pre></details></div>
+Warning: short name "tb" could also match lower priority resource triggerbindings.triggers.tekton.dev
+tenantbucket.platform.lab.local "fresh" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the update is refused with your message and the create of a brand new object with the same tier succeeds. Say where you would put the same constraint if you needed it enforced on create as well.</div>
     </div>
 
     <div class="exercise" data-title="Ratcheting: old objects keep breathing">
       <p>Tightening a schema used to break every existing object that violated the new rule, including on unrelated edits. Ratcheting validation means an update that does not touch the offending field is allowed through, so you can roll a constraint out before the data is clean.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata: { name: tenantbuckets.platform.lab.local }
+spec:
+  group: platform.lab.local
+  scope: Namespaced
+  names: { plural: tenantbuckets, singular: tenantbucket, kind: TenantBucket, shortNames: [tb] }
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources: { status: {} }
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [tier]
+              properties:
+                tier:   { type: string, enum: [bronze, silver, gold] }
+                sizeGB: { type: integer, minimum: 1, maximum: 500, default: 10 }
+            status:
+              type: object
+              properties:
+                phase: { type: string }
+EOF
+kubectl wait --for=condition=Established crd/tenantbuckets.platform.lab.local --timeout=60s
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: platform.lab.local/v1alpha1
+kind: TenantBucket
+metadata: { name: good, namespace: default }
+spec: { tier: silver, sizeGB: 100 }
+EOF
+kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: platform.lab.local/v1alpha1
 kind: TenantBucket
 metadata: { name: legacy, namespace: default }
 spec: { tier: silver, sizeGB: 100 }
 EOF
 kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"add","path":"/spec/versions/0/schema/openAPIV3Schema/properties/spec/properties/tier/pattern","value":"^gold$"}]'
+sleep 5
 kubectl label tenantbucket legacy team=a
 kubectl patch tenantbucket legacy --type merge -p '{"spec":{"sizeGB":120}}'
 kubectl patch tenantbucket legacy --type merge -p '{"spec":{"tier":"silver"}}'
 kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"remove","path":"/spec/versions/0/schema/openAPIV3Schema/properties/spec/properties/tier/pattern"}]'
 kubectl delete tb legacy</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: apiextensions.k8s.io/v1</b>
+<b>kind: CustomResourceDefinition</b>
+<b>metadata: { name: tenantbuckets.platform.lab.local }</b>
+<b>spec:</b>
+<b>  group: platform.lab.local</b>
+<b>  scope: Namespaced</b>
+<b>  names: { plural: tenantbuckets, singular: tenantbucket, kind: TenantBucket, shortNames: [tb] }</b>
+<b>  versions:</b>
+<b>    - name: v1alpha1</b>
+<b>      served: true</b>
+<b>      storage: true</b>
+<b>      subresources: { status: {} }</b>
+<b>      schema:</b>
+<b>        openAPIV3Schema:</b>
+<b>          type: object</b>
+<b>          properties:</b>
+<b>            spec:</b>
+<b>              type: object</b>
+<b>              required: [tier]</b>
+<b>              properties:</b>
+<b>                tier:   { type: string, enum: [bronze, silver, gold] }</b>
+<b>                sizeGB: { type: integer, minimum: 1, maximum: 500, default: 10 }</b>
+<b>            status:</b>
+<b>              type: object</b>
+<b>              properties:</b>
+<b>                phase: { type: string }</b>
+<b>EOF</b>
+customresourcedefinition.apiextensions.k8s.io/tenantbuckets.platform.lab.local configured
+<b>$ kubectl wait --for=condition=Established crd/tenantbuckets.platform.lab.local --timeout=60s</b>
+customresourcedefinition.apiextensions.k8s.io/tenantbuckets.platform.lab.local condition met
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: platform.lab.local/v1alpha1</b>
+<b>kind: TenantBucket</b>
+<b>metadata: { name: good, namespace: default }</b>
+<b>spec: { tier: silver, sizeGB: 100 }</b>
+<b>EOF</b>
+tenantbucket.platform.lab.local/good unchanged
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: platform.lab.local/v1alpha1</b>
 <b>kind: TenantBucket</b>
 <b>metadata: { name: legacy, namespace: default }</b>
 <b>spec: { tier: silver, sizeGB: 100 }</b>
 <b>EOF</b>
-error: resource mapping not found for name: "legacy" namespace: "default" from "STDIN": no matches for kind "TenantBucket" in version "platform.lab.local/v1alpha1"
-ensure CRDs are installed first
+tenantbucket.platform.lab.local/legacy created
 <b>$ kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"add","path":"/spec/versions/0/schema/openAPIV3Schema/properties/spec/properties/tier/pattern","value":"^gold$"}]'</b>
-Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "tenantbuckets.platform.lab.local" not found
+customresourcedefinition.apiextensions.k8s.io/tenantbuckets.platform.lab.local patched
+<b>$ sleep 5</b>
 <b>$ kubectl label tenantbucket legacy team=a</b>
-error: the server doesn't have a resource type "tenantbucket"
+tenantbucket.platform.lab.local/legacy labeled
 <b>$ kubectl patch tenantbucket legacy --type merge -p '{"spec":{"sizeGB":120}}'</b>
-error: the server doesn't have a resource type "tenantbucket"
+tenantbucket.platform.lab.local/legacy patched
 <b>$ kubectl patch tenantbucket legacy --type merge -p '{"spec":{"tier":"silver"}}'</b>
-error: the server doesn't have a resource type "tenantbucket"
+tenantbucket.platform.lab.local/legacy patched (no change)
 <b>$ kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"remove","path":"/spec/versions/0/schema/openAPIV3Schema/properties/spec/properties/tier/pattern"}]'</b>
-Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "tenantbuckets.platform.lab.local" not found
+customresourcedefinition.apiextensions.k8s.io/tenantbuckets.platform.lab.local patched
 <b>$ kubectl delete tb legacy</b>
-Error from server (NotFound): triggerbindings.triggers.tekton.dev "legacy" not found</code></pre></details></div>
+Warning: short name "tb" could also match lower priority resource triggerbindings.triggers.tekton.dev
+tenantbucket.platform.lab.local "legacy" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> labelling the object succeeds even though it now violates the pattern, and writing the same invalid value back explicitly is refused. Say what this buys a platform team rolling out a new naming rule across a thousand objects.</div>
     </div>
 

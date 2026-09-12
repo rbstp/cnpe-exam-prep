@@ -346,8 +346,32 @@ spec:
             labels:
               team: "?*"
 EOF
-kubectl delete clusterpolicy legacy-shape</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl api-resources | grep -E 'kyverno'</b>
+kubectl delete clusterpolicy legacy-shape</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl api-resources | grep -E 'kyverno'</b>
+cleanuppolicies                                cleanpol                               kyverno.io/v2                             true         CleanupPolicy
+clustercleanuppolicies                         ccleanpol                              kyverno.io/v2                             false        ClusterCleanupPolicy
+clusterpolicies                                cpol                                   kyverno.io/v1                             false        ClusterPolicy
+globalcontextentries                           gctxentry                              kyverno.io/v2                             false        GlobalContextEntry
+policies                                       pol                                    kyverno.io/v1                             true         Policy
+policyexceptions                               polex                                  kyverno.io/v2                             true         PolicyException
+updaterequests                                 ur                                     kyverno.io/v2                             true         UpdateRequest
+deletingpolicies                               dpol                                   policies.kyverno.io/v1                    false        DeletingPolicy
+generatingpolicies                             gpol                                   policies.kyverno.io/v1                    false        GeneratingPolicy
+imagevalidatingpolicies                        ivpol                                  policies.kyverno.io/v1                    false        ImageValidatingPolicy
+mutatingpolicies                               mpol                                   policies.kyverno.io/v1                    false        MutatingPolicy
+namespaceddeletingpolicies                     ndpol                                  policies.kyverno.io/v1                    true         NamespacedDeletingPolicy
+namespacedgeneratingpolicies                   ngpol                                  policies.kyverno.io/v1                    true         NamespacedGeneratingPolicy
+namespacedimagevalidatingpolicies              nivpol                                 policies.kyverno.io/v1                    true         NamespacedImageValidatingPolicy
+namespacedmutatingpolicies                     nmpol                                  policies.kyverno.io/v1                    true         NamespacedMutatingPolicy
+namespacedvalidatingpolicies                   nvpol                                  policies.kyverno.io/v1                    true         NamespacedValidatingPolicy
+policyexceptions                                                                      policies.kyverno.io/v1                    true         PolicyException
+validatingpolicies                             vpol                                   policies.kyverno.io/v1                    false        ValidatingPolicy
+clusterephemeralreports                        cephr                                  reports.kyverno.io/v1                     false        ClusterEphemeralReport
+ephemeralreports                               ephr                                   reports.kyverno.io/v1                     true         EphemeralReport
 <b>$ kubectl -n kyverno get deploy -o jsonpath='{range .items[*]}{.metadata.name} {.spec.template.spec.containers[0].image}{"\n"}{end}'</b>
+kyverno-admission-controller reg.kyverno.io/kyverno/kyverno:v1.19.1
+kyverno-background-controller reg.kyverno.io/kyverno/background-controller:v1.19.1
+kyverno-cleanup-controller reg.kyverno.io/kyverno/cleanup-controller:v1.19.1
+kyverno-reports-controller reg.kyverno.io/kyverno/reports-controller:v1.19.1
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kyverno.io/v1</b>
 <b>kind: ClusterPolicy</b>
@@ -366,8 +390,11 @@ kubectl delete clusterpolicy legacy-shape</code></pre><details class="out pendin
 <b>            labels:</b>
 <b>              team: "?*"</b>
 <b>EOF</b>
+Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
+clusterpolicy.kyverno.io/legacy-shape created
 <b>$ kubectl delete clusterpolicy legacy-shape</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
+clusterpolicy.kyverno.io "legacy-shape" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> the resource list shows both API groups, and the apply either succeeds silently or prints a deprecation warning naming the replacement. Whichever you get, write down which API the cluster in front of you prefers before you author anything.</div>
     </div>
 
@@ -399,7 +426,7 @@ kubectl patch validatingpolicy require-team-label --type merge -p '{"spec":{"aut
 sleep 20
 kubectl -n default create deployment unlabelled --image=nginx:1.27-alpine
 kubectl -n default delete deployment unlabelled --ignore-not-found
-kubectl delete validatingpolicy require-team-label</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl delete validatingpolicy require-team-label</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: policies.kyverno.io/v1alpha1</b>
 <b>kind: ValidatingPolicy</b>
 <b>metadata: { name: require-team-label }</b>
@@ -415,18 +442,26 @@ kubectl delete validatingpolicy require-team-label</code></pre><details class="o
 <b>    - expression: "has(object.metadata.labels) &amp;&amp; has(object.metadata.labels.team)"</b>
 <b>      message: "every pod must carry a team label"</b>
 <b>EOF</b>
+Warning: policies.kyverno.io/v1alpha1 ValidatingPolicy is deprecated; use policies.kyverno.io/v1 ValidatingPolicy
+validatingpolicy.policies.kyverno.io/require-team-label created
 <b>$ sleep 15</b>
 <b>$ kubectl -n default create deployment unlabelled --image=nginx:1.27-alpine</b>
+error: failed to create deployment: admission webhook "vpol.validate.kyverno.svc-fail" denied the request: Policy require-team-label failed: every pod must carry a team label
 <b>$ sleep 20</b>
 <b>$ kubectl -n default get deploy unlabelled -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+Error from server (NotFound): deployments.apps "unlabelled" not found
 <b>$ kubectl -n default get events --field-selector reason=FailedCreate | tail -3</b>
+No resources found in default namespace.
 <b>$ kubectl -n default delete deployment unlabelled</b>
+Error from server (NotFound): deployments.apps "unlabelled" not found
 <b>$ kubectl patch validatingpolicy require-team-label --type merge -p '{"spec":{"autogen":{"podControllers":{"controllers":["deployments"]}}}}'</b>
+validatingpolicy.policies.kyverno.io/require-team-label patched
 <b>$ sleep 20</b>
 <b>$ kubectl -n default create deployment unlabelled --image=nginx:1.27-alpine</b>
+error: failed to create deployment: admission webhook "vpol.validate.kyverno.svc-fail" denied the request: Policy require-team-label failed: every pod must carry a team label
 <b>$ kubectl -n default delete deployment unlabelled --ignore-not-found</b>
 <b>$ kubectl delete validatingpolicy require-team-label</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+validatingpolicy.policies.kyverno.io "require-team-label" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> without autogen the Deployment is created and its ReplicaSet fails in an event; with autogen the <code>kubectl create</code> itself is refused. Say which of those two a developer will open a ticket about, and which one they will fix themselves.</div>
     </div>
 
@@ -454,7 +489,7 @@ sleep 30
 kubectl get validatingadmissionpolicies
 kubectl get validatingadmissionpolicybindings
 kubectl get validatingadmissionpolicy -o jsonpath='{range .items[*]}{.metadata.name} {.spec.validations[*].expression}{"\n"}{end}'
-kubectl delete validatingpolicy no-latest</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl delete validatingpolicy no-latest</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: policies.kyverno.io/v1alpha1</b>
 <b>kind: ValidatingPolicy</b>
 <b>metadata: { name: no-latest }</b>
@@ -472,12 +507,19 @@ kubectl delete validatingpolicy no-latest</code></pre><details class="out pendin
 <b>    - expression: "object.spec.containers.all(c, !c.image.endsWith(':latest'))"</b>
 <b>      message: "no :latest tags"</b>
 <b>EOF</b>
+Warning: policies.kyverno.io/v1alpha1 ValidatingPolicy is deprecated; use policies.kyverno.io/v1 ValidatingPolicy
+validatingpolicy.policies.kyverno.io/no-latest created
 <b>$ sleep 30</b>
 <b>$ kubectl get validatingadmissionpolicies</b>
+NAME                                      VALIDATIONS   PARAMKIND   AGE
+safe-upgrades.gateway.networking.k8s.io   2             &lt;unset&gt;     41m
 <b>$ kubectl get validatingadmissionpolicybindings</b>
+NAME                                      POLICYNAME                                PARAMREF   AGE
+safe-upgrades.gateway.networking.k8s.io   safe-upgrades.gateway.networking.k8s.io   &lt;unset&gt;    41m
 <b>$ kubectl get validatingadmissionpolicy -o jsonpath='{range .items[*]}{.metadata.name} {.spec.validations[*].expression}{"\n"}{end}'</b>
+safe-upgrades.gateway.networking.k8s.io object.spec.group != 'gateway.networking.k8s.io' || oldObject == null || ( has(object.metadata.annotations) &amp;&amp; object.metadata.annotations.exists(k, k == 'gateway.networking.k8s.io/channel') &amp;&amp; object.metadata.annotations['gateway.networking.k8s.io/channel'] == 'standard' ) || ( oldObject != null &amp;&amp; has(oldObject.metadata.annotations) &amp;&amp; oldObject.metadata.annotations.exists(k, k == 'gateway.networking.k8s.io/channel') &amp;&amp; oldObject.metadata.annotations['gateway.networking.k8s.io/channel'] == 'experimental' ) object.spec.group != 'gateway.networking.k8s.io' || (has(object.metadata.annotations) &amp;&amp; object.metadata.annotations.exists(k, k == 'gateway.networking.k8s.io/bundle-version') &amp;&amp; ( matches(object.metadata.annotations['gateway.networking.k8s.io/bundle-version'], '-(rc)') || ( !matches(object.metadata.annotations['gateway.networking.k8s.io/bundle-version'], 'v1.[0-5].\\d+') &amp;&amp; !matches(object.metadata.annotations['gateway.networking.k8s.io/bundle-version'], 'v0') ) ))
 <b>$ kubectl delete validatingpolicy no-latest</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+validatingpolicy.policies.kyverno.io "no-latest" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> a ValidatingAdmissionPolicy and a binding exist that you did not write, carrying your expression. Say what you gain by running it natively and what you give up compared to the webhook.</div>
     </div>
 
@@ -503,8 +545,46 @@ kubectl get policyreports -A | head
 kubectl -n default get policyreport -o jsonpath='{range .items[*].results[*]}{.policy} {.result} {.resources[*].name}{"\n"}{end}' | grep -i legacy
 kubectl -n default delete pod legacy --ignore-not-found
 kubectl -n policy-exception delete policyexception legacy-job
-kubectl delete ns policy-exception</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n kyverno get deploy kyverno-admission-controller -o jsonpath='{.spec.template.spec.containers[0].args}' | jq</b>
+kubectl delete ns policy-exception</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n kyverno get deploy kyverno-admission-controller -o jsonpath='{.spec.template.spec.containers[0].args}' | jq</b>
+[
+  "--caSecretName=kyverno-svc.kyverno.svc.kyverno-tls-ca",
+  "--tlsSecretName=kyverno-svc.kyverno.svc.kyverno-tls-pair",
+  "--tlsKeyAlgorithm=RSA",
+  "--backgroundServiceAccountName=system:serviceaccount:kyverno:kyverno-background-controller",
+  "--reportsServiceAccountName=system:serviceaccount:kyverno:kyverno-reports-controller",
+  "--servicePort=443",
+  "--webhookServerPort=9443",
+  "--resyncPeriod=15m",
+  "--crdWatcher=false",
+  "--disableMetrics=false",
+  "--otelConfig=prometheus",
+  "--metricsPort=8000",
+  "--admissionReports=true",
+  "--maxAdmissionReports=1000",
+  "--autoUpdateWebhooks=true",
+  "--excludeBootstrapResources=false",
+  "--enableConfigMapCaching=true",
+  "--controllerRuntimeMetricsAddress=:8080",
+  "--enableDeferredLoading=true",
+  "--dumpPayload=false",
+  "--forceFailurePolicyIgnore=false",
+  "--generateValidatingAdmissionPolicy=true",
+  "--generateMutatingAdmissionPolicy=false",
+  "--dumpPatches=false",
+  "--maxAPICallResponseLength=2000000",
+  "--apiCallTimeout=30s",
+  "--maxGlobalContextEntries=0",
+  "--loggingFormat=text",
+  "--v=2",
+  "--omitEvents=PolicyApplied,PolicySkipped",
+  "--enablePolicyException=true",
+  "--protectManagedResources=false",
+  "--allowInsecureRegistry=true",
+  "--registryCredentialHelpers=default,google,amazon,azure,github",
+  "--enableReporting=validate,mutate,mutateExisting,imageVerify,generate"
+]
 <b>$ kubectl create ns policy-exception --dry-run=client -o yaml | kubectl apply -f -</b>
+namespace/policy-exception created
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: policies.kyverno.io/v1alpha1</b>
 <b>kind: PolicyException</b>
@@ -517,20 +597,40 @@ kubectl delete ns policy-exception</code></pre><details class="out pending"><sum
 <b>    - name: only-the-legacy-pod</b>
 <b>      expression: "object.metadata.name == 'legacy'"</b>
 <b>EOF</b>
+Warning: policies.kyverno.io/v1alpha1 PolicyException is deprecated; use policies.kyverno.io/v1 PolicyException
+policyexception.policies.kyverno.io/legacy-job created
 <b>$ kubectl -n default run legacy --image=nginx:1.27-alpine --restart=Never</b>
+pod/legacy created
 <b>$ sleep 30</b>
 <b>$ kubectl get policyreports -A | head</b>
+NAMESPACE                       NAME                                   KIND          NAME                                                         PASS   FAIL   WARN   ERROR   SKIP   AGE
+argo-rollouts                   10922f54-dceb-40a3-9cc6-ffe96ebe06ea   Pod           argo-rollouts-dashboard-769cf7b9d4-6g72h                     0      1      0      0       0      21m
+argo-rollouts                   1764d448-b981-410e-b055-a778e8b4fbef   ReplicaSet    argo-rollouts-7f8f6559c9                                     0      1      0      0       0      21m
+argo-rollouts                   1bfd07a5-66de-4564-8e96-50cfebc13bcb   Deployment    argo-rollouts                                                0      2      0      0       0      21m
+argo-rollouts                   6476b5d6-52a4-462c-ae6c-61bcc0262b26   Pod           argo-rollouts-7f8f6559c9-dtgnt                               0      1      0      0       0      21m
+argo-rollouts                   e5006988-4d53-4edc-8301-561db51c4648   Pod           argo-rollouts-7f8f6559c9-db6j4                               0      1      0      0       0      21m
+argo-rollouts                   fd50ef2f-73ee-44e3-b6ec-4c2482a137d6   Deployment    argo-rollouts-dashboard                                      0      2      0      0       0      22m
+argo-rollouts                   fdc19c02-a61f-44ff-8fdd-2e8e41fc5732   ReplicaSet    argo-rollouts-dashboard-769cf7b9d4                           0      1      0      0       0      21m
+argo                            3f8922ac-ffcd-4cd5-9a32-f30de4e0cfff   ReplicaSet    argo-workflows-server-5d466c6cbf                             0      1      0      0       0      21m
+argo                            56c7d6ea-00b3-4f81-989e-ad8a6286b847   ReplicaSet    argo-workflows-workflow-controller-6fdd59bf75                0      1      0      0       0      21m
 <b>$ kubectl -n default get policyreport -o jsonpath='{range .items[*].results[*]}{.policy} {.result} {.resources[*].name}{"\n"}{end}' | grep -i legacy</b>
 <b>$ kubectl -n default delete pod legacy --ignore-not-found</b>
+pod "legacy" deleted from default namespace
 <b>$ kubectl -n policy-exception delete policyexception legacy-job</b>
+Warning: kyverno.io/v2 PolicyException is deprecated and will be removed in a future release; migrate to PolicyException (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
+Error from server (NotFound): policyexceptions.kyverno.io "legacy-job" not found
 <b>$ kubectl delete ns policy-exception</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+namespace "policy-exception" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> the report carries a <code>skip</code> result for the excepted resource rather than a pass or a fail, and the admission controller's flags say which namespaces may hold exceptions. If exceptions are disabled on this install, the flags are the evidence and that is the finding.</div>
     </div>
 
     <div class="exercise" data-title="Test policies without a cluster">
       <p>The Kyverno CLI runs policies against manifests in CI, which is where a policy should fail first. A test file asserts the outcome per resource, so a policy change that breaks a team's manifests is caught before it merges.</p>
-      <div class="cb" data-lang="bash"><pre><code>mkdir -p /tmp/kyverno-test &amp;&amp; cd /tmp/kyverno-test
+      <div class="cb" data-lang="bash"><pre><code>mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"
+URL=$(curl -s https://api.github.com/repos/kyverno/kyverno/releases/latest | jq -r '.assets[] | select(.name | startswith("kyverno-cli_") and endswith("_linux_x86_64.tar.gz")) | .browser_download_url'); echo "$URL"
+rm -rf /tmp/kyverno-cli &amp;&amp; mkdir -p /tmp/kyverno-cli &amp;&amp; curl -sL "$URL" | tar xz -C /tmp/kyverno-cli &amp;&amp; install /tmp/kyverno-cli/kyverno "$HOME/.local/bin/"
+kyverno version | head -2
+rm -rf /tmp/kyverno-test &amp;&amp; mkdir -p /tmp/kyverno-test &amp;&amp; cd /tmp/kyverno-test
 cp /home/rbstp/git/cnpe-exam-prep/examples/kyverno/require-resources.yaml policy.yaml
 cat &gt; good-pod.yaml &lt;&lt;'EOF'
 apiVersion: v1
@@ -569,7 +669,14 @@ results:
     kind: Pod
     result: fail
 EOF
-kyverno test .</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ mkdir -p /tmp/kyverno-test &amp;&amp; cd /tmp/kyverno-test</b>
+kyverno test .</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"</b>
+<b>$ URL=$(curl -s https://api.github.com/repos/kyverno/kyverno/releases/latest | jq -r '.assets[] | select(.name | startswith("kyverno-cli_") and endswith("_linux_x86_64.tar.gz")) | .browser_download_url'); echo "$URL"</b>
+https://github.com/kyverno/kyverno/releases/download/v1.19.1/kyverno-cli_v1.19.1_linux_x86_64.tar.gz
+<b>$ rm -rf /tmp/kyverno-cli &amp;&amp; mkdir -p /tmp/kyverno-cli &amp;&amp; curl -sL "$URL" | tar xz -C /tmp/kyverno-cli &amp;&amp; install /tmp/kyverno-cli/kyverno "$HOME/.local/bin/"</b>
+<b>$ kyverno version | head -2</b>
+Version: 1.19.1
+Time: 2026-09-10T05:20:21Z
+<b>$ rm -rf /tmp/kyverno-test &amp;&amp; mkdir -p /tmp/kyverno-test &amp;&amp; cd /tmp/kyverno-test</b>
 <b>$ cp /home/rbstp/git/cnpe-exam-prep/examples/kyverno/require-resources.yaml policy.yaml</b>
 <b>$ cat &gt; good-pod.yaml &lt;&lt;'EOF'</b>
 <b>apiVersion: v1</b>
@@ -592,6 +699,12 @@ kyverno test .</code></pre><details class="out pending"><summary>output<span cla
 <b>      image: nginx:1.27-alpine</b>
 <b>EOF</b>
 <b>$ kyverno apply policy.yaml --resource good-pod.yaml --resource bad-pod.yaml</b>
+
+Applying 1 policy rule(s) to 2 resource(s)...
+policy require-resource-requests -&gt; resource default/Pod/bad failed:
+1 -  every container must set cpu and memory requests
+
+pass: 1, fail: 1, warn: 0, error: 0, skip: 0 
 <b>$ cat &gt; kyverno-test.yaml &lt;&lt;'EOF'</b>
 <b>apiVersion: cli.kyverno.io/v1alpha1</b>
 <b>kind: Test</b>
@@ -609,7 +722,23 @@ kyverno test .</code></pre><details class="out pending"><summary>output<span cla
 <b>    result: fail</b>
 <b>EOF</b>
 <b>$ kyverno test .</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Loading test  ( kyverno-test.yaml ) ...
+  Loading values/variables ...
+  Loading policies ...
+  Loading resources ...
+  Loading exceptions ...
+  Applying 1 policy to 2 resources with 0 exceptions ...
+  Checking results ...
+
+│────│───────────────────────────│──────│─────────────────────│────────│────────│
+│ ID │ POLICY                    │ RULE │ RESOURCE            │ RESULT │ REASON │
+│────│───────────────────────────│──────│─────────────────────│────────│────────│
+│ 1  │ require-resource-requests │      │ v1/Pod/default/good │ Pass   │ Ok     │
+│ 2  │ require-resource-requests │      │ v1/Pod/default/bad  │ Pass   │ Ok     │
+│────│───────────────────────────│──────│─────────────────────│────────│────────│
+
+
+Test Summary: 2 tests passed and 0 tests failed</code></pre></details></div>
       <div class="verify"><b>verify:</b> <code>kyverno apply</code> passes one pod and fails the other, and <code>kyverno test</code> reports both assertions met. Say where in a pipeline you would run this, and what it costs you if you only ever test in the cluster.</div>
     </div>
 
@@ -663,7 +792,7 @@ sleep 90
 kubectl get k8srequiredlabels pods-need-owner -o jsonpath='{.status.violations}' | jq
 kubectl -n default delete pod scoped-demo --ignore-not-found
 kubectl delete k8srequiredlabels pods-need-owner
-kubectl delete constrainttemplate k8srequiredlabels</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl delete constrainttemplate k8srequiredlabels</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: templates.gatekeeper.sh/v1</b>
 <b>kind: ConstraintTemplate</b>
 <b>metadata: { name: k8srequiredlabels }</b>
@@ -686,6 +815,7 @@ kubectl delete constrainttemplate k8srequiredlabels</code></pre><details class="
 <b>          msg := sprintf("missing required label: %v", [required])</b>
 <b>        }</b>
 <b>EOF</b>
+constrainttemplate.templates.gatekeeper.sh/k8srequiredlabels created
 <b>$ sleep 20</b>
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: constraints.gatekeeper.sh/v1beta1</b>
@@ -705,14 +835,45 @@ kubectl delete constrainttemplate k8srequiredlabels</code></pre><details class="
 <b>  parameters:</b>
 <b>    labels: [owner]</b>
 <b>EOF</b>
+k8srequiredlabels.constraints.gatekeeper.sh/pods-need-owner created
 <b>$ sleep 30</b>
 <b>$ kubectl -n default run scoped-demo --image=nginx:1.27-alpine --restart=Never</b>
+Warning: [pods-need-owner] missing required label: owner
+pod/scoped-demo created
 <b>$ sleep 90</b>
 <b>$ kubectl get k8srequiredlabels pods-need-owner -o jsonpath='{.status.violations}' | jq</b>
+[
+  {
+    "enforcementAction": "scoped",
+    "enforcementActions": [
+      "deny"
+    ],
+    "group": "",
+    "kind": "Pod",
+    "message": "missing required label: owner",
+    "name": "signed-86hrq-pod",
+    "namespace": "default",
+    "version": "v1"
+  },
+  {
+    "enforcementAction": "scoped",
+    "enforcementActions": [
+      "deny"
+    ],
+    "group": "",
+    "kind": "Pod",
+    "message": "missing required label: owner",
+    "name": "scoped-demo",
+    "namespace": "default",
+    "version": "v1"
+  }
+]
 <b>$ kubectl -n default delete pod scoped-demo --ignore-not-found</b>
+pod "scoped-demo" deleted from default namespace
 <b>$ kubectl delete k8srequiredlabels pods-need-owner</b>
+k8srequiredlabels.constraints.gatekeeper.sh "pods-need-owner" deleted
 <b>$ kubectl delete constrainttemplate k8srequiredlabels</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+constrainttemplate.templates.gatekeeper.sh "k8srequiredlabels" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> the pod is created with a warning printed by kubectl, and the same constraint's audit status lists it as a violation. Say how you would use this pair to roll out a new rule across a cluster you do not own.</div>
     </div>
 
@@ -742,7 +903,7 @@ kubectl -n default get pod mutated -o jsonpath='{.spec.containers[0].imagePullPo
 kubectl -n default run untouched --image=nginx:1.27-alpine --restart=Never --image-pull-policy=IfNotPresent
 kubectl -n default get pod untouched -o jsonpath='{.spec.containers[0].imagePullPolicy}{"\n"}'
 kubectl -n default delete pod mutated untouched --ignore-not-found
-kubectl delete assign always-pull-if-unset</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl delete assign always-pull-if-unset</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: mutations.gatekeeper.sh/v1</b>
 <b>kind: Assign</b>
 <b>metadata: { name: always-pull-if-unset }</b>
@@ -760,20 +921,31 @@ kubectl delete assign always-pull-if-unset</code></pre><details class="out pendi
 <b>      - { subPath: "spec.containers[name:*].imagePullPolicy", condition: MustNotExist }</b>
 <b>    assign: { value: Always }</b>
 <b>EOF</b>
+assign.mutations.gatekeeper.sh/always-pull-if-unset created
 <b>$ sleep 30</b>
 <b>$ kubectl -n default run mutated --image=nginx:1.27-alpine --restart=Never</b>
+pod/mutated created
 <b>$ kubectl -n default get pod mutated -o jsonpath='{.spec.containers[0].imagePullPolicy}{"\n"}'</b>
+IfNotPresent
 <b>$ kubectl -n default run untouched --image=nginx:1.27-alpine --restart=Never --image-pull-policy=IfNotPresent</b>
+pod/untouched created
 <b>$ kubectl -n default get pod untouched -o jsonpath='{.spec.containers[0].imagePullPolicy}{"\n"}'</b>
+IfNotPresent
 <b>$ kubectl -n default delete pod mutated untouched --ignore-not-found</b>
+pod "mutated" deleted from default namespace
+pod "untouched" deleted from default namespace
 <b>$ kubectl delete assign always-pull-if-unset</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+assign.mutations.gatekeeper.sh "always-pull-if-unset" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> the pod that said nothing gets <code>Always</code> and the one that asked for <code>IfNotPresent</code> keeps it. Remove the <code>pathTests</code> block and the second pod is overwritten too; that is the difference between a default and a decree.</div>
     </div>
 
     <div class="exercise" data-title="Run the constraints in CI">
       <p><code>gator test</code> evaluates Gatekeeper constraints against manifests on a laptop or a build agent. Same policies, same answers, no cluster, which is what makes policy-as-code reviewable.</p>
-      <div class="cb" data-lang="bash"><pre><code>mkdir -p /tmp/gator/policies /tmp/gator/manifests &amp;&amp; cd /tmp/gator
+      <div class="cb" data-lang="bash"><pre><code>mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"
+URL=$(curl -s https://api.github.com/repos/open-policy-agent/gatekeeper/releases/latest | jq -r '.assets[] | select(.name | startswith("gator-") and endswith("-linux-amd64.tar.gz")) | .browser_download_url'); echo "$URL"
+rm -rf /tmp/gator-bin &amp;&amp; mkdir -p /tmp/gator-bin &amp;&amp; curl -sL "$URL" | tar xz -C /tmp/gator-bin &amp;&amp; install /tmp/gator-bin/gator "$HOME/.local/bin/"
+gator version
+rm -rf /tmp/gator-ci &amp;&amp; mkdir -p /tmp/gator-ci/policies /tmp/gator-ci/manifests &amp;&amp; cd /tmp/gator-ci
 cat &gt; policies/template.yaml &lt;&lt;'EOF'
 apiVersion: templates.gatekeeper.sh/v1
 kind: ConstraintTemplate
@@ -814,8 +986,28 @@ metadata: { name: floating }
 spec:
   containers: [{ name: c, image: nginx:latest }]
 EOF
-gator test -f manifests/ -f policies/
-echo "exit code: $?"</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ mkdir -p /tmp/gator/policies /tmp/gator/manifests &amp;&amp; cd /tmp/gator</b>
+gator test -f manifests/ -f policies/; echo "exit code: $?"</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"</b>
+<b>$ URL=$(curl -s https://api.github.com/repos/open-policy-agent/gatekeeper/releases/latest | jq -r '.assets[] | select(.name | startswith("gator-") and endswith("-linux-amd64.tar.gz")) | .browser_download_url'); echo "$URL"</b>
+https://github.com/open-policy-agent/gatekeeper/releases/download/v3.23.1/gator-v3.23.1-linux-amd64.tar.gz
+<b>$ rm -rf /tmp/gator-bin &amp;&amp; mkdir -p /tmp/gator-bin &amp;&amp; curl -sL "$URL" | tar xz -C /tmp/gator-bin &amp;&amp; install /tmp/gator-bin/gator "$HOME/.local/bin/"</b>
+<b>$ gator version</b>
+ ::::::::      :::     :::::::::::  ::::::::  :::::::::
+:+:    :+:   :+: :+:       :+:     :+:    :+: :+:    :+:
++:+         +:+   +:+      +:+     +:+    +:+ +:+    +:+
+:#:        +#++:++#++:     +#+     +#+    +:+ +#++:++#:
++#+   +#+# +#+     +#+     +#+     +#+    +#+ +#+    +#+
+#+#    #+# #+#     #+#     #+#     #+#    #+# #+#    #+#
+ ########  ###     ###     ###      ########  ###    ###
+gator: gator is a suite of authorship tools for Gatekeeper
+
+GitVersion:    v3.23.1+dirty
+GitCommit:     2d0b6ad97cf3a8b8436a00a1f4b07b3a56b92ca0
+GitTreeState:  dirty
+BuildDate:     2026-08-27T21:26:44
+GoVersion:     go1.26.0
+Compiler:      gc
+Platform:      linux/amd64
+<b>$ rm -rf /tmp/gator-ci &amp;&amp; mkdir -p /tmp/gator-ci/policies /tmp/gator-ci/manifests &amp;&amp; cd /tmp/gator-ci</b>
 <b>$ cat &gt; policies/template.yaml &lt;&lt;'EOF'</b>
 <b>apiVersion: templates.gatekeeper.sh/v1</b>
 <b>kind: ConstraintTemplate</b>
@@ -856,9 +1048,9 @@ echo "exit code: $?"</code></pre><details class="out pending"><summary>output<sp
 <b>spec:</b>
 <b>  containers: [{ name: c, image: nginx:latest }]</b>
 <b>EOF</b>
-<b>$ gator test -f manifests/ -f policies/</b>
-<b>$ echo "exit code: $?"</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+<b>$ gator test -f manifests/ -f policies/; echo "exit code: $?"</b>
+v1/Pod floating: ["no-latest-anywhere"] Message: "image uses the latest tag: nginx:latest"
+exit code: 1</code></pre></details></div>
       <div class="verify"><b>verify:</b> the floating pod is reported as a violation with your message and the pinned one is not. Say how you would make a pull request fail on that exit code, and what you would do about the manifests that already violate it.</div>
     </div>
 
@@ -900,7 +1092,7 @@ sleep 10
 kubectl -n default create deployment typo-test --image=nginx:1.27-alpine
 kubectl -n default delete deployment typo-test --ignore-not-found
 kubectl delete validatingadmissionpolicybinding typo-policy-binding
-kubectl delete validatingadmissionpolicy typo-policy</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl delete validatingadmissionpolicy typo-policy</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: admissionregistration.k8s.io/v1</b>
 <b>kind: ValidatingAdmissionPolicy</b>
 <b>metadata: { name: typo-policy }</b>
@@ -916,8 +1108,17 @@ kubectl delete validatingadmissionpolicy typo-policy</code></pre><details class=
 <b>    - expression: "object.spec.replicaCount &lt;= 10"</b>
 <b>      message: "at most ten replicas"</b>
 <b>EOF</b>
+validatingadmissionpolicy.admissionregistration.k8s.io/typo-policy created
 <b>$ sleep 10</b>
 <b>$ kubectl get validatingadmissionpolicy typo-policy -o jsonpath='{.status.typeChecking}' | jq</b>
+{
+  "expressionWarnings": [
+    {
+      "fieldRef": "spec.validations[0].expression",
+      "warning": "apps/v1, Kind=Deployment: ERROR: &lt;input&gt;:1:12: undefined field 'replicaCount'\n | object.spec.replicaCount &lt;= 10\n | ...........^\n"
+    }
+  ]
+}
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: admissionregistration.k8s.io/v1</b>
 <b>kind: ValidatingAdmissionPolicyBinding</b>
@@ -929,23 +1130,29 @@ kubectl delete validatingadmissionpolicy typo-policy</code></pre><details class=
 <b>    namespaceSelector:</b>
 <b>      matchLabels: { kubernetes.io/metadata.name: default }</b>
 <b>EOF</b>
+validatingadmissionpolicybinding.admissionregistration.k8s.io/typo-policy-binding created
 <b>$ sleep 10</b>
 <b>$ kubectl -n default create deployment typo-test --image=nginx:1.27-alpine</b>
+error: failed to create deployment: deployments.apps "typo-test" is forbidden: ValidatingAdmissionPolicy 'typo-policy' with binding 'typo-policy-binding' denied request: expression 'object.spec.replicaCount &lt;= 10' resulted in error: no such key: replicaCount
 <b>$ kubectl patch validatingadmissionpolicy typo-policy --type merge -p '{"spec":{"failurePolicy":"Ignore"}}'</b>
+validatingadmissionpolicy.admissionregistration.k8s.io/typo-policy patched
 <b>$ sleep 10</b>
 <b>$ kubectl -n default create deployment typo-test --image=nginx:1.27-alpine</b>
+deployment.apps/typo-test created
 <b>$ kubectl -n default delete deployment typo-test --ignore-not-found</b>
+deployment.apps "typo-test" deleted from default namespace
 <b>$ kubectl delete validatingadmissionpolicybinding typo-policy-binding</b>
+validatingadmissionpolicybinding.admissionregistration.k8s.io "typo-policy-binding" deleted
 <b>$ kubectl delete validatingadmissionpolicy typo-policy</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+validatingadmissionpolicy.admissionregistration.k8s.io "typo-policy" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> <code>status.typeChecking</code> names the field that does not exist, the create is refused under <code>Fail</code>, and the identical broken policy lets everything through under <code>Ignore</code>. Read the type-checking status before you trust a policy you just wrote.</div>
     </div>
 
     <div class="exercise" data-title="Mutate natively, no webhook">
       <p>MutatingAdmissionPolicy does for defaults what VAP did for validation: CEL in the API server, no controller to keep alive. Add a label with an apply configuration and watch it land on a pod nobody patched.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl api-resources | grep -i mutatingadmissionpolicy || echo 'MutatingAdmissionPolicy not served on this cluster'
+      <div class="cb" data-lang="bash"><pre><code>kubectl api-resources | grep -i mutatingadmissionpolicy
 kubectl apply -f - &lt;&lt;'EOF'
-apiVersion: admissionregistration.k8s.io/v1beta1
+apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingAdmissionPolicy
 metadata: { name: add-platform-label }
 spec:
@@ -962,9 +1169,8 @@ spec:
       applyConfiguration:
         expression: |
           Object{ metadata: Object.metadata{ labels: {"managed-by": "platform"} } }
-EOF
-kubectl apply -f - &lt;&lt;'EOF'
-apiVersion: admissionregistration.k8s.io/v1beta1
+---
+apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingAdmissionPolicyBinding
 metadata: { name: add-platform-label-binding }
 spec:
@@ -974,13 +1180,15 @@ spec:
       matchLabels: { kubernetes.io/metadata.name: default }
 EOF
 sleep 15
-kubectl -n default run mutated-native --image=nginx:1.27-alpine --restart=Never
+kubectl -n default run mutated-native --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"containers":[{"name":"mutated-native","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"25m","memory":"32Mi"}}}]}}'
 kubectl -n default get pod mutated-native -o jsonpath='{.metadata.labels}{"\n"}'
 kubectl -n default delete pod mutated-native --ignore-not-found
 kubectl delete mutatingadmissionpolicybinding add-platform-label-binding
-kubectl delete mutatingadmissionpolicy add-platform-label</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl api-resources | grep -i mutatingadmissionpolicy || echo 'MutatingAdmissionPolicy not served on this cluster'</b>
+kubectl delete mutatingadmissionpolicy add-platform-label</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl api-resources | grep -i mutatingadmissionpolicy</b>
+mutatingadmissionpolicies                                                             admissionregistration.k8s.io/v1           false        MutatingAdmissionPolicy
+mutatingadmissionpolicybindings                                                       admissionregistration.k8s.io/v1           false        MutatingAdmissionPolicyBinding
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
-<b>apiVersion: admissionregistration.k8s.io/v1beta1</b>
+<b>apiVersion: admissionregistration.k8s.io/v1</b>
 <b>kind: MutatingAdmissionPolicy</b>
 <b>metadata: { name: add-platform-label }</b>
 <b>spec:</b>
@@ -997,9 +1205,8 @@ kubectl delete mutatingadmissionpolicy add-platform-label</code></pre><details c
 <b>      applyConfiguration:</b>
 <b>        expression: |</b>
 <b>          Object{ metadata: Object.metadata{ labels: {"managed-by": "platform"} } }</b>
-<b>EOF</b>
-<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
-<b>apiVersion: admissionregistration.k8s.io/v1beta1</b>
+<b>---</b>
+<b>apiVersion: admissionregistration.k8s.io/v1</b>
 <b>kind: MutatingAdmissionPolicyBinding</b>
 <b>metadata: { name: add-platform-label-binding }</b>
 <b>spec:</b>
@@ -1008,13 +1215,19 @@ kubectl delete mutatingadmissionpolicy add-platform-label</code></pre><details c
 <b>    namespaceSelector:</b>
 <b>      matchLabels: { kubernetes.io/metadata.name: default }</b>
 <b>EOF</b>
+mutatingadmissionpolicy.admissionregistration.k8s.io/add-platform-label created
+mutatingadmissionpolicybinding.admissionregistration.k8s.io/add-platform-label-binding created
 <b>$ sleep 15</b>
-<b>$ kubectl -n default run mutated-native --image=nginx:1.27-alpine --restart=Never</b>
+<b>$ kubectl -n default run mutated-native --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"containers":[{"name":"mutated-native","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"25m","memory":"32Mi"}}}]}}'</b>
+pod/mutated-native created
 <b>$ kubectl -n default get pod mutated-native -o jsonpath='{.metadata.labels}{"\n"}'</b>
+{"managed-by":"platform","run":"mutated-native","topology.kubernetes.io/zone":"zone-b"}
 <b>$ kubectl -n default delete pod mutated-native --ignore-not-found</b>
+pod "mutated-native" deleted from default namespace
 <b>$ kubectl delete mutatingadmissionpolicybinding add-platform-label-binding</b>
+mutatingadmissionpolicybinding.admissionregistration.k8s.io "add-platform-label-binding" deleted
 <b>$ kubectl delete mutatingadmissionpolicy add-platform-label</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+mutatingadmissionpolicy.admissionregistration.k8s.io "add-platform-label" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> the pod carries <code>managed-by: platform</code> and no mutating webhook exists. If the API is not served on this cluster, say so and name the feature gate; that is the honest answer to the same task on an older cluster.</div>
     </div>
 

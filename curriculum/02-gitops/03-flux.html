@@ -653,8 +653,11 @@ LAST SEEN           	TYPE  	REASON                    	OBJECT                	ME
 
     <div class="exercise" data-title="Let a tag write a commit">
       <p>Image automation is Flux writing to git on your behalf: a policy picks a tag, and a controller commits the change back to the overlay. The marker comment in the manifest is what tells it where to write.</p>
-      <div class="cb" data-lang="bash"><pre><code>flux create image repository demo --image=kind-registry:5000/demo --interval=1m --insecure
+      <div class="cb" data-lang="bash"><pre><code>flux create image repository demo --image=kind-registry:5000/demo --interval=1m
+kubectl -n flux-system patch imagerepository demo --type merge -p '{"spec":{"insecure":true}}'
 flux create image policy demo --image-ref=demo --select-semver='&gt;=1.0.0'
+skopeo copy --dest-tls-verify=false docker://ghcr.io/stefanprodan/podinfo:6.7.1 docker://localhost:5001/demo:1.0.1
+sleep 90
 kubectl -n flux-system get imagerepository demo -o jsonpath='{.status.lastScanResult}' | jq
 kubectl -n flux-system get imagepolicy demo -o jsonpath='{.status.latestRef}' | jq
 flux create image update demo-auto \
@@ -665,20 +668,53 @@ flux create image update demo-auto \
   --push-branch=main \
   --author-name=fluxcdbot \
   --author-email=fluxcdbot@lab.local
-skopeo copy --dest-tls-verify=false docker://ghcr.io/stefanprodan/podinfo:6.7.1 docker://localhost:5001/demo:1.0.1
-sleep 90
+sleep 60
 flux events --for ImageUpdateAutomation/demo-auto | tail -10
-git -c http.sslVerify=false ls-remote "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" main</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ flux create image repository demo --image=kind-registry:5000/demo --interval=1m --insecure</b>
-✗ unknown flag: --insecure
+git ls-remote "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" main</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ flux create image repository demo --image=kind-registry:5000/demo --interval=1m</b>
+✚ generating ImageRepository
+► applying ImageRepository
+✔ ImageRepository created
+◎ waiting for ImageRepository reconciliation
+✗ context deadline exceeded
+<b>$ kubectl -n flux-system patch imagerepository demo --type merge -p '{"spec":{"insecure":true}}'</b>
+imagerepository.image.toolkit.fluxcd.io/demo patched
 <b>$ flux create image policy demo --image-ref=demo --select-semver='&gt;=1.0.0'</b>
 ✚ generating ImagePolicy
 ► applying ImagePolicy
 ✔ ImagePolicy created
 ◎ waiting for ImagePolicy reconciliation
-✗ context deadline exceeded
+✔ ImagePolicy reconciliation completed
+<b>$ skopeo copy --dest-tls-verify=false docker://ghcr.io/stefanprodan/podinfo:6.7.1 docker://localhost:5001/demo:1.0.1</b>
+Getting image source signatures
+Copying blob sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1
+Copying blob sha256:7e517c53cd4ca936c3bc3d3dc66419278a680214f37444ad0ad1b8bd65968940
+Copying blob sha256:43c4264eed91be63b206e17d93e75256a6097070ce643c5e8f0379998b44f170
+Copying blob sha256:2bf70b2badb9fa00aa36d50d61c6b9cc094d7a18fb4a3c7a91ce950dd7202900
+Copying blob sha256:31eaa2883f08a0ce854d061714a111f052444a3ba1b2323719cb12b872a0dbe3
+Copying blob sha256:35d14af0e611499048effc4d39a2341345f96dd9103c8c186b7cc239a687de5c
+Copying blob sha256:47f87f374862e0c7555781b116554936999ad2e8e4c6a4e7417688ffe57d8b88
+Copying config sha256:c875de4397634b0dc138954cbe2c11b9d86d948b98b17bd9fc3227b3ad992eae
+Writing manifest to image destination
+<b>$ sleep 90</b>
 <b>$ kubectl -n flux-system get imagerepository demo -o jsonpath='{.status.lastScanResult}' | jq</b>
-Error from server (NotFound): imagerepositories.image.toolkit.fluxcd.io "demo" not found
+{
+  "latestTags": [
+    "v1",
+    "unsigned",
+    "sha256-f451e838d60a425de0f81bd3126670198c3f7f02b89e5e010430abafe66466fa",
+    "sha256-33213719f2b030a8a1260d1c5358f55524f8f690a790e35b14b00c1f50b46ddf",
+    "fake",
+    "1.0.1"
+  ],
+  "revision": "675950424",
+  "scanTime": "2026-09-12T21:10:40Z",
+  "tagCount": 6
+}
 <b>$ kubectl -n flux-system get imagepolicy demo -o jsonpath='{.status.latestRef}' | jq</b>
+{
+  "name": "kind-registry:5000/demo",
+  "tag": "1.0.1"
+}
 <b>$ flux create image update demo-auto \</b>
 <b>    --interval=1m \</b>
 <b>    --git-repo-ref=platform \</b>
@@ -692,24 +728,13 @@ Error from server (NotFound): imagerepositories.image.toolkit.fluxcd.io "demo" n
 ✔ ImageUpdateAutomation created
 ◎ waiting for ImageUpdateAutomation reconciliation
 ✔ ImageUpdateAutomation reconciliation completed
-<b>$ skopeo copy --dest-tls-verify=false docker://ghcr.io/stefanprodan/podinfo:6.7.1 docker://localhost:5001/demo:1.0.1</b>
-Getting image source signatures
-Copying blob sha256:7e517c53cd4ca936c3bc3d3dc66419278a680214f37444ad0ad1b8bd65968940
-Copying blob sha256:43c4264eed91be63b206e17d93e75256a6097070ce643c5e8f0379998b44f170
-Copying blob sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1
-Copying blob sha256:35d14af0e611499048effc4d39a2341345f96dd9103c8c186b7cc239a687de5c
-Copying blob sha256:2bf70b2badb9fa00aa36d50d61c6b9cc094d7a18fb4a3c7a91ce950dd7202900
-Copying blob sha256:31eaa2883f08a0ce854d061714a111f052444a3ba1b2323719cb12b872a0dbe3
-Copying blob sha256:47f87f374862e0c7555781b116554936999ad2e8e4c6a4e7417688ffe57d8b88
-Copying config sha256:c875de4397634b0dc138954cbe2c11b9d86d948b98b17bd9fc3227b3ad992eae
-Writing manifest to image destination
-<b>$ sleep 90</b>
+<b>$ sleep 60</b>
 <b>$ flux events --for ImageUpdateAutomation/demo-auto | tail -10</b>
 LAST SEEN	TYPE  	REASON   	OBJECT                         	MESSAGE                             
-98s      	Normal	Succeeded	ImageUpdateAutomation/demo-auto	repository up-to-date              	
-38s      	Normal	Succeeded	ImageUpdateAutomation/demo-auto	no change since last reconciliation	
-<b>$ git -c http.sslVerify=false ls-remote "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" main</b>
-fatal: Unable to read current working directory: No such file or directory</code></pre></details></div>
+61s      	Normal	Succeeded	ImageUpdateAutomation/demo-auto	repository up-to-date              	
+0s       	Normal	Succeeded	ImageUpdateAutomation/demo-auto	no change since last reconciliation	
+<b>$ git ls-remote "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" main</b>
+f8c97f0043f1822301b3abe2bdbbf039a3c1b9eb	refs/heads/main</code></pre></details></div>
       <div class="verify"><b>verify:</b> the policy resolves to the tag you pushed, and the automation writes a commit authored by fluxcdbot. Until the overlay carries a marker comment such as <code># {"$imagepolicy": "flux-system:demo"}</code> on the image line, the automation has nothing to rewrite and says so; add it and run again.</div>
     </div>
 

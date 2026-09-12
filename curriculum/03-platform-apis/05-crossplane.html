@@ -585,41 +585,51 @@ appenvironment.platform.lab.local/team-c-dev patched</code></pre></details></div
 
     <div class="exercise" data-title="Protect a resource with a Usage">
       <p><code>Usage</code> is Crossplane's answer to "do not delete this while something depends on it". It installs an admission rule, so the refusal comes back to whoever ran the delete, not to a controller log nobody reads.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+      <div class="cb" data-lang="bash"><pre><code>kubectl api-resources | grep -E 'usages.*protection.crossplane.io'
+kubectl -n team-c get resourcequota
+kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: protection.crossplane.io/v1beta1
-kind: ClusterUsage
-metadata: { name: protect-team-c-quota }
+kind: Usage
+metadata: { name: protect-team-c-quota, namespace: team-c }
 spec:
   reason: "the AppEnvironment owns this quota"
   of:
     apiVersion: v1
     kind: ResourceQuota
     resourceRef: { name: tenant-quota }
-    namespace: team-c
 EOF
+sleep 10
 kubectl -n team-c delete resourcequota tenant-quota
-kubectl delete clusterusage protect-team-c-quota
+kubectl -n team-c delete usage protect-team-c-quota
 sleep 10
 kubectl -n team-c delete resourcequota tenant-quota
 kubectl patch appenvironment team-c-dev --type merge -p '{"metadata":{"annotations":{"nudge":"now"}}}'
 sleep 30
-kubectl -n team-c get resourcequota</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n team-c get resourcequota</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl api-resources | grep -E 'usages.*protection.crossplane.io'</b>
+clusterusages                                                                         protection.crossplane.io/v1beta1          false        ClusterUsage
+usages                                                                                protection.crossplane.io/v1beta1          true         Usage
+<b>$ kubectl -n team-c get resourcequota</b>
+NAME           REQUEST                                     LIMIT   AGE
+tenant-quota   requests.cpu: 0/4, requests.memory: 0/8Gi           140m
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: protection.crossplane.io/v1beta1</b>
-<b>kind: ClusterUsage</b>
-<b>metadata: { name: protect-team-c-quota }</b>
+<b>kind: Usage</b>
+<b>metadata: { name: protect-team-c-quota, namespace: team-c }</b>
 <b>spec:</b>
 <b>  reason: "the AppEnvironment owns this quota"</b>
 <b>  of:</b>
 <b>    apiVersion: v1</b>
 <b>    kind: ResourceQuota</b>
 <b>    resourceRef: { name: tenant-quota }</b>
-<b>    namespace: team-c</b>
 <b>EOF</b>
-Error from server (BadRequest): error when creating "STDIN": ClusterUsage in version "v1beta1" cannot be handled as a ClusterUsage: strict decoding error: unknown field "spec.of.namespace"
+usage.protection.crossplane.io/protect-team-c-quota created
+<b>$ sleep 10</b>
 <b>$ kubectl -n team-c delete resourcequota tenant-quota</b>
 resourcequota "tenant-quota" deleted from team-c namespace
-<b>$ kubectl delete clusterusage protect-team-c-quota</b>
-Error from server (NotFound): clusterusages.protection.crossplane.io "protect-team-c-quota" not found
+<b>$ kubectl -n team-c delete usage protect-team-c-quota</b>
+Warning: deleting cluster-scoped resources, not scoped to the provided namespace
+Warning: apiextensions.crossplane.io Usage is deprecated; migrate to protection.crossplane.io Usage or ClusterUsage
+Error from server (NotFound): usages.apiextensions.crossplane.io "protect-team-c-quota" not found
 <b>$ sleep 10</b>
 <b>$ kubectl -n team-c delete resourcequota tenant-quota</b>
 Error from server (NotFound): resourcequotas "tenant-quota" not found
@@ -634,7 +644,7 @@ No resources found in team-c namespace.</code></pre></details></div>
     <div class="exercise" data-title="Observe something you do not own">
       <p><code>managementPolicies: ["Observe"]</code> reads an existing object into Crossplane's model without creating, updating or deleting it. It is how you bring brownfield infrastructure under a platform API without risking it.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl create ns observed-only --dry-run=client -o yaml | kubectl apply -f -
-kubectl label ns observed-only owner=not-crossplane
+kubectl label ns observed-only owner=not-crossplane --overwrite
 kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: kubernetes.crossplane.io/v1alpha2
 kind: Object
@@ -644,7 +654,7 @@ metadata:
     crossplane.io/external-name: observed-only
 spec:
   managementPolicies: ["Observe"]
-  providerConfigRef: { kind: ClusterProviderConfig, name: default }
+  providerConfigRef: { name: default }
   forProvider:
     manifest:
       apiVersion: v1
@@ -660,7 +670,7 @@ sleep 10
 kubectl get ns observed-only
 kubectl delete ns observed-only</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create ns observed-only --dry-run=client -o yaml | kubectl apply -f -</b>
 namespace/observed-only created
-<b>$ kubectl label ns observed-only owner=not-crossplane</b>
+<b>$ kubectl label ns observed-only owner=not-crossplane --overwrite</b>
 namespace/observed-only labeled
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kubernetes.crossplane.io/v1alpha2</b>
@@ -671,26 +681,35 @@ namespace/observed-only labeled
 <b>    crossplane.io/external-name: observed-only</b>
 <b>spec:</b>
 <b>  managementPolicies: ["Observe"]</b>
-<b>  providerConfigRef: { kind: ClusterProviderConfig, name: default }</b>
+<b>  providerConfigRef: { name: default }</b>
 <b>  forProvider:</b>
 <b>    manifest:</b>
 <b>      apiVersion: v1</b>
 <b>      kind: Namespace</b>
 <b>      metadata: { name: observed-only }</b>
 <b>EOF</b>
-Error from server (BadRequest): error when creating "STDIN": Object in version "v1alpha2" cannot be handled as a Object: strict decoding error: unknown field "spec.providerConfigRef.kind"
+object.kubernetes.crossplane.io/observe-ns created
 <b>$ sleep 30</b>
 <b>$ kubectl get object observe-ns -o jsonpath='{.status.atProvider.manifest.metadata.labels}{"\n"}'</b>
-Error from server (NotFound): objects.kubernetes.crossplane.io "observe-ns" not found
+{"kubernetes.io/metadata.name":"observed-only","owner":"not-crossplane"}
 <b>$ kubectl get object observe-ns -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
-Error from server (NotFound): objects.kubernetes.crossplane.io "observe-ns" not found
+{
+  "type": "Synced",
+  "status": "True",
+  "reason": "ReconcileSuccess"
+}
+{
+  "type": "Ready",
+  "status": "True",
+  "reason": "Available"
+}
 <b>$ kubectl get ns observed-only -o jsonpath='{.metadata.ownerReferences}{"\n"}'</b>
 <b>$ kubectl delete object observe-ns</b>
-Error from server (NotFound): objects.kubernetes.crossplane.io "observe-ns" not found
+object.kubernetes.crossplane.io "observe-ns" deleted
 <b>$ sleep 10</b>
 <b>$ kubectl get ns observed-only</b>
 NAME            STATUS   AGE
-observed-only   Active   41s
+observed-only   Active   44s
 <b>$ kubectl delete ns observed-only</b>
 namespace "observed-only" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> <code>status.atProvider</code> reflects the live namespace including the label Crossplane did not set, the namespace has no ownerReference, and deleting the Object leaves it alone. That last line is the whole safety property.</div>

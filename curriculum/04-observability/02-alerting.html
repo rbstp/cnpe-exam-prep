@@ -403,8 +403,27 @@ alertmanagerconfig.monitoring.coreos.com "inhibit-demo" deleted from default nam
 
     <div class="exercise" data-title="Unit-test the alert rule">
       <p>Alerting rules are code and can be tested without waiting for reality to cooperate. <code>promtool test rules</code> feeds synthetic series in and asserts which alerts fire, which is the only way to be sure about a <code>for</code> clause.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring get prometheusrule curriculum-drill -o jsonpath='{.spec}' | jq '{groups: .groups}' &gt; /tmp/rules.json
-python3 -c "import json,yaml,sys; print(yaml.safe_dump(json.load(open('/tmp/rules.json'))))" &gt; /tmp/rules.yml
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: curriculum-drill
+  namespace: monitoring
+  labels: { release: prometheus }
+spec:
+  groups:
+    - name: drill
+      rules:
+        - alert: TooManyExamplePods
+          expr: count(kube_pod_info{namespace="default"}) &gt; 0
+          for: 1m
+          labels: { severity: warning, team: platform }
+          annotations:
+            summary: "{{ $value }} pods in default"
+            description: "Drill alert; fires whenever default has any pods."
+EOF
+kubectl -n monitoring get prometheusrule curriculum-drill -o jsonpath='{.spec}' | jq '{groups: .groups}' &gt; /tmp/rules.json
+python3 -c "import json,yaml; print(yaml.safe_dump(json.load(open('/tmp/rules.json'))))" &gt; /tmp/rules.yml
 cat /tmp/rules.yml
 cat &gt; /tmp/test.yml &lt;&lt;'EOF'
 rule_files:
@@ -429,30 +448,45 @@ tests:
               summary: "1 pods in default"
               description: "Drill alert; fires whenever default has any pods."
 EOF
-kubectl -n monitoring cp /tmp/rules.yml prometheus-prometheus-kube-prometheus-prometheus-0:/tmp/rules.yml -c prometheus
-kubectl -n monitoring cp /tmp/test.yml prometheus-prometheus-kube-prometheus-prometheus-0:/tmp/test.yml -c prometheus
-kubectl -n monitoring exec prometheus-prometheus-kube-prometheus-prometheus-0 -c prometheus -- sh -c 'cd /tmp &amp;&amp; promtool check rules rules.yml &amp;&amp; promtool test rules test.yml'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring get prometheusrule curriculum-drill -o jsonpath='{.spec}' | jq '{groups: .groups}' &gt; /tmp/rules.json</b>
-Error from server (NotFound): prometheusrules.monitoring.coreos.com "curriculum-drill" not found
-<b>$ python3 -c "import json,yaml,sys; print(yaml.safe_dump(json.load(open('/tmp/rules.json'))))" &gt; /tmp/rules.yml</b>
-Traceback (most recent call last):
-  File "&lt;string&gt;", line 1, in &lt;module&gt;
-    import json,yaml,sys; print(yaml.safe_dump(json.load(open('/tmp/rules.json'))))
-                                               ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.14/json/__init__.py", line 298, in load
-    return loads(fp.read(),
-        cls=cls, object_hook=object_hook,
-        parse_float=parse_float, parse_int=parse_int,
-        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
-  File "/usr/lib/python3.14/json/__init__.py", line 352, in loads
-    return _default_decoder.decode(s)
-           ~~~~~~~~~~~~~~~~~~~~~~~^^^
-  File "/usr/lib/python3.14/json/decoder.py", line 345, in decode
-    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
-               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
-  File "/usr/lib/python3.14/json/decoder.py", line 363, in raw_decode
-    raise JSONDecodeError("Expecting value", s, err.value) from None
-json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+kubectl -n monitoring create configmap promtool-test --from-file=rules.yml=/tmp/rules.yml --from-file=test.yml=/tmp/test.yml --dry-run=client -o yaml | kubectl apply -f -
+IMG=$(kubectl -n monitoring get sts prometheus-prometheus-kube-prometheus-prometheus -o jsonpath='{.spec.template.spec.containers[?(@.name=="prometheus")].image}'); echo "$IMG"
+kubectl -n monitoring run promtool-check --rm -i --restart=Never --image="$IMG" --overrides="{\"spec\":{\"containers\":[{\"name\":\"promtool-check\",\"image\":\"$IMG\",\"workingDir\":\"/t\",\"command\":[\"promtool\",\"check\",\"rules\",\"rules.yml\"],\"volumeMounts\":[{\"name\":\"t\",\"mountPath\":\"/t\"}]}],\"volumes\":[{\"name\":\"t\",\"configMap\":{\"name\":\"promtool-test\"}}]}}"
+kubectl -n monitoring run promtool-unit --rm -i --restart=Never --image="$IMG" --overrides="{\"spec\":{\"containers\":[{\"name\":\"promtool-unit\",\"image\":\"$IMG\",\"workingDir\":\"/t\",\"command\":[\"promtool\",\"test\",\"rules\",\"test.yml\"],\"volumeMounts\":[{\"name\":\"t\",\"mountPath\":\"/t\"}]}],\"volumes\":[{\"name\":\"t\",\"configMap\":{\"name\":\"promtool-test\"}}]}}"
+kubectl -n monitoring delete configmap promtool-test</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: monitoring.coreos.com/v1</b>
+<b>kind: PrometheusRule</b>
+<b>metadata:</b>
+<b>  name: curriculum-drill</b>
+<b>  namespace: monitoring</b>
+<b>  labels: { release: prometheus }</b>
+<b>spec:</b>
+<b>  groups:</b>
+<b>    - name: drill</b>
+<b>      rules:</b>
+<b>        - alert: TooManyExamplePods</b>
+<b>          expr: count(kube_pod_info{namespace="default"}) &gt; 0</b>
+<b>          for: 1m</b>
+<b>          labels: { severity: warning, team: platform }</b>
+<b>          annotations:</b>
+<b>            summary: "{{ $value }} pods in default"</b>
+<b>            description: "Drill alert; fires whenever default has any pods."</b>
+<b>EOF</b>
+prometheusrule.monitoring.coreos.com/curriculum-drill created
+<b>$ kubectl -n monitoring get prometheusrule curriculum-drill -o jsonpath='{.spec}' | jq '{groups: .groups}' &gt; /tmp/rules.json</b>
+<b>$ python3 -c "import json,yaml; print(yaml.safe_dump(json.load(open('/tmp/rules.json'))))" &gt; /tmp/rules.yml</b>
 <b>$ cat /tmp/rules.yml</b>
+groups:
+- name: drill
+  rules:
+  - alert: TooManyExamplePods
+    annotations:
+      description: Drill alert; fires whenever default has any pods.
+      summary: '{{ $value }} pods in default'
+    expr: count(kube_pod_info{namespace="default"}) &gt; 0
+    for: 1m
+    labels:
+      severity: warning
+      team: platform
 <b>$ cat &gt; /tmp/test.yml &lt;&lt;'EOF'</b>
 <b>rule_files:</b>
 <b>  - rules.yml</b>
@@ -476,12 +510,25 @@ json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
 <b>              summary: "1 pods in default"</b>
 <b>              description: "Drill alert; fires whenever default has any pods."</b>
 <b>EOF</b>
-<b>$ kubectl -n monitoring cp /tmp/rules.yml prometheus-prometheus-kube-prometheus-prometheus-0:/tmp/rules.yml -c prometheus</b>
-error: Internal error occurred: Internal error occurred: error executing command in container: failed to exec in container: failed to start exec "06ea454b0de62b52ca56f6b6cccfa1888fef3edcbe5664b0f2f89ad857ed72b1": OCI runtime exec failed: exec failed: unable to start container process: exec: "tar": executable file not found in $PATH
-<b>$ kubectl -n monitoring cp /tmp/test.yml prometheus-prometheus-kube-prometheus-prometheus-0:/tmp/test.yml -c prometheus</b>
-error: Internal error occurred: Internal error occurred: error executing command in container: failed to exec in container: failed to start exec "a11058789a339f04feddda0546e7390ce8b89918dad533ee983106fac376f30b": OCI runtime exec failed: exec failed: unable to start container process: exec: "tar": executable file not found in $PATH
-<b>$ kubectl -n monitoring exec prometheus-prometheus-kube-prometheus-prometheus-0 -c prometheus -- sh -c 'cd /tmp &amp;&amp; promtool check rules rules.yml &amp;&amp; promtool test rules test.yml'</b>
-error: Internal error occurred: Internal error occurred: error executing command in container: failed to exec in container: failed to start exec "2e20f952f467d65ba1d3ba0fd9d2dad2bed652df2b713ec51a65bdbd9be28b7e": OCI runtime exec failed: exec failed: unable to start container process: exec: "sh": executable file not found in $PATH</code></pre></details></div>
+<b>$ kubectl -n monitoring create configmap promtool-test --from-file=rules.yml=/tmp/rules.yml --from-file=test.yml=/tmp/test.yml --dry-run=client -o yaml | kubectl apply -f -</b>
+configmap/promtool-test created
+<b>$ IMG=$(kubectl -n monitoring get sts prometheus-prometheus-kube-prometheus-prometheus -o jsonpath='{.spec.template.spec.containers[?(@.name=="prometheus")].image}'); echo "$IMG"</b>
+quay.io/prometheus/prometheus:v3.14.0-distroless
+<b>$ kubectl -n monitoring run promtool-check --rm -i --restart=Never --image="$IMG" --overrides="{\"spec\":{\"containers\":[{\"name\":\"promtool-check\",\"image\":\"$IMG\",\"workingDir\":\"/t\",\"command\":[\"promtool\",\"check\",\"rules\",\"rules.yml\"],\"volumeMounts\":[{\"name\":\"t\",\"mountPath\":\"/t\"}]}],\"volumes\":[{\"name\":\"t\",\"configMap\":{\"name\":\"promtool-test\"}}]}}"</b>
+Checking rules.yml
+  SUCCESS: 1 rules found
+
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+pod "promtool-check" deleted from monitoring namespace
+<b>$ kubectl -n monitoring run promtool-unit --rm -i --restart=Never --image="$IMG" --overrides="{\"spec\":{\"containers\":[{\"name\":\"promtool-unit\",\"image\":\"$IMG\",\"workingDir\":\"/t\",\"command\":[\"promtool\",\"test\",\"rules\",\"test.yml\"],\"volumeMounts\":[{\"name\":\"t\",\"mountPath\":\"/t\"}]}],\"volumes\":[{\"name\":\"t\",\"configMap\":{\"name\":\"promtool-test\"}}]}}"</b>
+  SUCCESS
+
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+pod "promtool-unit" deleted from monitoring namespace
+<b>$ kubectl -n monitoring delete configmap promtool-test</b>
+configmap "promtool-test" deleted from monitoring namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> <code>check rules</code> passes and <code>test rules</code> reports SUCCESS, including the case at 30 seconds where the <code>for</code> clause has not elapsed. Change the <code>for</code> to 10m and watch the same test fail; that is the assertion earning its keep.</div>
     </div>
 

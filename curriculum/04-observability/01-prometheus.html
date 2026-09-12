@@ -568,14 +568,27 @@ bash: line 218: kill: (235591) - No such process</code></pre></details></div>
       <p>Retention is two numbers and whichever binds first wins. On a cluster you inherit, read them before you promise anyone a month of history.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.retention} {.items[0].spec.retentionSize}{"\n"}'
 kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.storage}' | jq
-kubectl -n monitoring get pvc -l app.kubernetes.io/name=prometheus
-kubectl -n monitoring exec sts/prometheus-prometheus-kube-prometheus-prometheus -c prometheus -- df -h /prometheus</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.retention} {.items[0].spec.retentionSize}{"\n"}'</b>
+kubectl -n monitoring get pvc -l app.kubernetes.io/name=prometheus -o custom-columns=NAME:.metadata.name,CAPACITY:.status.capacity.storage,CLASS:.spec.storageClassName
+kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;
+sleep 5
+curl -s localhost:9090/api/v1/status/runtimeinfo | jq '.data | {storageRetention, corruptionCount, timeSeriesCount}'
+kill %1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.retention} {.items[0].spec.retentionSize}{"\n"}'</b>
 6h 
 <b>$ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.storage}' | jq</b>
-<b>$ kubectl -n monitoring get pvc -l app.kubernetes.io/name=prometheus</b>
-No resources found in monitoring namespace.
-<b>$ kubectl -n monitoring exec sts/prometheus-prometheus-kube-prometheus-prometheus -c prometheus -- df -h /prometheus</b>
-error: Internal error occurred: Internal error occurred: error executing command in container: failed to exec in container: failed to start exec "9ec400a0bc7c1ce3acfcc12746ff56bf104935761ab133f5b3c11878acba4f35": OCI runtime exec failed: exec failed: unable to start container process: exec: "df": executable file not found in $PATH</code></pre></details></div>
+<b>$ kubectl -n monitoring get pvc -l app.kubernetes.io/name=prometheus -o custom-columns=NAME:.metadata.name,CAPACITY:.status.capacity.storage,CLASS:.spec.storageClassName</b>
+NAME   CAPACITY   CLASS
+<b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
+<b>$ sleep 5</b>
+Forwarding from 127.0.0.1:9090 -&gt; 9090
+Forwarding from [::1]:9090 -&gt; 9090
+<b>$ curl -s localhost:9090/api/v1/status/runtimeinfo | jq '.data | {storageRetention, corruptionCount, timeSeriesCount}'</b>
+Handling connection for 9090
+{
+  "storageRetention": "6h",
+  "corruptionCount": 0,
+  "timeSeriesCount": null
+}
+<b>$ kill %1</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> you can say how far back a query on this cluster can reach and what would stop it first, time or disk. If the storage block is empty, the answer is "until the pod restarts", and that is worth saying out loud.</div>
     </div>
 
