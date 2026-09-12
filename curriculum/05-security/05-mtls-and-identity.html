@@ -395,6 +395,344 @@ spire-spire-test-keys                 46m</code></pre></details></div>
       <div class="verify"><b>verify:</b> registration entries exist mapping SPIFFE IDs to Kubernetes selectors, and you can read one entry aloud: this ID is issued to workloads matching this namespace/SA, attested by this parent agent.</div>
     </div>
 
+    <div class="exercise" data-title="Put a waypoint in front of the namespace">
+      <p>Ambient mode gives you L4 identity for free and L7 policy only where you put a waypoint. Enrolling a namespace and writing a method-scoped rule is the whole shape of an L7 authorization task.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl --context kind-mesh label ns default istio.io/dataplane-mode=ambient --overwrite
+istioctl --context kind-mesh waypoint apply -n default --enroll-namespace --wait
+kubectl --context kind-mesh get gtw waypoint
+kubectl --context kind-mesh -n default create deployment backend --image=ghcr.io/stefanprodan/podinfo:6.7.1
+kubectl --context kind-mesh -n default expose deployment backend --port=80 --target-port=9898
+kubectl --context kind-mesh -n default create deployment client --image=curlimages/curl:8.11.1 -- sleep 86400
+kubectl --context kind-mesh -n default rollout status deploy backend deploy client --timeout=180s
+kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata: { name: backend-get-only, namespace: default }
+spec:
+  targetRefs:
+    - { group: gateway.networking.k8s.io, kind: Gateway, name: waypoint }
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals: ["cluster.local/ns/default/sa/default"]
+      to:
+        - operation:
+            methods: [GET]
+EOF
+sleep 20
+CLIENT=$(kubectl --context kind-mesh -n default get pod -l app=client -o jsonpath='{.items[0].metadata.name}')
+kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -o /dev/null -w '%{http_code}\n' http://backend/
+kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -X POST -o /dev/null -w '%{http_code}\n' http://backend/
+kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -X POST http://backend/ | head -2</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl --context kind-mesh label ns default istio.io/dataplane-mode=ambient --overwrite</b>
+<b>$ istioctl --context kind-mesh waypoint apply -n default --enroll-namespace --wait</b>
+<b>$ kubectl --context kind-mesh get gtw waypoint</b>
+<b>$ kubectl --context kind-mesh -n default create deployment backend --image=ghcr.io/stefanprodan/podinfo:6.7.1</b>
+<b>$ kubectl --context kind-mesh -n default expose deployment backend --port=80 --target-port=9898</b>
+<b>$ kubectl --context kind-mesh -n default create deployment client --image=curlimages/curl:8.11.1 -- sleep 86400</b>
+<b>$ kubectl --context kind-mesh -n default rollout status deploy backend deploy client --timeout=180s</b>
+<b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: security.istio.io/v1</b>
+<b>kind: AuthorizationPolicy</b>
+<b>metadata: { name: backend-get-only, namespace: default }</b>
+<b>spec:</b>
+<b>  targetRefs:</b>
+<b>    - { group: gateway.networking.k8s.io, kind: Gateway, name: waypoint }</b>
+<b>  action: ALLOW</b>
+<b>  rules:</b>
+<b>    - from:</b>
+<b>        - source:</b>
+<b>            principals: ["cluster.local/ns/default/sa/default"]</b>
+<b>      to:</b>
+<b>        - operation:</b>
+<b>            methods: [GET]</b>
+<b>EOF</b>
+<b>$ sleep 20</b>
+<b>$ CLIENT=$(kubectl --context kind-mesh -n default get pod -l app=client -o jsonpath='{.items[0].metadata.name}')</b>
+<b>$ kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -o /dev/null -w '%{http_code}\n' http://backend/</b>
+<b>$ kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -X POST -o /dev/null -w '%{http_code}\n' http://backend/</b>
+<b>$ kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -X POST http://backend/ | head -2</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> GET returns 200 and POST returns 403 with <code>RBAC: access denied</code> in the body. Say where that decision was made, and what an out-of-mesh client would have got instead of a 403.</div>
+    </div>
+
+    <div class="exercise" data-title="The same rule without a waypoint">
+      <p>An L7 rule attached by selector rather than to a waypoint has nowhere to inspect the method, and Istio fails safe: it denies rather than guessing. Producing that deliberately is worth more than reading about it.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl --context kind-mesh delete authorizationpolicy backend-get-only -n default --ignore-not-found
+kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata: { name: selector-l7, namespace: default }
+spec:
+  selector:
+    matchLabels: { app: backend }
+  action: ALLOW
+  rules:
+    - to:
+        - operation:
+            methods: [GET]
+EOF
+sleep 20
+CLIENT=$(kubectl --context kind-mesh -n default get pod -l app=client -o jsonpath='{.items[0].metadata.name}')
+kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -o /dev/null -w '%{http_code}\n' http://backend/
+kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -m 5 http://backend/ 2&gt;&amp;1 | head -3
+kubectl --context kind-mesh delete authorizationpolicy selector-l7 -n default</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl --context kind-mesh delete authorizationpolicy backend-get-only -n default --ignore-not-found</b>
+<b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: security.istio.io/v1</b>
+<b>kind: AuthorizationPolicy</b>
+<b>metadata: { name: selector-l7, namespace: default }</b>
+<b>spec:</b>
+<b>  selector:</b>
+<b>    matchLabels: { app: backend }</b>
+<b>  action: ALLOW</b>
+<b>  rules:</b>
+<b>    - to:</b>
+<b>        - operation:</b>
+<b>            methods: [GET]</b>
+<b>EOF</b>
+<b>$ sleep 20</b>
+<b>$ CLIENT=$(kubectl --context kind-mesh -n default get pod -l app=client -o jsonpath='{.items[0].metadata.name}')</b>
+<b>$ kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -o /dev/null -w '%{http_code}\n' http://backend/</b>
+<b>$ kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -m 5 http://backend/ 2&gt;&amp;1 | head -3</b>
+<b>$ kubectl --context kind-mesh delete authorizationpolicy selector-l7 -n default</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the GET that succeeded through the waypoint now fails, because ztunnel cannot evaluate an HTTP method and refuses rather than allowing. Say which of <code>targetRefs</code> and <code>selector</code> you reach for when the rule mentions paths or methods.</div>
+    </div>
+
+    <div class="exercise" data-title="Allow plaintext on exactly one port">
+      <p>Strict mTLS everywhere is the goal and never the starting point. Port-level exceptions are how you onboard a legacy service without turning the policy off for the namespace, and the exception is visible in one object.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata: { name: default, namespace: default }
+spec:
+  mtls: { mode: STRICT }
+  portLevelMtls:
+    9898:
+      mode: PERMISSIVE
+EOF
+sleep 20
+kubectl --context kind-mesh get peerauthentication default -o jsonpath='{.spec}' | jq
+kubectl --context kind-mesh -n default run outsider --image=curlimages/curl:8.11.1 --restart=Never --overrides='{"metadata":{"labels":{"istio.io/dataplane-mode":"none"}},"spec":{"containers":[{"name":"outsider","image":"curlimages/curl:8.11.1","command":["sh","-c","sleep 300"]}]}}'
+kubectl --context kind-mesh -n default wait --for=condition=Ready pod/outsider --timeout=120s
+BACKEND=$(kubectl --context kind-mesh -n default get pod -l app=backend -o jsonpath='{.items[0].status.podIP}')
+kubectl --context kind-mesh -n default exec outsider -- curl -s -o /dev/null -w '%{http_code}\n' "http://$BACKEND:9898/"
+kubectl --context kind-mesh -n default delete pod outsider
+kubectl --context kind-mesh delete peerauthentication default -n default</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: security.istio.io/v1</b>
+<b>kind: PeerAuthentication</b>
+<b>metadata: { name: default, namespace: default }</b>
+<b>spec:</b>
+<b>  mtls: { mode: STRICT }</b>
+<b>  portLevelMtls:</b>
+<b>    9898:</b>
+<b>      mode: PERMISSIVE</b>
+<b>EOF</b>
+<b>$ sleep 20</b>
+<b>$ kubectl --context kind-mesh get peerauthentication default -o jsonpath='{.spec}' | jq</b>
+<b>$ kubectl --context kind-mesh -n default run outsider --image=curlimages/curl:8.11.1 --restart=Never --overrides='{"metadata":{"labels":{"istio.io/dataplane-mode":"none"}},"spec":{"containers":[{"name":"outsider","image":"curlimages/curl:8.11.1","command":["sh","-c","sleep 300"]}]}}'</b>
+<b>$ kubectl --context kind-mesh -n default wait --for=condition=Ready pod/outsider --timeout=120s</b>
+<b>$ BACKEND=$(kubectl --context kind-mesh -n default get pod -l app=backend -o jsonpath='{.items[0].status.podIP}')</b>
+<b>$ kubectl --context kind-mesh -n default exec outsider -- curl -s -o /dev/null -w '%{http_code}\n' "http://$BACKEND:9898/"</b>
+<b>$ kubectl --context kind-mesh -n default delete pod outsider</b>
+<b>$ kubectl --context kind-mesh delete peerauthentication default -n default</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the plaintext call reaches the permissive port and would be refused on any other. Say what you would put in the ticket that tracks removing this exception, and how you would know when it is safe.</div>
+    </div>
+
+    <div class="exercise" data-title="Require a token, then require a subject">
+      <p>Request authentication and authorization are two objects for a reason: one says the token is valid, the other says who may do what. A policy with only the first accepts anonymous traffic, which is the classic misconfiguration.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'
+apiVersion: security.istio.io/v1
+kind: RequestAuthentication
+metadata: { name: jwt-demo, namespace: default }
+spec:
+  targetRefs:
+    - { group: gateway.networking.k8s.io, kind: Gateway, name: waypoint }
+  jwtRules:
+    - issuer: "testing@secure.istio.io"
+      jwksUri: "https://raw.githubusercontent.com/istio/istio/release-1.24/security/tools/jwt/samples/jwks.json"
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata: { name: require-jwt, namespace: default }
+spec:
+  targetRefs:
+    - { group: gateway.networking.k8s.io, kind: Gateway, name: waypoint }
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            requestPrincipals: ["*"]
+EOF
+sleep 20
+CLIENT=$(kubectl --context kind-mesh -n default get pod -l app=client -o jsonpath='{.items[0].metadata.name}')
+kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -o /dev/null -w 'no token: %{http_code}\n' http://backend/
+TOKEN=$(curl -s https://raw.githubusercontent.com/istio/istio/release-1.24/security/tools/jwt/samples/demo.jwt)
+kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -o /dev/null -w 'with token: %{http_code}\n' -H "Authorization: Bearer $TOKEN" http://backend/
+kubectl --context kind-mesh delete authorizationpolicy require-jwt -n default
+kubectl --context kind-mesh delete requestauthentication jwt-demo -n default</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: security.istio.io/v1</b>
+<b>kind: RequestAuthentication</b>
+<b>metadata: { name: jwt-demo, namespace: default }</b>
+<b>spec:</b>
+<b>  targetRefs:</b>
+<b>    - { group: gateway.networking.k8s.io, kind: Gateway, name: waypoint }</b>
+<b>  jwtRules:</b>
+<b>    - issuer: "testing@secure.istio.io"</b>
+<b>      jwksUri: "https://raw.githubusercontent.com/istio/istio/release-1.24/security/tools/jwt/samples/jwks.json"</b>
+<b>---</b>
+<b>apiVersion: security.istio.io/v1</b>
+<b>kind: AuthorizationPolicy</b>
+<b>metadata: { name: require-jwt, namespace: default }</b>
+<b>spec:</b>
+<b>  targetRefs:</b>
+<b>    - { group: gateway.networking.k8s.io, kind: Gateway, name: waypoint }</b>
+<b>  action: ALLOW</b>
+<b>  rules:</b>
+<b>    - from:</b>
+<b>        - source:</b>
+<b>            requestPrincipals: ["*"]</b>
+<b>EOF</b>
+<b>$ sleep 20</b>
+<b>$ CLIENT=$(kubectl --context kind-mesh -n default get pod -l app=client -o jsonpath='{.items[0].metadata.name}')</b>
+<b>$ kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -o /dev/null -w 'no token: %{http_code}\n' http://backend/</b>
+<b>$ TOKEN=$(curl -s https://raw.githubusercontent.com/istio/istio/release-1.24/security/tools/jwt/samples/demo.jwt)</b>
+<b>$ kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -o /dev/null -w 'with token: %{http_code}\n' -H "Authorization: Bearer $TOKEN" http://backend/</b>
+<b>$ kubectl --context kind-mesh delete authorizationpolicy require-jwt -n default</b>
+<b>$ kubectl --context kind-mesh delete requestauthentication jwt-demo -n default</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the request without a token is refused and the one with the sample token succeeds. Delete the AuthorizationPolicy and leave the RequestAuthentication: the anonymous request is allowed again, which is the misconfiguration to be able to explain.</div>
+    </div>
+
+    <div class="exercise" data-title="Read ztunnel's view of identity">
+      <p>ztunnel holds the certificates and enforces L4 policy, and its config dump is the ground truth about who the mesh thinks each workload is. When a policy does not do what you expect, this is where the argument ends.</p>
+      <div class="cb" data-lang="bash"><pre><code>istioctl --context kind-mesh ztunnel-config certificates | head -20
+istioctl --context kind-mesh ztunnel-config policies | head -20
+istioctl --context kind-mesh ztunnel-config workloads | head -20
+kubectl --context kind-mesh -n istio-system logs ds/ztunnel --tail=40 | grep -E 'src.identity|dst.identity' | head -5</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ istioctl --context kind-mesh ztunnel-config certificates | head -20</b>
+<b>$ istioctl --context kind-mesh ztunnel-config policies | head -20</b>
+<b>$ istioctl --context kind-mesh ztunnel-config workloads | head -20</b>
+<b>$ kubectl --context kind-mesh -n istio-system logs ds/ztunnel --tail=40 | grep -E 'src.identity|dst.identity' | head -5</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> each workload has a certificate whose identity is <code>cluster.local/ns/&lt;ns&gt;/sa/&lt;sa&gt;</code>, and the log lines name both ends of a connection by identity rather than by IP. Say why that pair of identities is what an authorization policy is really written against.</div>
+    </div>
+
+    <div class="exercise" data-title="The Linkerd shape of the same rule">
+      <p>Linkerd expresses the same idea with different objects: a Server names the port, an AuthorizationPolicy references it, and MeshTLSAuthentication names the identities. Knowing both vocabularies is on the exam's tool list.</p>
+      <p>This block runs only if the mesh cluster was built with <code>MESH=linkerd make mesh</code>; on an Istio mesh the first command tells you so and the rest will not apply.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl --context kind-mesh get ns linkerd &gt;/dev/null 2&gt;&amp;1 &amp;&amp; echo 'linkerd present' || echo 'this cluster runs Istio; rebuild with MESH=linkerd make mesh to do this exercise'
+linkerd viz authz -n default deploy/backend
+kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'
+apiVersion: policy.linkerd.io/v1beta1
+kind: Server
+metadata: { name: backend-http, namespace: default }
+spec:
+  podSelector:
+    matchLabels: { app: backend }
+  port: 9898
+  proxyProtocol: HTTP/1
+---
+apiVersion: policy.linkerd.io/v1alpha1
+kind: MeshTLSAuthentication
+metadata: { name: client-identity, namespace: default }
+spec:
+  identities: ["default.default.serviceaccount.identity.linkerd.cluster.local"]
+---
+apiVersion: policy.linkerd.io/v1alpha1
+kind: AuthorizationPolicy
+metadata: { name: backend-from-client, namespace: default }
+spec:
+  targetRef: { group: policy.linkerd.io, kind: Server, name: backend-http }
+  requiredAuthenticationRefs:
+    - { group: policy.linkerd.io, kind: MeshTLSAuthentication, name: client-identity }
+EOF
+sleep 20
+linkerd viz authz -n default deploy/backend
+kubectl --context kind-mesh -n default get pods -l app=backend
+kubectl --context kind-mesh -n default describe pod -l app=backend | sed -n '/Events/,$p' | head -10</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl --context kind-mesh get ns linkerd &gt;/dev/null 2&gt;&amp;1 &amp;&amp; echo 'linkerd present' || echo 'this cluster runs Istio; rebuild with MESH=linkerd make mesh to do this exercise'</b>
+<b>$ linkerd viz authz -n default deploy/backend</b>
+<b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: policy.linkerd.io/v1beta1</b>
+<b>kind: Server</b>
+<b>metadata: { name: backend-http, namespace: default }</b>
+<b>spec:</b>
+<b>  podSelector:</b>
+<b>    matchLabels: { app: backend }</b>
+<b>  port: 9898</b>
+<b>  proxyProtocol: HTTP/1</b>
+<b>---</b>
+<b>apiVersion: policy.linkerd.io/v1alpha1</b>
+<b>kind: MeshTLSAuthentication</b>
+<b>metadata: { name: client-identity, namespace: default }</b>
+<b>spec:</b>
+<b>  identities: ["default.default.serviceaccount.identity.linkerd.cluster.local"]</b>
+<b>---</b>
+<b>apiVersion: policy.linkerd.io/v1alpha1</b>
+<b>kind: AuthorizationPolicy</b>
+<b>metadata: { name: backend-from-client, namespace: default }</b>
+<b>spec:</b>
+<b>  targetRef: { group: policy.linkerd.io, kind: Server, name: backend-http }</b>
+<b>  requiredAuthenticationRefs:</b>
+<b>    - { group: policy.linkerd.io, kind: MeshTLSAuthentication, name: client-identity }</b>
+<b>EOF</b>
+<b>$ sleep 20</b>
+<b>$ linkerd viz authz -n default deploy/backend</b>
+<b>$ kubectl --context kind-mesh -n default get pods -l app=backend</b>
+<b>$ kubectl --context kind-mesh -n default describe pod -l app=backend | sed -n '/Events/,$p' | head -10</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the authorization list is empty before the objects and names your policy after, and the backend's readiness probe fails unless the kubelet's unauthenticated probe is also allowed. That probe failure is the classic Linkerd policy mistake.</div>
+    </div>
+
+    <div class="exercise" data-title="Fetch an SVID from inside a pod">
+      <p>SPIRE hands a workload a certificate over a socket, with no secret and no token in the pod spec. Reading the URI SAN out of that certificate is how you prove the identity is real and derived from the ServiceAccount.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n spire exec -i deploy/spire-server -- /opt/spire/bin/spire-server entry show | head -40
+kubectl -n spire exec -i deploy/spire-server -- /opt/spire/bin/spire-server entry show -selector k8s:ns:default
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: Pod
+metadata: { name: svid-reader, namespace: default }
+spec:
+  containers:
+    - name: c
+      image: ghcr.io/spiffe/spire-agent:1.11.1
+      command: ["sh", "-c", "sleep 600"]
+      volumeMounts:
+        - { name: spiffe-workload-api, mountPath: /run/spire/sockets, readOnly: true }
+  volumes:
+    - name: spiffe-workload-api
+      csi:
+        driver: csi.spiffe.io
+        readOnly: true
+EOF
+kubectl wait --for=condition=Ready pod/svid-reader --timeout=180s
+kubectl exec svid-reader -- /opt/spire/bin/spire-agent api fetch x509 -socketPath /run/spire/sockets/spire-agent.sock
+kubectl delete pod svid-reader</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n spire exec -i deploy/spire-server -- /opt/spire/bin/spire-server entry show | head -40</b>
+<b>$ kubectl -n spire exec -i deploy/spire-server -- /opt/spire/bin/spire-server entry show -selector k8s:ns:default</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: Pod</b>
+<b>metadata: { name: svid-reader, namespace: default }</b>
+<b>spec:</b>
+<b>  containers:</b>
+<b>    - name: c</b>
+<b>      image: ghcr.io/spiffe/spire-agent:1.11.1</b>
+<b>      command: ["sh", "-c", "sleep 600"]</b>
+<b>      volumeMounts:</b>
+<b>        - { name: spiffe-workload-api, mountPath: /run/spire/sockets, readOnly: true }</b>
+<b>  volumes:</b>
+<b>    - name: spiffe-workload-api</b>
+<b>      csi:</b>
+<b>        driver: csi.spiffe.io</b>
+<b>        readOnly: true</b>
+<b>EOF</b>
+<b>$ kubectl wait --for=condition=Ready pod/svid-reader --timeout=180s</b>
+<b>$ kubectl exec svid-reader -- /opt/spire/bin/spire-agent api fetch x509 -socketPath /run/spire/sockets/spire-agent.sock</b>
+<b>$ kubectl delete pod svid-reader</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the fetched certificate's URI SAN is a <code>spiffe://</code> id derived from the namespace and ServiceAccount, with no credential anywhere in the pod spec. Say what an attacker who copied the pod spec into another namespace would get.</div>
+    </div>
+
   </div>
 </section>
 

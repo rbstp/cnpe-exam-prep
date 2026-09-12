@@ -242,6 +242,115 @@ pod/poke condition met</code></pre></details></div>
       <div class="verify"><b>verify:</b> the same nslookup now succeeds.</div>
     </div>
 
+    <div class="exercise" data-title="Quota that only counts critical pods">
+      <p>A scoped quota counts a subset of the namespace rather than all of it, which is how a platform team forbids one class of workload without capping the tenant. The rejection names the quota, so the tenant learns what they hit.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: ResourceQuota
+metadata: { name: no-critical, namespace: team-a }
+spec:
+  hard: { pods: "0" }
+  scopeSelector:
+    matchExpressions:
+      - scopeName: PriorityClass
+        operator: In
+        values: [system-cluster-critical]
+EOF
+kubectl -n team-a run critical --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"priorityClassName":"system-cluster-critical","containers":[{"name":"critical","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"50m","memory":"64Mi"},"limits":{"cpu":"100m","memory":"128Mi"}}}]}}'
+kubectl -n team-a run ordinary --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"containers":[{"name":"ordinary","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"50m","memory":"64Mi"},"limits":{"cpu":"100m","memory":"128Mi"}}}]}}'
+kubectl -n team-a get pods ordinary
+kubectl -n team-a delete pod ordinary --ignore-not-found
+kubectl -n team-a delete resourcequota no-critical</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: ResourceQuota</b>
+<b>metadata: { name: no-critical, namespace: team-a }</b>
+<b>spec:</b>
+<b>  hard: { pods: "0" }</b>
+<b>  scopeSelector:</b>
+<b>    matchExpressions:</b>
+<b>      - scopeName: PriorityClass</b>
+<b>        operator: In</b>
+<b>        values: [system-cluster-critical]</b>
+<b>EOF</b>
+<b>$ kubectl -n team-a run critical --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"priorityClassName":"system-cluster-critical","containers":[{"name":"critical","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"50m","memory":"64Mi"},"limits":{"cpu":"100m","memory":"128Mi"}}}]}}'</b>
+<b>$ kubectl -n team-a run ordinary --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"containers":[{"name":"ordinary","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"50m","memory":"64Mi"},"limits":{"cpu":"100m","memory":"128Mi"}}}]}}'</b>
+<b>$ kubectl -n team-a get pods ordinary</b>
+<b>$ kubectl -n team-a delete pod ordinary --ignore-not-found</b>
+<b>$ kubectl -n team-a delete resourcequota no-critical</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the critical pod is refused with an "exceeded quota" message naming <code>no-critical</code>, and the ordinary pod is admitted under the tenant's existing quota. One namespace, two answers, decided by a scope.</div>
+    </div>
+
+    <div class="exercise" data-title="Count objects, not just cores">
+      <p>Quota is not only cpu and memory. <code>count/&lt;resource&gt;.&lt;group&gt;</code> caps any kind the API server knows about, including the CRDs your platform ships, which is the cheapest guardrail against a tenant looping on create.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create quota objs -n team-a --hard=count/configmaps=2,count/tenantbuckets.platform.lab.local=1
+kubectl -n team-a get quota objs -o jsonpath='{.status}' | jq
+kubectl -n team-a create configmap one --from-literal=a=1
+kubectl -n team-a create configmap two --from-literal=a=1
+kubectl -n team-a create configmap three --from-literal=a=1
+kubectl -n team-a get quota objs -o jsonpath='{.status.used}' | jq
+kubectl -n team-a delete configmap one two three --ignore-not-found
+kubectl -n team-a delete quota objs</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create quota objs -n team-a --hard=count/configmaps=2,count/tenantbuckets.platform.lab.local=1</b>
+<b>$ kubectl -n team-a get quota objs -o jsonpath='{.status}' | jq</b>
+<b>$ kubectl -n team-a create configmap one --from-literal=a=1</b>
+<b>$ kubectl -n team-a create configmap two --from-literal=a=1</b>
+<b>$ kubectl -n team-a create configmap three --from-literal=a=1</b>
+<b>$ kubectl -n team-a get quota objs -o jsonpath='{.status.used}' | jq</b>
+<b>$ kubectl -n team-a delete configmap one two three --ignore-not-found</b>
+<b>$ kubectl -n team-a delete quota objs</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the third ConfigMap is refused by name and number, and the quota's <code>status.used</code> tracks the custom kind alongside the built-in one. Note whether the default <code>kube-root-ca.crt</code> ConfigMap already counts against you.</div>
+    </div>
+
+    <div class="exercise" data-title="Hierarchical namespaces, installed on purpose">
+      <p>The lab does not install HNC, so this block installs it first and removes it at the end. Do it once to see what namespace inheritance actually produces, then decide whether you would run it.</p>
+      <p>The <code>kubectl hns</code> plugin is not part of the lab's tool set either, so this uses the CRs directly: a SubnamespaceAnchor is what the plugin creates for you.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f https://github.com/kubernetes-sigs/hierarchical-namespaces/releases/download/v1.1.0/default.yaml
+kubectl -n hnc-system rollout status deploy/hnc-controller-manager --timeout=180s
+kubectl -n team-a create rolebinding tenant-view --clusterrole=view --user=dev-a
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: hnc.x-k8s.io/v1alpha2
+kind: SubnamespaceAnchor
+metadata: { name: dev, namespace: team-a }
+EOF
+sleep 20
+kubectl get ns dev
+kubectl get hierarchyconfiguration -n dev -o jsonpath='{.items[0].status}' | jq
+kubectl get rolebinding -n dev --show-labels
+kubectl delete subnamespaceanchor dev -n team-a
+kubectl -n team-a delete rolebinding tenant-view
+kubectl delete -f https://github.com/kubernetes-sigs/hierarchical-namespaces/releases/download/v1.1.0/default.yaml</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f https://github.com/kubernetes-sigs/hierarchical-namespaces/releases/download/v1.1.0/default.yaml</b>
+<b>$ kubectl -n hnc-system rollout status deploy/hnc-controller-manager --timeout=180s</b>
+<b>$ kubectl -n team-a create rolebinding tenant-view --clusterrole=view --user=dev-a</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: hnc.x-k8s.io/v1alpha2</b>
+<b>kind: SubnamespaceAnchor</b>
+<b>metadata: { name: dev, namespace: team-a }</b>
+<b>EOF</b>
+<b>$ sleep 20</b>
+<b>$ kubectl get ns dev</b>
+<b>$ kubectl get hierarchyconfiguration -n dev -o jsonpath='{.items[0].status}' | jq</b>
+<b>$ kubectl get rolebinding -n dev --show-labels</b>
+<b>$ kubectl delete subnamespaceanchor dev -n team-a</b>
+<b>$ kubectl -n team-a delete rolebinding tenant-view</b>
+<b>$ kubectl delete -f https://github.com/kubernetes-sigs/hierarchical-namespaces/releases/download/v1.1.0/default.yaml</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the <code>dev</code> namespace appears without anyone creating it, and the RoleBinding you made in team-a is copied into it carrying an <code>hnc.x-k8s.io/inherited-from</code> label. That label is the whole argument for and against the model: propagation you did not ask for, visible in the object.</div>
+    </div>
+
+    <div class="exercise" data-title="Find the fair-queueing objects">
+      <p>API Priority and Fairness is already running on every cluster you will be handed, with objects you can read. A tenant hammering the API server is a fairness question before it is a quota question.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get flowschema
+kubectl get prioritylevelconfiguration
+kubectl get flowschema -o custom-columns=NAME:.metadata.name,PL:.spec.priorityLevelConfiguration.name,MATCH:.spec.rules[0].subjects[0].kind | head -20
+kubectl get --raw /debug/api_priority_and_fairness/dump_priority_levels | head -20</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get flowschema</b>
+<b>$ kubectl get prioritylevelconfiguration</b>
+<b>$ kubectl get flowschema -o custom-columns=NAME:.metadata.name,PL:.spec.priorityLevelConfiguration.name,MATCH:.spec.rules[0].subjects[0].kind | head -20</b>
+<b>$ kubectl get --raw /debug/api_priority_and_fairness/dump_priority_levels | head -20</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> you can name the flow schema a request from a tenant ServiceAccount would land in, and the priority level it maps to. The dump endpoint is the one to reach for when the complaint is "the API server is slow for us only".</div>
+    </div>
+
   </div>
 </section>
 

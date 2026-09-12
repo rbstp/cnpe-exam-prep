@@ -213,6 +213,259 @@ configmap/team-cpu-dashboard created</code></pre></details></div>
       <div class="verify"><b>verify:</b> there is no single right answer; having <em>an</em> answer with a reason is the skill the "actionable insights" wording points at.</div>
     </div>
 
+    <div class="exercise" data-title="Link a log line to its trace">
+      <p>A derived field turns a trace id in a log line into a link to the trace. It is the single highest-value piece of Grafana configuration on a platform, and it is a regex and a datasource uid in a provisioning file.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring get cm -l grafana_datasource=1 -o name
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-datasource-linked
+  namespace: monitoring
+  labels: { grafana_datasource: "1" }
+data:
+  loki.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        type: loki
+        uid: loki-lab
+        access: proxy
+        url: http://loki.monitoring.svc:3100
+        editable: false
+        jsonData:
+          derivedFields:
+            - name: TraceID
+              matcherRegex: "trace_id=(\\w+)"
+              url: "$${__value.raw}"
+              datasourceUid: jaeger-lab
+EOF
+kubectl -n monitoring rollout restart deploy prometheus-grafana
+kubectl -n monitoring rollout status deploy prometheus-grafana --timeout=180s
+kubectl -n monitoring port-forward svc/prometheus-grafana 3000:80 &amp;
+sleep 5
+curl -s -u admin:admin localhost:3000/api/datasources | jq '[.[] | {name, uid, type}]'
+curl -s -u admin:admin localhost:3000/api/datasources/uid/loki-lab | jq '.jsonData'
+kill %1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring get cm -l grafana_datasource=1 -o name</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: ConfigMap</b>
+<b>metadata:</b>
+<b>  name: loki-datasource-linked</b>
+<b>  namespace: monitoring</b>
+<b>  labels: { grafana_datasource: "1" }</b>
+<b>data:</b>
+<b>  loki.yaml: |</b>
+<b>    apiVersion: 1</b>
+<b>    datasources:</b>
+<b>      - name: Loki</b>
+<b>        type: loki</b>
+<b>        uid: loki-lab</b>
+<b>        access: proxy</b>
+<b>        url: http://loki.monitoring.svc:3100</b>
+<b>        editable: false</b>
+<b>        jsonData:</b>
+<b>          derivedFields:</b>
+<b>            - name: TraceID</b>
+<b>              matcherRegex: "trace_id=(\\w+)"</b>
+<b>              url: "$${__value.raw}"</b>
+<b>              datasourceUid: jaeger-lab</b>
+<b>EOF</b>
+<b>$ kubectl -n monitoring rollout restart deploy prometheus-grafana</b>
+<b>$ kubectl -n monitoring rollout status deploy prometheus-grafana --timeout=180s</b>
+<b>$ kubectl -n monitoring port-forward svc/prometheus-grafana 3000:80 &amp;</b>
+<b>$ sleep 5</b>
+<b>$ curl -s -u admin:admin localhost:3000/api/datasources | jq '[.[] | {name, uid, type}]'</b>
+<b>$ curl -s -u admin:admin localhost:3000/api/datasources/uid/loki-lab | jq '.jsonData'</b>
+<b>$ kill %1</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the datasource exists with the uid you chose and its <code>jsonData</code> carries the derived field. Open a log line in Explore and the TraceID appears as a link; if the link is dead, the target uid is wrong, not the regex.</div>
+    </div>
+
+    <div class="exercise" data-title="Put a dashboard in a folder">
+      <p>A dashboard ConfigMap lands in the General folder unless you say otherwise, and General is where dashboards go to be lost. One annotation fixes it, and it is the difference between a dashboard people find and one they rebuild.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-overview
+  namespace: monitoring
+  labels: { grafana_dashboard: "1" }
+  annotations: { grafana_folder: "Platform" }
+data:
+  platform-overview.json: |
+    {
+      "title": "Platform overview",
+      "uid": "platform-overview",
+      "schemaVersion": 39,
+      "panels": [
+        {"type": "timeseries", "title": "API server requests", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+         "targets": [{"expr": "sum(rate(apiserver_request_total[5m]))"}]}
+      ]
+    }
+EOF
+sleep 60
+kubectl -n monitoring port-forward svc/prometheus-grafana 3000:80 &amp;
+sleep 5
+curl -s -u admin:admin localhost:3000/api/search?query=Platform%20overview | jq '.[] | {title, folderTitle, uid}'
+kill %1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: ConfigMap</b>
+<b>metadata:</b>
+<b>  name: platform-overview</b>
+<b>  namespace: monitoring</b>
+<b>  labels: { grafana_dashboard: "1" }</b>
+<b>  annotations: { grafana_folder: "Platform" }</b>
+<b>data:</b>
+<b>  platform-overview.json: |</b>
+<b>    {</b>
+<b>      "title": "Platform overview",</b>
+<b>      "uid": "platform-overview",</b>
+<b>      "schemaVersion": 39,</b>
+<b>      "panels": [</b>
+<b>        {"type": "timeseries", "title": "API server requests", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},</b>
+<b>         "targets": [{"expr": "sum(rate(apiserver_request_total[5m]))"}]}</b>
+<b>      ]</b>
+<b>    }</b>
+<b>EOF</b>
+<b>$ sleep 60</b>
+<b>$ kubectl -n monitoring port-forward svc/prometheus-grafana 3000:80 &amp;</b>
+<b>$ sleep 5</b>
+<b>$ curl -s -u admin:admin localhost:3000/api/search?query=Platform%20overview | jq '.[] | {title, folderTitle, uid}'</b>
+<b>$ kill %1</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the dashboard is listed with <code>folderTitle</code> set to Platform. Say what the sidecar is watching for, and what happens to this dashboard if someone edits it in the UI.</div>
+    </div>
+
+    <div class="exercise" data-title="Make a dashboard wait for its instance">
+      <p>The Grafana Operator is not installed by the lab, so this block installs it, shows a GrafanaDashboard that matches nothing, then one that matches. Uninstall it at the end if you are not using it.</p>
+      <p>The lesson is the same as every selector on the platform: a non-matching selector is silence, not an error.</p>
+      <div class="cb" data-lang="bash"><pre><code>helm repo add grafana-operator https://grafana.github.io/helm-charts
+helm repo update grafana-operator
+helm upgrade --install grafana-operator grafana-operator/grafana-operator -n grafana-operator --create-namespace --wait
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: grafana.integreatly.org/v1beta1
+kind: Grafana
+metadata:
+  name: lab-grafana
+  namespace: grafana-operator
+  labels: { dashboards: lab }
+spec:
+  config:
+    security: { admin_user: admin, admin_password: admin }
+EOF
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata: { name: orphan, namespace: grafana-operator }
+spec:
+  instanceSelector:
+    matchLabels: { dashboards: nobody }
+  json: '{"title": "Orphan", "uid": "orphan", "schemaVersion": 39, "panels": []}'
+EOF
+sleep 45
+kubectl -n grafana-operator get grafanadashboard orphan -o jsonpath='{.status}' | jq
+kubectl -n grafana-operator patch grafanadashboard orphan --type merge -p '{"spec":{"instanceSelector":{"matchLabels":{"dashboards":"lab"}}}}'
+sleep 45
+kubectl -n grafana-operator get grafanadashboard orphan -o jsonpath='{.status}' | jq</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ helm repo add grafana-operator https://grafana.github.io/helm-charts</b>
+<b>$ helm repo update grafana-operator</b>
+<b>$ helm upgrade --install grafana-operator grafana-operator/grafana-operator -n grafana-operator --create-namespace --wait</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: grafana.integreatly.org/v1beta1</b>
+<b>kind: Grafana</b>
+<b>metadata:</b>
+<b>  name: lab-grafana</b>
+<b>  namespace: grafana-operator</b>
+<b>  labels: { dashboards: lab }</b>
+<b>spec:</b>
+<b>  config:</b>
+<b>    security: { admin_user: admin, admin_password: admin }</b>
+<b>EOF</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: grafana.integreatly.org/v1beta1</b>
+<b>kind: GrafanaDashboard</b>
+<b>metadata: { name: orphan, namespace: grafana-operator }</b>
+<b>spec:</b>
+<b>  instanceSelector:</b>
+<b>    matchLabels: { dashboards: nobody }</b>
+<b>  json: '{"title": "Orphan", "uid": "orphan", "schemaVersion": 39, "panels": []}'</b>
+<b>EOF</b>
+<b>$ sleep 45</b>
+<b>$ kubectl -n grafana-operator get grafanadashboard orphan -o jsonpath='{.status}' | jq</b>
+<b>$ kubectl -n grafana-operator patch grafanadashboard orphan --type merge -p '{"spec":{"instanceSelector":{"matchLabels":{"dashboards":"lab"}}}}'</b>
+<b>$ sleep 45</b>
+<b>$ kubectl -n grafana-operator get grafanadashboard orphan -o jsonpath='{.status}' | jq</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the status is empty or unmatched while the selector points at nobody, and lists the instance once it matches. No event, no error, no log line in between; that silence is the thing to recognise.</div>
+    </div>
+
+    <div class="exercise" data-title="Four LogQL shapes on real logs">
+      <p>LogQL beyond a plain filter is where the marks are: parse a line into fields, turn a field into a number, notice an absence, and find the lines your parser could not handle.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring port-forward svc/loki 3100:3100 &amp;
+sleep 5
+curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query={namespace="team-a"} | pattern `&lt;ip&gt; - - &lt;_&gt; "&lt;method&gt; &lt;uri&gt; &lt;_&gt;" &lt;status&gt; &lt;size&gt;`' --data-urlencode 'limit=5' | jq '.data.result[0].values[0]'
+curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query=quantile_over_time(0.95, {namespace="team-a"} | pattern `&lt;_&gt; &lt;_&gt; &lt;_&gt; &lt;_&gt; "&lt;_&gt; &lt;_&gt; &lt;_&gt;" &lt;status&gt; &lt;size&gt; ` | unwrap size [5m]) by (status)' | jq '.data.result'
+curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query=absent_over_time({namespace="default", pod="does-not-exist"}[5m])' | jq '.data.result'
+curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query={namespace="team-a"} | logfmt | __error__ != ""' --data-urlencode 'limit=5' | jq '.data.result[0].stream'
+kill %1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring port-forward svc/loki 3100:3100 &amp;</b>
+<b>$ sleep 5</b>
+<b>$ curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query={namespace="team-a"} | pattern `&lt;ip&gt; - - &lt;_&gt; "&lt;method&gt; &lt;uri&gt; &lt;_&gt;" &lt;status&gt; &lt;size&gt;`' --data-urlencode 'limit=5' | jq '.data.result[0].values[0]'</b>
+<b>$ curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query=quantile_over_time(0.95, {namespace="team-a"} | pattern `&lt;_&gt; &lt;_&gt; &lt;_&gt; &lt;_&gt; "&lt;_&gt; &lt;_&gt; &lt;_&gt;" &lt;status&gt; &lt;size&gt; ` | unwrap size [5m]) by (status)' | jq '.data.result'</b>
+<b>$ curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query=absent_over_time({namespace="default", pod="does-not-exist"}[5m])' | jq '.data.result'</b>
+<b>$ curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query={namespace="team-a"} | logfmt | __error__ != ""' --data-urlencode 'limit=5' | jq '.data.result[0].stream'</b>
+<b>$ kill %1</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the pattern parser produces labelled fields, <code>unwrap</code> turns one of them into a number you can take a quantile of, absence returns a series, and the <code>__error__</code> query finds the lines that are not logfmt at all. That last query is how you find out your parser is quietly dropping half the data.</div>
+    </div>
+
+    <div class="exercise" data-title="Translate a promtail config">
+      <p>Alloy replaced promtail, and every migration task is the same shape: take the old config, run the converter, read what it produced. The command lives in the Alloy image.</p>
+      <div class="cb" data-lang="bash"><pre><code>cat &gt; /tmp/promtail.yaml &lt;&lt;'EOF'
+server:
+  http_listen_port: 9080
+clients:
+  - url: http://loki.monitoring.svc:3100/loki/api/v1/push
+scrape_configs:
+  - job_name: kubernetes-pods
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+EOF
+POD=$(kubectl -n monitoring get pod -l app.kubernetes.io/name=alloy -o jsonpath='{.items[0].metadata.name}')
+kubectl -n monitoring cp /tmp/promtail.yaml "$POD":/tmp/promtail.yaml
+kubectl -n monitoring exec "$POD" -- alloy convert --source-format=promtail /tmp/promtail.yaml</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ cat &gt; /tmp/promtail.yaml &lt;&lt;'EOF'</b>
+<b>server:</b>
+<b>  http_listen_port: 9080</b>
+<b>clients:</b>
+<b>  - url: http://loki.monitoring.svc:3100/loki/api/v1/push</b>
+<b>scrape_configs:</b>
+<b>  - job_name: kubernetes-pods</b>
+<b>    kubernetes_sd_configs:</b>
+<b>      - role: pod</b>
+<b>    relabel_configs:</b>
+<b>      - source_labels: [__meta_kubernetes_namespace]</b>
+<b>        target_label: namespace</b>
+<b>EOF</b>
+<b>$ POD=$(kubectl -n monitoring get pod -l app.kubernetes.io/name=alloy -o jsonpath='{.items[0].metadata.name}')</b>
+<b>$ kubectl -n monitoring cp /tmp/promtail.yaml "$POD":/tmp/promtail.yaml</b>
+<b>$ kubectl -n monitoring exec "$POD" -- alloy convert --source-format=promtail /tmp/promtail.yaml</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the converter prints Alloy components: a discovery block, a relabel block, a source block and a write block, wired by references. Say which component corresponds to <code>relabel_configs</code> and which to <code>clients</code>.</div>
+    </div>
+
+    <div class="exercise" data-title="Ask Loki how long it keeps anything">
+      <p>Retention in Loki is a compactor setting, and it is off by default in more distributions than people expect. Read it before you promise a week of logs to an audit.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring get cm loki -o yaml | grep -A6 -E 'compactor|retention'
+kubectl -n monitoring get cm loki -o jsonpath='{.data.config\.yaml}' | grep -E 'retention_enabled|retention_period|delete_request' || echo 'no retention keys in the rendered config'
+kubectl -n monitoring get pvc -l app.kubernetes.io/name=loki</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring get cm loki -o yaml | grep -A6 -E 'compactor|retention'</b>
+<b>$ kubectl -n monitoring get cm loki -o jsonpath='{.data.config\.yaml}' | grep -E 'retention_enabled|retention_period|delete_request' || echo 'no retention keys in the rendered config'</b>
+<b>$ kubectl -n monitoring get pvc -l app.kubernetes.io/name=loki</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> you can say whether <code>retention_enabled</code> is set on this install and what would delete old chunks if it is not. "The disk fills up" is a legitimate answer, and it is the one that matters for capacity planning.</div>
+    </div>
+
   </div>
 </section>
 

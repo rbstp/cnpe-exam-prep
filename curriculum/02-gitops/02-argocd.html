@@ -405,6 +405,189 @@ staging-demo   3/3     3            3           55s
       <div class="verify"><b>verify:</b> Sync status Synced, health on its way to Degraded, and you can articulate why clicking sync again is useless here. Revert the commit. This exact confusion is section 2.6's opening scenario.</div>
     </div>
 
+    <div class="exercise" data-title="Read the operation, not just the health">
+      <p>Sync status and health are summaries. <code>operationState</code> is the record of the last attempt, with a result code per resource, and it is where a failed sync explains itself. Capture it clean, then break one resource and read it again.</p>
+      <div class="cb" data-lang="bash"><pre><code>argocd app sync demo-staging --timeout 120 || true
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.status} {.message}{"\n"}{end}'
+kubectl -n team-a delete deploy staging-demo --cascade=orphan
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: staging-demo, namespace: team-a }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: something-else } }
+  template:
+    metadata: { labels: { app: something-else } }
+    spec:
+      containers: [{ name: web, image: nginx:1.27-alpine }]
+EOF
+argocd app sync demo-staging --timeout 120 || true
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.status} {.message}{"\n"}{end}'
+kubectl -n team-a delete deploy staging-demo
+argocd app sync demo-staging --timeout 120</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ argocd app sync demo-staging --timeout 120 || true</b>
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.status} {.message}{"\n"}{end}'</b>
+<b>$ kubectl -n team-a delete deploy staging-demo --cascade=orphan</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: apps/v1</b>
+<b>kind: Deployment</b>
+<b>metadata: { name: staging-demo, namespace: team-a }</b>
+<b>spec:</b>
+<b>  replicas: 1</b>
+<b>  selector: { matchLabels: { app: something-else } }</b>
+<b>  template:</b>
+<b>    metadata: { labels: { app: something-else } }</b>
+<b>    spec:</b>
+<b>      containers: [{ name: web, image: nginx:1.27-alpine }]</b>
+<b>EOF</b>
+<b>$ argocd app sync demo-staging --timeout 120 || true</b>
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.status} {.message}{"\n"}{end}'</b>
+<b>$ kubectl -n team-a delete deploy staging-demo</b>
+<b>$ argocd app sync demo-staging --timeout 120</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the clean run ends <code>Succeeded</code> with every resource <code>Synced</code>, and the broken one ends <code>Failed</code> with a <code>SyncFailed</code> line naming the immutable selector. The per-resource message is the sentence you would paste into an incident channel.</div>
+    </div>
+
+    <div class="exercise" data-title="Ask for a repo the project forbids">
+      <p>An AppProject is the boundary between what a tenant may ask for and what the platform allows. When it refuses, the Application does not fail to sync, it fails to be valid, and the difference tells you where to look.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd get appproject default -o jsonpath='{.spec.sourceRepos}{"\n"}'
+kubectl -n argocd patch appproject default --type merge -p '{"spec":{"sourceRepos":["http://gitea.lab:3000/lab/platform.git"]}}'
+argocd app set demo-staging --repo http://gitea.lab:3000/lab/other.git
+sleep 15
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.conditions}' | jq
+argocd app set demo-staging --repo http://gitea.lab:3000/lab/platform.git
+kubectl -n argocd patch appproject default --type merge -p '{"spec":{"sourceRepos":["*"]}}'
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n argocd get appproject default -o jsonpath='{.spec.sourceRepos}{"\n"}'</b>
+<b>$ kubectl -n argocd patch appproject default --type merge -p '{"spec":{"sourceRepos":["http://gitea.lab:3000/lab/platform.git"]}}'</b>
+<b>$ argocd app set demo-staging --repo http://gitea.lab:3000/lab/other.git</b>
+<b>$ sleep 15</b>
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.conditions}' | jq</b>
+<b>$ argocd app set demo-staging --repo http://gitea.lab:3000/lab/platform.git</b>
+<b>$ kubectl -n argocd patch appproject default --type merge -p '{"spec":{"sourceRepos":["*"]}}'</b>
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status}{"\n"}'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the condition is <code>InvalidSpecError</code> and the message says the repo is not permitted in the project. Restore both the repo and the project's <code>sourceRepos</code>, then confirm the application is Synced again.</div>
+    </div>
+
+    <div class="exercise" data-title="Delete the Application, keep the workload">
+      <p>Cascading deletion is a finalizer, not a law. Removing an Application without cascade leaves every object it managed running and unowned, which is exactly what you want during a migration and exactly what you must not do by accident.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd get app demo-staging -o jsonpath='{.metadata.finalizers}{"\n"}'
+argocd app delete demo-staging --cascade=false -y
+sleep 10
+kubectl -n argocd get app demo-staging || echo 'application gone'
+kubectl -n team-a get deploy staging-demo
+kubectl apply -f examples/argocd-appset.yaml
+sleep 20
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status} {.status.health.status}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.metadata.finalizers}{"\n"}'</b>
+<b>$ argocd app delete demo-staging --cascade=false -y</b>
+<b>$ sleep 10</b>
+<b>$ kubectl -n argocd get app demo-staging || echo 'application gone'</b>
+<b>$ kubectl -n team-a get deploy staging-demo</b>
+<b>$ kubectl apply -f examples/argocd-appset.yaml</b>
+<b>$ sleep 20</b>
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status} {.status.health.status}{"\n"}'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the Deployment keeps serving with the Application gone, and re-applying the ApplicationSet adopts it back without recreating it. Name the field that would have taken the workload down with the app.</div>
+    </div>
+
+    <div class="exercise" data-title="Refresh without the CLI">
+      <p><code>argocd app get --refresh</code> is a convenience over an annotation. Knowing the annotation means you can force a refresh from any machine that can reach the API server, including one with no Argo CD CLI on it.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd annotate app demo-staging argocd.argoproj.io/refresh=hard --overwrite
+sleep 10
+kubectl -n argocd get app demo-staging -o jsonpath='{.metadata.annotations}' | jq
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.reconciledAt}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n argocd annotate app demo-staging argocd.argoproj.io/refresh=hard --overwrite</b>
+<b>$ sleep 10</b>
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.metadata.annotations}' | jq</b>
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.reconciledAt}{"\n"}'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the annotation is gone by the time you read it back and <code>reconciledAt</code> has moved. The controller consumes the annotation as its signal, which is why you never see it in a healthy application.</div>
+    </div>
+
+    <div class="exercise" data-title="Make pruning ask first">
+      <p>Automatic pruning is the feature that deletes production when someone deletes a file. <code>Prune=confirm</code> turns the delete into a request that waits for a human, and the sync sits there saying so.</p>
+      <div class="cb" data-lang="bash"><pre><code>git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune &amp;&amp; cd /tmp/platform-prune
+argocd app set demo-staging --sync-option Prune=confirm
+git rm demo-app/base/service.yaml
+sed -i '/service.yaml/d' demo-app/base/kustomization.yaml
+git commit -am 'drop the service' &amp;&amp; git push
+argocd app sync demo-staging --prune --timeout 60 || true
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{.status.operationState.message}{"\n"}'
+kubectl -n argocd annotate app demo-staging argocd.argoproj.io/deletion-approved="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
+sleep 20
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}'
+cd /tmp/platform-prune &amp;&amp; git revert --no-edit HEAD &amp;&amp; git push
+argocd app set demo-staging --sync-option Prune=false
+argocd app sync demo-staging --timeout 120</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune &amp;&amp; cd /tmp/platform-prune</b>
+<b>$ argocd app set demo-staging --sync-option Prune=confirm</b>
+<b>$ git rm demo-app/base/service.yaml</b>
+<b>$ sed -i '/service.yaml/d' demo-app/base/kustomization.yaml</b>
+<b>$ git commit -am 'drop the service' &amp;&amp; git push</b>
+<b>$ argocd app sync demo-staging --prune --timeout 60 || true</b>
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{.status.operationState.message}{"\n"}'</b>
+<b>$ kubectl -n argocd annotate app demo-staging argocd.argoproj.io/deletion-approved="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite</b>
+<b>$ sleep 20</b>
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}'</b>
+<b>$ cd /tmp/platform-prune &amp;&amp; git revert --no-edit HEAD &amp;&amp; git push</b>
+<b>$ argocd app set demo-staging --sync-option Prune=false</b>
+<b>$ argocd app sync demo-staging --timeout 120</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the operation stalls with a message about confirming the pruning, and only the approval annotation lets it finish. Put the Service back and clear the sync option before moving on.</div>
+    </div>
+
+    <div class="exercise" data-title="Test a project role before you hand it over">
+      <p>A project role plus a token is how a tenant gets to sync their own application and nothing else. <code>argocd account can-i</code> answers the question the tenant will ask you at 4pm, before they ask it.</p>
+      <div class="cb" data-lang="bash"><pre><code>ARGO_PW=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)
+argocd login "$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')" --username admin --password "$ARGO_PW" --insecure --grpc-web
+argocd proj role create default deployer
+argocd proj role add-policy default deployer --action get --permission allow --object 'default/demo-staging'
+TOKEN=$(argocd proj role create-token default deployer -t)
+argocd account can-i sync applications 'default/demo-staging' --auth-token "$TOKEN"
+argocd proj role add-policy default deployer --action sync --permission allow --object 'default/demo-staging'
+TOKEN=$(argocd proj role create-token default deployer -t)
+argocd account can-i sync applications 'default/demo-staging' --auth-token "$TOKEN"
+argocd proj role delete default deployer</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ ARGO_PW=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)</b>
+<b>$ argocd login "$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')" --username admin --password "$ARGO_PW" --insecure --grpc-web</b>
+<b>$ argocd proj role create default deployer</b>
+<b>$ argocd proj role add-policy default deployer --action get --permission allow --object 'default/demo-staging'</b>
+<b>$ TOKEN=$(argocd proj role create-token default deployer -t)</b>
+<b>$ argocd account can-i sync applications 'default/demo-staging' --auth-token "$TOKEN"</b>
+<b>$ argocd proj role add-policy default deployer --action sync --permission allow --object 'default/demo-staging'</b>
+<b>$ TOKEN=$(argocd proj role create-token default deployer -t)</b>
+<b>$ argocd account can-i sync applications 'default/demo-staging' --auth-token "$TOKEN"</b>
+<b>$ argocd proj role delete default deployer</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the same question answers <code>no</code> and then <code>yes</code> with one policy line between them, and the token has to be reissued to pick up the change. That reissue is the part people forget.</div>
+    </div>
+
+    <div class="exercise" data-title="Deliver one notification">
+      <p>Notifications are a controller reading annotations on the Application and a service definition in a ConfigMap. Wire one to something you can watch, and read the controller's log rather than hoping.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd patch cm argocd-notifications-cm --type merge -p '{"data":{"service.webhook.sink":"url: http://sink.default.svc.cluster.local\nheaders:\n- name: Content-Type\n  value: application/json","template.app-synced":"webhook:\n  sink:\n    method: POST\n    body: |\n      {\"app\": \"{{.app.metadata.name}}\", \"phase\": \"{{.app.status.operationState.phase}}\"}","trigger.on-sync-succeeded":"- send: [app-synced]\n  when: app.status.operationState.phase in [\"Succeeded\"]"}}'
+kubectl -n default create deployment sink --image=kennethreitz/httpbin
+kubectl -n default expose deployment sink --port=80 --target-port=80
+kubectl -n argocd annotate app demo-staging notifications.argoproj.io/subscribe.on-sync-succeeded.sink="" --overwrite
+kubectl -n argocd rollout restart deploy argocd-notifications-controller
+kubectl -n argocd rollout status deploy argocd-notifications-controller
+argocd app sync demo-staging --timeout 120
+sleep 20
+kubectl -n argocd logs deploy/argocd-notifications-controller --tail=30
+kubectl -n default delete deployment sink
+kubectl -n default delete svc sink
+kubectl -n argocd annotate app demo-staging notifications.argoproj.io/subscribe.on-sync-succeeded.sink-</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n argocd patch cm argocd-notifications-cm --type merge -p '{"data":{"service.webhook.sink":"url: http://sink.default.svc.cluster.local\nheaders:\n- name: Content-Type\n  value: application/json","template.app-synced":"webhook:\n  sink:\n    method: POST\n    body: |\n      {\"app\": \"{{.app.metadata.name}}\", \"phase\": \"{{.app.status.operationState.phase}}\"}","trigger.on-sync-succeeded":"- send: [app-synced]\n  when: app.status.operationState.phase in [\"Succeeded\"]"}}'</b>
+<b>$ kubectl -n default create deployment sink --image=kennethreitz/httpbin</b>
+<b>$ kubectl -n default expose deployment sink --port=80 --target-port=80</b>
+<b>$ kubectl -n argocd annotate app demo-staging notifications.argoproj.io/subscribe.on-sync-succeeded.sink="" --overwrite</b>
+<b>$ kubectl -n argocd rollout restart deploy argocd-notifications-controller</b>
+<b>$ kubectl -n argocd rollout status deploy argocd-notifications-controller</b>
+<b>$ argocd app sync demo-staging --timeout 120</b>
+<b>$ sleep 20</b>
+<b>$ kubectl -n argocd logs deploy/argocd-notifications-controller --tail=30</b>
+<b>$ kubectl -n default delete deployment sink</b>
+<b>$ kubectl -n default delete svc sink</b>
+<b>$ kubectl -n argocd annotate app demo-staging notifications.argoproj.io/subscribe.on-sync-succeeded.sink-</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the controller log records the trigger firing and the delivery to the webhook service. If it records a template error instead, that is the more common failure and the message names the field.</div>
+    </div>
+
   </div>
 </section>
 

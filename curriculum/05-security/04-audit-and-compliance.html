@@ -318,6 +318,304 @@ tekton-pipelines	replicaset-6985f46fcc	3	15</code></pre></details></div>
       <div class="verify"><b>verify:</b> you can trace a failed control to the check behind it and say which earlier curriculum section would fix it. Most CIS findings in this lab trace back to sections 5.1–5.3.</div>
     </div>
 
+    <div class="exercise" data-title="Turn on an audit policy and query it">
+      <p>The audit log is off by default on kind. This block writes a policy, wires it into the API server, produces three interesting requests, and queries the log with jq.</p>
+      <p>Undo the manifest edit at the end or the log grows for the life of the cluster.</p>
+      <div class="cb" data-lang="bash"><pre><code>docker exec cnpe-control-plane sh -c 'mkdir -p /etc/kubernetes/audit &amp;&amp; cat &gt; /etc/kubernetes/audit/policy.yaml &lt;&lt;EOF
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages: [RequestReceived]
+rules:
+  - level: Metadata
+    resources:
+      - group: ""
+        resources: [pods/exec, pods/portforward]
+  - level: RequestResponse
+    resources:
+      - group: rbac.authorization.k8s.io
+        resources: [roles, rolebindings, clusterroles, clusterrolebindings]
+  - level: Metadata
+EOF'
+docker exec cnpe-control-plane sh -c "grep -q audit-policy-file /etc/kubernetes/manifests/kube-apiserver.yaml || sed -i 's|- kube-apiserver|- kube-apiserver\n    - --audit-policy-file=/etc/kubernetes/audit/policy.yaml\n    - --audit-log-path=/var/log/kubernetes/audit.log\n    - --audit-log-maxage=1|' /etc/kubernetes/manifests/kube-apiserver.yaml"
+docker exec cnpe-control-plane sh -c "grep -q 'name: audit' /etc/kubernetes/manifests/kube-apiserver.yaml || sed -i 's|  volumes:|  volumes:\n  - name: audit\n    hostPath:\n      path: /etc/kubernetes/audit\n      type: DirectoryOrCreate\n  - name: auditlog\n    hostPath:\n      path: /var/log/kubernetes\n      type: DirectoryOrCreate|' /etc/kubernetes/manifests/kube-apiserver.yaml"
+docker exec cnpe-control-plane sh -c "grep -q 'mountPath: /etc/kubernetes/audit' /etc/kubernetes/manifests/kube-apiserver.yaml || sed -i 's|    volumeMounts:|    volumeMounts:\n    - mountPath: /etc/kubernetes/audit\n      name: audit\n      readOnly: true\n    - mountPath: /var/log/kubernetes\n      name: auditlog|' /etc/kubernetes/manifests/kube-apiserver.yaml"
+sleep 90
+kubectl get --raw /readyz
+kubectl -n default run auditme --image=nginx:1.27-alpine --restart=Never
+kubectl -n default wait --for=condition=Ready pod/auditme --timeout=120s
+kubectl -n default exec auditme -- true
+kubectl create clusterrole audit-demo --verb=get --resource=pods
+kubectl get pods -n default --as dev-a || true
+sleep 10
+docker exec cnpe-control-plane sh -c "grep 'pods/exec' /var/log/kubernetes/audit.log | tail -1" | jq '{level, verb, uri: .requestURI, user: .user.username}'
+docker exec cnpe-control-plane sh -c "grep 'clusterroles' /var/log/kubernetes/audit.log | grep RequestResponse | tail -1" | jq '{level, verb, requestObject: .requestObject.rules}'
+docker exec cnpe-control-plane sh -c "grep impersonatedUser /var/log/kubernetes/audit.log | tail -1" | jq '{user: .user.username, impersonatedUser: .impersonatedUser.username, verb}'
+kubectl delete clusterrole audit-demo
+kubectl -n default delete pod auditme</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ docker exec cnpe-control-plane sh -c 'mkdir -p /etc/kubernetes/audit &amp;&amp; cat &gt; /etc/kubernetes/audit/policy.yaml &lt;&lt;EOF</b>
+<b>apiVersion: audit.k8s.io/v1</b>
+<b>kind: Policy</b>
+<b>omitStages: [RequestReceived]</b>
+<b>rules:</b>
+<b>  - level: Metadata</b>
+<b>    resources:</b>
+<b>      - group: ""</b>
+<b>        resources: [pods/exec, pods/portforward]</b>
+<b>  - level: RequestResponse</b>
+<b>    resources:</b>
+<b>      - group: rbac.authorization.k8s.io</b>
+<b>        resources: [roles, rolebindings, clusterroles, clusterrolebindings]</b>
+<b>  - level: Metadata</b>
+<b>EOF'</b>
+<b>docker exec cnpe-control-plane sh -c "grep -q audit-policy-file /etc/kubernetes/manifests/kube-apiserver.yaml || sed -i 's|- kube-apiserver|- kube-apiserver\n    - --audit-policy-file=/etc/kubernetes/audit/policy.yaml\n    - --audit-log-path=/var/log/kubernetes/audit.log\n    - --audit-log-maxage=1|' /etc/kubernetes/manifests/kube-apiserver.yaml"</b>
+<b>docker exec cnpe-control-plane sh -c "grep -q 'name: audit' /etc/kubernetes/manifests/kube-apiserver.yaml || sed -i 's|  volumes:|  volumes:\n  - name: audit\n    hostPath:\n      path: /etc/kubernetes/audit\n      type: DirectoryOrCreate\n  - name: auditlog\n    hostPath:\n      path: /var/log/kubernetes\n      type: DirectoryOrCreate|' /etc/kubernetes/manifests/kube-apiserver.yaml"</b>
+<b>docker exec cnpe-control-plane sh -c "grep -q 'mountPath: /etc/kubernetes/audit' /etc/kubernetes/manifests/kube-apiserver.yaml || sed -i 's|    volumeMounts:|    volumeMounts:\n    - mountPath: /etc/kubernetes/audit\n      name: audit\n      readOnly: true\n    - mountPath: /var/log/kubernetes\n      name: auditlog|' /etc/kubernetes/manifests/kube-apiserver.yaml"</b>
+<b>sleep 90</b>
+<b>kubectl get --raw /readyz</b>
+<b>kubectl -n default run auditme --image=nginx:1.27-alpine --restart=Never</b>
+<b>kubectl -n default wait --for=condition=Ready pod/auditme --timeout=120s</b>
+<b>kubectl -n default exec auditme -- true</b>
+<b>kubectl create clusterrole audit-demo --verb=get --resource=pods</b>
+<b>kubectl get pods -n default --as dev-a || true</b>
+<b>sleep 10</b>
+<b>docker exec cnpe-control-plane sh -c "grep 'pods/exec' /var/log/kubernetes/audit.log | tail -1" | jq '{level, verb, uri: .requestURI, user: .user.username}'</b>
+<b>docker exec cnpe-control-plane sh -c "grep 'clusterroles' /var/log/kubernetes/audit.log | grep RequestResponse | tail -1" | jq '{level, verb, requestObject: .requestObject.rules}'</b>
+<b>docker exec cnpe-control-plane sh -c "grep impersonatedUser /var/log/kubernetes/audit.log | tail -1" | jq '{user: .user.username, impersonatedUser: .impersonatedUser.username, verb}'</b>
+<b>kubectl delete clusterrole audit-demo</b>
+<b>kubectl -n default delete pod auditme</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the exec is recorded at Metadata with no body, the RBAC write is recorded at RequestResponse with the rules you submitted, and the impersonated request names both the real user and the one they acted as. Those three shapes are the whole audit policy vocabulary.</div>
+    </div>
+
+    <div class="exercise" data-title="Find a policy failure in the audit trail">
+      <p>A VAP running in Audit mode writes an annotation on the audit event rather than refusing the request. That annotation is the only evidence, which makes it the thing to query when someone asks "how many workloads would this policy have blocked".</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata: { name: audit-replicas }
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments"]
+  validations:
+    - expression: "object.spec.replicas &lt;= 1"
+      message: "more than one replica"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata: { name: audit-replicas-binding }
+spec:
+  policyName: audit-replicas
+  validationActions: [Audit]
+  matchResources:
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: default }
+EOF
+sleep 15
+kubectl -n default create deployment auditvap --image=nginx:1.27-alpine --replicas=3
+sleep 10
+docker exec cnpe-control-plane sh -c "grep validation_failure /var/log/kubernetes/audit.log | tail -1" | jq 'select(.annotations["validation.policy.admission.k8s.io/validation_failure"] != null) | {objectRef: .objectRef.name, failure: .annotations["validation.policy.admission.k8s.io/validation_failure"]}'
+kubectl -n default delete deployment auditvap
+kubectl delete validatingadmissionpolicybinding audit-replicas-binding
+kubectl delete validatingadmissionpolicy audit-replicas</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: admissionregistration.k8s.io/v1</b>
+<b>kind: ValidatingAdmissionPolicy</b>
+<b>metadata: { name: audit-replicas }</b>
+<b>spec:</b>
+<b>  failurePolicy: Fail</b>
+<b>  matchConstraints:</b>
+<b>    resourceRules:</b>
+<b>      - apiGroups: ["apps"]</b>
+<b>        apiVersions: ["v1"]</b>
+<b>        operations: ["CREATE", "UPDATE"]</b>
+<b>        resources: ["deployments"]</b>
+<b>  validations:</b>
+<b>    - expression: "object.spec.replicas &lt;= 1"</b>
+<b>      message: "more than one replica"</b>
+<b>---</b>
+<b>apiVersion: admissionregistration.k8s.io/v1</b>
+<b>kind: ValidatingAdmissionPolicyBinding</b>
+<b>metadata: { name: audit-replicas-binding }</b>
+<b>spec:</b>
+<b>  policyName: audit-replicas</b>
+<b>  validationActions: [Audit]</b>
+<b>  matchResources:</b>
+<b>    namespaceSelector:</b>
+<b>      matchLabels: { kubernetes.io/metadata.name: default }</b>
+<b>EOF</b>
+<b>$ sleep 15</b>
+<b>$ kubectl -n default create deployment auditvap --image=nginx:1.27-alpine --replicas=3</b>
+<b>$ sleep 10</b>
+<b>$ docker exec cnpe-control-plane sh -c "grep validation_failure /var/log/kubernetes/audit.log | tail -1" | jq 'select(.annotations["validation.policy.admission.k8s.io/validation_failure"] != null) | {objectRef: .objectRef.name, failure: .annotations["validation.policy.admission.k8s.io/validation_failure"]}'</b>
+<b>$ kubectl -n default delete deployment auditvap</b>
+<b>$ kubectl delete validatingadmissionpolicybinding audit-replicas-binding</b>
+<b>$ kubectl delete validatingadmissionpolicy audit-replicas</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the Deployment is created and the audit event carries an annotation naming the policy, the binding and your message. Say how you would turn that query into the report that justifies flipping the binding to Deny.</div>
+    </div>
+
+    <div class="exercise" data-title="Watch a shell open inside a container">
+      <p>Runtime detection is the layer under everything else on this page: it sees what happened, not what was requested. Falco is not installed by the lab, so this block installs it with the modern eBPF driver and removes it afterwards.</p>
+      <p>If the kernel will not load the probe, the install message is the finding and the exercise is still worth the attempt.</p>
+      <div class="cb" data-lang="bash"><pre><code>helm repo add falcosecurity https://falcosecurity.github.io/charts
+helm repo update falcosecurity
+helm upgrade --install falco falcosecurity/falco -n falco --create-namespace --set driver.kind=modern_ebpf --set tty=true --wait --timeout 5m
+kubectl -n falco rollout status ds/falco --timeout=300s
+kubectl -n default run shellme --image=nginx:1.27-alpine --restart=Never
+kubectl -n default wait --for=condition=Ready pod/shellme --timeout=120s
+kubectl -n default exec shellme -- sh -c 'id'
+sleep 20
+kubectl -n falco logs ds/falco --tail=50 | grep -i -m3 'Terminal shell'
+kubectl -n default delete pod shellme
+helm uninstall falco -n falco
+kubectl delete ns falco</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ helm repo add falcosecurity https://falcosecurity.github.io/charts</b>
+<b>$ helm repo update falcosecurity</b>
+<b>$ helm upgrade --install falco falcosecurity/falco -n falco --create-namespace --set driver.kind=modern_ebpf --set tty=true --wait --timeout 5m</b>
+<b>$ kubectl -n falco rollout status ds/falco --timeout=300s</b>
+<b>$ kubectl -n default run shellme --image=nginx:1.27-alpine --restart=Never</b>
+<b>$ kubectl -n default wait --for=condition=Ready pod/shellme --timeout=120s</b>
+<b>$ kubectl -n default exec shellme -- sh -c 'id'</b>
+<b>$ sleep 20</b>
+<b>$ kubectl -n falco logs ds/falco --tail=50 | grep -i -m3 'Terminal shell'</b>
+<b>$ kubectl -n default delete pod shellme</b>
+<b>$ helm uninstall falco -n falco</b>
+<b>$ kubectl delete ns falco</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the Falco log carries a <code>Terminal shell in container</code> notice naming the pod and the command. Say what this catches that admission control cannot, and give one example in the opposite direction.</div>
+    </div>
+
+    <div class="exercise" data-title="Two SBOMs of the same image">
+      <p>An SBOM is only useful if you can scan it and compare it. Produce one with each tool, feed it back to the scanner, and then suppress a finding with VEX so the exception is a document rather than a flag.</p>
+      <div class="cb" data-lang="bash"><pre><code>trivy image --format spdx-json --output /tmp/sbom-trivy.json ghcr.io/stefanprodan/podinfo:6.7.1
+jq '{name: .name, packages: (.packages | length)}' /tmp/sbom-trivy.json
+syft ghcr.io/stefanprodan/podinfo:6.7.1 -o spdx-json=/tmp/sbom-syft.json 2&gt;/dev/null || echo 'syft not installed; trivy sbom below uses the trivy output'
+trivy sbom /tmp/sbom-trivy.json --severity HIGH,CRITICAL | head -30
+trivy image --severity HIGH,CRITICAL --format json ghcr.io/stefanprodan/podinfo:6.7.1 | jq -r '[.Results[].Vulnerabilities // [] | .[].VulnerabilityID] | unique | .[0:3][]'
+cat &gt; /tmp/vex.json &lt;&lt;'EOF'
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://lab.local/vex/podinfo",
+  "author": "platform team",
+  "statements": [
+    {
+      "vulnerability": { "name": "CVE-0000-0000" },
+      "products": [{ "@id": "pkg:oci/podinfo" }],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path"
+    }
+  ]
+}
+EOF
+trivy image --vex /tmp/vex.json --severity HIGH,CRITICAL ghcr.io/stefanprodan/podinfo:6.7.1 | head -20</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ trivy image --format spdx-json --output /tmp/sbom-trivy.json ghcr.io/stefanprodan/podinfo:6.7.1</b>
+<b>$ jq '{name: .name, packages: (.packages | length)}' /tmp/sbom-trivy.json</b>
+<b>$ syft ghcr.io/stefanprodan/podinfo:6.7.1 -o spdx-json=/tmp/sbom-syft.json 2&gt;/dev/null || echo 'syft not installed; trivy sbom below uses the trivy output'</b>
+<b>$ trivy sbom /tmp/sbom-trivy.json --severity HIGH,CRITICAL | head -30</b>
+<b>$ trivy image --severity HIGH,CRITICAL --format json ghcr.io/stefanprodan/podinfo:6.7.1 | jq -r '[.Results[].Vulnerabilities // [] | .[].VulnerabilityID] | unique | .[0:3][]'</b>
+<b>$ cat &gt; /tmp/vex.json &lt;&lt;'EOF'</b>
+<b>{</b>
+<b>  "@context": "https://openvex.dev/ns/v0.2.0",</b>
+<b>  "@id": "https://lab.local/vex/podinfo",</b>
+<b>  "author": "platform team",</b>
+<b>  "statements": [</b>
+<b>    {</b>
+<b>      "vulnerability": { "name": "CVE-0000-0000" },</b>
+<b>      "products": [{ "@id": "pkg:oci/podinfo" }],</b>
+<b>      "status": "not_affected",</b>
+<b>      "justification": "vulnerable_code_not_in_execute_path"</b>
+<b>    }</b>
+<b>  ]</b>
+<b>}</b>
+<b>EOF</b>
+<b>$ trivy image --vex /tmp/vex.json --severity HIGH,CRITICAL ghcr.io/stefanprodan/podinfo:6.7.1 | head -20</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> both SBOMs list the same package set at roughly the same count, and the scanner accepts the SBOM as input. Put a real CVE id from the third command into the VEX file and the rerun drops it from the table with a note; that is the paper trail an auditor wants.</div>
+    </div>
+
+    <div class="exercise" data-title="Force a compliance report to refresh">
+      <p>A ClusterComplianceReport is generated on a schedule, so a stale timestamp means you are reading yesterday's answer. Changing the cron is the supported way to force a rerun, and the timestamp proves it happened.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get clustercompliancereport
+kubectl get clustercompliancereport cis -o jsonpath='{.status.updateTimestamp}{"\n"}'
+kubectl get clustercompliancereport cis -o jsonpath='{.spec.cron}{"\n"}'
+kubectl patch clustercompliancereport cis --type merge -p '{"spec":{"cron":"*/5 * * * *"}}'
+sleep 330
+kubectl get clustercompliancereport cis -o jsonpath='{.status.updateTimestamp}{"\n"}'
+kubectl get clustercompliancereport cis -o jsonpath='{.status.summary}' | jq
+kubectl patch clustercompliancereport cis --type merge -p '{"spec":{"cron":"0 */6 * * *"}}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get clustercompliancereport</b>
+<b>$ kubectl get clustercompliancereport cis -o jsonpath='{.status.updateTimestamp}{"\n"}'</b>
+<b>$ kubectl get clustercompliancereport cis -o jsonpath='{.spec.cron}{"\n"}'</b>
+<b>$ kubectl patch clustercompliancereport cis --type merge -p '{"spec":{"cron":"*/5 * * * *"}}'</b>
+<b>$ sleep 330</b>
+<b>$ kubectl get clustercompliancereport cis -o jsonpath='{.status.updateTimestamp}{"\n"}'</b>
+<b>$ kubectl get clustercompliancereport cis -o jsonpath='{.status.summary}' | jq</b>
+<b>$ kubectl patch clustercompliancereport cis --type merge -p '{"spec":{"cron":"0 */6 * * *"}}'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the timestamp moves and the summary counts fail and pass totals. Say what the report is actually checking and which of its controls a managed control plane would make inapplicable.</div>
+    </div>
+
+    <div class="exercise" data-title="Run kube-bench against the node">
+      <p>CIS benchmark output is the format compliance conversations happen in: a control id, a verdict, and a remediation. Run it once so the ids mean something when a task quotes one at you.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: batch/v1
+kind: Job
+metadata: { name: kube-bench, namespace: default }
+spec:
+  template:
+    spec:
+      hostPID: true
+      nodeSelector: { node-role.kubernetes.io/control-plane: "" }
+      tolerations:
+        - { key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }
+      containers:
+        - name: kube-bench
+          image: docker.io/aquasec/kube-bench:latest
+          command: ["kube-bench", "run", "--targets", "master"]
+          volumeMounts:
+            - { name: etc-kubernetes, mountPath: /etc/kubernetes, readOnly: true }
+            - { name: var-lib-etcd, mountPath: /var/lib/etcd, readOnly: true }
+      restartPolicy: Never
+      volumes:
+        - { name: etc-kubernetes, hostPath: { path: /etc/kubernetes } }
+        - { name: var-lib-etcd, hostPath: { path: /var/lib/etcd } }
+  backoffLimit: 0
+EOF
+kubectl wait --for=condition=complete job/kube-bench --timeout=300s || true
+kubectl logs job/kube-bench | grep -E '^\[(PASS|FAIL)\]' | head -10
+kubectl logs job/kube-bench | tail -20
+kubectl delete job kube-bench</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: batch/v1</b>
+<b>kind: Job</b>
+<b>metadata: { name: kube-bench, namespace: default }</b>
+<b>spec:</b>
+<b>  template:</b>
+<b>    spec:</b>
+<b>      hostPID: true</b>
+<b>      nodeSelector: { node-role.kubernetes.io/control-plane: "" }</b>
+<b>      tolerations:</b>
+<b>        - { key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }</b>
+<b>      containers:</b>
+<b>        - name: kube-bench</b>
+<b>          image: docker.io/aquasec/kube-bench:latest</b>
+<b>          command: ["kube-bench", "run", "--targets", "master"]</b>
+<b>          volumeMounts:</b>
+<b>            - { name: etc-kubernetes, mountPath: /etc/kubernetes, readOnly: true }</b>
+<b>            - { name: var-lib-etcd, mountPath: /var/lib/etcd, readOnly: true }</b>
+<b>      restartPolicy: Never</b>
+<b>      volumes:</b>
+<b>        - { name: etc-kubernetes, hostPath: { path: /etc/kubernetes } }</b>
+<b>        - { name: var-lib-etcd, hostPath: { path: /var/lib/etcd } }</b>
+<b>  backoffLimit: 0</b>
+<b>EOF</b>
+<b>$ kubectl wait --for=condition=complete job/kube-bench --timeout=300s || true</b>
+<b>$ kubectl logs job/kube-bench | grep -E '^\[(PASS|FAIL)\]' | head -10</b>
+<b>$ kubectl logs job/kube-bench | tail -20</b>
+<b>$ kubectl delete job kube-bench</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> you can quote one PASS and one FAIL with their control ids, and read the remediation text for the failure. Say which failures on a kind cluster are artefacts of kind rather than real findings; that judgement is the skill.</div>
+    </div>
+
   </div>
 </section>
 

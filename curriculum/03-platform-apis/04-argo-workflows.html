@@ -323,6 +323,549 @@ spec:
       <div class="verify"><b>verify:</b> a run with <code>team=Team_X</code> fails at check and creates nothing. Clean up the test tenants when done: <code>kubectl delete ns team-d team-e</code>.</div>
     </div>
 
+    <div class="exercise" data-title="Promote the workflow to a product">
+      <p>A bare Workflow is a script someone ran. A WorkflowTemplate is a thing with a name that other people can submit with their own parameters, which is the difference between automation and a platform API.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata: { name: provision-tenant, namespace: default }
+spec:
+  entrypoint: provision
+  serviceAccountName: provisioner
+  arguments: { parameters: [{ name: team, value: team-d }] }
+  templates:
+    - name: provision
+      dag:
+        tasks:
+          - name: namespace
+            template: make-ns
+          - name: quota
+            template: make-quota
+            dependencies: [namespace]
+    - name: make-ns
+      resource:
+        action: create
+        manifest: |
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{workflow.parameters.team}}"
+            labels: { tenant: "{{workflow.parameters.team}}" }
+    - name: make-quota
+      resource:
+        action: create
+        manifest: |
+          apiVersion: v1
+          kind: ResourceQuota
+          metadata:
+            name: default-quota
+            namespace: "{{workflow.parameters.team}}"
+          spec:
+            hard: { requests.cpu: "1", requests.memory: 2Gi, pods: "10" }
+EOF
+argo submit --from workflowtemplate/provision-tenant -p team=team-g --watch
+kubectl get ns team-g
+kubectl -n team-g get resourcequota default-quota</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: argoproj.io/v1alpha1</b>
+<b>kind: WorkflowTemplate</b>
+<b>metadata: { name: provision-tenant, namespace: default }</b>
+<b>spec:</b>
+<b>  entrypoint: provision</b>
+<b>  serviceAccountName: provisioner</b>
+<b>  arguments: { parameters: [{ name: team, value: team-d }] }</b>
+<b>  templates:</b>
+<b>    - name: provision</b>
+<b>      dag:</b>
+<b>        tasks:</b>
+<b>          - name: namespace</b>
+<b>            template: make-ns</b>
+<b>          - name: quota</b>
+<b>            template: make-quota</b>
+<b>            dependencies: [namespace]</b>
+<b>    - name: make-ns</b>
+<b>      resource:</b>
+<b>        action: create</b>
+<b>        manifest: |</b>
+<b>          apiVersion: v1</b>
+<b>          kind: Namespace</b>
+<b>          metadata:</b>
+<b>            name: "{{workflow.parameters.team}}"</b>
+<b>            labels: { tenant: "{{workflow.parameters.team}}" }</b>
+<b>    - name: make-quota</b>
+<b>      resource:</b>
+<b>        action: create</b>
+<b>        manifest: |</b>
+<b>          apiVersion: v1</b>
+<b>          kind: ResourceQuota</b>
+<b>          metadata:</b>
+<b>            name: default-quota</b>
+<b>            namespace: "{{workflow.parameters.team}}"</b>
+<b>          spec:</b>
+<b>            hard: { requests.cpu: "1", requests.memory: 2Gi, pods: "10" }</b>
+<b>EOF</b>
+<b>$ argo submit --from workflowtemplate/provision-tenant -p team=team-g --watch</b>
+<b>$ kubectl get ns team-g</b>
+<b>$ kubectl -n team-g get resourcequota default-quota</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the submit prints a live node tree that ends <code>Succeeded</code> with both resource nodes green, and the namespace and quota exist. Say what a developer needs to know to run this themselves: the template name and one parameter, nothing else.</div>
+    </div>
+
+    <div class="exercise" data-title="Retry until it gives up">
+      <p>A retry strategy turns one node into a parent with children, and the node tree shows every attempt. The backoff fields are the ones people guess wrong, so read them off a real run.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create -f - &lt;&lt;'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata: { generateName: retryer-, namespace: default }
+spec:
+  entrypoint: flaky
+  templates:
+    - name: flaky
+      retryStrategy:
+        limit: "2"
+        retryPolicy: OnFailure
+        backoff: { duration: "5s", factor: "2" }
+      container:
+        image: busybox:1.36
+        command: [sh, -c]
+        args: ["exit 1"]
+EOF
+sleep 90
+WF=$(kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}')
+kubectl get wf "$WF" -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, type, phase, message}'
+kubectl get wf "$WF" -o jsonpath='{.status.phase} {.status.message}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: argoproj.io/v1alpha1</b>
+<b>kind: Workflow</b>
+<b>metadata: { generateName: retryer-, namespace: default }</b>
+<b>spec:</b>
+<b>  entrypoint: flaky</b>
+<b>  templates:</b>
+<b>    - name: flaky</b>
+<b>      retryStrategy:</b>
+<b>        limit: "2"</b>
+<b>        retryPolicy: OnFailure</b>
+<b>        backoff: { duration: "5s", factor: "2" }</b>
+<b>      container:</b>
+<b>        image: busybox:1.36</b>
+<b>        command: [sh, -c]</b>
+<b>        args: ["exit 1"]</b>
+<b>EOF</b>
+<b>$ sleep 90</b>
+<b>$ WF=$(kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}')</b>
+<b>$ kubectl get wf "$WF" -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, type, phase, message}'</b>
+<b>$ kubectl get wf "$WF" -o jsonpath='{.status.phase} {.status.message}{"\n"}'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> there are three child nodes under one retry node, and the final message says there are no more retries left. <code>limit: 2</code> means two retries after the first attempt, not two attempts in total; that off-by-one is the thing to remember.</div>
+    </div>
+
+    <div class="exercise" data-title="Put a deadline on the work">
+      <p><code>activeDeadlineSeconds</code> is enforced by the pod, not by the controller, so the message you get back is Kubernetes' own. Recognise it, because it looks nothing like an Argo error.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create -f - &lt;&lt;'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata: { generateName: deadline-, namespace: default }
+spec:
+  entrypoint: slow
+  templates:
+    - name: slow
+      activeDeadlineSeconds: 10
+      container:
+        image: busybox:1.36
+        command: [sh, -c]
+        args: ["sleep 60"]
+EOF
+sleep 60
+WF=$(kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}')
+kubectl get wf "$WF" -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, phase, message}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: argoproj.io/v1alpha1</b>
+<b>kind: Workflow</b>
+<b>metadata: { generateName: deadline-, namespace: default }</b>
+<b>spec:</b>
+<b>  entrypoint: slow</b>
+<b>  templates:</b>
+<b>    - name: slow</b>
+<b>      activeDeadlineSeconds: 10</b>
+<b>      container:</b>
+<b>        image: busybox:1.36</b>
+<b>        command: [sh, -c]</b>
+<b>        args: ["sleep 60"]</b>
+<b>EOF</b>
+<b>$ sleep 60</b>
+<b>$ WF=$(kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}')</b>
+<b>$ kubectl get wf "$WF" -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, phase, message}'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the node message says the pod was active on the node longer than the specified deadline. Say where you would put the same limit to cap the whole workflow rather than one template.</div>
+    </div>
+
+    <div class="exercise" data-title="Two workflows, one mutex">
+      <p>Self-service means two people submit at once. A mutex serialises them without either one failing, and the waiting workflow says what it is waiting for, which is the message your users will screenshot at you.</p>
+      <div class="cb" data-lang="bash"><pre><code>for i in 1 2; do kubectl create -f - &lt;&lt;'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata: { generateName: locked-, namespace: default }
+spec:
+  entrypoint: work
+  synchronization:
+    mutexes: [{ name: lab-lock }]
+  templates:
+    - name: work
+      container:
+        image: busybox:1.36
+        command: [sh, -c]
+        args: ["sleep 60"]
+EOF
+done
+sleep 15
+kubectl get wf -l workflows.argoproj.io/phase --sort-by=.metadata.creationTimestamp | tail -3
+kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{range .items[-2:]}{.metadata.name} {.status.phase}{"\n"}{end}'
+kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.message}{"\n"}'
+kubectl -n argo get cm workflow-controller-configmap -o jsonpath='{.data}' | jq</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ for i in 1 2; do kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: argoproj.io/v1alpha1</b>
+<b>kind: Workflow</b>
+<b>metadata: { generateName: locked-, namespace: default }</b>
+<b>spec:</b>
+<b>  entrypoint: work</b>
+<b>  synchronization:</b>
+<b>    mutexes: [{ name: lab-lock }]</b>
+<b>  templates:</b>
+<b>    - name: work</b>
+<b>      container:</b>
+<b>        image: busybox:1.36</b>
+<b>        command: [sh, -c]</b>
+<b>        args: ["sleep 60"]</b>
+<b>EOF</b>
+<b>$ done</b>
+<b>$ sleep 15</b>
+<b>$ kubectl get wf -l workflows.argoproj.io/phase --sort-by=.metadata.creationTimestamp | tail -3</b>
+<b>$ kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{range .items[-2:]}{.metadata.name} {.status.phase}{"\n"}{end}'</b>
+<b>$ kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.message}{"\n"}'</b>
+<b>$ kubectl -n argo get cm workflow-controller-configmap -o jsonpath='{.data}' | jq</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> one workflow runs and the other is Pending with a message naming the lock. Say what changes if you use a semaphore with a count of two instead, and where that count is stored.</div>
+    </div>
+
+    <div class="exercise" data-title="An exit handler that always runs">
+      <p><code>onExit</code> is the finally block: it sees the workflow's final status and runs whether the entrypoint succeeded or not. The interesting part is that one kind of cancellation skips it.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create -f - &lt;&lt;'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata: { generateName: exiter-, namespace: default }
+spec:
+  entrypoint: work
+  onExit: report
+  templates:
+    - name: work
+      container:
+        image: busybox:1.36
+        command: [sh, -c]
+        args: ["exit 1"]
+    - name: report
+      container:
+        image: busybox:1.36
+        command: [sh, -c]
+        args: ["echo workflow finished as {{workflow.status}}"]
+EOF
+sleep 75
+WF=$(kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}')
+argo logs "$WF" | tail -5
+kubectl create -f - &lt;&lt;'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata: { name: stoppable, namespace: default }
+spec:
+  entrypoint: work
+  onExit: report
+  templates:
+    - name: work
+      container:
+        image: busybox:1.36
+        command: [sh, -c]
+        args: ["sleep 600"]
+    - name: report
+      container:
+        image: busybox:1.36
+        command: [sh, -c]
+        args: ["echo exit handler ran after {{workflow.status}}"]
+EOF
+sleep 20
+argo stop stoppable
+sleep 45
+kubectl get wf stoppable -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, phase}'
+kubectl delete wf stoppable</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: argoproj.io/v1alpha1</b>
+<b>kind: Workflow</b>
+<b>metadata: { generateName: exiter-, namespace: default }</b>
+<b>spec:</b>
+<b>  entrypoint: work</b>
+<b>  onExit: report</b>
+<b>  templates:</b>
+<b>    - name: work</b>
+<b>      container:</b>
+<b>        image: busybox:1.36</b>
+<b>        command: [sh, -c]</b>
+<b>        args: ["exit 1"]</b>
+<b>    - name: report</b>
+<b>      container:</b>
+<b>        image: busybox:1.36</b>
+<b>        command: [sh, -c]</b>
+<b>        args: ["echo workflow finished as {{workflow.status}}"]</b>
+<b>EOF</b>
+<b>$ sleep 75</b>
+<b>$ WF=$(kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}')</b>
+<b>$ argo logs "$WF" | tail -5</b>
+<b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: argoproj.io/v1alpha1</b>
+<b>kind: Workflow</b>
+<b>metadata: { name: stoppable, namespace: default }</b>
+<b>spec:</b>
+<b>  entrypoint: work</b>
+<b>  onExit: report</b>
+<b>  templates:</b>
+<b>    - name: work</b>
+<b>      container:</b>
+<b>        image: busybox:1.36</b>
+<b>        command: [sh, -c]</b>
+<b>        args: ["sleep 600"]</b>
+<b>    - name: report</b>
+<b>      container:</b>
+<b>        image: busybox:1.36</b>
+<b>        command: [sh, -c]</b>
+<b>        args: ["echo exit handler ran after {{workflow.status}}"]</b>
+<b>EOF</b>
+<b>$ sleep 20</b>
+<b>$ argo stop stoppable</b>
+<b>$ sleep 45</b>
+<b>$ kubectl get wf stoppable -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, phase}'</b>
+<b>$ kubectl delete wf stoppable</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the failing workflow's exit handler logs the status <code>Failed</code>, and <code>argo stop</code> leaves an exit-handler node behind while <code>argo terminate</code> would not. Say which of the two you want wired to a UI button and why.</div>
+    </div>
+
+    <div class="exercise" data-title="A schedule that refuses to overlap">
+      <p>A CronWorkflow that fires faster than its work finishes is a self-service outage waiting to happen. <code>concurrencyPolicy: Forbid</code> makes the controller skip the tick instead, and it records that it did.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create -f - &lt;&lt;'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata: { name: every-minute, namespace: default }
+spec:
+  schedules: ["* * * * *"]
+  concurrencyPolicy: Forbid
+  workflowSpec:
+    entrypoint: work
+    templates:
+      - name: work
+        container:
+          image: busybox:1.36
+          command: [sh, -c]
+          args: ["sleep 90"]
+EOF
+sleep 210
+argo cron get every-minute
+kubectl get wf -l workflows.argoproj.io/cron-workflow=every-minute
+kubectl get cronwf every-minute -o jsonpath='{.status}' | jq
+kubectl delete cronwf every-minute
+kubectl delete wf -l workflows.argoproj.io/cron-workflow=every-minute</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: argoproj.io/v1alpha1</b>
+<b>kind: CronWorkflow</b>
+<b>metadata: { name: every-minute, namespace: default }</b>
+<b>spec:</b>
+<b>  schedules: ["* * * * *"]</b>
+<b>  concurrencyPolicy: Forbid</b>
+<b>  workflowSpec:</b>
+<b>    entrypoint: work</b>
+<b>    templates:</b>
+<b>      - name: work</b>
+<b>        container:</b>
+<b>          image: busybox:1.36</b>
+<b>          command: [sh, -c]</b>
+<b>          args: ["sleep 90"]</b>
+<b>EOF</b>
+<b>$ sleep 210</b>
+<b>$ argo cron get every-minute</b>
+<b>$ kubectl get wf -l workflows.argoproj.io/cron-workflow=every-minute</b>
+<b>$ kubectl get cronwf every-minute -o jsonpath='{.status}' | jq</b>
+<b>$ kubectl delete cronwf every-minute</b>
+<b>$ kubectl delete wf -l workflows.argoproj.io/cron-workflow=every-minute</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> fewer workflows exist than minutes elapsed, and the CronWorkflow's status records the skipped ticks. Say what <code>Replace</code> and <code>Allow</code> would each have done to the same schedule.</div>
+    </div>
+
+    <div class="exercise" data-title="Reference a template from the wrong scope">
+      <p>A ClusterWorkflowTemplate and a WorkflowTemplate are different kinds with the same shape. Referencing one as the other produces a not-found error that sends people looking for a typo that is not there.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: ClusterWorkflowTemplate
+metadata: { name: shared-say }
+spec:
+  templates:
+    - name: say
+      container:
+        image: busybox:1.36
+        command: [sh, -c]
+        args: ["echo from the cluster-scoped template"]
+EOF
+kubectl create -f - &lt;&lt;'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata: { generateName: wrongscope-, namespace: default }
+spec:
+  entrypoint: main
+  templates:
+    - name: main
+      steps:
+        - - name: call
+            templateRef: { name: shared-say, template: say }
+EOF
+sleep 30
+kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.message}{"\n"}'
+kubectl create -f - &lt;&lt;'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata: { generateName: rightscope-, namespace: default }
+spec:
+  entrypoint: main
+  templates:
+    - name: main
+      steps:
+        - - name: call
+            templateRef: { name: shared-say, template: say, clusterScope: true }
+EOF
+sleep 45
+argo logs @latest | tail -3
+kubectl delete clusterworkflowtemplate shared-say</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: argoproj.io/v1alpha1</b>
+<b>kind: ClusterWorkflowTemplate</b>
+<b>metadata: { name: shared-say }</b>
+<b>spec:</b>
+<b>  templates:</b>
+<b>    - name: say</b>
+<b>      container:</b>
+<b>        image: busybox:1.36</b>
+<b>        command: [sh, -c]</b>
+<b>        args: ["echo from the cluster-scoped template"]</b>
+<b>EOF</b>
+<b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: argoproj.io/v1alpha1</b>
+<b>kind: Workflow</b>
+<b>metadata: { generateName: wrongscope-, namespace: default }</b>
+<b>spec:</b>
+<b>  entrypoint: main</b>
+<b>  templates:</b>
+<b>    - name: main</b>
+<b>      steps:</b>
+<b>        - - name: call</b>
+<b>            templateRef: { name: shared-say, template: say }</b>
+<b>EOF</b>
+<b>$ sleep 30</b>
+<b>$ kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.message}{"\n"}'</b>
+<b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: argoproj.io/v1alpha1</b>
+<b>kind: Workflow</b>
+<b>metadata: { generateName: rightscope-, namespace: default }</b>
+<b>spec:</b>
+<b>  entrypoint: main</b>
+<b>  templates:</b>
+<b>    - name: main</b>
+<b>      steps:</b>
+<b>        - - name: call</b>
+<b>            templateRef: { name: shared-say, template: say, clusterScope: true }</b>
+<b>EOF</b>
+<b>$ sleep 45</b>
+<b>$ argo logs @latest | tail -3</b>
+<b>$ kubectl delete clusterworkflowtemplate shared-say</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the first run fails saying the WorkflowTemplate was not found, and one boolean fixes it. Note that the error names the namespaced kind even though the object exists at cluster scope; that wording is the trap.</div>
+    </div>
+
+    <div class="exercise" data-title="Forbid bare workflows">
+      <p>A platform that lets anyone submit arbitrary workflow specs has no guardrails at all. <code>templateReferencing: Strict</code> means every submission must go through a reviewed template, and a ServiceAccount override is refused too.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n argo get cm workflow-controller-configmap -o jsonpath='{.data.workflowRestrictions}{"\n"}'
+kubectl -n argo patch cm workflow-controller-configmap --type merge -p '{"data":{"workflowRestrictions":"templateReferencing: Strict"}}'
+kubectl -n argo rollout restart deploy workflow-controller
+kubectl -n argo rollout status deploy workflow-controller --timeout=120s
+kubectl create -f - &lt;&lt;'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata: { generateName: bare-, namespace: default }
+spec:
+  entrypoint: work
+  templates:
+    - name: work
+      container: { image: busybox:1.36, command: [sh, -c], args: ["echo hi"] }
+EOF
+kubectl create -f - &lt;&lt;'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata: { generateName: fromtmpl-, namespace: default }
+spec:
+  serviceAccountName: default
+  workflowTemplateRef: { name: provision-tenant }
+  arguments: { parameters: [{ name: team, value: team-h }] }
+EOF
+kubectl -n argo patch cm workflow-controller-configmap --type json -p '[{"op":"remove","path":"/data/workflowRestrictions"}]'
+kubectl -n argo rollout restart deploy workflow-controller
+kubectl -n argo rollout status deploy workflow-controller --timeout=120s</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n argo get cm workflow-controller-configmap -o jsonpath='{.data.workflowRestrictions}{"\n"}'</b>
+<b>$ kubectl -n argo patch cm workflow-controller-configmap --type merge -p '{"data":{"workflowRestrictions":"templateReferencing: Strict"}}'</b>
+<b>$ kubectl -n argo rollout restart deploy workflow-controller</b>
+<b>$ kubectl -n argo rollout status deploy workflow-controller --timeout=120s</b>
+<b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: argoproj.io/v1alpha1</b>
+<b>kind: Workflow</b>
+<b>metadata: { generateName: bare-, namespace: default }</b>
+<b>spec:</b>
+<b>  entrypoint: work</b>
+<b>  templates:</b>
+<b>    - name: work</b>
+<b>      container: { image: busybox:1.36, command: [sh, -c], args: ["echo hi"] }</b>
+<b>EOF</b>
+<b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: argoproj.io/v1alpha1</b>
+<b>kind: Workflow</b>
+<b>metadata: { generateName: fromtmpl-, namespace: default }</b>
+<b>spec:</b>
+<b>  serviceAccountName: default</b>
+<b>  workflowTemplateRef: { name: provision-tenant }</b>
+<b>  arguments: { parameters: [{ name: team, value: team-h }] }</b>
+<b>EOF</b>
+<b>$ kubectl -n argo patch cm workflow-controller-configmap --type json -p '[{"op":"remove","path":"/data/workflowRestrictions"}]'</b>
+<b>$ kubectl -n argo rollout restart deploy workflow-controller</b>
+<b>$ kubectl -n argo rollout status deploy workflow-controller --timeout=120s</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the bare workflow is rejected for not referencing a template, and the second is rejected for overriding a field the template owns. Both messages name the restriction, which is what makes it a usable guardrail rather than a mystery.</div>
+    </div>
+
+    <div class="exercise" data-title="Submit through the API with a token">
+      <p>The UI is a client. A portal, a CI job or a chatbot is another, and all of them submit the same JSON with a ServiceAccount token. Do it once by hand so the integration is not a black box.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n argo port-forward svc/argo-workflows-server 2746:2746 &amp;
+sleep 5
+kubectl -n argo create sa submitter --dry-run=client -o yaml | kubectl apply -f -
+kubectl create clusterrolebinding submitter --clusterrole=admin --serviceaccount=argo:submitter --dry-run=client -o yaml | kubectl apply -f -
+TOKEN=$(kubectl -n argo create token submitter --duration=10m)
+cat &gt; /tmp/submit.json &lt;&lt;'EOF'
+{"namespace":"default","serverDryRun":false,"workflow":{"metadata":{"generateName":"via-api-","namespace":"default"},"spec":{"entrypoint":"work","templates":[{"name":"work","container":{"image":"busybox:1.36","command":["sh","-c"],"args":["echo submitted over http"]}}]}}}
+EOF
+curl -s -o /tmp/submit-response.json -w '%{http_code}\n' -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d @/tmp/submit.json http://localhost:2746/api/v1/workflows/default
+jq '{name: .metadata.name, phase: .status.phase}' /tmp/submit-response.json
+kubectl get wf | grep via-api
+kill %1
+kubectl delete clusterrolebinding submitter
+kubectl -n argo delete sa submitter</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n argo port-forward svc/argo-workflows-server 2746:2746 &amp;</b>
+<b>$ sleep 5</b>
+<b>$ kubectl -n argo create sa submitter --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl create clusterrolebinding submitter --clusterrole=admin --serviceaccount=argo:submitter --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ TOKEN=$(kubectl -n argo create token submitter --duration=10m)</b>
+<b>$ cat &gt; /tmp/submit.json &lt;&lt;'EOF'</b>
+<b>{"namespace":"default","serverDryRun":false,"workflow":{"metadata":{"generateName":"via-api-","namespace":"default"},"spec":{"entrypoint":"work","templates":[{"name":"work","container":{"image":"busybox:1.36","command":["sh","-c"],"args":["echo submitted over http"]}}]}}}</b>
+<b>EOF</b>
+<b>$ curl -s -o /tmp/submit-response.json -w '%{http_code}\n' -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d @/tmp/submit.json http://localhost:2746/api/v1/workflows/default</b>
+<b>$ jq '{name: .metadata.name, phase: .status.phase}' /tmp/submit-response.json</b>
+<b>$ kubectl get wf | grep via-api</b>
+<b>$ kill %1</b>
+<b>$ kubectl delete clusterrolebinding submitter</b>
+<b>$ kubectl -n argo delete sa submitter</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the call returns 200 with the created workflow's name, and the workflow appears in <code>kubectl get wf</code>. Say what you would bind that ServiceAccount to in a real portal instead of <code>admin</code>.</div>
+    </div>
+
   </div>
 </section>
 

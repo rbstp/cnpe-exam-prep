@@ -402,6 +402,165 @@ pod "dnsprobe" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> both names resolve from both namespaces, and you can point at the exact policy rule that permits it.</div>
     </div>
 
+    <div class="exercise" data-title="Read the Gateway schema offline">
+      <p>There is no browser in the exam, and the Gateway API field names are the kind you half-remember. The CRDs carry their own documentation, so <code>kubectl explain</code> is the reference, and it is correct for the channel this cluster actually installed.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl explain gateway.spec.listeners.allowedRoutes --recursive
+kubectl explain httproute.spec.rules.backendRefs</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl explain gateway.spec.listeners.allowedRoutes --recursive</b>
+<b>$ kubectl explain httproute.spec.rules.backendRefs</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> <code>allowedRoutes.namespaces.from</code> documents <code>All</code>, <code>Selector</code> and <code>Same</code>, and <code>backendRefs</code> lists <code>weight</code> next to <code>name</code>, <code>namespace</code> and <code>port</code>. A field you expected and cannot find is a field the standard channel does not ship.</div>
+    </div>
+
+    <div class="exercise" data-title="Cross-namespace backendRef needs a grant">
+      <p>A route in one namespace may not send traffic to a Service in another until the owner of that Service says so. The permission travels the other way from the reference, which is the part people get wrong under time pressure.</p>
+      <p>Run this on <code>kind-mesh</code>: the main cluster has the CRDs but no controller, so the route's status stays empty and there is nothing to read.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl --context kind-mesh create ns team-a --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -
+kubectl --context kind-mesh create ns team-b --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -
+kubectl --context kind-mesh -n team-b create deployment web --image=nginx:1.27-alpine
+kubectl --context kind-mesh -n team-b expose deployment web --port=80
+kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata: { name: web, namespace: team-a }
+spec:
+  gatewayClassName: istio
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes: { namespaces: { from: Same } }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: { name: demo, namespace: team-a }
+spec:
+  parentRefs: [{ name: web }]
+  rules:
+    - backendRefs: [{ name: web, namespace: team-b, port: 80 }]
+EOF
+sleep 10
+kubectl --context kind-mesh -n team-a get httproute demo -o jsonpath='{.status.parents[*].conditions}' | jq '.[] | {type, status, reason}'
+kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata: { name: from-team-a, namespace: team-b }
+spec:
+  from: [{ group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: team-a }]
+  to: [{ group: "", kind: Service }]
+EOF
+sleep 10
+kubectl --context kind-mesh -n team-a get httproute demo -o jsonpath='{.status.parents[*].conditions}' | jq '.[] | {type, status, reason}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl --context kind-mesh create ns team-a --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -</b>
+<b>$ kubectl --context kind-mesh create ns team-b --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -</b>
+<b>$ kubectl --context kind-mesh -n team-b create deployment web --image=nginx:1.27-alpine</b>
+<b>$ kubectl --context kind-mesh -n team-b expose deployment web --port=80</b>
+<b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: gateway.networking.k8s.io/v1</b>
+<b>kind: Gateway</b>
+<b>metadata: { name: web, namespace: team-a }</b>
+<b>spec:</b>
+<b>  gatewayClassName: istio</b>
+<b>  listeners:</b>
+<b>    - name: http</b>
+<b>      port: 80</b>
+<b>      protocol: HTTP</b>
+<b>      allowedRoutes: { namespaces: { from: Same } }</b>
+<b>---</b>
+<b>apiVersion: gateway.networking.k8s.io/v1</b>
+<b>kind: HTTPRoute</b>
+<b>metadata: { name: demo, namespace: team-a }</b>
+<b>spec:</b>
+<b>  parentRefs: [{ name: web }]</b>
+<b>  rules:</b>
+<b>    - backendRefs: [{ name: web, namespace: team-b, port: 80 }]</b>
+<b>EOF</b>
+<b>$ sleep 10</b>
+<b>$ kubectl --context kind-mesh -n team-a get httproute demo -o jsonpath='{.status.parents[*].conditions}' | jq '.[] | {type, status, reason}'</b>
+<b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: gateway.networking.k8s.io/v1beta1</b>
+<b>kind: ReferenceGrant</b>
+<b>metadata: { name: from-team-a, namespace: team-b }</b>
+<b>spec:</b>
+<b>  from: [{ group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: team-a }]</b>
+<b>  to: [{ group: "", kind: Service }]</b>
+<b>EOF</b>
+<b>$ sleep 10</b>
+<b>$ kubectl --context kind-mesh -n team-a get httproute demo -o jsonpath='{.status.parents[*].conditions}' | jq '.[] | {type, status, reason}'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> <code>ResolvedRefs</code> is False with reason <code>RefNotPermitted</code> before the grant and True after it, with nothing about the route itself changed. The grant lives with the backend, not with the route.</div>
+    </div>
+
+    <div class="exercise" data-title="Add a stub domain to CoreDNS">
+      <p>Every cluster you inherit has a Corefile, and half the DNS incidents you will be handed are a plugin block someone added to it. Read the stock one, add a stub domain, and watch the reload land.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n kube-system get cm coredns -o jsonpath='{.data.Corefile}' | tee /tmp/Corefile.orig
+printf '%s\nconsul.local:53 {\n    errors\n    cache 30\n    forward . 10.150.0.1\n}\n' "$(cat /tmp/Corefile.orig)" &gt; /tmp/Corefile.new
+kubectl -n kube-system create configmap coredns --from-file=Corefile=/tmp/Corefile.new --dry-run=client -o yaml | kubectl -n kube-system apply -f -
+sleep 120
+kubectl -n kube-system logs deploy/coredns --tail=10
+kubectl -n kube-system create configmap coredns --from-file=Corefile=/tmp/Corefile.orig --dry-run=client -o yaml | kubectl -n kube-system apply -f -</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n kube-system get cm coredns -o jsonpath='{.data.Corefile}' | tee /tmp/Corefile.orig</b>
+<b>$ printf '%s\nconsul.local:53 {\n    errors\n    cache 30\n    forward . 10.150.0.1\n}\n' "$(cat /tmp/Corefile.orig)" &gt; /tmp/Corefile.new</b>
+<b>$ kubectl -n kube-system create configmap coredns --from-file=Corefile=/tmp/Corefile.new --dry-run=client -o yaml | kubectl -n kube-system apply -f -</b>
+<b>$ sleep 120</b>
+<b>$ kubectl -n kube-system logs deploy/coredns --tail=10</b>
+<b>$ kubectl -n kube-system create configmap coredns --from-file=Corefile=/tmp/Corefile.orig --dry-run=client -o yaml | kubectl -n kube-system apply -f -</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the log shows a reload line naming the new plugin set, and resolution of everything else is unaffected. Break the block on purpose (drop a brace) and the same log line becomes a parse error with the offending line number; that error is the one you will be shown in a task.</div>
+    </div>
+
+    <div class="exercise" data-title="The hostNetwork DNS trap">
+      <p>A pod on the host network gets the node's resolver unless you say otherwise, so cluster names stop resolving and nothing in the pod spec looks wrong. It is a two-word fix and a favourite of exam authors.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl run hn --image=busybox:1.28 --restart=Never --overrides='{"spec":{"hostNetwork":true}}' -- nslookup kubernetes.default
+sleep 15
+kubectl logs hn
+kubectl run hn2 --image=busybox:1.28 --restart=Never --overrides='{"spec":{"hostNetwork":true,"dnsPolicy":"ClusterFirstWithHostNet"}}' -- nslookup kubernetes.default
+sleep 15
+kubectl logs hn2
+kubectl delete pod hn hn2</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl run hn --image=busybox:1.28 --restart=Never --overrides='{"spec":{"hostNetwork":true}}' -- nslookup kubernetes.default</b>
+<b>$ sleep 15</b>
+<b>$ kubectl logs hn</b>
+<b>$ kubectl run hn2 --image=busybox:1.28 --restart=Never --overrides='{"spec":{"hostNetwork":true,"dnsPolicy":"ClusterFirstWithHostNet"}}' -- nslookup kubernetes.default</b>
+<b>$ sleep 15</b>
+<b>$ kubectl logs hn2</b>
+<b>$ kubectl delete pod hn hn2</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the first pod cannot resolve <code>kubernetes.default</code> and the second can, with <code>dnsPolicy: ClusterFirstWithHostNet</code> the only difference between them.</div>
+    </div>
+
+    <div class="exercise" data-title="Ask the datapath what it replaced">
+      <p>Cilium may or may not be doing kube-proxy's job, and the answer changes what you look at when a Service stops working. Ask the agent rather than guessing from the pod list.</p>
+      <div class="cb" data-lang="bash"><pre><code>cilium status | grep -i -A2 kubeproxy
+kubectl -n kube-system get cm cilium-config -o jsonpath='{.data.kube-proxy-replacement}{"\n"}'
+kubectl -n kube-system get ds -l k8s-app=kube-proxy</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ cilium status | grep -i -A2 kubeproxy</b>
+<b>$ kubectl -n kube-system get cm cilium-config -o jsonpath='{.data.kube-proxy-replacement}{"\n"}'</b>
+<b>$ kubectl -n kube-system get ds -l k8s-app=kube-proxy</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the agent's own report and the ConfigMap key agree, and you can say whether iptables or eBPF is programming Service VIPs on this cluster.</div>
+    </div>
+
+    <div class="exercise" data-title="Ask for a same-zone preference">
+      <p><code>trafficDistribution</code> is a hint, not a rule: the field is accepted anywhere, but the EndpointSlice controller only writes zone hints when the endpoints actually carry zones. On kind the nodes have no zone label until you add one, which makes the mechanism easy to see.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create deployment demo --image=nginx:1.27-alpine --replicas=4
+kubectl expose deployment demo --port=80
+kubectl patch svc demo -p '{"spec":{"trafficDistribution":"PreferSameZone"}}'
+kubectl get svc demo -o jsonpath='{.spec.trafficDistribution}{"\n"}'
+kubectl get endpointslices -l kubernetes.io/service-name=demo -o yaml | grep -B2 -A3 hints
+kubectl label node cnpe-worker topology.kubernetes.io/zone=a --overwrite
+kubectl label node cnpe-worker2 topology.kubernetes.io/zone=b --overwrite
+kubectl rollout restart deployment demo
+kubectl rollout status deployment demo
+kubectl get endpointslices -l kubernetes.io/service-name=demo -o yaml | grep -B2 -A3 hints</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create deployment demo --image=nginx:1.27-alpine --replicas=4</b>
+<b>$ kubectl expose deployment demo --port=80</b>
+<b>$ kubectl patch svc demo -p '{"spec":{"trafficDistribution":"PreferSameZone"}}'</b>
+<b>$ kubectl get svc demo -o jsonpath='{.spec.trafficDistribution}{"\n"}'</b>
+<b>$ kubectl get endpointslices -l kubernetes.io/service-name=demo -o yaml | grep -B2 -A3 hints</b>
+<b>$ kubectl label node cnpe-worker topology.kubernetes.io/zone=a --overwrite</b>
+<b>$ kubectl label node cnpe-worker2 topology.kubernetes.io/zone=b --overwrite</b>
+<b>$ kubectl rollout restart deployment demo</b>
+<b>$ kubectl rollout status deployment demo</b>
+<b>$ kubectl get endpointslices -l kubernetes.io/service-name=demo -o yaml | grep -B2 -A3 hints</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> hints appear only once the nodes carry <code>topology.kubernetes.io/zone</code>, and each endpoint's hint names its own zone. Clean up the labels afterwards so the scheduling exercises still behave.</div>
+    </div>
+
   </div>
 </section>
 

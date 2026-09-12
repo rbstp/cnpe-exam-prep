@@ -275,6 +275,150 @@ apps   Deployment  team-a     staging-demo  Unknown  Healthy        deployment.a
       <div class="verify"><b>verify:</b> run it until the bucketing step takes under a minute.</div>
     </div>
 
+    <div class="exercise" data-title="One policy, two engines, two error strings">
+      <p>An admission policy that the manifests violate stops both engines, but each reports it in its own vocabulary. Learn both strings, because the task will show you one of them and expect you to name the cause.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata: { name: require-owner }
+spec:
+  validationFailureAction: Enforce
+  rules:
+    - name: require-owner-label
+      match:
+        any:
+          - resources:
+              kinds: [Deployment]
+              namespaces: [team-a, flux-demo]
+      validate:
+        message: "every Deployment needs an owner label"
+        pattern:
+          metadata:
+            labels:
+              owner: "?*"
+EOF
+sleep 10
+argocd app sync demo-staging --timeout 60 || true
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{.status.operationState.message}{"\n"}'
+flux reconcile kustomization demo-flux --with-source || true
+kubectl -n flux-system get kustomization demo-flux -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
+kubectl delete clusterpolicy require-owner
+argocd app sync demo-staging --timeout 120</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: kyverno.io/v1</b>
+<b>kind: ClusterPolicy</b>
+<b>metadata: { name: require-owner }</b>
+<b>spec:</b>
+<b>  validationFailureAction: Enforce</b>
+<b>  rules:</b>
+<b>    - name: require-owner-label</b>
+<b>      match:</b>
+<b>        any:</b>
+<b>          - resources:</b>
+<b>              kinds: [Deployment]</b>
+<b>              namespaces: [team-a, flux-demo]</b>
+<b>      validate:</b>
+<b>        message: "every Deployment needs an owner label"</b>
+<b>        pattern:</b>
+<b>          metadata:</b>
+<b>            labels:</b>
+<b>              owner: "?*"</b>
+<b>EOF</b>
+<b>$ sleep 10</b>
+<b>$ argocd app sync demo-staging --timeout 60 || true</b>
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{.status.operationState.message}{"\n"}'</b>
+<b>$ flux reconcile kustomization demo-flux --with-source || true</b>
+<b>$ kubectl -n flux-system get kustomization demo-flux -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+<b>$ kubectl delete clusterpolicy require-owner</b>
+<b>$ argocd app sync demo-staging --timeout 120</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> Argo CD reports the operation <code>Failed</code> quoting the admission webhook by name, and Flux reports Ready False with a reconciliation failure quoting the same webhook. Same cause, two vocabularies; be able to translate either into "a policy refused the manifest".</div>
+    </div>
+
+    <div class="exercise" data-title="Take the webhook's backend away">
+      <p>A webhook with <code>failurePolicy: Fail</code> and no running backend does not fail open, it fails everything. This is the outage that looks like the API server broke, and it is one scale command away in either direction.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get validatingwebhookconfiguration -o custom-columns=NAME:.metadata.name,POLICY:.webhooks[*].failurePolicy | grep -i kyverno
+kubectl -n kyverno scale deploy kyverno-admission-controller --replicas=0
+kubectl -n kyverno rollout status deploy kyverno-admission-controller --timeout=60s || true
+argocd app sync demo-staging --timeout 60 || true
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.message}{"\n"}'
+kubectl -n team-a create configmap probe --from-literal=a=1 || true
+kubectl -n kyverno scale deploy kyverno-admission-controller --replicas=1
+kubectl -n kyverno rollout status deploy kyverno-admission-controller --timeout=180s
+kubectl -n team-a delete configmap probe --ignore-not-found
+argocd app sync demo-staging --timeout 120</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get validatingwebhookconfiguration -o custom-columns=NAME:.metadata.name,POLICY:.webhooks[*].failurePolicy | grep -i kyverno</b>
+<b>$ kubectl -n kyverno scale deploy kyverno-admission-controller --replicas=0</b>
+<b>$ kubectl -n kyverno rollout status deploy kyverno-admission-controller --timeout=60s || true</b>
+<b>$ argocd app sync demo-staging --timeout 60 || true</b>
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.message}{"\n"}'</b>
+<b>$ kubectl -n team-a create configmap probe --from-literal=a=1 || true</b>
+<b>$ kubectl -n kyverno scale deploy kyverno-admission-controller --replicas=1</b>
+<b>$ kubectl -n kyverno rollout status deploy kyverno-admission-controller --timeout=180s</b>
+<b>$ kubectl -n team-a delete configmap probe --ignore-not-found</b>
+<b>$ argocd app sync demo-staging --timeout 120</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the message is about failing to call the webhook with no endpoints available, and it appears for plain kubectl writes as well as for the sync. Say which single field would have turned this outage into a gap in policy coverage instead.</div>
+    </div>
+
+    <div class="exercise" data-title="The webhook that refuses dry run">
+      <p>Flux server-side applies with a dry run first. A webhook that declares side effects it cannot undo makes that dry run illegal, and the reconcile fails for a reason that has nothing to do with your manifests.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata: { name: no-dry-run }
+webhooks:
+  - name: no-dry-run.lab.local
+    admissionReviewVersions: [v1]
+    sideEffects: Unknown
+    failurePolicy: Ignore
+    clientConfig:
+      url: https://127.0.0.1:9999/validate
+    rules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments"]
+        scope: Namespaced
+EOF
+flux reconcile kustomization demo-flux --with-source || true
+kubectl -n flux-system get kustomization demo-flux -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
+kubectl delete validatingwebhookconfiguration no-dry-run
+flux reconcile kustomization demo-flux --with-source</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: admissionregistration.k8s.io/v1</b>
+<b>kind: ValidatingWebhookConfiguration</b>
+<b>metadata: { name: no-dry-run }</b>
+<b>webhooks:</b>
+<b>  - name: no-dry-run.lab.local</b>
+<b>    admissionReviewVersions: [v1]</b>
+<b>    sideEffects: Unknown</b>
+<b>    failurePolicy: Ignore</b>
+<b>    clientConfig:</b>
+<b>      url: https://127.0.0.1:9999/validate</b>
+<b>    rules:</b>
+<b>      - apiGroups: ["apps"]</b>
+<b>        apiVersions: ["v1"]</b>
+<b>        operations: ["CREATE", "UPDATE"]</b>
+<b>        resources: ["deployments"]</b>
+<b>        scope: Namespaced</b>
+<b>EOF</b>
+<b>$ flux reconcile kustomization demo-flux --with-source || true</b>
+<b>$ kubectl -n flux-system get kustomization demo-flux -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+<b>$ kubectl delete validatingwebhookconfiguration no-dry-run</b>
+<b>$ flux reconcile kustomization demo-flux --with-source</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the message says the webhook does not support dry run, and it names the webhook. Say which value of <code>sideEffects</code> a well-written validating webhook declares, and why that value makes the dry run legal.</div>
+    </div>
+
+    <div class="exercise" data-title="Attach a condition type to each bucket">
+      <p>Every failure on this page shows up as an Application condition, and the type is a faster triage signal than the message. Run through the four buckets and write the type next to each one.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd get app demo-staging -o jsonpath='{range .status.conditions[*]}{.type}: {.message}{"\n"}{end}'
+kubectl -n argocd get app -o custom-columns=NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status,CONDITIONS:.status.conditions[*].type
+kubectl explain application.status.conditions.type</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n argocd get app demo-staging -o jsonpath='{range .status.conditions[*]}{.type}: {.message}{"\n"}{end}'</b>
+<b>$ kubectl -n argocd get app -o custom-columns=NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status,CONDITIONS:.status.conditions[*].type</b>
+<b>$ kubectl explain application.status.conditions.type</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> you can name which condition type appears for a repo the project forbids, for a manifest admission refuses, and for a controller whose credentials are wrong. Three buckets, three types, and only one of them is about the cluster.</div>
+    </div>
+
   </div>
 </section>
 

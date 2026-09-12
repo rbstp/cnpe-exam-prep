@@ -461,6 +461,400 @@ rollout "demo" image updated</code></pre></details></div>
       <div class="verify"><b>verify:</b> the Canary reaches Succeeded (<code>kubectl get canary -A</code>), and while it runs, <code>kubectl get virtualservice podinfo -o yaml</code> shows Flagger moving real route weights between primary and canary. If the Canary sticks in Progressing, its events name the failing check.</div>
     </div>
 
+    <div class="exercise" data-title="An inconclusive analysis pauses, it does not fail">
+      <p>A metric with neither a success nor a failure condition cannot decide anything, and Argo Rollouts treats that honestly: the run is Inconclusive and the rollout waits for a human. Not degraded, not promoted. Know the third outcome.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata: { name: undecided, namespace: team-a }
+spec:
+  metrics:
+    - name: undecided
+      interval: 15s
+      count: 1
+      provider:
+        job:
+          spec:
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: check
+                    image: busybox:1.36
+                    command: ["sh", "-c", "echo no verdict here"]
+            backoffLimit: 0
+EOF
+kubectl -n team-a patch rollout demo --type merge -p '{"spec":{"strategy":{"canary":{"analysis":{"templates":[{"templateName":"undecided"}],"startingStep":0,"args":null}}}}}'
+kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.26-alpine -n team-a
+sleep 90
+kubectl -n team-a get analysisrun -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{"\n"}{end}'
+kubectl argo rollouts status demo -n team-a --timeout 10s || true
+kubectl argo rollouts get rollout demo -n team-a --no-color | head -20
+kubectl argo rollouts promote demo -n team-a
+kubectl argo rollouts status demo -n team-a --timeout 120s</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: argoproj.io/v1alpha1</b>
+<b>kind: AnalysisTemplate</b>
+<b>metadata: { name: undecided, namespace: team-a }</b>
+<b>spec:</b>
+<b>  metrics:</b>
+<b>    - name: undecided</b>
+<b>      interval: 15s</b>
+<b>      count: 1</b>
+<b>      provider:</b>
+<b>        job:</b>
+<b>          spec:</b>
+<b>            template:</b>
+<b>              spec:</b>
+<b>                restartPolicy: Never</b>
+<b>                containers:</b>
+<b>                  - name: check</b>
+<b>                    image: busybox:1.36</b>
+<b>                    command: ["sh", "-c", "echo no verdict here"]</b>
+<b>            backoffLimit: 0</b>
+<b>EOF</b>
+<b>$ kubectl -n team-a patch rollout demo --type merge -p '{"spec":{"strategy":{"canary":{"analysis":{"templates":[{"templateName":"undecided"}],"startingStep":0,"args":null}}}}}'</b>
+<b>$ kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.26-alpine -n team-a</b>
+<b>$ sleep 90</b>
+<b>$ kubectl -n team-a get analysisrun -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{"\n"}{end}'</b>
+<b>$ kubectl argo rollouts status demo -n team-a --timeout 10s || true</b>
+<b>$ kubectl argo rollouts get rollout demo -n team-a --no-color | head -20</b>
+<b>$ kubectl argo rollouts promote demo -n team-a</b>
+<b>$ kubectl argo rollouts status demo -n team-a --timeout 120s</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the AnalysisRun ends <code>Inconclusive</code>, the Rollout is paused rather than aborted, and a promote is what moves it. Restore the original analysis from <code>examples/rollouts/canary.yaml</code> before the next exercise.</div>
+    </div>
+
+    <div class="exercise" data-title="Count the failures before the abort">
+      <p><code>failureLimit</code> is how much bad news the analysis tolerates before it aborts the rollout. The default is zero, which means the first failed measurement is fatal, and that surprises people who set <code>count: 5</code> expecting a vote.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata: { name: always-fails, namespace: team-a }
+spec:
+  metrics:
+    - name: always-fails
+      interval: 15s
+      count: 5
+      failureLimit: 0
+      successCondition: result == 'never'
+      provider:
+        job:
+          spec:
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: check
+                    image: busybox:1.36
+                    command: ["sh", "-c", "exit 1"]
+            backoffLimit: 0
+EOF
+kubectl -n team-a patch rollout demo --type merge -p '{"spec":{"strategy":{"canary":{"analysis":{"templates":[{"templateName":"always-fails"}],"startingStep":0,"args":null}}}}}'
+kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.25-alpine -n team-a
+sleep 75
+kubectl -n team-a get analysisrun -o jsonpath='{.items[-1:].status.metricResults[0]}' | jq
+kubectl argo rollouts undo demo -n team-a
+kubectl patch analysistemplate always-fails -n team-a --type merge -p '{"spec":{"metrics":[{"name":"always-fails","interval":"15s","count":5,"failureLimit":2,"successCondition":"result == \"never\"","provider":{"job":{"spec":{"backoffLimit":0,"template":{"spec":{"restartPolicy":"Never","containers":[{"name":"check","image":"busybox:1.36","command":["sh","-c","exit 1"]}]}}}}}}]}}'
+kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.24-alpine -n team-a
+sleep 120
+kubectl -n team-a get analysisrun -o jsonpath='{.items[-1:].status.metricResults[0]}' | jq
+kubectl argo rollouts undo demo -n team-a</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: argoproj.io/v1alpha1</b>
+<b>kind: AnalysisTemplate</b>
+<b>metadata: { name: always-fails, namespace: team-a }</b>
+<b>spec:</b>
+<b>  metrics:</b>
+<b>    - name: always-fails</b>
+<b>      interval: 15s</b>
+<b>      count: 5</b>
+<b>      failureLimit: 0</b>
+<b>      successCondition: result == 'never'</b>
+<b>      provider:</b>
+<b>        job:</b>
+<b>          spec:</b>
+<b>            template:</b>
+<b>              spec:</b>
+<b>                restartPolicy: Never</b>
+<b>                containers:</b>
+<b>                  - name: check</b>
+<b>                    image: busybox:1.36</b>
+<b>                    command: ["sh", "-c", "exit 1"]</b>
+<b>            backoffLimit: 0</b>
+<b>EOF</b>
+<b>$ kubectl -n team-a patch rollout demo --type merge -p '{"spec":{"strategy":{"canary":{"analysis":{"templates":[{"templateName":"always-fails"}],"startingStep":0,"args":null}}}}}'</b>
+<b>$ kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.25-alpine -n team-a</b>
+<b>$ sleep 75</b>
+<b>$ kubectl -n team-a get analysisrun -o jsonpath='{.items[-1:].status.metricResults[0]}' | jq</b>
+<b>$ kubectl argo rollouts undo demo -n team-a</b>
+<b>$ kubectl patch analysistemplate always-fails -n team-a --type merge -p '{"spec":{"metrics":[{"name":"always-fails","interval":"15s","count":5,"failureLimit":2,"successCondition":"result == \"never\"","provider":{"job":{"spec":{"backoffLimit":0,"template":{"spec":{"restartPolicy":"Never","containers":[{"name":"check","image":"busybox:1.36","command":["sh","-c","exit 1"]}]}}}}}}]}}'</b>
+<b>$ kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.24-alpine -n team-a</b>
+<b>$ sleep 120</b>
+<b>$ kubectl -n team-a get analysisrun -o jsonpath='{.items[-1:].status.metricResults[0]}' | jq</b>
+<b>$ kubectl argo rollouts undo demo -n team-a</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the first run records one failure and aborts; the second records three before it does. <code>count</code> is how many measurements you asked for, <code>failureLimit</code> is how many you will tolerate, and only the second one aborts anything.</div>
+    </div>
+
+    <div class="exercise" data-title="Preview at one replica">
+      <p>Blue-green keeps a whole second stack alive, which is the expensive part. <code>previewReplicaCount</code> makes the preview cheap until promotion, and <code>autoPromotionSeconds</code> decides how long you have to look at it.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata: { name: bg, namespace: team-a }
+spec:
+  replicas: 4
+  selector: { matchLabels: { app: bg } }
+  template:
+    metadata: { labels: { app: bg } }
+    spec:
+      containers:
+        - name: web
+          image: ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine
+          ports: [{ containerPort: 8080 }]
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+  strategy:
+    blueGreen:
+      activeService: bg-active
+      previewService: bg-preview
+      previewReplicaCount: 1
+      autoPromotionSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata: { name: bg-active, namespace: team-a }
+spec: { selector: { app: bg }, ports: [{ port: 80, targetPort: 8080 }] }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: bg-preview, namespace: team-a }
+spec: { selector: { app: bg }, ports: [{ port: 80, targetPort: 8080 }] }
+EOF
+kubectl argo rollouts status bg -n team-a --timeout 180s
+kubectl argo rollouts set image bg web=ghcr.io/nginxinc/nginx-unprivileged:1.26-alpine -n team-a
+sleep 15
+kubectl -n team-a get rs -l app=bg -o custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,READY:.status.readyReplicas
+sleep 45
+kubectl -n team-a get rs -l app=bg -o custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,READY:.status.readyReplicas
+kubectl -n team-a delete rollout bg
+kubectl -n team-a delete svc bg-active bg-preview</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: argoproj.io/v1alpha1</b>
+<b>kind: Rollout</b>
+<b>metadata: { name: bg, namespace: team-a }</b>
+<b>spec:</b>
+<b>  replicas: 4</b>
+<b>  selector: { matchLabels: { app: bg } }</b>
+<b>  template:</b>
+<b>    metadata: { labels: { app: bg } }</b>
+<b>    spec:</b>
+<b>      containers:</b>
+<b>        - name: web</b>
+<b>          image: ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine</b>
+<b>          ports: [{ containerPort: 8080 }]</b>
+<b>          resources:</b>
+<b>            requests: { cpu: 10m, memory: 32Mi }</b>
+<b>  strategy:</b>
+<b>    blueGreen:</b>
+<b>      activeService: bg-active</b>
+<b>      previewService: bg-preview</b>
+<b>      previewReplicaCount: 1</b>
+<b>      autoPromotionSeconds: 30</b>
+<b>---</b>
+<b>apiVersion: v1</b>
+<b>kind: Service</b>
+<b>metadata: { name: bg-active, namespace: team-a }</b>
+<b>spec: { selector: { app: bg }, ports: [{ port: 80, targetPort: 8080 }] }</b>
+<b>---</b>
+<b>apiVersion: v1</b>
+<b>kind: Service</b>
+<b>metadata: { name: bg-preview, namespace: team-a }</b>
+<b>spec: { selector: { app: bg }, ports: [{ port: 80, targetPort: 8080 }] }</b>
+<b>EOF</b>
+<b>$ kubectl argo rollouts status bg -n team-a --timeout 180s</b>
+<b>$ kubectl argo rollouts set image bg web=ghcr.io/nginxinc/nginx-unprivileged:1.26-alpine -n team-a</b>
+<b>$ sleep 15</b>
+<b>$ kubectl -n team-a get rs -l app=bg -o custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,READY:.status.readyReplicas</b>
+<b>$ sleep 45</b>
+<b>$ kubectl -n team-a get rs -l app=bg -o custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,READY:.status.readyReplicas</b>
+<b>$ kubectl -n team-a delete rollout bg</b>
+<b>$ kubectl -n team-a delete svc bg-active bg-preview</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the new ReplicaSet sits at one replica while the old one still serves four, then scales to four and takes the active Service after the promotion window. Say what <code>previewReplicaCount</code> costs you in confidence in exchange for the saving.</div>
+    </div>
+
+    <div class="exercise" data-title="Route by header to a canary at zero weight">
+      <p>Weight sends a slice of everyone's traffic to the new version. A header route sends all of one person's, which is how you let a tester see the canary before any customer does. It needs a mesh, so this one is on <code>kind-mesh</code>.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata: { name: hdr, namespace: default }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: hdr } }
+  template:
+    metadata: { labels: { app: hdr } }
+    spec:
+      containers:
+        - name: web
+          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          ports: [{ containerPort: 9898 }]
+  strategy:
+    canary:
+      canaryService: hdr-canary
+      stableService: hdr-stable
+      trafficRouting:
+        managedRoutes: [{ name: header-route }]
+        istio:
+          virtualService:
+            name: hdr
+            routes: [primary]
+      steps:
+        - setCanaryScale: { weight: 25 }
+        - setHeaderRoute:
+            name: header-route
+            match:
+              - headerName: x-canary
+                headerValue: { exact: "true" }
+        - pause: {}
+EOF
+kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: Service
+metadata: { name: hdr-canary, namespace: default }
+spec: { selector: { app: hdr }, ports: [{ port: 80, targetPort: 9898 }] }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: hdr-stable, namespace: default }
+spec: { selector: { app: hdr }, ports: [{ port: 80, targetPort: 9898 }] }
+---
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata: { name: hdr, namespace: default }
+spec:
+  hosts: [hdr-stable]
+  http:
+    - name: primary
+      route:
+        - destination: { host: hdr-stable }
+          weight: 100
+        - destination: { host: hdr-canary }
+          weight: 0
+EOF
+kubectl --context kind-mesh argo rollouts status hdr --timeout 180s || true
+kubectl --context kind-mesh argo rollouts set image hdr web=ghcr.io/stefanprodan/podinfo:6.7.0
+sleep 45
+kubectl --context kind-mesh get virtualservice hdr -o yaml | sed -n '/http:/,$p'
+kubectl --context kind-mesh argo rollouts abort hdr
+kubectl --context kind-mesh delete rollout hdr
+kubectl --context kind-mesh delete svc hdr-canary hdr-stable
+kubectl --context kind-mesh delete virtualservice hdr</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: argoproj.io/v1alpha1</b>
+<b>kind: Rollout</b>
+<b>metadata: { name: hdr, namespace: default }</b>
+<b>spec:</b>
+<b>  replicas: 2</b>
+<b>  selector: { matchLabels: { app: hdr } }</b>
+<b>  template:</b>
+<b>    metadata: { labels: { app: hdr } }</b>
+<b>    spec:</b>
+<b>      containers:</b>
+<b>        - name: web</b>
+<b>          image: ghcr.io/stefanprodan/podinfo:6.7.1</b>
+<b>          ports: [{ containerPort: 9898 }]</b>
+<b>  strategy:</b>
+<b>    canary:</b>
+<b>      canaryService: hdr-canary</b>
+<b>      stableService: hdr-stable</b>
+<b>      trafficRouting:</b>
+<b>        managedRoutes: [{ name: header-route }]</b>
+<b>        istio:</b>
+<b>          virtualService:</b>
+<b>            name: hdr</b>
+<b>            routes: [primary]</b>
+<b>      steps:</b>
+<b>        - setCanaryScale: { weight: 25 }</b>
+<b>        - setHeaderRoute:</b>
+<b>            name: header-route</b>
+<b>            match:</b>
+<b>              - headerName: x-canary</b>
+<b>                headerValue: { exact: "true" }</b>
+<b>        - pause: {}</b>
+<b>EOF</b>
+<b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: Service</b>
+<b>metadata: { name: hdr-canary, namespace: default }</b>
+<b>spec: { selector: { app: hdr }, ports: [{ port: 80, targetPort: 9898 }] }</b>
+<b>---</b>
+<b>apiVersion: v1</b>
+<b>kind: Service</b>
+<b>metadata: { name: hdr-stable, namespace: default }</b>
+<b>spec: { selector: { app: hdr }, ports: [{ port: 80, targetPort: 9898 }] }</b>
+<b>---</b>
+<b>apiVersion: networking.istio.io/v1</b>
+<b>kind: VirtualService</b>
+<b>metadata: { name: hdr, namespace: default }</b>
+<b>spec:</b>
+<b>  hosts: [hdr-stable]</b>
+<b>  http:</b>
+<b>    - name: primary</b>
+<b>      route:</b>
+<b>        - destination: { host: hdr-stable }</b>
+<b>          weight: 100</b>
+<b>        - destination: { host: hdr-canary }</b>
+<b>          weight: 0</b>
+<b>EOF</b>
+<b>$ kubectl --context kind-mesh argo rollouts status hdr --timeout 180s || true</b>
+<b>$ kubectl --context kind-mesh argo rollouts set image hdr web=ghcr.io/stefanprodan/podinfo:6.7.0</b>
+<b>$ sleep 45</b>
+<b>$ kubectl --context kind-mesh get virtualservice hdr -o yaml | sed -n '/http:/,$p'</b>
+<b>$ kubectl --context kind-mesh argo rollouts abort hdr</b>
+<b>$ kubectl --context kind-mesh delete rollout hdr</b>
+<b>$ kubectl --context kind-mesh delete svc hdr-canary hdr-stable</b>
+<b>$ kubectl --context kind-mesh delete virtualservice hdr</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the controller has written a second HTTP route into the VirtualService, above the weighted one, matching the header and sending it to the canary destination. The weighted route is still 0/100, which is the point: nobody else is affected.</div>
+    </div>
+
+    <div class="exercise" data-title="A/B iterations instead of weights">
+      <p>Flagger can run the same analysis without shifting any weight: match a header, run a fixed number of iterations, then promote. The events are the difference, and with <code>provider: kubernetes</code> it needs no mesh at all.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.spec.analysis}' | jq
+kubectl --context kind-mesh -n test patch canary podinfo --type merge -p '{"spec":{"analysis":{"interval":"15s","iterations":3,"threshold":2,"match":[{"headers":{"x-canary":{"regex":"^insider$"}}}]}}}'
+kubectl --context kind-mesh -n test set image deploy/podinfo podinfod=ghcr.io/stefanprodan/podinfo:6.7.0
+sleep 180
+kubectl --context kind-mesh -n test describe canary podinfo | sed -n '/Events/,$p'
+kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.status.phase} {.status.failedChecks}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.spec.analysis}' | jq</b>
+<b>$ kubectl --context kind-mesh -n test patch canary podinfo --type merge -p '{"spec":{"analysis":{"interval":"15s","iterations":3,"threshold":2,"match":[{"headers":{"x-canary":{"regex":"^insider$"}}}]}}}'</b>
+<b>$ kubectl --context kind-mesh -n test set image deploy/podinfo podinfod=ghcr.io/stefanprodan/podinfo:6.7.0</b>
+<b>$ sleep 180</b>
+<b>$ kubectl --context kind-mesh -n test describe canary podinfo | sed -n '/Events/,$p'</b>
+<b>$ kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.status.phase} {.status.failedChecks}{"\n"}'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the events walk <code>Advance podinfo.test canary iteration 1/3</code> rather than a weight ladder, then promote. Say which of the two shapes you would pick for a change that cannot be judged by error rate, such as a new checkout page.</div>
+    </div>
+
+    <div class="exercise" data-title="Let a Deployment give up">
+      <p>Before any of this tooling, a plain Deployment already has a clock: <code>progressDeadlineSeconds</code>. When it expires the rollout stops advancing and says so in a condition, and nothing rolls back on its own.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create deployment stuck --image=nginx:1.27-alpine
+kubectl patch deployment stuck -p '{"spec":{"progressDeadlineSeconds":60}}'
+kubectl set image deployment/stuck nginx=kind-registry:5000/does-not-exist:nope
+kubectl rollout status deployment/stuck || true
+kubectl get deployment stuck -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
+kubectl rollout undo deployment/stuck
+kubectl rollout status deployment/stuck
+kubectl delete deployment stuck</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create deployment stuck --image=nginx:1.27-alpine</b>
+<b>$ kubectl patch deployment stuck -p '{"spec":{"progressDeadlineSeconds":60}}'</b>
+<b>$ kubectl set image deployment/stuck nginx=kind-registry:5000/does-not-exist:nope</b>
+<b>$ kubectl rollout status deployment/stuck || true</b>
+<b>$ kubectl get deployment stuck -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+<b>$ kubectl rollout undo deployment/stuck</b>
+<b>$ kubectl rollout status deployment/stuck</b>
+<b>$ kubectl delete deployment stuck</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> <code>kubectl rollout status</code> exits non-zero quoting the progress deadline, and the Progressing condition is False with reason <code>ProgressDeadlineExceeded</code>. The old pods are still serving the whole time; say why that is the correct default.</div>
+    </div>
+
   </div>
 </section>
 

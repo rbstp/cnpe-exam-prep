@@ -353,6 +353,64 @@ platform	main@sha1:c7cb9a1e	False    	True 	stored artifact for revision 'main@s
       <div class="verify"><b>verify:</b> hold that thought for the drift-revert exercise in 2.2, where the same edit gets reverted in seconds.</div>
     </div>
 
+    <div class="exercise" data-title="Publish config as an OCI artifact">
+      <p>Git is the usual source, not the only one. Flux treats an OCI artifact as a first-class source, which is how teams ship a pinned, signed bundle instead of a moving branch. The lab registry is enough to do the whole loop.</p>
+      <div class="cb" data-lang="bash"><pre><code>flux push artifact oci://localhost:5001/platform-config:$(git rev-parse --short HEAD) \
+  --path ./examples/demo-app/base \
+  --source $(git remote get-url origin) \
+  --revision main@sha1:$(git rev-parse HEAD)
+flux create source oci demo-oci \
+  --url oci://kind-registry:5000/platform-config \
+  --tag $(git rev-parse --short HEAD) \
+  --insecure
+flux get sources oci demo-oci
+kubectl -n flux-system get ocirepository demo-oci -o jsonpath='{.status.artifact.revision}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ flux push artifact oci://localhost:5001/platform-config:$(git rev-parse --short HEAD) \</b>
+<b>    --path ./examples/demo-app/base \</b>
+<b>    --source $(git remote get-url origin) \</b>
+<b>    --revision main@sha1:$(git rev-parse HEAD)</b>
+<b>$ flux create source oci demo-oci \</b>
+<b>    --url oci://kind-registry:5000/platform-config \</b>
+<b>    --tag $(git rev-parse --short HEAD) \</b>
+<b>    --insecure</b>
+<b>$ flux get sources oci demo-oci</b>
+<b>$ kubectl -n flux-system get ocirepository demo-oci -o jsonpath='{.status.artifact.revision}{"\n"}'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the OCI source reports Ready with an artifact revision that carries the git sha you pushed. Say what this buys over a branch: the revision cannot move under you, and the registry can enforce who published it.</div>
+    </div>
+
+    <div class="exercise" data-title="List what each engine is watching">
+      <p>Before you debug either engine, know what it has been told to look at. The two answers live in completely different places: a labelled Secret for Argo CD, a set of source objects for Flux.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd get secret -l argocd.argoproj.io/secret-type=repository -o name
+kubectl -n argocd get secret -l argocd.argoproj.io/secret-type=repository -o jsonpath='{range .items[*]}{.data.url}{"\n"}{end}' | base64 -d
+flux get sources all -A</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n argocd get secret -l argocd.argoproj.io/secret-type=repository -o name</b>
+<b>$ kubectl -n argocd get secret -l argocd.argoproj.io/secret-type=repository -o jsonpath='{range .items[*]}{.data.url}{"\n"}{end}' | base64 -d</b>
+<b>$ flux get sources all -A</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> both lists name the same Gitea repo, reached by two different mechanisms. If a task says "the engine cannot see the repo", this is the first command, not the last.</div>
+    </div>
+
+    <div class="exercise" data-title="Look for the Helm release that is not there">
+      <p>Argo CD renders a chart and applies the manifests; there is no Helm release object afterwards. Flux's HelmRelease runs Helm properly and leaves one. The difference decides whether <code>helm rollback</code> is even available to you.</p>
+      <div class="cb" data-lang="bash"><pre><code>helm list -A
+kubectl get secret -A -l owner=helm -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name | head -20
+kubectl -n flux-demo get helmrelease 2&gt;/dev/null || echo 'no HelmRelease yet: do the 2.3 HelmRelease exercise first'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ helm list -A</b>
+<b>$ kubectl get secret -A -l owner=helm -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name | head -20</b>
+<b>$ kubectl -n flux-demo get helmrelease 2&gt;/dev/null || echo 'no HelmRelease yet: do the 2.3 HelmRelease exercise first'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the charts Argo CD deployed are absent from <code>helm list</code> while anything Flux installed through a HelmRelease is present. State what you would use instead of <code>helm rollback</code> on the Argo CD side.</div>
+    </div>
+
+    <div class="exercise" data-title="Find the tracking id">
+      <p>Argo CD has to recognise its own objects on a cluster full of other people's. Since 3.x it does that with an annotation rather than a label, which matters the moment you copy a manifest between applications and it starts fighting for ownership.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.application\.resourceTrackingMethod}{"\n"}'
+kubectl -n team-a get deploy staging-demo -o jsonpath='{.metadata.annotations}' | jq 'with_entries(select(.key | startswith("argocd")))'
+kubectl -n team-a get deploy staging-demo -o jsonpath='{.metadata.labels}' | jq</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.application\.resourceTrackingMethod}{"\n"}'</b>
+<b>$ kubectl -n team-a get deploy staging-demo -o jsonpath='{.metadata.annotations}' | jq 'with_entries(select(.key | startswith("argocd")))'</b>
+<b>$ kubectl -n team-a get deploy staging-demo -o jsonpath='{.metadata.labels}' | jq</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the annotation names the application, the group/kind and the destination namespace in one string. Be able to say what happens to an object that carries a tracking id for an application that no longer exists.</div>
+    </div>
+
   </div>
 </section>
 

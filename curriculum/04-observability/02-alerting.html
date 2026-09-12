@@ -239,6 +239,272 @@ prometheusrule.monitoring.coreos.com/curriculum-drill created</code></pre></deta
       <div class="verify"><b>verify:</b> either the payload arrives, or you can name the selector on the Alertmanager object that would have to change. Clean up: delete the PrometheusRule; the silence expires on its own.</div>
     </div>
 
+    <div class="exercise" data-title="Mute a window without silencing a thing">
+      <p>A silence is a manual action with an end time. A mute time interval is policy: this route does not page on weekends, forever. Tasks ask for the second and people reach for the first.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata: { name: quiet-hours, namespace: default, labels: { release: prometheus } }
+spec:
+  route:
+    groupBy: [alertname]
+    receiver: blackhole
+    muteTimeIntervals: [always-now]
+  receivers:
+    - name: blackhole
+  muteTimeIntervals:
+    - name: always-now
+      timeIntervals:
+        - times:
+            - { startTime: "00:00", endTime: "24:00" }
+EOF
+sleep 45
+kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | sed -n '/mute_time_intervals/,/^[a-z]/p'
+kubectl -n monitoring exec sts/alertmanager-prometheus-kube-prometheus-alertmanager -c alertmanager -- sh -c 'amtool config routes test --config.file=/etc/alertmanager/config_out/alertmanager.env.yaml alertname=TooManyExamplePods severity=warning namespace=default'
+kubectl -n default delete alertmanagerconfig quiet-hours</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: monitoring.coreos.com/v1alpha1</b>
+<b>kind: AlertmanagerConfig</b>
+<b>metadata: { name: quiet-hours, namespace: default, labels: { release: prometheus } }</b>
+<b>spec:</b>
+<b>  route:</b>
+<b>    groupBy: [alertname]</b>
+<b>    receiver: blackhole</b>
+<b>    muteTimeIntervals: [always-now]</b>
+<b>  receivers:</b>
+<b>    - name: blackhole</b>
+<b>  muteTimeIntervals:</b>
+<b>    - name: always-now</b>
+<b>      timeIntervals:</b>
+<b>        - times:</b>
+<b>            - { startTime: "00:00", endTime: "24:00" }</b>
+<b>EOF</b>
+<b>$ sleep 45</b>
+<b>$ kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | sed -n '/mute_time_intervals/,/^[a-z]/p'</b>
+<b>$ kubectl -n monitoring exec sts/alertmanager-prometheus-kube-prometheus-alertmanager -c alertmanager -- sh -c 'amtool config routes test --config.file=/etc/alertmanager/config_out/alertmanager.env.yaml alertname=TooManyExamplePods severity=warning namespace=default'</b>
+<b>$ kubectl -n default delete alertmanagerconfig quiet-hours</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the rendered config contains your interval and the route that references it, and <code>amtool config routes test</code> names the receiver a matching alert would land on. Say why testing the rendered config beats waiting for the alert.</div>
+    </div>
+
+    <div class="exercise" data-title="Inhibit the noise under a bigger alarm">
+      <p>When the cluster is on fire you want one page, not forty. An inhibition rule suppresses warnings while a related critical is firing, matched on a shared label, and getting that <code>equal</code> list right is the entire skill.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata: { name: inhibit-demo, namespace: default, labels: { release: prometheus } }
+spec:
+  route:
+    groupBy: [alertname]
+    receiver: blackhole
+  receivers:
+    - name: blackhole
+  inhibitRules:
+    - sourceMatch:
+        - { name: alertname, value: Watchdog }
+      targetMatch:
+        - { name: severity, value: warning }
+      equal: [namespace]
+EOF
+sleep 45
+kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | sed -n '/inhibit_rules/,/^[a-z]/p'
+kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-alertmanager 9093:9093 &amp;
+sleep 5
+curl -s localhost:9093/api/v2/alerts | jq '[.[] | {alertname: .labels.alertname, state: .status.state, inhibitedBy: .status.inhibitedBy}]'
+kill %1
+kubectl -n default delete alertmanagerconfig inhibit-demo</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: monitoring.coreos.com/v1alpha1</b>
+<b>kind: AlertmanagerConfig</b>
+<b>metadata: { name: inhibit-demo, namespace: default, labels: { release: prometheus } }</b>
+<b>spec:</b>
+<b>  route:</b>
+<b>    groupBy: [alertname]</b>
+<b>    receiver: blackhole</b>
+<b>  receivers:</b>
+<b>    - name: blackhole</b>
+<b>  inhibitRules:</b>
+<b>    - sourceMatch:</b>
+<b>        - { name: alertname, value: Watchdog }</b>
+<b>      targetMatch:</b>
+<b>        - { name: severity, value: warning }</b>
+<b>      equal: [namespace]</b>
+<b>EOF</b>
+<b>$ sleep 45</b>
+<b>$ kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | sed -n '/inhibit_rules/,/^[a-z]/p'</b>
+<b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-alertmanager 9093:9093 &amp;</b>
+<b>$ sleep 5</b>
+<b>$ curl -s localhost:9093/api/v2/alerts | jq '[.[] | {alertname: .labels.alertname, state: .status.state, inhibitedBy: .status.inhibitedBy}]'</b>
+<b>$ kill %1</b>
+<b>$ kubectl -n default delete alertmanagerconfig inhibit-demo</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the rendered config carries the rule, and any alert it suppresses shows <code>inhibitedBy</code> naming the source alert's fingerprint. An empty <code>equal</code> would inhibit across namespaces; say why that is almost always wrong.</div>
+    </div>
+
+    <div class="exercise" data-title="Unit-test the alert rule">
+      <p>Alerting rules are code and can be tested without waiting for reality to cooperate. <code>promtool test rules</code> feeds synthetic series in and asserts which alerts fire, which is the only way to be sure about a <code>for</code> clause.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring get prometheusrule curriculum-drill -o jsonpath='{.spec}' | jq '{groups: .groups}' &gt; /tmp/rules.json
+python3 -c "import json,yaml,sys; print(yaml.safe_dump(json.load(open('/tmp/rules.json'))))" &gt; /tmp/rules.yml
+cat /tmp/rules.yml
+cat &gt; /tmp/test.yml &lt;&lt;'EOF'
+rule_files:
+  - rules.yml
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'kube_pod_info{namespace="default",pod="p1"}'
+        values: '1+0x10'
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: TooManyExamplePods
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: TooManyExamplePods
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: platform
+            exp_annotations:
+              summary: "1 pods in default"
+              description: "Drill alert; fires whenever default has any pods."
+EOF
+kubectl -n monitoring cp /tmp/rules.yml prometheus-prometheus-kube-prometheus-prometheus-0:/tmp/rules.yml -c prometheus
+kubectl -n monitoring cp /tmp/test.yml prometheus-prometheus-kube-prometheus-prometheus-0:/tmp/test.yml -c prometheus
+kubectl -n monitoring exec prometheus-prometheus-kube-prometheus-prometheus-0 -c prometheus -- sh -c 'cd /tmp &amp;&amp; promtool check rules rules.yml &amp;&amp; promtool test rules test.yml'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring get prometheusrule curriculum-drill -o jsonpath='{.spec}' | jq '{groups: .groups}' &gt; /tmp/rules.json</b>
+<b>$ python3 -c "import json,yaml,sys; print(yaml.safe_dump(json.load(open('/tmp/rules.json'))))" &gt; /tmp/rules.yml</b>
+<b>$ cat /tmp/rules.yml</b>
+<b>$ cat &gt; /tmp/test.yml &lt;&lt;'EOF'</b>
+<b>rule_files:</b>
+<b>  - rules.yml</b>
+<b>evaluation_interval: 1m</b>
+<b>tests:</b>
+<b>  - interval: 1m</b>
+<b>    input_series:</b>
+<b>      - series: 'kube_pod_info{namespace="default",pod="p1"}'</b>
+<b>        values: '1+0x10'</b>
+<b>    alert_rule_test:</b>
+<b>      - eval_time: 30s</b>
+<b>        alertname: TooManyExamplePods</b>
+<b>        exp_alerts: []</b>
+<b>      - eval_time: 5m</b>
+<b>        alertname: TooManyExamplePods</b>
+<b>        exp_alerts:</b>
+<b>          - exp_labels:</b>
+<b>              severity: warning</b>
+<b>              team: platform</b>
+<b>            exp_annotations:</b>
+<b>              summary: "1 pods in default"</b>
+<b>              description: "Drill alert; fires whenever default has any pods."</b>
+<b>EOF</b>
+<b>$ kubectl -n monitoring cp /tmp/rules.yml prometheus-prometheus-kube-prometheus-prometheus-0:/tmp/rules.yml -c prometheus</b>
+<b>$ kubectl -n monitoring cp /tmp/test.yml prometheus-prometheus-kube-prometheus-prometheus-0:/tmp/test.yml -c prometheus</b>
+<b>$ kubectl -n monitoring exec prometheus-prometheus-kube-prometheus-prometheus-0 -c prometheus -- sh -c 'cd /tmp &amp;&amp; promtool check rules rules.yml &amp;&amp; promtool test rules test.yml'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> <code>check rules</code> passes and <code>test rules</code> reports SUCCESS, including the case at 30 seconds where the <code>for</code> clause has not elapsed. Change the <code>for</code> to 10m and watch the same test fail; that is the assertion earning its keep.</div>
+    </div>
+
+    <div class="exercise" data-title="Two windows, one burn rate">
+      <p>A good availability alert fires fast on a big burn and slow on a small one, and it does that with two windows over the same ratio. Build it on a recording rule so the alert expression stays readable.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata: { name: burn-rate, namespace: monitoring, labels: { release: prometheus } }
+spec:
+  groups:
+    - name: sli
+      interval: 30s
+      rules:
+        - record: job:request_error_ratio:rate5m
+          expr: |
+            sum(rate(apiserver_request_total{code=~"5.."}[5m]))
+            /
+            sum(rate(apiserver_request_total[5m]))
+        - record: job:request_error_ratio:rate1h
+          expr: |
+            sum(rate(apiserver_request_total{code=~"5.."}[1h]))
+            /
+            sum(rate(apiserver_request_total[1h]))
+        - alert: ErrorBudgetBurn
+          expr: |
+            job:request_error_ratio:rate5m &gt; (14.4 * 0.001)
+            and
+            job:request_error_ratio:rate1h &gt; (14.4 * 0.001)
+          for: 2m
+          labels: { severity: critical, team: platform }
+          annotations:
+            summary: "burning the error budget 14.4x faster than allowed"
+EOF
+sleep 120
+kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;
+sleep 5
+curl -sG localhost:9090/api/v1/query --data-urlencode 'query=job:request_error_ratio:rate5m' | jq '.data.result[0].value[1]'
+curl -s localhost:9090/api/v1/rules | jq '.data.groups[] | select(.name=="sli") | .rules[] | {name: (.name // .alert), type, health, state}'
+kill %1
+kubectl -n monitoring delete prometheusrule burn-rate</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: monitoring.coreos.com/v1</b>
+<b>kind: PrometheusRule</b>
+<b>metadata: { name: burn-rate, namespace: monitoring, labels: { release: prometheus } }</b>
+<b>spec:</b>
+<b>  groups:</b>
+<b>    - name: sli</b>
+<b>      interval: 30s</b>
+<b>      rules:</b>
+<b>        - record: job:request_error_ratio:rate5m</b>
+<b>          expr: |</b>
+<b>            sum(rate(apiserver_request_total{code=~"5.."}[5m]))</b>
+<b>            /</b>
+<b>            sum(rate(apiserver_request_total[5m]))</b>
+<b>        - record: job:request_error_ratio:rate1h</b>
+<b>          expr: |</b>
+<b>            sum(rate(apiserver_request_total{code=~"5.."}[1h]))</b>
+<b>            /</b>
+<b>            sum(rate(apiserver_request_total[1h]))</b>
+<b>        - alert: ErrorBudgetBurn</b>
+<b>          expr: |</b>
+<b>            job:request_error_ratio:rate5m &gt; (14.4 * 0.001)</b>
+<b>            and</b>
+<b>            job:request_error_ratio:rate1h &gt; (14.4 * 0.001)</b>
+<b>          for: 2m</b>
+<b>          labels: { severity: critical, team: platform }</b>
+<b>          annotations:</b>
+<b>            summary: "burning the error budget 14.4x faster than allowed"</b>
+<b>EOF</b>
+<b>$ sleep 120</b>
+<b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
+<b>$ sleep 5</b>
+<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=job:request_error_ratio:rate5m' | jq '.data.result[0].value[1]'</b>
+<b>$ curl -s localhost:9090/api/v1/rules | jq '.data.groups[] | select(.name=="sli") | .rules[] | {name: (.name // .alert), type, health, state}'</b>
+<b>$ kill %1</b>
+<b>$ kubectl -n monitoring delete prometheusrule burn-rate</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> both recording rules are healthy and the alert is inactive on a quiet cluster. Say what the 14.4 is doing in that expression and what the second window buys you that the first one does not.</div>
+    </div>
+
+    <div class="exercise" data-title="Read the config Alertmanager is really running">
+      <p>The AlertmanagerConfig objects you write are merged into one file by the operator, with a namespace matcher injected into every route. Reading the rendered result is how you find out what your object actually became.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | head -60
+kubectl -n monitoring get alertmanagerconfig -A
+kubectl -n monitoring get alertmanager -o jsonpath='{.items[0].spec.alertmanagerConfigSelector}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | head -60</b>
+<b>$ kubectl -n monitoring get alertmanagerconfig -A</b>
+<b>$ kubectl -n monitoring get alertmanager -o jsonpath='{.items[0].spec.alertmanagerConfigSelector}{"\n"}'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the rendered routes carry a namespace matcher you never typed, and the receivers are prefixed with the namespace and object name. That prefixing is why a receiver name in your object does not match the one in the UI.</div>
+    </div>
+
+    <div class="exercise" data-title="Find how Prometheus knows where to send alerts">
+      <p>Prometheus does not notify anyone; it posts to Alertmanager, and the discovery for that is in the Prometheus object rather than anywhere in your rules. On a cluster with alerts that never arrive, this is the second thing to check after the rule itself.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.alerting}' | jq
+kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;
+sleep 5
+curl -s localhost:9090/api/v1/alertmanagers | jq '{active: [.data.activeAlertmanagers[].url], dropped: [.data.droppedAlertmanagers[].url]}'
+kill %1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.alerting}' | jq</b>
+<b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
+<b>$ sleep 5</b>
+<b>$ curl -s localhost:9090/api/v1/alertmanagers | jq '{active: [.data.activeAlertmanagers[].url], dropped: [.data.droppedAlertmanagers[].url]}'</b>
+<b>$ kill %1</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the spec names the Alertmanager Service and port, and the API confirms at least one active endpoint. An empty active list with healthy rules is the whole diagnosis for "it says firing but nobody was paged".</div>
+    </div>
+
   </div>
 </section>
 

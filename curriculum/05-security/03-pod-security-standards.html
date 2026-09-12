@@ -215,6 +215,236 @@ sneaky   0/1     0            0           11s
       <div class="verify"><b>verify:</b> a warning per non-compliant pod, zero mutations made. Pair with the audit log (section 5.4) to see what the <code>audit</code> label has been quietly recording all along.</div>
     </div>
 
+    <div class="exercise" data-title="runAsNonRoot meets a root image">
+      <p>Pod Security admits this pod happily: the spec is compliant. The kubelet then refuses to start it, because the image's user is root and the spec said not root. Two different layers, two different error surfaces, one confusing ticket.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create ns hardened --dry-run=client -o yaml | kubectl apply -f -
+kubectl label ns hardened pod-security.kubernetes.io/enforce=restricted --overwrite
+kubectl -n hardened apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: Pod
+metadata: { name: rootimage }
+spec:
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile: { type: RuntimeDefault }
+  containers:
+    - name: c
+      image: nginx:1.27-alpine
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities: { drop: ["ALL"] }
+EOF
+sleep 20
+kubectl -n hardened get pod rootimage -o jsonpath='{.status.containerStatuses[0].state}' | jq
+kubectl -n hardened describe pod rootimage | sed -n '/Events/,$p'
+kubectl -n hardened delete pod rootimage</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create ns hardened --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl label ns hardened pod-security.kubernetes.io/enforce=restricted --overwrite</b>
+<b>$ kubectl -n hardened apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: Pod</b>
+<b>metadata: { name: rootimage }</b>
+<b>spec:</b>
+<b>  securityContext:</b>
+<b>    runAsNonRoot: true</b>
+<b>    seccompProfile: { type: RuntimeDefault }</b>
+<b>  containers:</b>
+<b>    - name: c</b>
+<b>      image: nginx:1.27-alpine</b>
+<b>      securityContext:</b>
+<b>        allowPrivilegeEscalation: false</b>
+<b>        capabilities: { drop: ["ALL"] }</b>
+<b>EOF</b>
+<b>$ sleep 20</b>
+<b>$ kubectl -n hardened get pod rootimage -o jsonpath='{.status.containerStatuses[0].state}' | jq</b>
+<b>$ kubectl -n hardened describe pod rootimage | sed -n '/Events/,$p'</b>
+<b>$ kubectl -n hardened delete pod rootimage</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> admission accepts the pod and the container status is <code>CreateContainerConfigError</code> with an event saying the container has runAsNonRoot and the image will run as root. Say which of the two layers you would fix and what the fix is in the image.</div>
+    </div>
+
+    <div class="exercise" data-title="Debug into a restricted namespace">
+      <p><code>kubectl debug</code> adds an ephemeral container, and that container goes through admission like any other. In a restricted namespace the default debug container is refused, and the profile flag is the fix people do not know exists.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n hardened run target --image=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine --restart=Never --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"target","image":"ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine","securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}'
+kubectl -n hardened wait --for=condition=Ready pod/target --timeout=120s
+kubectl -n hardened debug target --image=busybox:1.36 --target=target -- true
+kubectl -n hardened debug target --image=busybox:1.36 --target=target --profile=restricted -- true
+kubectl -n hardened get pod target -o jsonpath='{range .status.ephemeralContainerStatuses[*]}{.name} {.state}{"\n"}{end}'
+kubectl -n hardened delete pod target</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n hardened run target --image=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine --restart=Never --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"target","image":"ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine","securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}'</b>
+<b>$ kubectl -n hardened wait --for=condition=Ready pod/target --timeout=120s</b>
+<b>$ kubectl -n hardened debug target --image=busybox:1.36 --target=target -- true</b>
+<b>$ kubectl -n hardened debug target --image=busybox:1.36 --target=target --profile=restricted -- true</b>
+<b>$ kubectl -n hardened get pod target -o jsonpath='{range .status.ephemeralContainerStatuses[*]}{.name} {.state}{"\n"}{end}'</b>
+<b>$ kubectl -n hardened delete pod target</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the first attempt is rejected by Pod Security naming the fields the ephemeral container is missing, and <code>--profile=restricted</code> is accepted. Note that the profile changes the container it builds, not the namespace's policy.</div>
+    </div>
+
+    <div class="exercise" data-title="Set a cluster-wide default">
+      <p>Namespaces without PSS labels are unrestricted, which means a new namespace is a hole. An AdmissionConfiguration on the API server sets the floor, with exemptions for the namespaces that legitimately need more.</p>
+      <p>This block edits the control-plane static pod manifest and undoes it at the end.</p>
+      <div class="cb" data-lang="bash"><pre><code>docker exec cnpe-control-plane sh -c 'mkdir -p /etc/kubernetes/pss &amp;&amp; cat &gt; /etc/kubernetes/pss/admission.yaml &lt;&lt;EOF
+apiVersion: apiserver.config.k8s.io/v1
+kind: AdmissionConfiguration
+plugins:
+  - name: PodSecurity
+    configuration:
+      apiVersion: pod-security.admission.config.k8s.io/v1
+      kind: PodSecurityConfiguration
+      defaults:
+        enforce: baseline
+        enforce-version: latest
+        audit: restricted
+        warn: restricted
+      exemptions:
+        namespaces: [kube-system]
+EOF'
+docker exec cnpe-control-plane sh -c "grep -q admission-control-config-file /etc/kubernetes/manifests/kube-apiserver.yaml || sed -i 's|- kube-apiserver|- kube-apiserver\n    - --admission-control-config-file=/etc/kubernetes/pss/admission.yaml|' /etc/kubernetes/manifests/kube-apiserver.yaml"
+docker exec cnpe-control-plane sh -c "grep -q 'name: pss' /etc/kubernetes/manifests/kube-apiserver.yaml || sed -i 's|  volumes:|  volumes:\n  - name: pss\n    hostPath:\n      path: /etc/kubernetes/pss\n      type: DirectoryOrCreate|' /etc/kubernetes/manifests/kube-apiserver.yaml"
+docker exec cnpe-control-plane sh -c "grep -q 'mountPath: /etc/kubernetes/pss' /etc/kubernetes/manifests/kube-apiserver.yaml || sed -i 's|    volumeMounts:|    volumeMounts:\n    - mountPath: /etc/kubernetes/pss\n      name: pss\n      readOnly: true|' /etc/kubernetes/manifests/kube-apiserver.yaml"
+sleep 90
+kubectl get --raw /readyz
+kubectl create ns unlabelled-ns --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n unlabelled-ns run privileged --image=busybox:1.36 --restart=Never --overrides='{"spec":{"containers":[{"name":"privileged","image":"busybox:1.36","securityContext":{"privileged":true},"command":["sleep","60"]}]}}'
+kubectl delete ns unlabelled-ns
+docker exec cnpe-control-plane sh -c "sed -i '/--admission-control-config-file/d' /etc/kubernetes/manifests/kube-apiserver.yaml"
+sleep 90
+kubectl get --raw /readyz</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ docker exec cnpe-control-plane sh -c 'mkdir -p /etc/kubernetes/pss &amp;&amp; cat &gt; /etc/kubernetes/pss/admission.yaml &lt;&lt;EOF</b>
+<b>apiVersion: apiserver.config.k8s.io/v1</b>
+<b>kind: AdmissionConfiguration</b>
+<b>plugins:</b>
+<b>  - name: PodSecurity</b>
+<b>    configuration:</b>
+<b>      apiVersion: pod-security.admission.config.k8s.io/v1</b>
+<b>      kind: PodSecurityConfiguration</b>
+<b>      defaults:</b>
+<b>        enforce: baseline</b>
+<b>        enforce-version: latest</b>
+<b>        audit: restricted</b>
+<b>        warn: restricted</b>
+<b>      exemptions:</b>
+<b>        namespaces: [kube-system]</b>
+<b>EOF'</b>
+<b>docker exec cnpe-control-plane sh -c "grep -q admission-control-config-file /etc/kubernetes/manifests/kube-apiserver.yaml || sed -i 's|- kube-apiserver|- kube-apiserver\n    - --admission-control-config-file=/etc/kubernetes/pss/admission.yaml|' /etc/kubernetes/manifests/kube-apiserver.yaml"</b>
+<b>docker exec cnpe-control-plane sh -c "grep -q 'name: pss' /etc/kubernetes/manifests/kube-apiserver.yaml || sed -i 's|  volumes:|  volumes:\n  - name: pss\n    hostPath:\n      path: /etc/kubernetes/pss\n      type: DirectoryOrCreate|' /etc/kubernetes/manifests/kube-apiserver.yaml"</b>
+<b>docker exec cnpe-control-plane sh -c "grep -q 'mountPath: /etc/kubernetes/pss' /etc/kubernetes/manifests/kube-apiserver.yaml || sed -i 's|    volumeMounts:|    volumeMounts:\n    - mountPath: /etc/kubernetes/pss\n      name: pss\n      readOnly: true|' /etc/kubernetes/manifests/kube-apiserver.yaml"</b>
+<b>sleep 90</b>
+<b>kubectl get --raw /readyz</b>
+<b>kubectl create ns unlabelled-ns --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>kubectl -n unlabelled-ns run privileged --image=busybox:1.36 --restart=Never --overrides='{"spec":{"containers":[{"name":"privileged","image":"busybox:1.36","securityContext":{"privileged":true},"command":["sleep","60"]}]}}'</b>
+<b>kubectl delete ns unlabelled-ns</b>
+<b>docker exec cnpe-control-plane sh -c "sed -i '/--admission-control-config-file/d' /etc/kubernetes/manifests/kube-apiserver.yaml"</b>
+<b>sleep 90</b>
+<b>kubectl get --raw /readyz</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> a privileged pod in a brand new namespace with no labels is refused by baseline, which it would not have been before. Say which namespaces on this cluster would break if you set the default to restricted instead.</div>
+    </div>
+
+    <div class="exercise" data-title="Give a pod its own user namespace">
+      <p><code>hostUsers: false</code> maps the container's root to an unprivileged uid on the host, which defangs a whole class of escapes. Whether it works depends on the kernel and the runtime, so the check is worth as much as the feature.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n default apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: Pod
+metadata: { name: userns }
+spec:
+  hostUsers: false
+  containers:
+    - name: c
+      image: busybox:1.36
+      command: ["sh", "-c", "sleep 600"]
+EOF
+sleep 20
+kubectl -n default get pod userns -o jsonpath='{.status.phase} {.status.conditions[*].message}{"\n"}'
+kubectl -n default exec userns -- cat /proc/self/uid_map
+kubectl -n default exec userns -- id
+kubectl -n default delete pod userns</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n default apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: Pod</b>
+<b>metadata: { name: userns }</b>
+<b>spec:</b>
+<b>  hostUsers: false</b>
+<b>  containers:</b>
+<b>    - name: c</b>
+<b>      image: busybox:1.36</b>
+<b>      command: ["sh", "-c", "sleep 600"]</b>
+<b>EOF</b>
+<b>$ sleep 20</b>
+<b>$ kubectl -n default get pod userns -o jsonpath='{.status.phase} {.status.conditions[*].message}{"\n"}'</b>
+<b>$ kubectl -n default exec userns -- cat /proc/self/uid_map</b>
+<b>$ kubectl -n default exec userns -- id</b>
+<b>$ kubectl -n default delete pod userns</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the uid map shows container uid 0 mapped to a high host uid rather than to 0. If the pod will not start, read the event: the message names the kernel or runtime requirement, and that message is the answer to the same task on an older cluster.</div>
+    </div>
+
+    <div class="exercise" data-title="Preview a tightening without breaking anyone">
+      <p>Warn and audit labels let you find out what restricted would reject before you enforce it. A server-side dry run is the same question asked about one workload, and it costs nothing.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create ns warnzone --dry-run=client -o yaml | kubectl apply -f -
+kubectl label ns warnzone pod-security.kubernetes.io/warn=restricted pod-security.kubernetes.io/audit=restricted --overwrite
+kubectl -n warnzone apply --dry-run=server -f - &lt;&lt;'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: legacy-app }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: legacy-app } }
+  template:
+    metadata: { labels: { app: legacy-app } }
+    spec:
+      containers:
+        - name: c
+          image: nginx:1.27-alpine
+EOF
+kubectl -n warnzone apply -f - &lt;&lt;'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: legacy-app }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: legacy-app } }
+  template:
+    metadata: { labels: { app: legacy-app } }
+    spec:
+      containers:
+        - name: c
+          image: nginx:1.27-alpine
+EOF
+kubectl -n warnzone get deploy legacy-app
+kubectl delete ns warnzone</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create ns warnzone --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl label ns warnzone pod-security.kubernetes.io/warn=restricted pod-security.kubernetes.io/audit=restricted --overwrite</b>
+<b>$ kubectl -n warnzone apply --dry-run=server -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: apps/v1</b>
+<b>kind: Deployment</b>
+<b>metadata: { name: legacy-app }</b>
+<b>spec:</b>
+<b>  replicas: 1</b>
+<b>  selector: { matchLabels: { app: legacy-app } }</b>
+<b>  template:</b>
+<b>    metadata: { labels: { app: legacy-app } }</b>
+<b>    spec:</b>
+<b>      containers:</b>
+<b>        - name: c</b>
+<b>          image: nginx:1.27-alpine</b>
+<b>EOF</b>
+<b>$ kubectl -n warnzone apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: apps/v1</b>
+<b>kind: Deployment</b>
+<b>metadata: { name: legacy-app }</b>
+<b>spec:</b>
+<b>  replicas: 1</b>
+<b>  selector: { matchLabels: { app: legacy-app } }</b>
+<b>  template:</b>
+<b>    metadata: { labels: { app: legacy-app } }</b>
+<b>    spec:</b>
+<b>      containers:</b>
+<b>        - name: c</b>
+<b>          image: nginx:1.27-alpine</b>
+<b>EOF</b>
+<b>$ kubectl -n warnzone get deploy legacy-app</b>
+<b>$ kubectl delete ns warnzone</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the dry run prints the restricted warning listing every field the workload is missing, and the real apply prints the same warning and creates it anyway. That list is the migration plan; paste it into the ticket.</div>
+    </div>
+
   </div>
 </section>
 

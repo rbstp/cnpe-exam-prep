@@ -298,6 +298,303 @@ team-c   Active   43m
       <div class="verify"><b>verify:</b> you can point at the exact condition message and fix the XR. Failure bubbles bottom-up through composed-resource conditions; that is the read path for every Crossplane incident.</div>
     </div>
 
+    <div class="exercise" data-title="Read the XRD's two answers">
+      <p>An XRD has to be accepted twice: the composite type has to be established, and the claim or namespaced API has to be offered. The columns say which, and a half-installed XRD is the most common reason a developer's manifest is rejected as an unknown kind.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get xrd
+kubectl get xrd appenvironments.platform.lab.local -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
+kubectl api-resources --api-group=platform.lab.local</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get xrd</b>
+<b>$ kubectl get xrd appenvironments.platform.lab.local -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+<b>$ kubectl api-resources --api-group=platform.lab.local</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> both conditions are True and the kind appears in <code>api-resources</code>. If one condition is False, read its message before touching the Composition; the XRD is upstream of everything else on this page.</div>
+    </div>
+
+    <div class="exercise" data-title="Pin an XR to a composition revision">
+      <p>Every edit to a Composition creates a revision, and XRs follow the latest one by default. <code>Manual</code> freezes an XR where it is, which is how you roll a platform API change out to one tenant before all of them.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get compositionrevisions
+kubectl patch composition appenvironment-kubernetes --type merge -p '{"metadata":{"labels":{"edited":"once"}}}'
+kubectl get compositionrevisions -l crossplane.io/composition-name=appenvironment-kubernetes
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: platform.lab.local/v1alpha1
+kind: AppEnvironment
+metadata: { name: team-f-dev, namespace: default }
+spec:
+  team: team-f
+  cpuQuota: "2"
+  memoryQuota: 4Gi
+  crossplane:
+    compositionUpdatePolicy: Manual
+EOF
+sleep 20
+kubectl get appenvironment team-f-dev -o jsonpath='{.spec.crossplane.compositionRevisionRef}{"\n"}'
+kubectl get appenvironment team-c-dev -o jsonpath='{.spec.crossplane.compositionRevisionRef}{"\n"}'
+kubectl patch composition appenvironment-kubernetes --type merge -p '{"metadata":{"labels":{"edited":"twice"}}}'
+sleep 20
+kubectl get appenvironment team-f-dev -o jsonpath='{.spec.crossplane.compositionRevisionRef}{"\n"}'
+kubectl get appenvironment team-c-dev -o jsonpath='{.spec.crossplane.compositionRevisionRef}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get compositionrevisions</b>
+<b>$ kubectl patch composition appenvironment-kubernetes --type merge -p '{"metadata":{"labels":{"edited":"once"}}}'</b>
+<b>$ kubectl get compositionrevisions -l crossplane.io/composition-name=appenvironment-kubernetes</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: platform.lab.local/v1alpha1</b>
+<b>kind: AppEnvironment</b>
+<b>metadata: { name: team-f-dev, namespace: default }</b>
+<b>spec:</b>
+<b>  team: team-f</b>
+<b>  cpuQuota: "2"</b>
+<b>  memoryQuota: 4Gi</b>
+<b>  crossplane:</b>
+<b>    compositionUpdatePolicy: Manual</b>
+<b>EOF</b>
+<b>$ sleep 20</b>
+<b>$ kubectl get appenvironment team-f-dev -o jsonpath='{.spec.crossplane.compositionRevisionRef}{"\n"}'</b>
+<b>$ kubectl get appenvironment team-c-dev -o jsonpath='{.spec.crossplane.compositionRevisionRef}{"\n"}'</b>
+<b>$ kubectl patch composition appenvironment-kubernetes --type merge -p '{"metadata":{"labels":{"edited":"twice"}}}'</b>
+<b>$ sleep 20</b>
+<b>$ kubectl get appenvironment team-f-dev -o jsonpath='{.spec.crossplane.compositionRevisionRef}{"\n"}'</b>
+<b>$ kubectl get appenvironment team-c-dev -o jsonpath='{.spec.crossplane.compositionRevisionRef}{"\n"}'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the Manual XR stays on the revision it was created against while the Automatic one moves to the newest. Say which policy you would make the default for a platform with a hundred tenants, and what you would need in place to survive that choice.</div>
+    </div>
+
+    <div class="exercise" data-title="Take the choice of composition away">
+      <p>A tenant who can pick the Composition can pick a cheaper one. <code>enforcedCompositionRef</code> on the XRD overrides whatever they asked for, silently and at every reconcile.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl patch xrd appenvironments.platform.lab.local --type merge -p '{"spec":{"enforcedCompositionRef":{"name":"appenvironment-kubernetes"}}}'
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: platform.lab.local/v1alpha1
+kind: AppEnvironment
+metadata: { name: team-i-dev, namespace: default }
+spec:
+  team: team-i
+  crossplane:
+    compositionRef: { name: something-else }
+EOF
+sleep 20
+kubectl get appenvironment team-i-dev -o jsonpath='{.spec.crossplane.compositionRef}{"\n"}'
+kubectl patch xrd appenvironments.platform.lab.local --type json -p '[{"op":"remove","path":"/spec/enforcedCompositionRef"}]'
+kubectl delete appenvironment team-i-dev</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl patch xrd appenvironments.platform.lab.local --type merge -p '{"spec":{"enforcedCompositionRef":{"name":"appenvironment-kubernetes"}}}'</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: platform.lab.local/v1alpha1</b>
+<b>kind: AppEnvironment</b>
+<b>metadata: { name: team-i-dev, namespace: default }</b>
+<b>spec:</b>
+<b>  team: team-i</b>
+<b>  crossplane:</b>
+<b>    compositionRef: { name: something-else }</b>
+<b>EOF</b>
+<b>$ sleep 20</b>
+<b>$ kubectl get appenvironment team-i-dev -o jsonpath='{.spec.crossplane.compositionRef}{"\n"}'</b>
+<b>$ kubectl patch xrd appenvironments.platform.lab.local --type json -p '[{"op":"remove","path":"/spec/enforcedCompositionRef"}]'</b>
+<b>$ kubectl delete appenvironment team-i-dev</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the reference the tenant wrote has been replaced by the enforced one. Say whether you would tell them, and where in the platform you would surface that override so it is not a surprise.</div>
+    </div>
+
+    <div class="exercise" data-title="Pause a reconcile without deleting anything">
+      <p>The pause annotation is the safe way to stop a controller touching an object while you investigate. The <code>Synced</code> condition says paused rather than lying about being up to date, which is the part that makes it safe.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl annotate appenvironment team-c-dev crossplane.io/paused=true --overwrite
+kubectl patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"16"}}'
+sleep 30
+kubectl get appenvironment team-c-dev -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'
+kubectl -n team-c get resourcequota -o jsonpath='{.items[0].spec.hard}{"\n"}'
+kubectl annotate appenvironment team-c-dev crossplane.io/paused-
+sleep 30
+kubectl -n team-c get resourcequota -o jsonpath='{.items[0].spec.hard}{"\n"}'
+kubectl patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"4"}}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl annotate appenvironment team-c-dev crossplane.io/paused=true --overwrite</b>
+<b>$ kubectl patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"16"}}'</b>
+<b>$ sleep 30</b>
+<b>$ kubectl get appenvironment team-c-dev -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
+<b>$ kubectl -n team-c get resourcequota -o jsonpath='{.items[0].spec.hard}{"\n"}'</b>
+<b>$ kubectl annotate appenvironment team-c-dev crossplane.io/paused-</b>
+<b>$ sleep 30</b>
+<b>$ kubectl -n team-c get resourcequota -o jsonpath='{.items[0].spec.hard}{"\n"}'</b>
+<b>$ kubectl patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"4"}}'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the quota does not move while the annotation is present, the condition reason is <code>ReconcilePaused</code>, and the change lands the moment you remove it. Say what this is for, in an incident, in one sentence.</div>
+    </div>
+
+    <div class="exercise" data-title="Render a composition without a cluster">
+      <p>The render command runs the composition pipeline locally against the same files the cluster uses. It is the fastest feedback loop Crossplane has, and it is the right answer when a task says "show what this XR would create".</p>
+      <div class="cb" data-lang="bash"><pre><code>crossplane render examples/crossplane/xr.yaml examples/crossplane/composition.yaml /dev/null 2&gt;/dev/null || crossplane beta render examples/crossplane/xr.yaml examples/crossplane/composition.yaml /dev/null
+kubectl get functions.pkg.crossplane.io
+kubectl get function -o jsonpath='{range .items[*]}{.metadata.name} {.spec.package}{"\n"}{end}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ crossplane render examples/crossplane/xr.yaml examples/crossplane/composition.yaml /dev/null 2&gt;/dev/null || crossplane beta render examples/crossplane/xr.yaml examples/crossplane/composition.yaml /dev/null</b>
+<b>$ kubectl get functions.pkg.crossplane.io</b>
+<b>$ kubectl get function -o jsonpath='{range .items[*]}{.metadata.name} {.spec.package}{"\n"}{end}'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the rendered output lists the composed Objects with the tenant name patched in, without anything being applied. If the command needs a functions file, build one from the <code>Function</code> objects the second command lists and rerun it.</div>
+    </div>
+
+    <div class="exercise" data-title="Break the provider's RBAC and read the condition">
+      <p>A provider is a controller with its own ServiceAccount, and the composed resource's <code>Synced</code> condition is where its permission problems surface. This is the fault the lab's own drill injects, so meet it deliberately first.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get managed
+kubectl describe providerrevisions | head -40
+kubectl get clusterrolebinding -o name | grep -i provider-kubernetes
+CRB=$(kubectl get clusterrolebinding -o name | grep -i provider-kubernetes | head -1)
+kubectl get "$CRB" -o yaml &gt; /tmp/provider-crb.yaml
+kubectl delete "$CRB"
+kubectl patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"6"}}'
+sleep 45
+kubectl get object -o jsonpath='{range .items[*]}{.metadata.name} {.status.conditions[?(@.type=="Synced")].reason} {.status.conditions[?(@.type=="Synced")].message}{"\n"}{end}'
+kubectl apply -f /tmp/provider-crb.yaml
+sleep 45
+kubectl get object -o jsonpath='{range .items[*]}{.metadata.name} {.status.conditions[?(@.type=="Synced")].status}{"\n"}{end}'
+kubectl patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"4"}}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get managed</b>
+<b>$ kubectl describe providerrevisions | head -40</b>
+<b>$ kubectl get clusterrolebinding -o name | grep -i provider-kubernetes</b>
+<b>$ CRB=$(kubectl get clusterrolebinding -o name | grep -i provider-kubernetes | head -1)</b>
+<b>$ kubectl get "$CRB" -o yaml &gt; /tmp/provider-crb.yaml</b>
+<b>$ kubectl delete "$CRB"</b>
+<b>$ kubectl patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"6"}}'</b>
+<b>$ sleep 45</b>
+<b>$ kubectl get object -o jsonpath='{range .items[*]}{.metadata.name} {.status.conditions[?(@.type=="Synced")].reason} {.status.conditions[?(@.type=="Synced")].message}{"\n"}{end}'</b>
+<b>$ kubectl apply -f /tmp/provider-crb.yaml</b>
+<b>$ sleep 45</b>
+<b>$ kubectl get object -o jsonpath='{range .items[*]}{.metadata.name} {.status.conditions[?(@.type=="Synced")].status}{"\n"}{end}'</b>
+<b>$ kubectl patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"4"}}'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the composed Object reports <code>Synced</code> False with a forbidden message naming the provider's ServiceAccount, while the XR above it just looks unhappy. Always read the composed resource, not the composite, when the composite is vague.</div>
+    </div>
+
+    <div class="exercise" data-title="Protect a resource with a Usage">
+      <p><code>Usage</code> is Crossplane's answer to "do not delete this while something depends on it". It installs an admission rule, so the refusal comes back to whoever ran the delete, not to a controller log nobody reads.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: protection.crossplane.io/v1beta1
+kind: ClusterUsage
+metadata: { name: protect-team-c-quota }
+spec:
+  reason: "the AppEnvironment owns this quota"
+  of:
+    apiVersion: v1
+    kind: ResourceQuota
+    resourceRef: { name: tenant-quota }
+    namespace: team-c
+EOF
+kubectl -n team-c delete resourcequota tenant-quota
+kubectl delete clusterusage protect-team-c-quota
+sleep 10
+kubectl -n team-c delete resourcequota tenant-quota
+kubectl patch appenvironment team-c-dev --type merge -p '{"metadata":{"annotations":{"nudge":"now"}}}'
+sleep 30
+kubectl -n team-c get resourcequota</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: protection.crossplane.io/v1beta1</b>
+<b>kind: ClusterUsage</b>
+<b>metadata: { name: protect-team-c-quota }</b>
+<b>spec:</b>
+<b>  reason: "the AppEnvironment owns this quota"</b>
+<b>  of:</b>
+<b>    apiVersion: v1</b>
+<b>    kind: ResourceQuota</b>
+<b>    resourceRef: { name: tenant-quota }</b>
+<b>    namespace: team-c</b>
+<b>EOF</b>
+<b>$ kubectl -n team-c delete resourcequota tenant-quota</b>
+<b>$ kubectl delete clusterusage protect-team-c-quota</b>
+<b>$ sleep 10</b>
+<b>$ kubectl -n team-c delete resourcequota tenant-quota</b>
+<b>$ kubectl patch appenvironment team-c-dev --type merge -p '{"metadata":{"annotations":{"nudge":"now"}}}'</b>
+<b>$ sleep 30</b>
+<b>$ kubectl -n team-c get resourcequota</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the first delete is refused by an admission webhook quoting your reason, and the second succeeds once the Usage is gone. The composition puts the quota back, which is the other half of the argument for protecting it.</div>
+    </div>
+
+    <div class="exercise" data-title="Observe something you do not own">
+      <p><code>managementPolicies: ["Observe"]</code> reads an existing object into Crossplane's model without creating, updating or deleting it. It is how you bring brownfield infrastructure under a platform API without risking it.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create ns observed-only --dry-run=client -o yaml | kubectl apply -f -
+kubectl label ns observed-only owner=not-crossplane
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: kubernetes.crossplane.io/v1alpha2
+kind: Object
+metadata:
+  name: observe-ns
+  annotations:
+    crossplane.io/external-name: observed-only
+spec:
+  managementPolicies: ["Observe"]
+  providerConfigRef: { kind: ClusterProviderConfig, name: default }
+  forProvider:
+    manifest:
+      apiVersion: v1
+      kind: Namespace
+      metadata: { name: observed-only }
+EOF
+sleep 30
+kubectl get object observe-ns -o jsonpath='{.status.atProvider.manifest.metadata.labels}{"\n"}'
+kubectl get object observe-ns -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'
+kubectl get ns observed-only -o jsonpath='{.metadata.ownerReferences}{"\n"}'
+kubectl delete object observe-ns
+sleep 10
+kubectl get ns observed-only
+kubectl delete ns observed-only</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create ns observed-only --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl label ns observed-only owner=not-crossplane</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: kubernetes.crossplane.io/v1alpha2</b>
+<b>kind: Object</b>
+<b>metadata:</b>
+<b>  name: observe-ns</b>
+<b>  annotations:</b>
+<b>    crossplane.io/external-name: observed-only</b>
+<b>spec:</b>
+<b>  managementPolicies: ["Observe"]</b>
+<b>  providerConfigRef: { kind: ClusterProviderConfig, name: default }</b>
+<b>  forProvider:</b>
+<b>    manifest:</b>
+<b>      apiVersion: v1</b>
+<b>      kind: Namespace</b>
+<b>      metadata: { name: observed-only }</b>
+<b>EOF</b>
+<b>$ sleep 30</b>
+<b>$ kubectl get object observe-ns -o jsonpath='{.status.atProvider.manifest.metadata.labels}{"\n"}'</b>
+<b>$ kubectl get object observe-ns -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
+<b>$ kubectl get ns observed-only -o jsonpath='{.metadata.ownerReferences}{"\n"}'</b>
+<b>$ kubectl delete object observe-ns</b>
+<b>$ sleep 10</b>
+<b>$ kubectl get ns observed-only</b>
+<b>$ kubectl delete ns observed-only</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> <code>status.atProvider</code> reflects the live namespace including the label Crossplane did not set, the namespace has no ownerReference, and deleting the Object leaves it alone. That last line is the whole safety property.</div>
+    </div>
+
+    <div class="exercise" data-title="Scrape the provider">
+      <p>A platform API is a production system, and its controllers export metrics like any other. Wiring one PodMonitor turns "is Crossplane healthy" from a feeling into a query.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n crossplane-system get pods -l pkg.crossplane.io/provider -o wide
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata: { name: crossplane-providers, namespace: crossplane-system, labels: { release: prometheus } }
+spec:
+  selector:
+    matchExpressions:
+      - { key: pkg.crossplane.io/provider, operator: Exists }
+  podMetricsEndpoints:
+    - port: metrics
+EOF
+sleep 60
+kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;
+sleep 5
+curl -sG localhost:9090/api/v1/query --data-urlencode 'query=up{job=~".*provider.*"}' | jq '.data.result[] | {metric: .metric.pod, value: .value[1]}'
+curl -sG localhost:9090/api/v1/query --data-urlencode 'query=crossplane_managed_resource_ready' | jq '.data.result | length'
+kill %1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n crossplane-system get pods -l pkg.crossplane.io/provider -o wide</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: monitoring.coreos.com/v1</b>
+<b>kind: PodMonitor</b>
+<b>metadata: { name: crossplane-providers, namespace: crossplane-system, labels: { release: prometheus } }</b>
+<b>spec:</b>
+<b>  selector:</b>
+<b>    matchExpressions:</b>
+<b>      - { key: pkg.crossplane.io/provider, operator: Exists }</b>
+<b>  podMetricsEndpoints:</b>
+<b>    - port: metrics</b>
+<b>EOF</b>
+<b>$ sleep 60</b>
+<b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
+<b>$ sleep 5</b>
+<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=up{job=~".*provider.*"}' | jq '.data.result[] | {metric: .metric.pod, value: .value[1]}'</b>
+<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=crossplane_managed_resource_ready' | jq '.data.result | length'</b>
+<b>$ kill %1</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the provider pods appear as up targets and the readiness gauge returns series. If the port name in the PodMonitor does not match the container's port name, you get zero targets and no error anywhere; check the pod spec before you doubt Prometheus.</div>
+    </div>
+
   </div>
 </section>
 

@@ -193,6 +193,128 @@ no failed syncs in the window
       <div class="verify"><b>verify:</b> the alert reaches Alertmanager. This is what a platform team's pager rule looks like.</div>
     </div>
 
+    <div class="exercise" data-title="Export a custom resource as a metric">
+      <p>kube-state-metrics can expose your CRDs the same way it exposes Deployments, from a config file. That turns "is every tenant environment ready" into a query instead of a script.</p>
+      <div class="cb" data-lang="bash"><pre><code>cat &gt; /tmp/crs.yaml &lt;&lt;'EOF'
+spec:
+  resources:
+    - groupVersionKind:
+        group: platform.lab.local
+        version: v1alpha1
+        kind: AppEnvironment
+      metricNamePrefix: kube_customresource_appenvironment
+      labelsFromPath:
+        name: [metadata, name]
+        namespace: [metadata, namespace]
+      metrics:
+        - name: ready
+          help: "AppEnvironment Ready condition"
+          each:
+            type: StateSet
+            stateSet:
+              labelName: status
+              path: [status, conditions]
+              valueFrom: [status]
+              list: ["True", "False", "Unknown"]
+EOF
+kubectl -n monitoring create configmap ksm-customresource --from-file=config.yaml=/tmp/crs.yaml --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n monitoring patch deploy prometheus-kube-state-metrics --type json -p '[{"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"crs","configMap":{"name":"ksm-customresource"}}},{"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"crs","mountPath":"/etc/ksm"}},{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--custom-resource-state-config-file=/etc/ksm/config.yaml"}]'
+kubectl -n monitoring rollout status deploy prometheus-kube-state-metrics --timeout=180s
+sleep 60
+kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;
+sleep 5
+curl -sG localhost:9090/api/v1/query --data-urlencode 'query={__name__=~"kube_customresource_appenvironment.*"}' | jq '.data.result[] | {name: .metric.__name__, labels: .metric, value: .value[1]}'
+kill %1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ cat &gt; /tmp/crs.yaml &lt;&lt;'EOF'</b>
+<b>spec:</b>
+<b>  resources:</b>
+<b>    - groupVersionKind:</b>
+<b>        group: platform.lab.local</b>
+<b>        version: v1alpha1</b>
+<b>        kind: AppEnvironment</b>
+<b>      metricNamePrefix: kube_customresource_appenvironment</b>
+<b>      labelsFromPath:</b>
+<b>        name: [metadata, name]</b>
+<b>        namespace: [metadata, namespace]</b>
+<b>      metrics:</b>
+<b>        - name: ready</b>
+<b>          help: "AppEnvironment Ready condition"</b>
+<b>          each:</b>
+<b>            type: StateSet</b>
+<b>            stateSet:</b>
+<b>              labelName: status</b>
+<b>              path: [status, conditions]</b>
+<b>              valueFrom: [status]</b>
+<b>              list: ["True", "False", "Unknown"]</b>
+<b>EOF</b>
+<b>$ kubectl -n monitoring create configmap ksm-customresource --from-file=config.yaml=/tmp/crs.yaml --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl -n monitoring patch deploy prometheus-kube-state-metrics --type json -p '[{"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"crs","configMap":{"name":"ksm-customresource"}}},{"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"crs","mountPath":"/etc/ksm"}},{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--custom-resource-state-config-file=/etc/ksm/config.yaml"}]'</b>
+<b>$ kubectl -n monitoring rollout status deploy prometheus-kube-state-metrics --timeout=180s</b>
+<b>$ sleep 60</b>
+<b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
+<b>$ sleep 5</b>
+<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query={__name__=~"kube_customresource_appenvironment.*"}' | jq '.data.result[] | {name: .metric.__name__, labels: .metric, value: .value[1]}'</b>
+<b>$ kill %1</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> a <code>kube_customresource_appenvironment_*</code> series exists for each AppEnvironment, carrying its name and readiness. That is a platform SLI you did not have to write a controller for.</div>
+    </div>
+
+    <div class="exercise" data-title="Measure one lead time by hand">
+      <p>Lead time for change is a subtraction: when was the commit authored, when did it reach the cluster. Do it once by hand for a real revision so the number means something before you automate it.</p>
+      <div class="cb" data-lang="bash"><pre><code>SHA=$(kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.revision}')
+echo "revision: $SHA"
+git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-leadtime 2&gt;/dev/null || true
+git -C /tmp/platform-leadtime fetch --all
+git -C /tmp/platform-leadtime log -1 --format=%cI "$SHA"
+argocd app history demo-staging
+kubectl -n argocd get app demo-staging -o jsonpath='{range .status.history[*]}{.revision} {.deployedAt}{"\n"}{end}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ SHA=$(kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.revision}')</b>
+<b>$ echo "revision: $SHA"</b>
+<b>$ git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-leadtime 2&gt;/dev/null || true</b>
+<b>$ git -C /tmp/platform-leadtime fetch --all</b>
+<b>$ git -C /tmp/platform-leadtime log -1 --format=%cI "$SHA"</b>
+<b>$ argocd app history demo-staging</b>
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{range .status.history[*]}{.revision} {.deployedAt}{"\n"}{end}'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> you can subtract the commit timestamp from the deployed-at timestamp for the same sha and say the number out loud. Then say which part of that interval your platform is responsible for and which part is the developer waiting for a review.</div>
+    </div>
+
+    <div class="exercise" data-title="Count what is suspended">
+      <p>A suspended Kustomization is a promise the platform has stopped keeping, and nothing alerts on it by default. The gauge Flux exports makes it one query, and that query belongs on the platform dashboard.</p>
+      <div class="cb" data-lang="bash"><pre><code>flux suspend kustomization demo-flux
+sleep 60
+kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;
+sleep 5
+curl -sG localhost:9090/api/v1/query --data-urlencode 'query=count(gotk_resource_info{customresource_kind="Kustomization", suspended="true"})' | jq '.data.result'
+curl -sG localhost:9090/api/v1/query --data-urlencode 'query=gotk_resource_info{suspended="true"}' | jq '.data.result[] | .metric'
+kill %1
+flux resume kustomization demo-flux</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ flux suspend kustomization demo-flux</b>
+<b>$ sleep 60</b>
+<b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
+<b>$ sleep 5</b>
+<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=count(gotk_resource_info{customresource_kind="Kustomization", suspended="true"})' | jq '.data.result'</b>
+<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=gotk_resource_info{suspended="true"}' | jq '.data.result[] | .metric'</b>
+<b>$ kill %1</b>
+<b>$ flux resume kustomization demo-flux</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the count is 1 while the Kustomization is suspended and the series names it. This needs the Flux PodMonitor from 4.1; if the query is empty, that is the reason, not the suspension.</div>
+    </div>
+
+    <div class="exercise" data-title="Count pipeline runs that worked">
+      <p>Deployment frequency starts as a counter on the CI controller. <code>increase</code> over a day is the honest form of the number, and knowing which label carries the outcome is the whole exercise.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;
+sleep 5
+curl -sG localhost:9090/api/v1/query --data-urlencode 'query=tekton_pipelines_controller_pipelinerun_total' | jq '.data.result[] | {status: .metric.status, value: .value[1]}'
+curl -sG localhost:9090/api/v1/query --data-urlencode 'query=increase(tekton_pipelines_controller_pipelinerun_total{status="success"}[24h])' | jq '.data.result[] | .value[1]'
+curl -sG localhost:9090/api/v1/query --data-urlencode 'query=sum by (status) (increase(tekton_pipelines_controller_pipelinerun_total[24h]))' | jq '.data.result[] | {status: .metric.status, value: .value[1]}'
+kill %1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
+<b>$ sleep 5</b>
+<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=tekton_pipelines_controller_pipelinerun_total' | jq '.data.result[] | {status: .metric.status, value: .value[1]}'</b>
+<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=increase(tekton_pipelines_controller_pipelinerun_total{status="success"}[24h])' | jq '.data.result[] | .value[1]'</b>
+<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=sum by (status) (increase(tekton_pipelines_controller_pipelinerun_total[24h]))' | jq '.data.result[] | {status: .metric.status, value: .value[1]}'</b>
+<b>$ kill %1</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the counter has a label separating successes from failures and the increase over a day is a plausible number. Say why <code>increase</code> and not the raw counter, and what a counter reset would do to each.</div>
+    </div>
+
   </div>
 </section>
 

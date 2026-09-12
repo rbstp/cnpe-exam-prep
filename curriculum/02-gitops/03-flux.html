@@ -354,6 +354,230 @@ podinfo   1/1     1            1           48s</code></pre></details></div>
       <div class="verify"><b>verify:</b> your hand-written spec matches the generated one field for field.</div>
     </div>
 
+    <div class="exercise" data-title="Fail a HelmRelease on purpose">
+      <p>Remediation is the part of a HelmRelease you only meet when something breaks, which is the worst time to read the field names. Break one deliberately and watch the retry count, the reason strings, and the recovery.</p>
+      <div class="cb" data-lang="bash"><pre><code>flux create source helm podinfo --url=https://stefanprodan.github.io/podinfo --interval=10m
+kubectl create ns flux-demo --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata: { name: broken, namespace: flux-demo }
+spec:
+  interval: 1m
+  chart:
+    spec:
+      chart: podinfo
+      sourceRef: { kind: HelmRepository, name: podinfo, namespace: flux-system }
+  install:
+    remediation: { retries: 2 }
+  timeout: 1m
+  values:
+    image:
+      repository: kind-registry:5000/does-not-exist
+      tag: nope
+EOF
+sleep 240
+kubectl -n flux-demo get hr broken -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
+kubectl -n flux-demo get hr broken -o jsonpath='{.status.installFailures}{"\n"}'
+flux -n flux-demo events --for HelmRelease/broken | tail -15
+kubectl -n flux-demo patch hr broken --type merge -p '{"spec":{"values":{"image":{"repository":"ghcr.io/stefanprodan/podinfo","tag":"6.7.1"}}}}'
+flux -n flux-demo reconcile hr broken --reset
+kubectl -n flux-demo get hr broken -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'
+flux -n flux-demo delete hr broken -s</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ flux create source helm podinfo --url=https://stefanprodan.github.io/podinfo --interval=10m</b>
+<b>$ kubectl create ns flux-demo --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: helm.toolkit.fluxcd.io/v2</b>
+<b>kind: HelmRelease</b>
+<b>metadata: { name: broken, namespace: flux-demo }</b>
+<b>spec:</b>
+<b>  interval: 1m</b>
+<b>  chart:</b>
+<b>    spec:</b>
+<b>      chart: podinfo</b>
+<b>      sourceRef: { kind: HelmRepository, name: podinfo, namespace: flux-system }</b>
+<b>  install:</b>
+<b>    remediation: { retries: 2 }</b>
+<b>  timeout: 1m</b>
+<b>  values:</b>
+<b>    image:</b>
+<b>      repository: kind-registry:5000/does-not-exist</b>
+<b>      tag: nope</b>
+<b>EOF</b>
+<b>$ sleep 240</b>
+<b>$ kubectl -n flux-demo get hr broken -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+<b>$ kubectl -n flux-demo get hr broken -o jsonpath='{.status.installFailures}{"\n"}'</b>
+<b>$ flux -n flux-demo events --for HelmRelease/broken | tail -15</b>
+<b>$ kubectl -n flux-demo patch hr broken --type merge -p '{"spec":{"values":{"image":{"repository":"ghcr.io/stefanprodan/podinfo","tag":"6.7.1"}}}}'</b>
+<b>$ flux -n flux-demo reconcile hr broken --reset</b>
+<b>$ kubectl -n flux-demo get hr broken -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
+<b>$ flux -n flux-demo delete hr broken -s</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the failing install retries the number of times you asked for, then stops with a reason that says so, and <code>--reset</code> is what clears the failure counter after you fix the values. Name what the release itself looks like between the last retry and the reset.</div>
+    </div>
+
+    <div class="exercise" data-title="Let Flux notice a Helm drift">
+      <p>A Kustomization corrects drift because it applies every interval. A HelmRelease does not, unless you turn drift detection on: Helm only acts when the release changes. This is the single most surprising difference between the two.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n flux-demo get hr podinfo -o jsonpath='{.spec.driftDetection}{"\n"}'
+kubectl -n flux-demo patch hr podinfo --type merge -p '{"spec":{"driftDetection":{"mode":"enabled"}}}'
+kubectl -n flux-demo scale deploy podinfo --replicas=5
+kubectl -n flux-demo get deploy podinfo -o jsonpath='{.spec.replicas}{"\n"}'
+sleep 120
+kubectl -n flux-demo get deploy podinfo -o jsonpath='{.spec.replicas}{"\n"}'
+flux -n flux-demo events --for HelmRelease/podinfo | tail -10
+kubectl -n flux-demo get hr podinfo -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n flux-demo get hr podinfo -o jsonpath='{.spec.driftDetection}{"\n"}'</b>
+<b>$ kubectl -n flux-demo patch hr podinfo --type merge -p '{"spec":{"driftDetection":{"mode":"enabled"}}}'</b>
+<b>$ kubectl -n flux-demo scale deploy podinfo --replicas=5</b>
+<b>$ kubectl -n flux-demo get deploy podinfo -o jsonpath='{.spec.replicas}{"\n"}'</b>
+<b>$ sleep 120</b>
+<b>$ kubectl -n flux-demo get deploy podinfo -o jsonpath='{.spec.replicas}{"\n"}'</b>
+<b>$ flux -n flux-demo events --for HelmRelease/podinfo | tail -10</b>
+<b>$ kubectl -n flux-demo get hr podinfo -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the replica count returns on its own and an event says the cluster state of the release had drifted. This exercise needs the HelmRelease from the exercise above it; if <code>podinfo</code> is not installed, do that one first.</div>
+    </div>
+
+    <div class="exercise" data-title="Exempt one object from pruning">
+      <p>Pruning is what makes a Kustomization authoritative, and sometimes one object must survive a delete in git anyway. The exemption is an annotation on the object, which means the escape hatch lives in the manifests, not in the controller.</p>
+      <div class="cb" data-lang="bash"><pre><code>git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune-flux &amp;&amp; cd /tmp/platform-prune-flux
+kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune=disabled --overwrite
+git rm demo-app/base/deployment.yaml
+sed -i '/deployment.yaml/d' demo-app/base/kustomization.yaml
+git commit -am 'remove the deployment from git' &amp;&amp; git push
+flux reconcile kustomization demo-flux --with-source
+sleep 20
+kubectl -n flux-demo get deploy demo
+flux events --for Kustomization/demo-flux | tail -10
+cd /tmp/platform-prune-flux &amp;&amp; git revert --no-edit HEAD &amp;&amp; git push
+flux reconcile kustomization demo-flux --with-source
+kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune-</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune-flux &amp;&amp; cd /tmp/platform-prune-flux</b>
+<b>$ kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune=disabled --overwrite</b>
+<b>$ git rm demo-app/base/deployment.yaml</b>
+<b>$ sed -i '/deployment.yaml/d' demo-app/base/kustomization.yaml</b>
+<b>$ git commit -am 'remove the deployment from git' &amp;&amp; git push</b>
+<b>$ flux reconcile kustomization demo-flux --with-source</b>
+<b>$ sleep 20</b>
+<b>$ kubectl -n flux-demo get deploy demo</b>
+<b>$ flux events --for Kustomization/demo-flux | tail -10</b>
+<b>$ cd /tmp/platform-prune-flux &amp;&amp; git revert --no-edit HEAD &amp;&amp; git push</b>
+<b>$ flux reconcile kustomization demo-flux --with-source</b>
+<b>$ kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune-</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the Deployment is still running after a reconcile that removed it from git, and the events say the object was skipped rather than deleted. Put the manifest back and remove the annotation, or the next exercise inherits a lie.</div>
+    </div>
+
+    <div class="exercise" data-title="Point a Kustomization at nothing">
+      <p>Half the Flux tickets you will be handed are a path that does not exist in the repo. The condition is not "cannot connect" and not "cannot apply"; learn the exact reason so you can skip straight to the right half of the problem.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: { name: nowhere, namespace: flux-system }
+spec:
+  interval: 1m
+  prune: true
+  sourceRef: { kind: GitRepository, name: platform }
+  path: ./does-not-exist
+  targetNamespace: flux-demo
+EOF
+sleep 30
+kubectl -n flux-system get kustomization nowhere -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
+flux events --for Kustomization/nowhere | tail -5
+flux delete kustomization nowhere -s</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: kustomize.toolkit.fluxcd.io/v1</b>
+<b>kind: Kustomization</b>
+<b>metadata: { name: nowhere, namespace: flux-system }</b>
+<b>spec:</b>
+<b>  interval: 1m</b>
+<b>  prune: true</b>
+<b>  sourceRef: { kind: GitRepository, name: platform }</b>
+<b>  path: ./does-not-exist</b>
+<b>  targetNamespace: flux-demo</b>
+<b>EOF</b>
+<b>$ sleep 30</b>
+<b>$ kubectl -n flux-system get kustomization nowhere -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+<b>$ flux events --for Kustomization/nowhere | tail -5</b>
+<b>$ flux delete kustomization nowhere -s</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the reason is about building the kustomization, not about the source, and the message quotes the path. Say what the reason would be instead if the GitRepository itself were broken.</div>
+    </div>
+
+    <div class="exercise" data-title="Turn a push into an instant reconcile">
+      <p>An interval is a promise that you will be no more than a minute behind. A Receiver is how you stop waiting: the git server calls Flux, and the reconcile starts on the push.</p>
+      <div class="cb" data-lang="bash"><pre><code>TOKEN=$(head -c 24 /dev/urandom | base64 | tr -d '=+/')
+kubectl -n flux-system create secret generic receiver-token --from-literal=token="$TOKEN"
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: notification.toolkit.fluxcd.io/v1
+kind: Receiver
+metadata: { name: gitea-receiver, namespace: flux-system }
+spec:
+  type: gitea
+  events: [push]
+  secretRef: { name: receiver-token }
+  resources:
+    - { kind: GitRepository, name: platform }
+EOF
+sleep 10
+kubectl -n flux-system get receiver gitea-receiver -o jsonpath='{.status.webhookPath}{"\n"}'
+kubectl -n flux-system patch svc webhook-receiver -p '{"spec":{"type":"LoadBalancer"}}'
+kubectl -n flux-system get svc webhook-receiver -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}'
+flux events --for GitRepository/platform | tail -5</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ TOKEN=$(head -c 24 /dev/urandom | base64 | tr -d '=+/')</b>
+<b>$ kubectl -n flux-system create secret generic receiver-token --from-literal=token="$TOKEN"</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: notification.toolkit.fluxcd.io/v1</b>
+<b>kind: Receiver</b>
+<b>metadata: { name: gitea-receiver, namespace: flux-system }</b>
+<b>spec:</b>
+<b>  type: gitea</b>
+<b>  events: [push]</b>
+<b>  secretRef: { name: receiver-token }</b>
+<b>  resources:</b>
+<b>    - { kind: GitRepository, name: platform }</b>
+<b>EOF</b>
+<b>$ sleep 10</b>
+<b>$ kubectl -n flux-system get receiver gitea-receiver -o jsonpath='{.status.webhookPath}{"\n"}'</b>
+<b>$ kubectl -n flux-system patch svc webhook-receiver -p '{"spec":{"type":"LoadBalancer"}}'</b>
+<b>$ kubectl -n flux-system get svc webhook-receiver -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}'</b>
+<b>$ flux events --for GitRepository/platform | tail -5</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the Receiver reports a webhook path and the Service has an address. Point the Gitea repository's webhook at <code>http://&lt;ip&gt;&lt;webhookPath&gt;</code> with the same token, push, and the reconcile shows up in the events within seconds rather than at the next interval.</div>
+    </div>
+
+    <div class="exercise" data-title="Let a tag write a commit">
+      <p>Image automation is Flux writing to git on your behalf: a policy picks a tag, and a controller commits the change back to the overlay. The marker comment in the manifest is what tells it where to write.</p>
+      <div class="cb" data-lang="bash"><pre><code>flux create image repository demo --image=kind-registry:5000/demo --interval=1m --insecure
+flux create image policy demo --image-ref=demo --select-semver='&gt;=1.0.0'
+kubectl -n flux-system get imagerepository demo -o jsonpath='{.status.lastScanResult}' | jq
+kubectl -n flux-system get imagepolicy demo -o jsonpath='{.status.latestRef}' | jq
+flux create image update demo-auto \
+  --interval=1m \
+  --git-repo-ref=platform \
+  --git-repo-path=./demo-app/overlays/staging \
+  --checkout-branch=main \
+  --push-branch=main \
+  --author-name=fluxcdbot \
+  --author-email=fluxcdbot@lab.local
+skopeo copy --dest-tls-verify=false docker://ghcr.io/stefanprodan/podinfo:6.7.1 docker://localhost:5001/demo:1.0.1
+sleep 90
+flux events --for ImageUpdateAutomation/demo-auto | tail -10
+git -c http.sslVerify=false ls-remote "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" main</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ flux create image repository demo --image=kind-registry:5000/demo --interval=1m --insecure</b>
+<b>$ flux create image policy demo --image-ref=demo --select-semver='&gt;=1.0.0'</b>
+<b>$ kubectl -n flux-system get imagerepository demo -o jsonpath='{.status.lastScanResult}' | jq</b>
+<b>$ kubectl -n flux-system get imagepolicy demo -o jsonpath='{.status.latestRef}' | jq</b>
+<b>$ flux create image update demo-auto \</b>
+<b>    --interval=1m \</b>
+<b>    --git-repo-ref=platform \</b>
+<b>    --git-repo-path=./demo-app/overlays/staging \</b>
+<b>    --checkout-branch=main \</b>
+<b>    --push-branch=main \</b>
+<b>    --author-name=fluxcdbot \</b>
+<b>    --author-email=fluxcdbot@lab.local</b>
+<b>$ skopeo copy --dest-tls-verify=false docker://ghcr.io/stefanprodan/podinfo:6.7.1 docker://localhost:5001/demo:1.0.1</b>
+<b>$ sleep 90</b>
+<b>$ flux events --for ImageUpdateAutomation/demo-auto | tail -10</b>
+<b>$ git -c http.sslVerify=false ls-remote "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" main</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the policy resolves to the tag you pushed, and the automation writes a commit authored by fluxcdbot. Until the overlay carries a marker comment such as <code># {"$imagepolicy": "flux-system:demo"}</code> on the image line, the automation has nothing to rewrite and says so; add it and run again.</div>
+    </div>
+
   </div>
 </section>
 

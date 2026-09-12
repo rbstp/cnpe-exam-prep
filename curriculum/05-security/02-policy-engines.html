@@ -324,6 +324,700 @@ Error from server: admission webhook "vpol.validate.kyverno.svc-fail" denied the
       <div class="verify"><b>verify:</b> you can answer "if Kyverno's pods all died right now, could anyone still deploy?" from the failurePolicy alone, and say what that choice trades. (Check <code>kube-system</code> in the selector while you are there; policy engines exempting the control plane is itself a governance decision.)</div>
     </div>
 
+    <div class="exercise" data-title="Find out which Kyverno API you are on">
+      <p>Kyverno has two policy APIs at once: the classic <code>ClusterPolicy</code> and the CEL-based <code>ValidatingPolicy</code>. Which one a cluster prefers changes the answer to every policy task, and the API server tells you.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl api-resources | grep -E 'kyverno'
+kubectl -n kyverno get deploy -o jsonpath='{range .items[*]}{.metadata.name} {.spec.template.spec.containers[0].image}{"\n"}{end}'
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata: { name: legacy-shape }
+spec:
+  validationFailureAction: Audit
+  rules:
+    - name: has-team-label
+      match:
+        any:
+          - resources: { kinds: [Pod], namespaces: [default] }
+      validate:
+        message: "pods should carry a team label"
+        pattern:
+          metadata:
+            labels:
+              team: "?*"
+EOF
+kubectl delete clusterpolicy legacy-shape</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl api-resources | grep -E 'kyverno'</b>
+<b>$ kubectl -n kyverno get deploy -o jsonpath='{range .items[*]}{.metadata.name} {.spec.template.spec.containers[0].image}{"\n"}{end}'</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: kyverno.io/v1</b>
+<b>kind: ClusterPolicy</b>
+<b>metadata: { name: legacy-shape }</b>
+<b>spec:</b>
+<b>  validationFailureAction: Audit</b>
+<b>  rules:</b>
+<b>    - name: has-team-label</b>
+<b>      match:</b>
+<b>        any:</b>
+<b>          - resources: { kinds: [Pod], namespaces: [default] }</b>
+<b>      validate:</b>
+<b>        message: "pods should carry a team label"</b>
+<b>        pattern:</b>
+<b>          metadata:</b>
+<b>            labels:</b>
+<b>              team: "?*"</b>
+<b>EOF</b>
+<b>$ kubectl delete clusterpolicy legacy-shape</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the resource list shows both API groups, and the apply either succeeds silently or prints a deprecation warning naming the replacement. Whichever you get, write down which API the cluster in front of you prefers before you author anything.</div>
+    </div>
+
+    <div class="exercise" data-title="Deny at the Deployment, not the ReplicaSet">
+      <p>A pod-level policy catches the pod, which is created by a ReplicaSet, which means the developer's <code>kubectl apply</code> succeeds and the failure lands in an event nobody reads. Autogen moves the denial to where the human is.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: policies.kyverno.io/v1alpha1
+kind: ValidatingPolicy
+metadata: { name: require-team-label }
+spec:
+  validationActions: [Deny]
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  validations:
+    - expression: "has(object.metadata.labels) &amp;&amp; has(object.metadata.labels.team)"
+      message: "every pod must carry a team label"
+EOF
+sleep 15
+kubectl -n default create deployment unlabelled --image=nginx:1.27-alpine
+sleep 20
+kubectl -n default get deploy unlabelled -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
+kubectl -n default get events --field-selector reason=FailedCreate | tail -3
+kubectl -n default delete deployment unlabelled
+kubectl patch validatingpolicy require-team-label --type merge -p '{"spec":{"autogen":{"podControllers":{"controllers":["deployments"]}}}}'
+sleep 20
+kubectl -n default create deployment unlabelled --image=nginx:1.27-alpine
+kubectl -n default delete deployment unlabelled --ignore-not-found
+kubectl delete validatingpolicy require-team-label</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: policies.kyverno.io/v1alpha1</b>
+<b>kind: ValidatingPolicy</b>
+<b>metadata: { name: require-team-label }</b>
+<b>spec:</b>
+<b>  validationActions: [Deny]</b>
+<b>  matchConstraints:</b>
+<b>    resourceRules:</b>
+<b>      - apiGroups: [""]</b>
+<b>        apiVersions: ["v1"]</b>
+<b>        operations: ["CREATE", "UPDATE"]</b>
+<b>        resources: ["pods"]</b>
+<b>  validations:</b>
+<b>    - expression: "has(object.metadata.labels) &amp;&amp; has(object.metadata.labels.team)"</b>
+<b>      message: "every pod must carry a team label"</b>
+<b>EOF</b>
+<b>$ sleep 15</b>
+<b>$ kubectl -n default create deployment unlabelled --image=nginx:1.27-alpine</b>
+<b>$ sleep 20</b>
+<b>$ kubectl -n default get deploy unlabelled -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+<b>$ kubectl -n default get events --field-selector reason=FailedCreate | tail -3</b>
+<b>$ kubectl -n default delete deployment unlabelled</b>
+<b>$ kubectl patch validatingpolicy require-team-label --type merge -p '{"spec":{"autogen":{"podControllers":{"controllers":["deployments"]}}}}'</b>
+<b>$ sleep 20</b>
+<b>$ kubectl -n default create deployment unlabelled --image=nginx:1.27-alpine</b>
+<b>$ kubectl -n default delete deployment unlabelled --ignore-not-found</b>
+<b>$ kubectl delete validatingpolicy require-team-label</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> without autogen the Deployment is created and its ReplicaSet fails in an event; with autogen the <code>kubectl create</code> itself is refused. Say which of those two a developer will open a ticket about, and which one they will fix themselves.</div>
+    </div>
+
+    <div class="exercise" data-title="Let Kyverno write a native policy for you">
+      <p>Kyverno can compile a ValidatingPolicy down to a native ValidatingAdmissionPolicy, which then runs in the API server with no webhook at all. Read the generated object; it is the best available lesson in what CEL admission looks like.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: policies.kyverno.io/v1alpha1
+kind: ValidatingPolicy
+metadata: { name: no-latest }
+spec:
+  validationActions: [Deny]
+  autogen:
+    validatingAdmissionPolicy: { enabled: true }
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  validations:
+    - expression: "object.spec.containers.all(c, !c.image.endsWith(':latest'))"
+      message: "no :latest tags"
+EOF
+sleep 30
+kubectl get validatingadmissionpolicies
+kubectl get validatingadmissionpolicybindings
+kubectl get validatingadmissionpolicy -o jsonpath='{range .items[*]}{.metadata.name} {.spec.validations[*].expression}{"\n"}{end}'
+kubectl delete validatingpolicy no-latest</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: policies.kyverno.io/v1alpha1</b>
+<b>kind: ValidatingPolicy</b>
+<b>metadata: { name: no-latest }</b>
+<b>spec:</b>
+<b>  validationActions: [Deny]</b>
+<b>  autogen:</b>
+<b>    validatingAdmissionPolicy: { enabled: true }</b>
+<b>  matchConstraints:</b>
+<b>    resourceRules:</b>
+<b>      - apiGroups: [""]</b>
+<b>        apiVersions: ["v1"]</b>
+<b>        operations: ["CREATE", "UPDATE"]</b>
+<b>        resources: ["pods"]</b>
+<b>  validations:</b>
+<b>    - expression: "object.spec.containers.all(c, !c.image.endsWith(':latest'))"</b>
+<b>      message: "no :latest tags"</b>
+<b>EOF</b>
+<b>$ sleep 30</b>
+<b>$ kubectl get validatingadmissionpolicies</b>
+<b>$ kubectl get validatingadmissionpolicybindings</b>
+<b>$ kubectl get validatingadmissionpolicy -o jsonpath='{range .items[*]}{.metadata.name} {.spec.validations[*].expression}{"\n"}{end}'</b>
+<b>$ kubectl delete validatingpolicy no-latest</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> a ValidatingAdmissionPolicy and a binding exist that you did not write, carrying your expression. Say what you gain by running it natively and what you give up compared to the webhook.</div>
+    </div>
+
+    <div class="exercise" data-title="Grant one exception, on the record">
+      <p>"Just this once" has to be an object, not a conversation. A PolicyException names the policy and the resources it excuses, and the report records a skip rather than a pass, which keeps the exception visible.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n kyverno get deploy kyverno-admission-controller -o jsonpath='{.spec.template.spec.containers[0].args}' | jq
+kubectl create ns policy-exception --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: policies.kyverno.io/v1alpha1
+kind: PolicyException
+metadata: { name: legacy-job, namespace: policy-exception }
+spec:
+  policyRefs:
+    - name: require-resource-requests
+      kind: ValidatingPolicy
+  matchConditions:
+    - name: only-the-legacy-pod
+      expression: "object.metadata.name == 'legacy'"
+EOF
+kubectl -n default run legacy --image=nginx:1.27-alpine --restart=Never
+sleep 30
+kubectl get policyreports -A | head
+kubectl -n default get policyreport -o jsonpath='{range .items[*].results[*]}{.policy} {.result} {.resources[*].name}{"\n"}{end}' | grep -i legacy
+kubectl -n default delete pod legacy --ignore-not-found
+kubectl -n policy-exception delete policyexception legacy-job
+kubectl delete ns policy-exception</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n kyverno get deploy kyverno-admission-controller -o jsonpath='{.spec.template.spec.containers[0].args}' | jq</b>
+<b>$ kubectl create ns policy-exception --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: policies.kyverno.io/v1alpha1</b>
+<b>kind: PolicyException</b>
+<b>metadata: { name: legacy-job, namespace: policy-exception }</b>
+<b>spec:</b>
+<b>  policyRefs:</b>
+<b>    - name: require-resource-requests</b>
+<b>      kind: ValidatingPolicy</b>
+<b>  matchConditions:</b>
+<b>    - name: only-the-legacy-pod</b>
+<b>      expression: "object.metadata.name == 'legacy'"</b>
+<b>EOF</b>
+<b>$ kubectl -n default run legacy --image=nginx:1.27-alpine --restart=Never</b>
+<b>$ sleep 30</b>
+<b>$ kubectl get policyreports -A | head</b>
+<b>$ kubectl -n default get policyreport -o jsonpath='{range .items[*].results[*]}{.policy} {.result} {.resources[*].name}{"\n"}{end}' | grep -i legacy</b>
+<b>$ kubectl -n default delete pod legacy --ignore-not-found</b>
+<b>$ kubectl -n policy-exception delete policyexception legacy-job</b>
+<b>$ kubectl delete ns policy-exception</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the report carries a <code>skip</code> result for the excepted resource rather than a pass or a fail, and the admission controller's flags say which namespaces may hold exceptions. If exceptions are disabled on this install, the flags are the evidence and that is the finding.</div>
+    </div>
+
+    <div class="exercise" data-title="Test policies without a cluster">
+      <p>The Kyverno CLI runs policies against manifests in CI, which is where a policy should fail first. A test file asserts the outcome per resource, so a policy change that breaks a team's manifests is caught before it merges.</p>
+      <div class="cb" data-lang="bash"><pre><code>mkdir -p /tmp/kyverno-test &amp;&amp; cd /tmp/kyverno-test
+cp /home/rbstp/git/cnpe-exam-prep/examples/kyverno/require-resources.yaml policy.yaml
+cat &gt; good-pod.yaml &lt;&lt;'EOF'
+apiVersion: v1
+kind: Pod
+metadata: { name: good, namespace: default }
+spec:
+  containers:
+    - name: c
+      image: nginx:1.27-alpine
+      resources:
+        requests: { cpu: 25m, memory: 32Mi }
+EOF
+cat &gt; bad-pod.yaml &lt;&lt;'EOF'
+apiVersion: v1
+kind: Pod
+metadata: { name: bad, namespace: default }
+spec:
+  containers:
+    - name: c
+      image: nginx:1.27-alpine
+EOF
+kyverno apply policy.yaml --resource good-pod.yaml --resource bad-pod.yaml
+cat &gt; kyverno-test.yaml &lt;&lt;'EOF'
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata: { name: require-resources }
+policies: [policy.yaml]
+resources: [good-pod.yaml, bad-pod.yaml]
+results:
+  - policy: require-resource-requests
+    resources: [good]
+    kind: Pod
+    result: pass
+  - policy: require-resource-requests
+    resources: [bad]
+    kind: Pod
+    result: fail
+EOF
+kyverno test .</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ mkdir -p /tmp/kyverno-test &amp;&amp; cd /tmp/kyverno-test</b>
+<b>$ cp /home/rbstp/git/cnpe-exam-prep/examples/kyverno/require-resources.yaml policy.yaml</b>
+<b>$ cat &gt; good-pod.yaml &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: Pod</b>
+<b>metadata: { name: good, namespace: default }</b>
+<b>spec:</b>
+<b>  containers:</b>
+<b>    - name: c</b>
+<b>      image: nginx:1.27-alpine</b>
+<b>      resources:</b>
+<b>        requests: { cpu: 25m, memory: 32Mi }</b>
+<b>EOF</b>
+<b>$ cat &gt; bad-pod.yaml &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: Pod</b>
+<b>metadata: { name: bad, namespace: default }</b>
+<b>spec:</b>
+<b>  containers:</b>
+<b>    - name: c</b>
+<b>      image: nginx:1.27-alpine</b>
+<b>EOF</b>
+<b>$ kyverno apply policy.yaml --resource good-pod.yaml --resource bad-pod.yaml</b>
+<b>$ cat &gt; kyverno-test.yaml &lt;&lt;'EOF'</b>
+<b>apiVersion: cli.kyverno.io/v1alpha1</b>
+<b>kind: Test</b>
+<b>metadata: { name: require-resources }</b>
+<b>policies: [policy.yaml]</b>
+<b>resources: [good-pod.yaml, bad-pod.yaml]</b>
+<b>results:</b>
+<b>  - policy: require-resource-requests</b>
+<b>    resources: [good]</b>
+<b>    kind: Pod</b>
+<b>    result: pass</b>
+<b>  - policy: require-resource-requests</b>
+<b>    resources: [bad]</b>
+<b>    kind: Pod</b>
+<b>    result: fail</b>
+<b>EOF</b>
+<b>$ kyverno test .</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> <code>kyverno apply</code> passes one pod and fails the other, and <code>kyverno test</code> reports both assertions met. Say where in a pipeline you would run this, and what it costs you if you only ever test in the cluster.</div>
+    </div>
+
+    <div class="exercise" data-title="Warn a human, deny a robot">
+      <p>Gatekeeper's scoped enforcement lets one constraint behave differently at admission and in audit. Warning the person typing while recording a violation for the report is a realistic rollout strategy, not a compromise.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata: { name: k8srequiredlabels }
+spec:
+  crd:
+    spec:
+      names: { kind: K8sRequiredLabels }
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            labels: { type: array, items: { type: string } }
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8srequiredlabels
+        violation[{"msg": msg}] {
+          required := input.parameters.labels[_]
+          not input.review.object.metadata.labels[required]
+          msg := sprintf("missing required label: %v", [required])
+        }
+EOF
+sleep 20
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequiredLabels
+metadata: { name: pods-need-owner }
+spec:
+  enforcementAction: scoped
+  scopedEnforcementActions:
+    - action: warn
+      enforcementPoints: [{ name: validation.gatekeeper.sh }]
+    - action: deny
+      enforcementPoints: [{ name: audit.gatekeeper.sh }]
+  match:
+    kinds:
+      - { apiGroups: [""], kinds: [Pod] }
+    namespaces: [default]
+  parameters:
+    labels: [owner]
+EOF
+sleep 30
+kubectl -n default run scoped-demo --image=nginx:1.27-alpine --restart=Never
+sleep 90
+kubectl get k8srequiredlabels pods-need-owner -o jsonpath='{.status.violations}' | jq
+kubectl -n default delete pod scoped-demo --ignore-not-found
+kubectl delete k8srequiredlabels pods-need-owner
+kubectl delete constrainttemplate k8srequiredlabels</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: templates.gatekeeper.sh/v1</b>
+<b>kind: ConstraintTemplate</b>
+<b>metadata: { name: k8srequiredlabels }</b>
+<b>spec:</b>
+<b>  crd:</b>
+<b>    spec:</b>
+<b>      names: { kind: K8sRequiredLabels }</b>
+<b>      validation:</b>
+<b>        openAPIV3Schema:</b>
+<b>          type: object</b>
+<b>          properties:</b>
+<b>            labels: { type: array, items: { type: string } }</b>
+<b>  targets:</b>
+<b>    - target: admission.k8s.gatekeeper.sh</b>
+<b>      rego: |</b>
+<b>        package k8srequiredlabels</b>
+<b>        violation[{"msg": msg}] {</b>
+<b>          required := input.parameters.labels[_]</b>
+<b>          not input.review.object.metadata.labels[required]</b>
+<b>          msg := sprintf("missing required label: %v", [required])</b>
+<b>        }</b>
+<b>EOF</b>
+<b>$ sleep 20</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: constraints.gatekeeper.sh/v1beta1</b>
+<b>kind: K8sRequiredLabels</b>
+<b>metadata: { name: pods-need-owner }</b>
+<b>spec:</b>
+<b>  enforcementAction: scoped</b>
+<b>  scopedEnforcementActions:</b>
+<b>    - action: warn</b>
+<b>      enforcementPoints: [{ name: validation.gatekeeper.sh }]</b>
+<b>    - action: deny</b>
+<b>      enforcementPoints: [{ name: audit.gatekeeper.sh }]</b>
+<b>  match:</b>
+<b>    kinds:</b>
+<b>      - { apiGroups: [""], kinds: [Pod] }</b>
+<b>    namespaces: [default]</b>
+<b>  parameters:</b>
+<b>    labels: [owner]</b>
+<b>EOF</b>
+<b>$ sleep 30</b>
+<b>$ kubectl -n default run scoped-demo --image=nginx:1.27-alpine --restart=Never</b>
+<b>$ sleep 90</b>
+<b>$ kubectl get k8srequiredlabels pods-need-owner -o jsonpath='{.status.violations}' | jq</b>
+<b>$ kubectl -n default delete pod scoped-demo --ignore-not-found</b>
+<b>$ kubectl delete k8srequiredlabels pods-need-owner</b>
+<b>$ kubectl delete constrainttemplate k8srequiredlabels</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the pod is created with a warning printed by kubectl, and the same constraint's audit status lists it as a violation. Say how you would use this pair to roll out a new rule across a cluster you do not own.</div>
+    </div>
+
+    <div class="exercise" data-title="Mutate with a condition">
+      <p>Gatekeeper's <code>Assign</code> changes objects on the way in, and <code>pathTests</code> is what stops it clobbering a value someone set deliberately. Mutation without a condition is how a platform team breaks a team's deployment quietly.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: mutations.gatekeeper.sh/v1
+kind: Assign
+metadata: { name: always-pull-if-unset }
+spec:
+  applyTo:
+    - { groups: [""], versions: [v1], kinds: [Pod] }
+  match:
+    scope: Namespaced
+    namespaces: [default]
+    kinds:
+      - { apiGroups: ["*"], kinds: [Pod] }
+  location: "spec.containers[name:*].imagePullPolicy"
+  parameters:
+    pathTests:
+      - { subPath: "spec.containers[name:*].imagePullPolicy", condition: MustNotExist }
+    assign: { value: Always }
+EOF
+sleep 30
+kubectl -n default run mutated --image=nginx:1.27-alpine --restart=Never
+kubectl -n default get pod mutated -o jsonpath='{.spec.containers[0].imagePullPolicy}{"\n"}'
+kubectl -n default run untouched --image=nginx:1.27-alpine --restart=Never --image-pull-policy=IfNotPresent
+kubectl -n default get pod untouched -o jsonpath='{.spec.containers[0].imagePullPolicy}{"\n"}'
+kubectl -n default delete pod mutated untouched --ignore-not-found
+kubectl delete assign always-pull-if-unset</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: mutations.gatekeeper.sh/v1</b>
+<b>kind: Assign</b>
+<b>metadata: { name: always-pull-if-unset }</b>
+<b>spec:</b>
+<b>  applyTo:</b>
+<b>    - { groups: [""], versions: [v1], kinds: [Pod] }</b>
+<b>  match:</b>
+<b>    scope: Namespaced</b>
+<b>    namespaces: [default]</b>
+<b>    kinds:</b>
+<b>      - { apiGroups: ["*"], kinds: [Pod] }</b>
+<b>  location: "spec.containers[name:*].imagePullPolicy"</b>
+<b>  parameters:</b>
+<b>    pathTests:</b>
+<b>      - { subPath: "spec.containers[name:*].imagePullPolicy", condition: MustNotExist }</b>
+<b>    assign: { value: Always }</b>
+<b>EOF</b>
+<b>$ sleep 30</b>
+<b>$ kubectl -n default run mutated --image=nginx:1.27-alpine --restart=Never</b>
+<b>$ kubectl -n default get pod mutated -o jsonpath='{.spec.containers[0].imagePullPolicy}{"\n"}'</b>
+<b>$ kubectl -n default run untouched --image=nginx:1.27-alpine --restart=Never --image-pull-policy=IfNotPresent</b>
+<b>$ kubectl -n default get pod untouched -o jsonpath='{.spec.containers[0].imagePullPolicy}{"\n"}'</b>
+<b>$ kubectl -n default delete pod mutated untouched --ignore-not-found</b>
+<b>$ kubectl delete assign always-pull-if-unset</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the pod that said nothing gets <code>Always</code> and the one that asked for <code>IfNotPresent</code> keeps it. Remove the <code>pathTests</code> block and the second pod is overwritten too; that is the difference between a default and a decree.</div>
+    </div>
+
+    <div class="exercise" data-title="Run the constraints in CI">
+      <p><code>gator test</code> evaluates Gatekeeper constraints against manifests on a laptop or a build agent. Same policies, same answers, no cluster, which is what makes policy-as-code reviewable.</p>
+      <div class="cb" data-lang="bash"><pre><code>mkdir -p /tmp/gator/policies /tmp/gator/manifests &amp;&amp; cd /tmp/gator
+cat &gt; policies/template.yaml &lt;&lt;'EOF'
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata: { name: k8sdenylatest }
+spec:
+  crd:
+    spec:
+      names: { kind: K8sDenyLatest }
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8sdenylatest
+        violation[{"msg": msg}] {
+          c := input.review.object.spec.containers[_]
+          endswith(c.image, ":latest")
+          msg := sprintf("image uses the latest tag: %v", [c.image])
+        }
+EOF
+cat &gt; policies/constraint.yaml &lt;&lt;'EOF'
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sDenyLatest
+metadata: { name: no-latest-anywhere }
+spec:
+  match:
+    kinds:
+      - { apiGroups: [""], kinds: [Pod] }
+EOF
+cat &gt; manifests/pods.yaml &lt;&lt;'EOF'
+apiVersion: v1
+kind: Pod
+metadata: { name: pinned }
+spec:
+  containers: [{ name: c, image: nginx:1.27-alpine }]
+---
+apiVersion: v1
+kind: Pod
+metadata: { name: floating }
+spec:
+  containers: [{ name: c, image: nginx:latest }]
+EOF
+gator test -f manifests/ -f policies/
+echo "exit code: $?"</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ mkdir -p /tmp/gator/policies /tmp/gator/manifests &amp;&amp; cd /tmp/gator</b>
+<b>$ cat &gt; policies/template.yaml &lt;&lt;'EOF'</b>
+<b>apiVersion: templates.gatekeeper.sh/v1</b>
+<b>kind: ConstraintTemplate</b>
+<b>metadata: { name: k8sdenylatest }</b>
+<b>spec:</b>
+<b>  crd:</b>
+<b>    spec:</b>
+<b>      names: { kind: K8sDenyLatest }</b>
+<b>  targets:</b>
+<b>    - target: admission.k8s.gatekeeper.sh</b>
+<b>      rego: |</b>
+<b>        package k8sdenylatest</b>
+<b>        violation[{"msg": msg}] {</b>
+<b>          c := input.review.object.spec.containers[_]</b>
+<b>          endswith(c.image, ":latest")</b>
+<b>          msg := sprintf("image uses the latest tag: %v", [c.image])</b>
+<b>        }</b>
+<b>EOF</b>
+<b>$ cat &gt; policies/constraint.yaml &lt;&lt;'EOF'</b>
+<b>apiVersion: constraints.gatekeeper.sh/v1beta1</b>
+<b>kind: K8sDenyLatest</b>
+<b>metadata: { name: no-latest-anywhere }</b>
+<b>spec:</b>
+<b>  match:</b>
+<b>    kinds:</b>
+<b>      - { apiGroups: [""], kinds: [Pod] }</b>
+<b>EOF</b>
+<b>$ cat &gt; manifests/pods.yaml &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: Pod</b>
+<b>metadata: { name: pinned }</b>
+<b>spec:</b>
+<b>  containers: [{ name: c, image: nginx:1.27-alpine }]</b>
+<b>---</b>
+<b>apiVersion: v1</b>
+<b>kind: Pod</b>
+<b>metadata: { name: floating }</b>
+<b>spec:</b>
+<b>  containers: [{ name: c, image: nginx:latest }]</b>
+<b>EOF</b>
+<b>$ gator test -f manifests/ -f policies/</b>
+<b>$ echo "exit code: $?"</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the floating pod is reported as a violation with your message and the pinned one is not. Say how you would make a pull request fail on that exit code, and what you would do about the manifests that already violate it.</div>
+    </div>
+
+    <div class="exercise" data-title="Type-check a native policy">
+      <p>A VAP with a typo in a field path does not fail loudly; it fails at evaluation, and what happens then depends entirely on the failure policy. The API server type-checks the expression up front and puts the result in status.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata: { name: typo-policy }
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments"]
+  validations:
+    - expression: "object.spec.replicaCount &lt;= 10"
+      message: "at most ten replicas"
+EOF
+sleep 10
+kubectl get validatingadmissionpolicy typo-policy -o jsonpath='{.status.typeChecking}' | jq
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata: { name: typo-policy-binding }
+spec:
+  policyName: typo-policy
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: default }
+EOF
+sleep 10
+kubectl -n default create deployment typo-test --image=nginx:1.27-alpine
+kubectl patch validatingadmissionpolicy typo-policy --type merge -p '{"spec":{"failurePolicy":"Ignore"}}'
+sleep 10
+kubectl -n default create deployment typo-test --image=nginx:1.27-alpine
+kubectl -n default delete deployment typo-test --ignore-not-found
+kubectl delete validatingadmissionpolicybinding typo-policy-binding
+kubectl delete validatingadmissionpolicy typo-policy</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: admissionregistration.k8s.io/v1</b>
+<b>kind: ValidatingAdmissionPolicy</b>
+<b>metadata: { name: typo-policy }</b>
+<b>spec:</b>
+<b>  failurePolicy: Fail</b>
+<b>  matchConstraints:</b>
+<b>    resourceRules:</b>
+<b>      - apiGroups: ["apps"]</b>
+<b>        apiVersions: ["v1"]</b>
+<b>        operations: ["CREATE", "UPDATE"]</b>
+<b>        resources: ["deployments"]</b>
+<b>  validations:</b>
+<b>    - expression: "object.spec.replicaCount &lt;= 10"</b>
+<b>      message: "at most ten replicas"</b>
+<b>EOF</b>
+<b>$ sleep 10</b>
+<b>$ kubectl get validatingadmissionpolicy typo-policy -o jsonpath='{.status.typeChecking}' | jq</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: admissionregistration.k8s.io/v1</b>
+<b>kind: ValidatingAdmissionPolicyBinding</b>
+<b>metadata: { name: typo-policy-binding }</b>
+<b>spec:</b>
+<b>  policyName: typo-policy</b>
+<b>  validationActions: [Deny]</b>
+<b>  matchResources:</b>
+<b>    namespaceSelector:</b>
+<b>      matchLabels: { kubernetes.io/metadata.name: default }</b>
+<b>EOF</b>
+<b>$ sleep 10</b>
+<b>$ kubectl -n default create deployment typo-test --image=nginx:1.27-alpine</b>
+<b>$ kubectl patch validatingadmissionpolicy typo-policy --type merge -p '{"spec":{"failurePolicy":"Ignore"}}'</b>
+<b>$ sleep 10</b>
+<b>$ kubectl -n default create deployment typo-test --image=nginx:1.27-alpine</b>
+<b>$ kubectl -n default delete deployment typo-test --ignore-not-found</b>
+<b>$ kubectl delete validatingadmissionpolicybinding typo-policy-binding</b>
+<b>$ kubectl delete validatingadmissionpolicy typo-policy</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> <code>status.typeChecking</code> names the field that does not exist, the create is refused under <code>Fail</code>, and the identical broken policy lets everything through under <code>Ignore</code>. Read the type-checking status before you trust a policy you just wrote.</div>
+    </div>
+
+    <div class="exercise" data-title="Mutate natively, no webhook">
+      <p>MutatingAdmissionPolicy does for defaults what VAP did for validation: CEL in the API server, no controller to keep alive. Add a label with an apply configuration and watch it land on a pod nobody patched.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl api-resources | grep -i mutatingadmissionpolicy || echo 'MutatingAdmissionPolicy not served on this cluster'
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: admissionregistration.k8s.io/v1beta1
+kind: MutatingAdmissionPolicy
+metadata: { name: add-platform-label }
+spec:
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+  failurePolicy: Fail
+  reinvocationPolicy: Never
+  mutations:
+    - patchType: ApplyConfiguration
+      applyConfiguration:
+        expression: |
+          Object{ metadata: Object.metadata{ labels: {"managed-by": "platform"} } }
+EOF
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: admissionregistration.k8s.io/v1beta1
+kind: MutatingAdmissionPolicyBinding
+metadata: { name: add-platform-label-binding }
+spec:
+  policyName: add-platform-label
+  matchResources:
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: default }
+EOF
+sleep 15
+kubectl -n default run mutated-native --image=nginx:1.27-alpine --restart=Never
+kubectl -n default get pod mutated-native -o jsonpath='{.metadata.labels}{"\n"}'
+kubectl -n default delete pod mutated-native --ignore-not-found
+kubectl delete mutatingadmissionpolicybinding add-platform-label-binding
+kubectl delete mutatingadmissionpolicy add-platform-label</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl api-resources | grep -i mutatingadmissionpolicy || echo 'MutatingAdmissionPolicy not served on this cluster'</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: admissionregistration.k8s.io/v1beta1</b>
+<b>kind: MutatingAdmissionPolicy</b>
+<b>metadata: { name: add-platform-label }</b>
+<b>spec:</b>
+<b>  matchConstraints:</b>
+<b>    resourceRules:</b>
+<b>      - apiGroups: [""]</b>
+<b>        apiVersions: ["v1"]</b>
+<b>        operations: ["CREATE"]</b>
+<b>        resources: ["pods"]</b>
+<b>  failurePolicy: Fail</b>
+<b>  reinvocationPolicy: Never</b>
+<b>  mutations:</b>
+<b>    - patchType: ApplyConfiguration</b>
+<b>      applyConfiguration:</b>
+<b>        expression: |</b>
+<b>          Object{ metadata: Object.metadata{ labels: {"managed-by": "platform"} } }</b>
+<b>EOF</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: admissionregistration.k8s.io/v1beta1</b>
+<b>kind: MutatingAdmissionPolicyBinding</b>
+<b>metadata: { name: add-platform-label-binding }</b>
+<b>spec:</b>
+<b>  policyName: add-platform-label</b>
+<b>  matchResources:</b>
+<b>    namespaceSelector:</b>
+<b>      matchLabels: { kubernetes.io/metadata.name: default }</b>
+<b>EOF</b>
+<b>$ sleep 15</b>
+<b>$ kubectl -n default run mutated-native --image=nginx:1.27-alpine --restart=Never</b>
+<b>$ kubectl -n default get pod mutated-native -o jsonpath='{.metadata.labels}{"\n"}'</b>
+<b>$ kubectl -n default delete pod mutated-native --ignore-not-found</b>
+<b>$ kubectl delete mutatingadmissionpolicybinding add-platform-label-binding</b>
+<b>$ kubectl delete mutatingadmissionpolicy add-platform-label</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the pod carries <code>managed-by: platform</code> and no mutating webhook exists. If the API is not served on this cluster, say so and name the feature gate; that is the honest answer to the same task on an older cluster.</div>
+    </div>
+
   </div>
 </section>
 

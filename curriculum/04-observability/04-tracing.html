@@ -195,6 +195,196 @@ pod/telemetrygen created</code></pre></details></div>
       <div class="verify"><b>verify:</b> if your answer names <code>traceparent</code> and predicts orphaned single-service traces, the concept is yours.</div>
     </div>
 
+    <div class="exercise" data-title="Inject a collector as a sidecar">
+      <p>A sidecar collector buffers locally so the app never blocks on a network hop, and the operator injects it from an annotation. Seeing the injected container is the whole point; the annotation is two words.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata: { name: side, namespace: default }
+spec:
+  mode: sidecar
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc: { endpoint: 0.0.0.0:4317 }
+          http: { endpoint: 0.0.0.0:4318 }
+    processors:
+      batch: { timeout: 5s }
+    exporters:
+      otlp:
+        endpoint: otel-collector.tracing.svc:4317
+        tls: { insecure: true }
+    service:
+      pipelines:
+        traces: { receivers: [otlp], processors: [batch], exporters: [otlp] }
+EOF
+sleep 15
+kubectl -n default run sidecar-demo --image=ghcr.io/stefanprodan/podinfo:6.7.1 --annotations="sidecar.opentelemetry.io/inject=true"
+kubectl -n default wait --for=condition=Ready pod/sidecar-demo --timeout=120s
+kubectl -n default get pod sidecar-demo -o jsonpath='{range .spec.containers[*]}{.name} {.image}{"\n"}{end}'
+kubectl -n default delete pod sidecar-demo
+kubectl -n default delete opentelemetrycollector side</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: opentelemetry.io/v1beta1</b>
+<b>kind: OpenTelemetryCollector</b>
+<b>metadata: { name: side, namespace: default }</b>
+<b>spec:</b>
+<b>  mode: sidecar</b>
+<b>  config:</b>
+<b>    receivers:</b>
+<b>      otlp:</b>
+<b>        protocols:</b>
+<b>          grpc: { endpoint: 0.0.0.0:4317 }</b>
+<b>          http: { endpoint: 0.0.0.0:4318 }</b>
+<b>    processors:</b>
+<b>      batch: { timeout: 5s }</b>
+<b>    exporters:</b>
+<b>      otlp:</b>
+<b>        endpoint: otel-collector.tracing.svc:4317</b>
+<b>        tls: { insecure: true }</b>
+<b>    service:</b>
+<b>      pipelines:</b>
+<b>        traces: { receivers: [otlp], processors: [batch], exporters: [otlp] }</b>
+<b>EOF</b>
+<b>$ sleep 15</b>
+<b>$ kubectl -n default run sidecar-demo --image=ghcr.io/stefanprodan/podinfo:6.7.1 --annotations="sidecar.opentelemetry.io/inject=true"</b>
+<b>$ kubectl -n default wait --for=condition=Ready pod/sidecar-demo --timeout=120s</b>
+<b>$ kubectl -n default get pod sidecar-demo -o jsonpath='{range .spec.containers[*]}{.name} {.image}{"\n"}{end}'</b>
+<b>$ kubectl -n default delete pod sidecar-demo</b>
+<b>$ kubectl -n default delete opentelemetrycollector side</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the pod has two containers and you only asked for one. Say what the sidecar buys over pointing the app straight at the gateway collector, and what it costs you per pod.</div>
+    </div>
+
+    <div class="exercise" data-title="Sample on the tail, not the head">
+      <p>Head sampling throws away traces before anything is known about them. Tail sampling waits for the whole trace and keeps the errors and the slow ones, which is the only policy that survives contact with an incident.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n tracing get opentelemetrycollector otel -o jsonpath='{.spec.config.service.pipelines.traces}' | jq
+kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"processors":{"tail_sampling":{"decision_wait":"10s","policies":[{"name":"errors","type":"status_code","status_code":{"status_codes":["ERROR"]}},{"name":"slow","type":"latency","latency":{"threshold_ms":500}}]}},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","tail_sampling","batch"],"exporters":["otlp/jaeger"]}}}}}}'
+kubectl -n tracing rollout status deploy otel-collector --timeout=180s
+kubectl -n tracing run gen-ok --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service ok-service --traces 5
+kubectl -n tracing run gen-err --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service err-service --status-code Error --traces 5
+sleep 30
+kubectl -n tracing port-forward svc/jaeger 16686:16686 &amp;
+sleep 5
+curl -s 'http://localhost:16686/api/services' | jq
+curl -s 'http://localhost:16686/api/traces?service=err-service&amp;limit=10' | jq '.data | length'
+curl -s 'http://localhost:16686/api/traces?service=ok-service&amp;limit=10' | jq '.data | length'
+kill %1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n tracing get opentelemetrycollector otel -o jsonpath='{.spec.config.service.pipelines.traces}' | jq</b>
+<b>$ kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"processors":{"tail_sampling":{"decision_wait":"10s","policies":[{"name":"errors","type":"status_code","status_code":{"status_codes":["ERROR"]}},{"name":"slow","type":"latency","latency":{"threshold_ms":500}}]}},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","tail_sampling","batch"],"exporters":["otlp/jaeger"]}}}}}}'</b>
+<b>$ kubectl -n tracing rollout status deploy otel-collector --timeout=180s</b>
+<b>$ kubectl -n tracing run gen-ok --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service ok-service --traces 5</b>
+<b>$ kubectl -n tracing run gen-err --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service err-service --status-code Error --traces 5</b>
+<b>$ sleep 30</b>
+<b>$ kubectl -n tracing port-forward svc/jaeger 16686:16686 &amp;</b>
+<b>$ sleep 5</b>
+<b>$ curl -s 'http://localhost:16686/api/services' | jq</b>
+<b>$ curl -s 'http://localhost:16686/api/traces?service=err-service&amp;limit=10' | jq '.data | length'</b>
+<b>$ curl -s 'http://localhost:16686/api/traces?service=ok-service&amp;limit=10' | jq '.data | length'</b>
+<b>$ kill %1</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the error service's traces are in Jaeger and the clean ones are thinner or absent, depending on whether they tripped the latency policy. Say what <code>decision_wait</code> costs you and why a load balancer in front of two collectors breaks tail sampling.</div>
+    </div>
+
+    <div class="exercise" data-title="Take the enrichment away">
+      <p>The <code>k8sattributes</code> processor is what turns a span into something you can join against a pod. It needs RBAC to do that, and without it the spans still arrive, just anonymous.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n tracing run gen-before --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service enriched --traces 3
+sleep 20
+kubectl -n tracing port-forward svc/jaeger 16686:16686 &amp;
+sleep 5
+curl -s 'http://localhost:16686/api/traces?service=enriched&amp;limit=1' | jq '[.data[0].processes[].tags[] | select(.key | startswith("k8s"))]'
+kubectl get clusterrolebinding otel-collector -o yaml &gt; /tmp/otel-crb.yaml 2&gt;/dev/null || kubectl get clusterrolebinding -o name | grep otel
+kubectl delete clusterrolebinding otel-collector --ignore-not-found
+kubectl -n tracing rollout restart deploy otel-collector
+kubectl -n tracing rollout status deploy otel-collector --timeout=120s
+kubectl -n tracing run gen-after --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service unenriched --traces 3
+sleep 20
+curl -s 'http://localhost:16686/api/traces?service=unenriched&amp;limit=1' | jq '[.data[0].processes[].tags[] | select(.key | startswith("k8s"))]'
+kubectl -n tracing logs deploy/otel-collector --tail=30 | grep -i -m3 forbidden
+kubectl apply -f /tmp/otel-crb.yaml
+kubectl -n tracing rollout restart deploy otel-collector
+kill %1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n tracing run gen-before --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service enriched --traces 3</b>
+<b>$ sleep 20</b>
+<b>$ kubectl -n tracing port-forward svc/jaeger 16686:16686 &amp;</b>
+<b>$ sleep 5</b>
+<b>$ curl -s 'http://localhost:16686/api/traces?service=enriched&amp;limit=1' | jq '[.data[0].processes[].tags[] | select(.key | startswith("k8s"))]'</b>
+<b>$ kubectl get clusterrolebinding otel-collector -o yaml &gt; /tmp/otel-crb.yaml 2&gt;/dev/null || kubectl get clusterrolebinding -o name | grep otel</b>
+<b>$ kubectl delete clusterrolebinding otel-collector --ignore-not-found</b>
+<b>$ kubectl -n tracing rollout restart deploy otel-collector</b>
+<b>$ kubectl -n tracing rollout status deploy otel-collector --timeout=120s</b>
+<b>$ kubectl -n tracing run gen-after --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service unenriched --traces 3</b>
+<b>$ sleep 20</b>
+<b>$ curl -s 'http://localhost:16686/api/traces?service=unenriched&amp;limit=1' | jq '[.data[0].processes[].tags[] | select(.key | startswith("k8s"))]'</b>
+<b>$ kubectl -n tracing logs deploy/otel-collector --tail=30 | grep -i -m3 forbidden</b>
+<b>$ kubectl apply -f /tmp/otel-crb.yaml</b>
+<b>$ kubectl -n tracing rollout restart deploy otel-collector</b>
+<b>$ kill %1</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the enriched spans carry <code>k8s.pod.name</code> and friends, the unenriched ones do not, and the collector log has a Forbidden line explaining why. Nothing fails; you just lose the ability to ask "which pod".</div>
+    </div>
+
+    <div class="exercise" data-title="Point the agent at the wrong port">
+      <p>OTLP has two ports and the auto-instrumentation agent will happily be configured with the wrong one. The app starts, serves traffic, and exports nothing, with the only evidence in the app's own log.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n default get instrumentation auto -o jsonpath='{.spec.exporter.endpoint}{"\n"}'
+kubectl -n default patch instrumentation auto --type merge -p '{"spec":{"exporter":{"endpoint":"http://otel-collector.tracing.svc:4317"}}}'
+kubectl -n default run pytraced --image=python:3.12-slim --annotations="instrumentation.opentelemetry.io/inject-python=true" --command -- sh -c 'pip install flask &gt;/dev/null 2&gt;&amp;1; python -c "import time; time.sleep(600)"'
+kubectl -n default wait --for=condition=Ready pod/pytraced --timeout=180s
+sleep 60
+kubectl -n default logs pytraced | tail -20
+kubectl -n default patch instrumentation auto --type merge -p '{"spec":{"exporter":{"endpoint":"http://otel-collector.tracing.svc:4318"}}}'
+kubectl -n default delete pod pytraced</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n default get instrumentation auto -o jsonpath='{.spec.exporter.endpoint}{"\n"}'</b>
+<b>$ kubectl -n default patch instrumentation auto --type merge -p '{"spec":{"exporter":{"endpoint":"http://otel-collector.tracing.svc:4317"}}}'</b>
+<b>$ kubectl -n default run pytraced --image=python:3.12-slim --annotations="instrumentation.opentelemetry.io/inject-python=true" --command -- sh -c 'pip install flask &gt;/dev/null 2&gt;&amp;1; python -c "import time; time.sleep(600)"'</b>
+<b>$ kubectl -n default wait --for=condition=Ready pod/pytraced --timeout=180s</b>
+<b>$ sleep 60</b>
+<b>$ kubectl -n default logs pytraced | tail -20</b>
+<b>$ kubectl -n default patch instrumentation auto --type merge -p '{"spec":{"exporter":{"endpoint":"http://otel-collector.tracing.svc:4318"}}}'</b>
+<b>$ kubectl -n default delete pod pytraced</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the pod log carries a connection or protocol error from the OTLP exporter naming the endpoint. Say which port speaks gRPC and which speaks HTTP, and which one the Python agent defaults to.</div>
+    </div>
+
+    <div class="exercise" data-title="Turn spans into metrics">
+      <p>The spanmetrics connector derives RED metrics from traces you are already collecting, which gives you rate, errors and duration for a service that exports no metrics at all. It is the cheapest observability win on this page.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"connectors":{"spanmetrics":{"histogram":{"explicit":{"buckets":["100ms","500ms","1s"]}}}},"exporters":{"prometheus":{"endpoint":"0.0.0.0:8889"}},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","batch"],"exporters":["otlp/jaeger","spanmetrics"]},"metrics/spanmetrics":{"receivers":["spanmetrics"],"exporters":["prometheus"]}}}}}}'
+kubectl -n tracing rollout status deploy otel-collector --timeout=180s
+kubectl -n tracing run gen-metrics --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service metered --traces 20
+sleep 30
+kubectl -n tracing port-forward deploy/otel-collector 8889:8889 &amp;
+sleep 5
+curl -s localhost:8889/metrics | grep -E '^(traces_span_metrics|calls)' | head -10
+kill %1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"connectors":{"spanmetrics":{"histogram":{"explicit":{"buckets":["100ms","500ms","1s"]}}}},"exporters":{"prometheus":{"endpoint":"0.0.0.0:8889"}},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","batch"],"exporters":["otlp/jaeger","spanmetrics"]},"metrics/spanmetrics":{"receivers":["spanmetrics"],"exporters":["prometheus"]}}}}}}'</b>
+<b>$ kubectl -n tracing rollout status deploy otel-collector --timeout=180s</b>
+<b>$ kubectl -n tracing run gen-metrics --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service metered --traces 20</b>
+<b>$ sleep 30</b>
+<b>$ kubectl -n tracing port-forward deploy/otel-collector 8889:8889 &amp;</b>
+<b>$ sleep 5</b>
+<b>$ curl -s localhost:8889/metrics | grep -E '^(traces_span_metrics|calls)' | head -10</b>
+<b>$ kill %1</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the collector's own metrics endpoint serves call counts and duration buckets labelled by service and span name. Say what you would have to add for Prometheus to scrape that endpoint, and why a ServiceMonitor is the answer rather than a ScrapeConfig.</div>
+    </div>
+
+    <div class="exercise" data-title="Ask Jaeger what it is made of">
+      <p>Jaeger v2 is an OpenTelemetry Collector with storage and query extensions, which means its configuration reads like a collector's. Knowing that changes how you debug it: the pipeline is right there.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n tracing port-forward svc/jaeger 16686:16686 &amp;
+sleep 5
+curl -s http://localhost:16686/api/services | jq
+curl -s 'http://localhost:16686/api/operations?service=err-service' | jq '.data[:5]'
+kill %1
+kubectl -n tracing get cm -o name
+kubectl -n tracing get deploy jaeger -o jsonpath='{.spec.template.spec.containers[0].args}{"\n"}'
+kubectl -n tracing get deploy jaeger -o jsonpath='{.spec.template.spec.containers[0].env}' | jq</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n tracing port-forward svc/jaeger 16686:16686 &amp;</b>
+<b>$ sleep 5</b>
+<b>$ curl -s http://localhost:16686/api/services | jq</b>
+<b>$ curl -s 'http://localhost:16686/api/operations?service=err-service' | jq '.data[:5]'</b>
+<b>$ kill %1</b>
+<b>$ kubectl -n tracing get cm -o name</b>
+<b>$ kubectl -n tracing get deploy jaeger -o jsonpath='{.spec.template.spec.containers[0].args}{"\n"}'</b>
+<b>$ kubectl -n tracing get deploy jaeger -o jsonpath='{.spec.template.spec.containers[0].env}' | jq</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the service list matches what you have sent, and you can say where this Jaeger keeps its spans. On the lab that is memory, which is why a restart loses everything; say what you would change for a cluster anyone depends on.</div>
+    </div>
+
   </div>
 </section>
 

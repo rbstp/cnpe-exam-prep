@@ -518,6 +518,420 @@ All Steps have completed executing</code></pre></details></div>
       <div class="verify"><b>verify:</b> <code>tkn pipelinerun list</code> grows by one without you touching kubectl, and <code>kubectl get eventlistener</code> shows Ready.</div>
     </div>
 
+    <div class="exercise" data-title="Reuse a step with StepAction">
+      <p>A StepAction is a step you can version and share the way a Task shares a whole sequence. The rule that catches people is that a step referencing one may not also carry its own image; the validation message says it plainly.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl api-resources | grep -i stepaction
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: tekton.dev/v1beta1
+kind: StepAction
+metadata: { name: say, namespace: default }
+spec:
+  image: busybox:1.36
+  params:
+    - name: text
+      type: string
+  script: |
+    echo "$(params.text)"
+EOF
+kubectl create -f - &lt;&lt;'EOF'
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata: { generateName: say-run-, namespace: default }
+spec:
+  taskSpec:
+    steps:
+      - name: say
+        ref: { name: say }
+        params: [{ name: text, value: hello from a stepaction }]
+EOF
+sleep 45
+tkn taskrun logs --last
+kubectl create -f - &lt;&lt;'EOF'
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata: { generateName: say-bad-, namespace: default }
+spec:
+  taskSpec:
+    steps:
+      - name: say
+        image: busybox:1.36
+        ref: { name: say }
+        params: [{ name: text, value: this will not apply }]
+EOF
+kubectl delete stepaction say</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl api-resources | grep -i stepaction</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: tekton.dev/v1beta1</b>
+<b>kind: StepAction</b>
+<b>metadata: { name: say, namespace: default }</b>
+<b>spec:</b>
+<b>  image: busybox:1.36</b>
+<b>  params:</b>
+<b>    - name: text</b>
+<b>      type: string</b>
+<b>  script: |</b>
+<b>    echo "$(params.text)"</b>
+<b>EOF</b>
+<b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: tekton.dev/v1</b>
+<b>kind: TaskRun</b>
+<b>metadata: { generateName: say-run-, namespace: default }</b>
+<b>spec:</b>
+<b>  taskSpec:</b>
+<b>    steps:</b>
+<b>      - name: say</b>
+<b>        ref: { name: say }</b>
+<b>        params: [{ name: text, value: hello from a stepaction }]</b>
+<b>EOF</b>
+<b>$ sleep 45</b>
+<b>$ tkn taskrun logs --last</b>
+<b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: tekton.dev/v1</b>
+<b>kind: TaskRun</b>
+<b>metadata: { generateName: say-bad-, namespace: default }</b>
+<b>spec:</b>
+<b>  taskSpec:</b>
+<b>    steps:</b>
+<b>      - name: say</b>
+<b>        image: busybox:1.36</b>
+<b>        ref: { name: say }</b>
+<b>        params: [{ name: text, value: this will not apply }]</b>
+<b>EOF</b>
+<b>$ kubectl delete stepaction say</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the referencing run prints the parameter, and the second create is rejected at admission with a message naming the fields that may not appear alongside <code>ref</code>. That list is worth memorising; it is short.</div>
+    </div>
+
+    <div class="exercise" data-title="Three timeouts, one run">
+      <p>A PipelineRun has three clocks: the whole run, the non-finally tasks, and the finally tasks. They must add up, and the one that fires decides the reason string you will be asked to explain.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create -f - &lt;&lt;'EOF'
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata: { generateName: slow-, namespace: default }
+spec:
+  timeouts: { pipeline: 1m, tasks: 40s, finally: 20s }
+  pipelineSpec:
+    tasks:
+      - name: sleeper
+        taskSpec:
+          steps:
+            - name: sleep
+              image: busybox:1.36
+              script: |
+                sleep 90
+    finally:
+      - name: cleanup
+        taskSpec:
+          steps:
+            - name: say
+              image: busybox:1.36
+              script: |
+                echo cleanup ran
+EOF
+sleep 90
+tkn pipelinerun describe --last
+kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.conditions[0]}' | jq</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: tekton.dev/v1</b>
+<b>kind: PipelineRun</b>
+<b>metadata: { generateName: slow-, namespace: default }</b>
+<b>spec:</b>
+<b>  timeouts: { pipeline: 1m, tasks: 40s, finally: 20s }</b>
+<b>  pipelineSpec:</b>
+<b>    tasks:</b>
+<b>      - name: sleeper</b>
+<b>        taskSpec:</b>
+<b>          steps:</b>
+<b>            - name: sleep</b>
+<b>              image: busybox:1.36</b>
+<b>              script: |</b>
+<b>                sleep 90</b>
+<b>    finally:</b>
+<b>      - name: cleanup</b>
+<b>        taskSpec:</b>
+<b>          steps:</b>
+<b>            - name: say</b>
+<b>              image: busybox:1.36</b>
+<b>              script: |</b>
+<b>                echo cleanup ran</b>
+<b>EOF</b>
+<b>$ sleep 90</b>
+<b>$ tkn pipelinerun describe --last</b>
+<b>$ kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.conditions[0]}' | jq</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the run fails on the tasks clock rather than the pipeline clock, the reason names which timeout expired, and the finally task still gets its own twenty seconds. Say what happens if <code>tasks</code> plus <code>finally</code> exceeds <code>pipeline</code>.</div>
+    </div>
+
+    <div class="exercise" data-title="Cancel a run and still clean up">
+      <p>There are two cancellations. One stops everything now; the other stops the work but lets finally run, which is what you want when finally releases a lock or posts a status back to git.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create -f - &lt;&lt;'EOF'
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata: { name: cancel-me, namespace: default }
+spec:
+  pipelineSpec:
+    tasks:
+      - name: sleeper
+        taskSpec:
+          steps:
+            - name: sleep
+              image: busybox:1.36
+              script: |
+                sleep 600
+    finally:
+      - name: cleanup
+        taskSpec:
+          steps:
+            - name: say
+              image: busybox:1.36
+              script: |
+                echo finally ran after cancellation
+EOF
+sleep 30
+kubectl patch pipelinerun cancel-me --type merge -p '{"spec":{"status":"CancelledRunFinally"}}'
+sleep 45
+kubectl get pipelinerun cancel-me -o jsonpath='{.status.conditions[0]}' | jq
+tkn taskrun list | head -5
+tkn taskrun logs cancel-me-cleanup 2&gt;/dev/null | tail -3
+kubectl delete pipelinerun cancel-me</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: tekton.dev/v1</b>
+<b>kind: PipelineRun</b>
+<b>metadata: { name: cancel-me, namespace: default }</b>
+<b>spec:</b>
+<b>  pipelineSpec:</b>
+<b>    tasks:</b>
+<b>      - name: sleeper</b>
+<b>        taskSpec:</b>
+<b>          steps:</b>
+<b>            - name: sleep</b>
+<b>              image: busybox:1.36</b>
+<b>              script: |</b>
+<b>                sleep 600</b>
+<b>    finally:</b>
+<b>      - name: cleanup</b>
+<b>        taskSpec:</b>
+<b>          steps:</b>
+<b>            - name: say</b>
+<b>              image: busybox:1.36</b>
+<b>              script: |</b>
+<b>                echo finally ran after cancellation</b>
+<b>EOF</b>
+<b>$ sleep 30</b>
+<b>$ kubectl patch pipelinerun cancel-me --type merge -p '{"spec":{"status":"CancelledRunFinally"}}'</b>
+<b>$ sleep 45</b>
+<b>$ kubectl get pipelinerun cancel-me -o jsonpath='{.status.conditions[0]}' | jq</b>
+<b>$ tkn taskrun list | head -5</b>
+<b>$ tkn taskrun logs cancel-me-cleanup 2&gt;/dev/null | tail -3</b>
+<b>$ kubectl delete pipelinerun cancel-me</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the run ends with reason <code>CancelledRunFinally</code> and the finally TaskRun has logs, which proves it executed. Name the other value of <code>spec.status</code> and what it would have done to that TaskRun.</div>
+    </div>
+
+    <div class="exercise" data-title="Skip a task and prove it">
+      <p>A <code>when</code> that evaluates false does not fail a pipeline and does not hide either. The run succeeds and records what it skipped, which is the evidence a task asks for when the question is "why did the deploy step not run".</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create -f - &lt;&lt;'EOF'
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata: { generateName: skipper-, namespace: default }
+spec:
+  params: [{ name: env, value: staging }]
+  pipelineSpec:
+    params: [{ name: env, type: string }]
+    tasks:
+      - name: always
+        taskSpec:
+          steps:
+            - name: say
+              image: busybox:1.36
+              script: |
+                echo this always runs
+      - name: prod-only
+        when:
+          - input: $(params.env)
+            operator: in
+            values: [prod]
+        taskSpec:
+          steps:
+            - name: say
+              image: busybox:1.36
+              script: |
+                echo this should not run
+EOF
+sleep 60
+kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.conditions[0]}' | jq
+kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.skippedTasks}' | jq</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: tekton.dev/v1</b>
+<b>kind: PipelineRun</b>
+<b>metadata: { generateName: skipper-, namespace: default }</b>
+<b>spec:</b>
+<b>  params: [{ name: env, value: staging }]</b>
+<b>  pipelineSpec:</b>
+<b>    params: [{ name: env, type: string }]</b>
+<b>    tasks:</b>
+<b>      - name: always</b>
+<b>        taskSpec:</b>
+<b>          steps:</b>
+<b>            - name: say</b>
+<b>              image: busybox:1.36</b>
+<b>              script: |</b>
+<b>                echo this always runs</b>
+<b>      - name: prod-only</b>
+<b>        when:</b>
+<b>          - input: $(params.env)</b>
+<b>            operator: in</b>
+<b>            values: [prod]</b>
+<b>        taskSpec:</b>
+<b>          steps:</b>
+<b>            - name: say</b>
+<b>              image: busybox:1.36</b>
+<b>              script: |</b>
+<b>                echo this should not run</b>
+<b>EOF</b>
+<b>$ sleep 60</b>
+<b>$ kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.conditions[0]}' | jq</b>
+<b>$ kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.skippedTasks}' | jq</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the condition is True with reason <code>Completed</code> and <code>skippedTasks</code> names <code>prod-only</code> with the reason it was skipped. A skipped task is a success, not a failure; be able to say so without hesitating.</div>
+    </div>
+
+    <div class="exercise" data-title="Overflow a task result">
+      <p>Results travel in the pod's termination message, and that message has a hard size limit. A task that emits a big JSON blob fails in a way that looks like nothing to do with results at all.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create -f - &lt;&lt;'EOF'
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata: { generateName: bigresult-, namespace: default }
+spec:
+  taskSpec:
+    results:
+      - name: blob
+    steps:
+      - name: emit
+        image: busybox:1.36
+        script: |
+          head -c 6000 /dev/zero | tr '\\0' 'x' &gt; $(results.blob.path)
+EOF
+sleep 45
+kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.conditions[0]}' | jq
+tkn taskrun describe --last | tail -12</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: tekton.dev/v1</b>
+<b>kind: TaskRun</b>
+<b>metadata: { generateName: bigresult-, namespace: default }</b>
+<b>spec:</b>
+<b>  taskSpec:</b>
+<b>    results:</b>
+<b>      - name: blob</b>
+<b>    steps:</b>
+<b>      - name: emit</b>
+<b>        image: busybox:1.36</b>
+<b>        script: |</b>
+<b>          head -c 6000 /dev/zero | tr '\\0' 'x' &gt; $(results.blob.path)</b>
+<b>EOF</b>
+<b>$ sleep 45</b>
+<b>$ kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.conditions[0]}' | jq</b>
+<b>$ tkn taskrun describe --last | tail -12</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the run fails with a message about the termination message exceeding the maximum allowed size. Say where you would put a payload that big instead, and why a workspace is the answer rather than a bigger result.</div>
+    </div>
+
+    <div class="exercise" data-title="Fan out with a matrix">
+      <p>A matrix turns one task into one TaskRun per combination, named predictably. It is the cheapest way to run the same check against three versions, and the naming is how you find the one that failed.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create -f - &lt;&lt;'EOF'
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata: { name: fanout, namespace: default }
+spec:
+  pipelineSpec:
+    tasks:
+      - name: check
+        matrix:
+          params:
+            - name: version
+              value: ["1.35", "1.36", "1.37"]
+        params: [{ name: version, value: $(params.version) }]
+        taskSpec:
+          params: [{ name: version, type: string }]
+          steps:
+            - name: say
+              image: busybox:1.36
+              script: |
+                echo checking $(params.version)
+EOF
+sleep 75
+tkn taskrun list | head -6
+kubectl get pipelinerun fanout -o jsonpath='{.status.childReferences[*].name}{"\n"}'
+kubectl delete pipelinerun fanout</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: tekton.dev/v1</b>
+<b>kind: PipelineRun</b>
+<b>metadata: { name: fanout, namespace: default }</b>
+<b>spec:</b>
+<b>  pipelineSpec:</b>
+<b>    tasks:</b>
+<b>      - name: check</b>
+<b>        matrix:</b>
+<b>          params:</b>
+<b>            - name: version</b>
+<b>              value: ["1.35", "1.36", "1.37"]</b>
+<b>        params: [{ name: version, value: $(params.version) }]</b>
+<b>        taskSpec:</b>
+<b>          params: [{ name: version, type: string }]</b>
+<b>          steps:</b>
+<b>            - name: say</b>
+<b>              image: busybox:1.36</b>
+<b>              script: |</b>
+<b>                echo checking $(params.version)</b>
+<b>EOF</b>
+<b>$ sleep 75</b>
+<b>$ tkn taskrun list | head -6</b>
+<b>$ kubectl get pipelinerun fanout -o jsonpath='{.status.childReferences[*].name}{"\n"}'</b>
+<b>$ kubectl delete pipelinerun fanout</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> three TaskRuns exist, named <code>fanout-check-0</code> through <code>-2</code>, and the PipelineRun's child references list all three. One failure in a matrix fails the whole task; say what that means for a matrix over environments.</div>
+    </div>
+
+    <div class="exercise" data-title="Sign what the pipeline built">
+      <p>Tekton Chains is not part of <code>make cicd</code>, so this block installs it, generates a signing key, and removes nothing afterwards: leave it if you intend to do the 5.6 attestation exercises, or uninstall it when you are finished.</p>
+      <p>The whole point is that no pipeline change is needed. Chains watches completed TaskRuns and signs what they report.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f https://storage.googleapis.com/tekton-releases/chains/latest/release.yaml
+kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=180s
+cosign generate-key-pair k8s://tekton-chains/signing-secrets
+kubectl -n tekton-chains patch cm chains-config --type merge -p '{"data":{"artifacts.taskrun.format":"in-toto","artifacts.taskrun.storage":"tekton","artifacts.oci.storage":"tekton"}}'
+kubectl -n tekton-chains rollout restart deploy/tekton-chains-controller
+kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=120s
+kubectl create -f - &lt;&lt;'EOF'
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata: { generateName: signed-, namespace: default }
+spec:
+  taskSpec:
+    steps:
+      - name: build
+        image: busybox:1.36
+        script: |
+          echo pretend this built something
+EOF
+sleep 60
+kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.annotations}' | jq 'with_entries(select(.key | startswith("chains")))'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f https://storage.googleapis.com/tekton-releases/chains/latest/release.yaml</b>
+<b>$ kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=180s</b>
+<b>$ cosign generate-key-pair k8s://tekton-chains/signing-secrets</b>
+<b>$ kubectl -n tekton-chains patch cm chains-config --type merge -p '{"data":{"artifacts.taskrun.format":"in-toto","artifacts.taskrun.storage":"tekton","artifacts.oci.storage":"tekton"}}'</b>
+<b>$ kubectl -n tekton-chains rollout restart deploy/tekton-chains-controller</b>
+<b>$ kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=120s</b>
+<b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: tekton.dev/v1</b>
+<b>kind: TaskRun</b>
+<b>metadata: { generateName: signed-, namespace: default }</b>
+<b>spec:</b>
+<b>  taskSpec:</b>
+<b>    steps:</b>
+<b>      - name: build</b>
+<b>        image: busybox:1.36</b>
+<b>        script: |</b>
+<b>          echo pretend this built something</b>
+<b>EOF</b>
+<b>$ sleep 60</b>
+<b>$ kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.annotations}' | jq 'with_entries(select(.key | startswith("chains")))'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the completed TaskRun carries a <code>chains.tekton.dev/signed</code> annotation set to true, added by a controller the pipeline author never mentioned. If it says <code>failed</code> instead, read the chains-controller log: the reason is almost always the key or the storage backend.</div>
+    </div>
+
   </div>
 </section>
 
