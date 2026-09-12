@@ -9,7 +9,7 @@ GitHub will not render it in place; clone the repo (or use raw + a local browser
 - `drill.html`: every self-check question as flashcards, each on its own spaced-repetition schedule and weighted toward what you miss; ten a day is the drill's daily goal, and any study action (a card answered, an exercise verified, a section completed, a mock task scored) is a heartbeat for the dashboard's console-wide study uptime
 - `game.html`: CNPE Quest, a role-playing game over the whole curriculum. Five regions are the five domains and 29 towns are the 29 sections; the townsfolk teach a section's ideas and hand out its command families, the town's trial is its own self-check cards as multiple choice (every answer written into the drill's record, and a heartbeat for the streak), and the dungeon behind it holds a fault, the kind `make break` injects, fought with real `kubectl`, `argocd`, `flux`, `tkn`, `crossplane` and `cosign` commands against a simulated cluster. A keep per region chains two faults; the Exam gate draws three
 - `0*-…/*.html`: the 29 sections, each theory + exercises + self-check
-- `assets/`: the base and scoped reading stylesheets (`style.css`, `reader.css`), the section manifest (`nav.js`), the two DOM-free modules the runtime reads (`merge.js`, the progress merge and the rules around it, and `syntax.js`, the command-block colouring; neither touches the DOM, storage or the network, which is what lets `tools/merge-test.mjs` and `tools/syntax-test.mjs` drive them in bare node; both are compiled from TypeScript in `src/console/`), the page runtime (`app.js`), the interactive figures (`widgets.js`), the drill (`drill.js`), the optional progress sync (`sync.js`), the theme switch (`theme.js`, loaded from `<head>`; `onChange`/`offChange` for a listener that comes and goes with a mount) and the typefaces
+- `assets/`: the base stylesheet and the reading shell layered over it on every page (`style.css`, `reader.css`), the section manifest (`nav.js`), the two DOM-free modules the runtime reads (`merge.js`, the progress merge and the rules around it, and `syntax.js`, the command-block colouring; neither touches the DOM, storage or the network, which is what lets `tools/merge-test.mjs` and `tools/syntax-test.mjs` drive them in bare node; both are compiled from TypeScript in `src/console/`), the page runtime (`app.js`), the interactive figures (`widgets.js`), the drill (`drill.js`), the optional progress sync (`sync.js`), the theme switch (`theme.js`, loaded from `<head>`; `onChange`/`offChange` for a listener that comes and goes with a mount) and the typefaces
 - The quest is four more scripts and a stylesheet, loaded only by `game.html` (and inlined into the bundle). It is written in TypeScript: the sources are `src/game/*.ts`, `tools/build-ts.sh` (or `make ts`) compiles them with `tsc` into `assets/`, and the compiled scripts are committed, so the site still needs no build step and `file://` still works; `tools/build-ts.sh --check` fails CI when the committed output drifts from its source, the way `extract-drill.py --check` does for the drill bank. The four: `game-data.js` (the map, the towns and their people, the techniques and items, and the 24 fault scenarios with their fake-cluster resource tables, evidence matchers and fixes), `game-sim.js` (the DOM-free command interpreter that normalises a typed command and answers it from a scenario's table, driven in bare node by `tools/game-sim-test.mjs`), `game-art.js` (the art: every tile, the player, the eight enemy families and the town scenery as small palette-indexed pixel grids, painted to canvases from the theme's colours on demand, so the same grids serve both themes and nothing is a picture file), `game.js` (the engine: the canvas overworld, drawn as one whole-map terrain cache blitted per frame at the camera's pixel position, with what moves over it: the water's, the flowers', the chimney smoke's and the door torches' frame on one 420 ms beat and only where in view, the banners and the player; a step is a 120 ms tween, the sprite and the camera sliding over through whole pixels rounded on every frame, the walk cycle keyed to its five sub-positions (four frames a facing: standing, the two halves of a stride and the pass between them; a step shows stride, pass, stride and lands standing), the next step queued behind a step in flight so a held key never skips a tile; coming back to the map from a scene, the camera eases to the player over 180 ms through whole pixels from where it last stood, never through a step and not at all where it already stands or under reduced motion; the cache is repainted in full only for a new palette and patched tile by tile when a door, a keep or the gate changes state; a minimap at a pixel a tile, its backing store scaled for the device's pixel ratio behind the box `game.css` sets in a custom property the engine reads once, is built from the cache when it is painted and touched only where the player's dot, the viewport's one-pixel frame (in the accent while the stage has focus, like the stage's border) and the signpost's ring move; the signpost is where next, as a road sign would put it (the nearest tile still to be reached among the towns, each offering its trial until cleared and its dungeon door until won, then the nearest open keep, then the Exam gate), named with its steps and its way in the where window, ringed on the minimap on the beat's frame the dot sits out, and said in the canvas's label; all on `requestAnimationFrame` behind a dirty flag, with a backing scale chosen for the device's pixel ratio, and instant steps, still tiles and a steady dot under `prefers-reduced-motion`; and the town, trial, battle and shop scenes as DOM, the battle screen built once and updated in place so a long terminal log stays cheap, with a per-battle command history on the prompt's arrows, the damage and the xp floating up from the monster and the guard bar, the guard bar shaking on evidence and the stage's edge flashing on a hit (CSS classes lifted on `animationend`, or by the clock under reduced motion, and recorded in `data-fx`), and a fall per fault family on a win) and `game.css`. `CNPE_GAME.mount()` builds into `#game-app` and `CNPE_GAME.unmount()` takes everything down again, the animation frame, the beat, every timer, the listeners (the theme's through `CNPE_THEME.offChange`), the observers and the caches, so the bundle's router can call the pair around every visit to `#GM`; `CNPE_GAME.debug()` reports the renderer's frame, cache, patch, minimap, camera and step counters for the browser checks and for profiling, and carries two test hooks, `tick()` (one beat of the water's ticker, by hand) and `settle()` (every pending one-shot timer and a keep's pending swap fired now), so the checks drive time rather than wait on it (the shapes are in `assets/cnpe.d.ts`). The game's progress is the `game` bucket of the `cnpe:v2` store: xp, gold and items as per-browser counters that add up across browsers, towns cleared, techniques learned, battles won and where you stood; `merge.js` merges it with the rest and the sync carries it unchanged
 - Two of those ship per page rather than site-wide, because most pages do not use them. `widgets.js` is 52 KB and twelve pages draw a figure, so only those twelve pull it. The question bank splits in two: `drill-data.js` carries every question and answer and only the drill loads it, while the dashboard loads `drill-index.js`, the same cards stripped to id and section, which is all its due-count and weak-spots panel read. Both pairings are asserted by `tools/check-site.sh`, so a page that grows a figure, or reaches for the bank it does not need, fails the deploy
 - `assets/fonts/`: IBM Plex Serif, Sans, Sans Condensed and Mono, shipped so the console needs no network; the sans is one variable file covering wght 100-700, the other eight are static weights. Pages use sans-serif prose and navigation, serif page titles, and monospaced commands; the contained quest also uses mono and condensed game menus. SIL OFL 1.1, see `OFL.txt`. Each face carries only the characters the console writes, cut from the latin builds in `tools/fonts-src/` by `tools/subset-fonts.py`. A cut is a Modified Version, and the OFL reserves the name "Plex", so the faces present as `CNPE Serif`, `CNPE Sans`, `CNPE Cond` and `CNPE Mono` (which is what the stylesheet asks for); IBM's copyright, version and licence records travel with them untouched, and each face carries a description naming what it was cut from
@@ -30,7 +30,7 @@ in the curriculum was run, and its output captured, against a freshly built lab 
 it should say; the lab's tool versions float, so details may drift from what your lab prints.
 
 Press `/` in any page to jump to a section by name, tool or concept, `g` for a drill session, `q` for the quest,
-`t` to switch dark / light (dark by default on study pages) and `?` for the shortcuts.
+`t` to switch dark / light (dark by default) and `?` for the shortcuts.
 Progress (exercises verified, sections completed, drill history, the quest's level, gold and wins, the study streak) is stored in your browser's local storage.
 On the hosted site, **Sign in** in the header optionally mirrors it to your GitHub account so a laptop and a
 desktop agree; it is off by default, and signed out (or over `file://`) the console makes no network request at all.
@@ -42,87 +42,64 @@ and RBAC scope), each wired to the concept it explains.
 
 ## Quest presentation
 
-The quest's original 16-bit artwork and bevelled game windows evoke classic
-turn-based RPGs without using another game's characters, music or assets.
-Game windows inherit the shared charcoal-and-gold palette. `game.css` scopes
-natural terrain accents to `.gm`; the engine reads from the game host, so
-standalone and bundled play look alike without recolouring the study pages.
-The shared dark/light switch repaints the art as well as the windows.
-Town artwork is 480 by 304 art pixels, fitted without cropping beside the
-upper-left menu, with a roomy full-width dialogue panel below. On mobile,
-the complete scene, compact menu and dialogue stack. Battle backdrops are
-480 by 144 art pixels; the battlefield layers
-the monster, player, guard/health windows and action feedback above the scenery.
+The quest is drawn with its own 16-bit pixel art (no third-party characters, music or
+assets) inside bevelled game windows that take the console's charcoal-and-gold palette
+from the page; `game.css` gives the scenery its natural terrain accents on `.gm`. The
+engine reads the palette from the game host, so standalone and bundled play look alike,
+and the dark/light switch repaints the art with the windows. Town scenes are 480 by 304
+art pixels, fitted without cropping beside the upper-left menu with a full-width dialogue
+panel below; battle backdrops are 480 by 144, layering the monster, player, guard/health
+windows and action feedback over the scenery. On a phone, scene, compact menu and
+dialogue stack.
 
-Click or tap the map to plan a walkable route. Intermediate landmarks are not
-entered automatically. Direction keys, Escape and B cancel travel. The quest
-journal (`q` on the map) shows all five regions and lets you track a town's
-trial and then dungeon on the compass and minimap. Tracking is per visit; the
-usual nearest-objective guidance resumes when that dungeon is cleared.
-Dungeons are enclosed in impassable stone, with one approach from the town.
-A sealed entrance stops movement as well as battle entry, including auto-travel.
-The public road visibly bends around the dungeon; it keeps the overworld open,
-not the dungeon, and grants no progress for walking around.
-Each enclosure is painted as one coordinated two-by-three-tile crypt rather
-than repeated cliff tiles; unlocking repaints only the doorway.
+Click or tap the map to plan a walkable route; direction keys, Escape and B cancel
+travel, and intermediate landmarks are not entered automatically. The quest journal
+(`q` on the map) lists all five regions and lets you track a town's trial and then its
+dungeon on the compass and minimap for the visit; the usual nearest-objective guidance
+resumes when that dungeon is cleared. Dungeons sit in impassable stone with one approach
+from the town, drawn as a coordinated two-by-three-tile crypt; a sealed entrance stops
+movement and battle entry alike, including auto-travel, and unlocking repaints only the
+doorway. The public road bends around each dungeon and grants no progress.
 
-Desktop mouse/keyboard play hides the touch-controller strip and gives that
-space back to the scene. Fullscreen remains in the toolbar on every device.
-Town conversations show short Next/Previous pages, preserving every authored
-line and granting learning XP only once. Shop stock uses responsive single-row
-pages, and entering or paging a menu keeps keyboard focus in that menu. The
-bottom panel grows with its content instead of trapping it in a nested
-scrollbar; touch devices retain the directional and action buttons.
-
-Sound is opt-in for each visit and synthesized locally with Web Audio; no audio
-assets or network requests are involved. Scene wipes, spell effects, inn
-transitions and victory reveals respect reduced motion. Sound nodes and their
-context, transition timers and planned routes are released on unmount. Evidence
-chains, answer streaks, victory ranks and level-up callouts are feedback only:
-the simulator, XP/gold rules, drill records and synchronized progress schema
-are unchanged. `tools/browser-checks/game-presentation.js` covers these surfaces
-alongside the existing renderer, study integration and battle checks.
+Desktop mouse/keyboard play hides the touch-controller strip; fullscreen stays in the
+toolbar on every device. Town conversations page with Next/Previous, keeping every
+authored line and granting learning XP once. Shop stock pages in single rows, and
+entering or paging a menu keeps keyboard focus in that menu. Sound is opt-in per visit
+and synthesized with Web Audio: no audio assets, no network. Scene wipes, spell effects,
+inn transitions and victory reveals follow `prefers-reduced-motion`. Evidence chains,
+answer streaks, victory ranks and level-up callouts are feedback only; the simulator,
+the XP/gold rules, the drill records and the progress schema do not see them.
+`tools/browser-checks/game-presentation.js` covers these surfaces; `game.js` covers the
+renderer, the study integration and the battle.
 
 ## Reading interface
 
-`assets/reader.css` enhances the shared stylesheet only under `html[data-study]`.
-Study pages use the approved black-and-gold palette, sans-serif reading copy, a
-fluid lesson column that uses the available desktop width, bold menus, and a larger breadcrumb.
-Desktop tables can wrap long technical identifiers to accommodate different
-font metrics; command and captured-output blocks retain their original formatting.
-Page titles use a restrained 32px size (28px on mobile), with 14px sidebar
-navigation and 13px supporting labels. The small decorative captions beneath
-section headings are hidden; section titles, lesson prose, and model instructions remain.
-The 29 authored lesson articles, commands, captured output, verification criteria,
-and self-check questions are unchanged. Read / Practice / Recall are shortcuts
-through a continuous document, not content gates. The exercise index opens any
-exercise directly, including one previously collapsed.
-Reading links retain browser history. In the single-file console, links such as
-`#2.2/application` identify both the lesson and the topic, so copied links and
-links opened in another tab reach the same place without resetting an already
+`assets/reader.css` layers over `style.css` on every page, the quest and the bundle
+included: the black-and-gold palette (dark by default, `t` for light), sans-serif reading
+copy in a fluid column that uses the desktop width, bold menus, a larger breadcrumb, 32px
+page titles (28px on a phone), 14px sidebar navigation and 13px supporting labels. The
+decorative captions under section headings are hidden. Desktop tables may wrap long
+identifiers; command and captured-output blocks never wrap. Read / Practice / Recall and
+the exercise index are shortcuts into one continuous document, not content gates, and
+opening an exercise from the index expands it. Reading links keep browser history; in the
+single-file console a link such as `#2.2/application` names the lesson and the topic, so
+a copied link or one opened in another tab lands in the same place without resetting an
 open lesson's interactive models.
 
-**Contents** opens the navigation at narrower widths. **Aa** switches reading
-copy between 18px and 21px; `cnpe:reading-size` stores that preference separately
-from `cnpe:v2`, so it is not exported or synchronized. **Focus view** (`f`) hides
-the rail and metadata and narrows the reading column while keeping Contents available. Focus is a per-visit
-preference. Bookmarks and separately paged concepts from the design prototype
-are not part of this pass.
+**Contents** opens the navigation at narrower widths. **Aa** switches reading copy
+between 18px and 21px and stores the choice in `cnpe:reading-size`, apart from `cnpe:v2`,
+so it is neither exported nor synchronized. **Focus view** (`f`) hides the rail and the
+metadata and narrows the column while keeping Contents available; it lasts the visit.
+Neither control appears on the quest page, whose quick-help panel starts collapsed. On
+the quest page, desktop progress sits in a compact right-hand rail beside a game that fits
+the remaining viewport height; a phone uses a four-column progress strip.
 
-The 13 models retain their working controls, with larger touch targets and
-readable labels and feedback in both themes. The Argo CD model additionally lets
-you change the desired image and apply it to the modeled live state; reapplying
-a missing image stays degraded. Models do not connect to a cluster or mark an
-exercise verified. The counter chart scrolls independently on narrow screens
-instead of shrinking its labels.
-
-The bundle and standalone quest both load the reading stylesheet. The quest
-shares the black-and-gold page shell, left navigation and dark/light switch;
-the game windows also inherit that palette, while the scenery retains natural
-terrain colours. Reading-only size/focus controls
-stay off the quest, and the optional quick-help panel starts collapsed.
-Desktop progress sits in a compact right-hand rail and the game fits the
-remaining viewport height; mobile uses a four-column progress strip.
-`tools/browser-checks/reading.js` checks the
-reading controls, original copy payloads, bundle navigation, and all 13 models'
-interactions, type sizes, touch targets, and accessibility in both themes.
+The 13 interactive models keep their controls, with 44px touch targets and readable
+labels in both themes. The Argo CD model also lets you change the desired image and apply
+it to the modelled live state; reapplying a missing image stays degraded. Models never
+connect to a cluster or mark an exercise verified. The counter chart scrolls on its own
+on narrow screens rather than shrinking its labels. `tools/browser-checks/reading.js`
+checks the reading controls, the authored copy, bundle navigation and all 13 models'
+interactions, type sizes, touch targets and accessibility in both themes;
+`reading-layout.js` and `reading-navigation.js` cover the type scale, tables, overlap and
+link history.

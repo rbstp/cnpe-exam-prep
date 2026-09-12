@@ -21,7 +21,7 @@ module.exports = async function (h) {
     await ctx.close();
   });
 
-  await group('the type scale keeps the approved header and reading copy', async () => {
+  await group('the type scale: title, reading copy, breadcrumb and sidebars', async () => {
     const { ctx, page } = await fresh();
     await page.setViewportSize({ width: 1920, height: 1000 });
     await page.goto(url('05-security/02-policy-engines.html'));
@@ -32,8 +32,8 @@ module.exports = async function (h) {
         nav: size('.reading-outline a'), label: size('.stat .lbl'), value: size('.stat .val'),
       };
     });
-    assert(sizes.title === '32px', 'desktop title is 32px rather than an oversized display heading');
-    assert(sizes.body === '18px' && sizes.crumb === '16px', 'approved middle copy and top bar sizes are unchanged');
+    assert(sizes.title === '32px', 'desktop title is 32px');
+    assert(sizes.body === '18px' && sizes.crumb === '16px', 'reading copy is 18px and the breadcrumb 16px');
     assert(sizes.nav === '14px' && sizes.label === '13px' && sizes.value === '16px',
       'sidebars use a consistent, readable supporting scale');
     await page.setViewportSize({ width: 390, height: 900 });
@@ -86,7 +86,7 @@ module.exports = async function (h) {
       assert(layout.content <= layout.width + 1 && !layout.overflow,
         theme + ': wider text still fits the desktop comparison table ' + JSON.stringify(layout));
       assert(await page.locator('.cb pre code').first().evaluate(code => getComputedStyle(code).whiteSpace) === 'pre',
-        'command blocks retain their original non-wrapping format');
+        'command blocks do not wrap');
     }
     await ctx.close();
   });

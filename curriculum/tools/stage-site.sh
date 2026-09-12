@@ -36,7 +36,7 @@ printf '%s\n' "$SITE_DOMAIN" > "$OUT/CNAME"
 # Served for any missing path at any depth, so its links must be root-absolute.
 cat > "$OUT/404.html" <<'HTML'
 <!doctype html>
-<html lang="en" data-study>
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

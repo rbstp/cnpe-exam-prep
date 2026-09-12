@@ -303,14 +303,12 @@
     b.title = title;
     b.setAttribute("aria-label", title);
     var label = b.querySelector(".sync-label");
-    if (document.documentElement.hasAttribute("data-study")) {
-      if (!label) {
-        label = document.createElement("span");
-        label.className = "sync-label";
-        b.appendChild(label);
-      }
-      label.textContent = S.on ? (S.login ? "@" + S.login : "Account") : "Sign in";
-    } else if (label) label.remove();
+    if (!label) {
+      label = document.createElement("span");
+      label.className = "sync-label";
+      b.appendChild(label);
+    }
+    label.textContent = S.on ? (S.login ? "@" + S.login : "Account") : "Sign in";
   }
   function paint() {
     paintTop();
