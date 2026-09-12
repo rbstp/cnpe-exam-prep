@@ -268,7 +268,6 @@ interface CnpeSyncApi {
 
 /** theme.js's three-state switch (CNPE_THEME). */
 interface CnpeThemeApi {
-  modes: string[];
   pref(): string;
   resolved(): string;
   set(next: string): void;

@@ -38,7 +38,6 @@
   }
 
   window.CNPE_THEME = {
-    modes: MODES,
     pref: function () { return pref; },
     resolved: function () { return pref; },
     set: set,

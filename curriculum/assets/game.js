@@ -18,8 +18,8 @@
 (function () {
     "use strict";
     var M = window.CNPE_MERGE; // the guard below is the real check
-    if (!M || !M.countOf || !M.dayKey)
-        return; // a cached older merge.js: the page stays static
+    if (!M)
+        return;
     // mount() checks both before anything runs; the casts spare every reader a guard
     var D = window.CNPE_GAME_DATA, SIM = window.CNPE_SIM, ART = window.CNPE_ART;
     var TILE = 16, VW = 30, VH = 19; // the viewport, in tiles
@@ -2819,10 +2819,10 @@
         } }));
         pad.appendChild(ab);
         host.appendChild(pad);
-        // the width the stylesheet gives the minimap, read once from its custom property now the stage is in the document
-        // (a pixel a tile when a cached older game.css has none): fitMini() needs it while the canvas is hidden off the
-        // map and has no width. The height is not a property: the canvas keeps the map's aspect, so its box follows
-        miniBoxW = parseFloat(getComputedStyle(miniWin).getPropertyValue("--gm-mini-w")) || mapW;
+        // the width the stylesheet gives the minimap, read once from its custom property now the stage is in the document:
+        // fitMini() needs it while the canvas is hidden off the map and has no width. The height is not a property:
+        // the canvas keeps the map's aspect, so its box follows
+        miniBoxW = parseFloat(getComputedStyle(miniWin).getPropertyValue("--gm-mini-w"));
         readPalette();
         fitCanvas();
         // the theme's listener, held like the rest of the mount's and let go by unmount()

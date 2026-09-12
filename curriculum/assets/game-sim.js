@@ -526,7 +526,7 @@
         return "";
     }
     /** the reply to a get, in whatever output the flags ask for */
-    function renderGet(sc, kind, res, f, many) {
+    function renderGet(kind, res, f, many) {
         var o = f["-o"] || "";
         if (/^yaml$/.test(o) || /^json$/.test(o)) {
             var docs = res.map(function (r) { return yamlOf(kind, r); });
@@ -657,15 +657,15 @@
         if (tool === "flux")
             return flux(sc, pos, f, ns, verb);
         if (tool === "argocd")
-            return argocd(sc, pos, f, verb);
+            return argocd(sc, pos, verb);
         if (tool === "tkn")
-            return tkn(sc, pos, f, ns);
+            return tkn(sc, pos, ns);
         if (tool === "kubectl argo rollouts")
-            return rollouts(sc, pos, f, ns, verb);
+            return rollouts(sc, pos, ns, verb);
         if (tool === "crossplane beta")
-            return trace(sc, pos, f, ns, verb);
+            return trace(sc, pos, ns, verb);
         if (tool === "cosign")
-            return cosign(sc, pos, f, verb);
+            return cosign(sc, pos, verb);
         if (tool === "helm")
             return "Error: no releases found here; this cluster's apps are managed by Argo CD and Flux";
         if (tool === "curl" || tool === "wget")
@@ -691,7 +691,7 @@
                     all.forEach(function (k) {
                         var rs = find(sc, k, "", ns, !!f["-A"], f["-l"]);
                         if (rs && rs.length)
-                            blocks.push(renderGet(sc, k, rs, f, true));
+                            blocks.push(renderGet(k, rs, f, true));
                     });
                     return blocks.length ? blocks.join("\n\n") : none("pods", ns);
                 }
@@ -709,7 +709,7 @@
                             return none(kind, ns);
                         continue;
                     }
-                    out.push(renderGet(sc, kind, res, f, kinds.length > 1));
+                    out.push(renderGet(kind, res, f, kinds.length > 1));
                 }
                 return out.length ? out.join("\n\n") : none(kinds[0], ns);
             case "describe":
@@ -1020,7 +1020,7 @@
             default: return "node/" + name + " " + verb + "ed";
         }
     }
-    function cosign(sc, pos, f, verb) {
+    function cosign(sc, pos, verb) {
         var ref = pos[1] || "";
         if (verb === "verify") {
             if (!ref)
@@ -1070,7 +1070,7 @@
             return "► checking prerequisites\n✔ Kubernetes 1.34.0 >=1.30.0-0\n► checking controllers\n✔ all checks passed";
         return HELP.flux;
     }
-    function argocd(sc, pos, f, verb) {
+    function argocd(sc, pos, verb) {
         if (verb !== "app")
             return verb ? 'Error: unknown command "' + verb + '" for "argocd"' : HELP.argocd;
         var sub = pos[1] || "", name = pos[2];
@@ -1106,7 +1106,7 @@
             return g.resources || "(nothing rendered: the compare has not succeeded)";
         return 'Error: unknown command "' + sub + '" for "argocd app"';
     }
-    function tkn(sc, pos, f, ns) {
+    function tkn(sc, pos, ns) {
         var kind = pos[0] || "", sub = pos[1] || "", name = pos[2];
         if (!kind)
             return HELP.tkn;
@@ -1137,7 +1137,7 @@
             return "PipelineRun deleted: " + name;
         return 'Error: unknown command "' + sub + '" for "tkn ' + kind + '"';
     }
-    function rollouts(sc, pos, f, ns, verb) {
+    function rollouts(sc, pos, ns, verb) {
         var name = pos[2];
         if (!verb)
             return HELP["kubectl argo rollouts"];
@@ -1157,7 +1157,7 @@
             return "rollout '" + name + "' " + (verb === "retry" ? "retried" : verb === "promote" ? "promoted" : verb + "ed") + "\n(the same analysis runs against the same address, and fails the same way)";
         return 'Error: unknown command "' + verb + '" for "kubectl argo rollouts"';
     }
-    function trace(sc, pos, f, ns, verb) {
+    function trace(sc, pos, ns, verb) {
         if (verb !== "trace")
             return HELP["crossplane beta"];
         var kind = pos[1] || "", name = pos[2];
