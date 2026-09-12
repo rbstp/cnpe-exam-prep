@@ -51,6 +51,8 @@ Rules the site's checks enforce or the maintainer expects:
 4. Change the drawer's class from `out pending` to `out` and the span to `captured YYYY-MM-DD`.
 5. If the output disagrees with the queue's expected outcome, fix the exercise text or the `verify`
    line to say what the lab actually prints; the theory panel above it may need the same correction.
+6. Note the cluster version the capture was taken on. Everything dated 2026-09-12 ran on Kubernetes
+   1.36.1; the lab's `K8S_IMAGE` pin moved to 1.37.0 afterwards.
 
 Then, from the repo root: `python3 curriculum/tools/extract-drill.py --check`,
 `python3 curriculum/tools/subset-fonts.py --check`, `make site`, `make browser` (needs

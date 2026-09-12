@@ -43,7 +43,7 @@ The [dashboard](curriculum/index.html) maps every official competency to a secti
 | `mesh` | Second cluster with [Istio](https://istio.io/) ambient and [Flagger](https://flagger.app/) | Security (15%) |
 | `portal` | [Backstage](https://backstage.io/) on the host, with a software template that publishes to Gitea | Platform APIs (25%) |
 
-Versions as tested: Kubernetes 1.36.1, kind 0.32.0, Helm 4.2.2, Cilium 1.20.1, Argo CD 10.4.0 (chart), Crossplane 2.4.0 (chart), kube-prometheus-stack 88.5.3, Istio 1.30.3, Flux 2.9.4.
+Versions as tested: Kubernetes 1.37.0, kind 0.33.0, Helm 4.2.2, Cilium 1.20.1, Argo CD 10.4.0 (chart), Crossplane 2.4.0 (chart), kube-prometheus-stack 88.5.3, Istio 1.30.3, Flux 2.9.4. The command output captured in the curriculum's exercise drawers dated 2026-09-12 was taken on Kubernetes 1.36.1, the pin in force before this bump.
 
 Only the Kubernetes node image is pinned, by digest, in `lab.env`. Helm charts and the Tekton manifests float on purpose, so a fresh install gets whatever is current and the versions above will drift. That is the right trade for exam prep, because chart values and API versions moving under you is the thing the exam actually tests. When something breaks, `kubectl api-resources | grep <tool>` and `kubectl explain <kind>` are the fix. If you want reproducibility instead, pinning `--version` in `helmi` (`scripts/lib.sh`) is a one-line change.
 
