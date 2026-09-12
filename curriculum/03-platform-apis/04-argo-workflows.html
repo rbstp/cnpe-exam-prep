@@ -498,7 +498,7 @@ kubectl get wf "$WF" -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, pha
 
     <div class="exercise" data-title="Two workflows, one mutex">
       <p>Self-service means two people submit at once. A mutex serialises them without either one failing, and the waiting workflow says what it is waiting for, which is the message your users will screenshot at you.</p>
-      <div class="cb" data-lang="bash"><pre><code>for i in 1 2; do kubectl create -f - &lt;&lt;'EOF'
+      <div class="cb" data-lang="bash"><pre><code>cat &gt; /tmp/locked.yaml &lt;&lt;'EOF'
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata: { generateName: locked-, namespace: default }
@@ -513,12 +513,13 @@ spec:
         command: [sh, -c]
         args: ["sleep 60"]
 EOF
-done
+kubectl create -f /tmp/locked.yaml
+kubectl create -f /tmp/locked.yaml
 sleep 15
 kubectl get wf -l workflows.argoproj.io/phase --sort-by=.metadata.creationTimestamp | tail -3
 kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{range .items[-2:]}{.metadata.name} {.status.phase}{"\n"}{end}'
 kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.message}{"\n"}'
-kubectl -n argo get cm workflow-controller-configmap -o jsonpath='{.data}' | jq</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ for i in 1 2; do kubectl create -f - &lt;&lt;'EOF'</b>
+kubectl -n argo get cm workflow-controller-configmap -o jsonpath='{.data}' | jq</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ cat &gt; /tmp/locked.yaml &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: Workflow</b>
 <b>metadata: { generateName: locked-, namespace: default }</b>
@@ -533,7 +534,8 @@ kubectl -n argo get cm workflow-controller-configmap -o jsonpath='{.data}' | jq<
 <b>        command: [sh, -c]</b>
 <b>        args: ["sleep 60"]</b>
 <b>EOF</b>
-<b>$ done</b>
+<b>$ kubectl create -f /tmp/locked.yaml</b>
+<b>$ kubectl create -f /tmp/locked.yaml</b>
 <b>$ sleep 15</b>
 <b>$ kubectl get wf -l workflows.argoproj.io/phase --sort-by=.metadata.creationTimestamp | tail -3</b>
 <b>$ kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{range .items[-2:]}{.metadata.name} {.status.phase}{"\n"}{end}'</b>
