@@ -251,8 +251,7 @@ curl -sS -o /dev/null -w 'apex %{http_code}\n' https://rbstp.dev/
    Requested `woff2` files should return `200` from the site's own assets directory,
    with no external font requests. Study page titles use `CNPE Serif`, prose and
    navigation use `CNPE Sans`, and code uses `CNPE Mono`. The quest shares that
-   page shell; inside the game, menus use the local mono and condensed faces.
-   Only faces used by the page need to load.
+   page shell and its faces. Only faces used by the page need to load.
 2. **Palette.** Press <kbd>/</kbd> → the overlay opens. Type `crossplane` → one hit
    (3.5). <kbd>Enter</kbd> navigates to it. <kbd>?</kbd> lists every shortcut.
 3. **A figure responds.** Go to `/01-architecture/01-networking.html`, find *"Follow one

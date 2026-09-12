@@ -13,7 +13,7 @@ SITE_DOMAIN="${SITE_DOMAIN:-cnpe.rbstp.dev}"
 SYNC_DOMAIN="${SYNC_DOMAIN:-sync.rbstp.dev}"
 
 for f in index.html mock-exam.html mock-exam-2.html drill.html game.html console.html 404.html CNAME \
-         assets/style.css assets/reader.css assets/game.css assets/app.js assets/nav.js assets/widgets.js \
+         assets/style.css assets/game.css assets/app.js assets/nav.js assets/widgets.js \
          assets/theme.js assets/favicon.svg assets/drill-data.js assets/drill-index.js \
          assets/drill.js assets/merge.js assets/syntax.js assets/sync.js \
          assets/game.js assets/game-sim.js assets/game-data.js assets/game-art.js; do
@@ -97,20 +97,16 @@ unstamped=$(grep -oE 'url\("fonts/[^"]+"\)' "$SITE/assets/style.css" | grep -v '
 test -z "$unstamped" || { echo "unstamped font reference in style.css: $unstamped"; exit 1; }
 
 # Every page's theme-color pair, and theme.js's own copy of it, must carry the
-# grounds reader.css paints (its dark --ink first, its light --ink second).
-dk=$(grep -o -- '--ink: *#[0-9A-Fa-f]*' "$SITE/assets/reader.css" | sed -n 1p | grep -o '#[0-9A-Fa-f]*')
-lt=$(grep -o -- '--ink: *#[0-9A-Fa-f]*' "$SITE/assets/reader.css" | sed -n 2p | grep -o '#[0-9A-Fa-f]*')
-{ test -n "$dk" && test -n "$lt" && test "$dk" != "$lt"; } || { echo "could not read the two --ink grounds from reader.css"; exit 1; }
+# grounds style.css paints (its dark --ink first, its light --ink second).
+dk=$(grep -o -- '--ink: *#[0-9A-Fa-f]*' "$SITE/assets/style.css" | sed -n 1p | grep -o '#[0-9A-Fa-f]*')
+lt=$(grep -o -- '--ink: *#[0-9A-Fa-f]*' "$SITE/assets/style.css" | sed -n 2p | grep -o '#[0-9A-Fa-f]*')
+{ test -n "$dk" && test -n "$lt" && test "$dk" != "$lt"; } || { echo "could not read the two --ink grounds from style.css"; exit 1; }
 while IFS= read -r f; do
   { grep -q "name=\"theme-color\" content=\"$dk\" media=\"(prefers-color-scheme: dark)\"" "$f" &&
     grep -q "name=\"theme-color\" content=\"$lt\" media=\"(prefers-color-scheme: light)\"" "$f"; } ||
-    { echo "theme-color metas out of sync with reader.css grounds: ${f#"$SITE"/}"; exit 1; }
-  case "${f#"$SITE"/}" in
-    console.html) ;;   # inlines the stylesheet
-    *) grep -q 'assets/reader.css?v=' "$f" || { echo "missing reader stylesheet: ${f#"$SITE"/}"; exit 1; };;
-  esac
+    { echo "theme-color metas out of sync with style.css grounds: ${f#"$SITE"/}"; exit 1; }
 done < <(find "$SITE" -name '*.html')
 grep -q "dark: \"$dk\", light: \"$lt\"" "$SITE/assets/theme.js" ||
-  { echo "theme.js CHROME pair out of sync with reader.css grounds"; exit 1; }
+  { echo "theme.js CHROME pair out of sync with style.css grounds"; exit 1; }
 
 echo "staged site looks right ($n pages)"
