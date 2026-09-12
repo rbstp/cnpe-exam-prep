@@ -237,33 +237,33 @@ the pod was switched to sa/app-sa, which has no RBAC at all. Nothing in pod stat
     <div class="exercise" data-title="Fill etcd and dig out">
       <p>etcd's quota is a hard stop: once it trips the cluster goes read-only for writes and stays that way until you compact, defrag and disarm the alarm. Four commands, in an order that has to be right.</p>
       <p>This block lowers the quota on the kind control plane so the failure is reachable, then puts it back. Everything happens inside the control-plane container.</p>
-      <div class="cb" data-lang="bash"><pre><code>docker exec cnpe-control-plane sh -c 'ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key endpoint status -w table'
-docker exec cnpe-control-plane sh -c "sed -i 's|- etcd|- etcd\n    - --quota-backend-bytes=16777216|' /etc/kubernetes/manifests/etcd.yaml"
-sleep 60
-for i in $(seq 1 200); do kubectl create configmap filler-$i --from-file=/etc/kubernetes/manifests/etcd.yaml &gt;/dev/null 2&gt;&amp;1 || break; done
+      <div class="cb" data-lang="bash"><pre><code>ETCD="kubectl -n kube-system exec etcd-cnpe-control-plane -- etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key"
+$ETCD endpoint status -w table
+docker exec cnpe-control-plane sed -i 's|- etcd$|- etcd\n    - --quota-backend-bytes=16777216|' /etc/kubernetes/manifests/etcd.yaml
+sleep 90
 kubectl create configmap canary --from-literal=a=1
-docker exec cnpe-control-plane sh -c 'ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key alarm list'
-kubectl delete configmap -l '' --field-selector metadata.name!=kube-root-ca.crt 2&gt;/dev/null | tail -2
-REV=$(docker exec cnpe-control-plane sh -c 'ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key endpoint status --write-out=json' | jq -r '.[0].Status.header.revision')
-docker exec cnpe-control-plane sh -c "ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key compact $REV"
-docker exec cnpe-control-plane sh -c 'ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key defrag'
-docker exec cnpe-control-plane sh -c 'ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key alarm disarm'
-docker exec cnpe-control-plane sh -c "sed -i '/--quota-backend-bytes=16777216/d' /etc/kubernetes/manifests/etcd.yaml"
-sleep 60
-kubectl create configmap canary2 --from-literal=a=1 &amp;&amp; kubectl delete configmap canary2</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ docker exec cnpe-control-plane sh -c 'ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key endpoint status -w table'</b>
-<b>$ docker exec cnpe-control-plane sh -c "sed -i 's|- etcd|- etcd\n    - --quota-backend-bytes=16777216|' /etc/kubernetes/manifests/etcd.yaml"</b>
-<b>$ sleep 60</b>
-<b>$ for i in $(seq 1 200); do kubectl create configmap filler-$i --from-file=/etc/kubernetes/manifests/etcd.yaml &gt;/dev/null 2&gt;&amp;1 || break; done</b>
+$ETCD alarm list
+docker exec cnpe-control-plane sed -i '/--quota-backend-bytes=16777216/d' /etc/kubernetes/manifests/etcd.yaml
+sleep 90
+REV=$($ETCD endpoint status --write-out=json | jq -r '.[0].Status.header.revision')
+$ETCD compact "$REV"
+$ETCD defrag
+$ETCD alarm disarm
+$ETCD alarm list
+kubectl create configmap canary --from-literal=a=1 &amp;&amp; kubectl delete configmap canary</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ ETCD="kubectl -n kube-system exec etcd-cnpe-control-plane -- etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key"</b>
+<b>$ $ETCD endpoint status -w table</b>
+<b>$ docker exec cnpe-control-plane sed -i 's|- etcd$|- etcd\n    - --quota-backend-bytes=16777216|' /etc/kubernetes/manifests/etcd.yaml</b>
+<b>$ sleep 90</b>
 <b>$ kubectl create configmap canary --from-literal=a=1</b>
-<b>$ docker exec cnpe-control-plane sh -c 'ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key alarm list'</b>
-<b>$ kubectl delete configmap -l '' --field-selector metadata.name!=kube-root-ca.crt 2&gt;/dev/null | tail -2</b>
-<b>$ REV=$(docker exec cnpe-control-plane sh -c 'ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key endpoint status --write-out=json' | jq -r '.[0].Status.header.revision')</b>
-<b>$ docker exec cnpe-control-plane sh -c "ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key compact $REV"</b>
-<b>$ docker exec cnpe-control-plane sh -c 'ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key defrag'</b>
-<b>$ docker exec cnpe-control-plane sh -c 'ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key alarm disarm'</b>
-<b>$ docker exec cnpe-control-plane sh -c "sed -i '/--quota-backend-bytes=16777216/d' /etc/kubernetes/manifests/etcd.yaml"</b>
-<b>$ sleep 60</b>
-<b>$ kubectl create configmap canary2 --from-literal=a=1 &amp;&amp; kubectl delete configmap canary2</b>
+<b>$ $ETCD alarm list</b>
+<b>$ docker exec cnpe-control-plane sed -i '/--quota-backend-bytes=16777216/d' /etc/kubernetes/manifests/etcd.yaml</b>
+<b>$ sleep 90</b>
+<b>$ REV=$($ETCD endpoint status --write-out=json | jq -r '.[0].Status.header.revision')</b>
+<b>$ $ETCD compact "$REV"</b>
+<b>$ $ETCD defrag</b>
+<b>$ $ETCD alarm disarm</b>
+<b>$ $ETCD alarm list</b>
+<b>$ kubectl create configmap canary --from-literal=a=1 &amp;&amp; kubectl delete configmap canary</b>
 <i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> a write fails with <code>etcdserver: mvcc: database space exceeded</code>, <code>alarm list</code> shows NOSPACE, and writes only work again after compact, defrag and disarm in that order. Say why disarming without defragging just puts you back where you were.</div>
     </div>
