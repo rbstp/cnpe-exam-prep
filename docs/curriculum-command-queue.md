@@ -297,7 +297,7 @@ holds real output.
 - [ ] `kubectl auth whoami` as an impersonated user and group (`--as dev-a --as-group platform`).
 - [ ] As a user bound to `admin` in team-a, try to create a RoleBinding to a ClusterRole granting `nodes` read; capture `attempt to grant extra privileges`; grant `bind` on that ClusterRole with `resourceNames` and retry.
 - [ ] `kubectl create token reporter -n team-a --duration=10m` and decode the JWT to show `exp`, `aud`, `kubernetes.io.pod` binding (when bound).
-- [ ] Encryption at rest on the kind control plane: add `EncryptionConfiguration` with `aescbc`, restart, `kubectl get secrets -A -o json | kubectl replace -f -`, then `etcdctl get /registry/secrets/team-a/db-pass` to show the `k8s:enc:aescbc:v1:` prefix.
+- [x] ~~Encryption at rest on the kind control plane~~: **dropped**. Three control-plane restarts, a key file that must survive between them, and a decommission that has to rewrite every Secret before the flag comes off. It ran green and it wrecked the cluster twice getting there, and no exam task is that long. The theory panel keeps the field names; there is no exercise.
 - [ ] ESO fake store: ExternalSecret with `refreshPolicy: CreatedOnce` plus `target.immutable: true`; change the fake value; show the Secret unchanged; then `Periodic` with `refreshInterval: 30s` and show the update.
 - [ ] ESO `dataFrom.extract` against a JSON value and a `target.template` building a DSN.
 - [ ] `kubeseal --scope namespace-wide` then rename the SealedSecret; contrast with a `strict` one renamed (`decryption error` in controller logs/events).

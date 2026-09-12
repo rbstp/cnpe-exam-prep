@@ -989,13 +989,16 @@ Error from server (NotFound): pipelineruns.tekton.dev "fanout" not found</code><
 
     <div class="exercise" data-title="Sign what the pipeline built">
       <p>Tekton Chains is not part of <code>make cicd</code>, so this block installs it, generates a signing key, and removes nothing afterwards: leave it if you intend to do the 5.6 attestation exercises, or uninstall it when you are finished.</p>
-      <p>The whole point is that no pipeline change is needed. Chains watches completed TaskRuns and signs what they report.</p>
+      <p>The release ships an empty <code>signing-secrets</code>, so the block replaces it with a real key pair. <code>cosign generate-key-pair</code> prompts for a password unless <code>COSIGN_PASSWORD</code> is set, which is why it is set to an empty one here; do not do that where the key matters. The point is that no pipeline change is needed: Chains watches completed TaskRuns and signs what they report.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -f https://storage.googleapis.com/tekton-releases/chains/latest/release.yaml
-kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=180s
-cosign generate-key-pair k8s://tekton-chains/signing-secrets
+kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=300s
+kubectl -n tekton-chains get secret signing-secrets -o jsonpath='{.data}{"\n"}'
+kubectl -n tekton-chains delete secret signing-secrets
+COSIGN_PASSWORD='' cosign generate-key-pair k8s://tekton-chains/signing-secrets
+kubectl -n tekton-chains get secret signing-secrets -o json | jq '.data | keys'
 kubectl -n tekton-chains patch cm chains-config --type merge -p '{"data":{"artifacts.taskrun.format":"in-toto","artifacts.taskrun.storage":"tekton","artifacts.oci.storage":"tekton"}}'
 kubectl -n tekton-chains rollout restart deploy/tekton-chains-controller
-kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=120s
+kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=180s
 kubectl create -f - &lt;&lt;'EOF'
 apiVersion: tekton.dev/v1
 kind: TaskRun
@@ -1009,41 +1012,15 @@ spec:
           echo pretend this built something
 EOF
 sleep 60
-kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.annotations}' | jq 'with_entries(select(.key | startswith("chains")))'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f https://storage.googleapis.com/tekton-releases/chains/latest/release.yaml</b>
-namespace/tekton-chains created
-secret/signing-secrets created
-configmap/chains-config created
-deployment.apps/tekton-chains-controller created
-clusterrolebinding.rbac.authorization.k8s.io/tekton-chains-controller-cluster-access created
-clusterrole.rbac.authorization.k8s.io/tekton-chains-controller-cluster-access created
-clusterrole.rbac.authorization.k8s.io/tekton-chains-controller-tenant-access created
-clusterrolebinding.rbac.authorization.k8s.io/tekton-chains-controller-tenant-access created
-serviceaccount/tekton-chains-controller created
-role.rbac.authorization.k8s.io/tekton-chains-leader-election created
-rolebinding.rbac.authorization.k8s.io/tekton-chains-controller-leaderelection created
-role.rbac.authorization.k8s.io/tekton-chains-info created
-rolebinding.rbac.authorization.k8s.io/tekton-chains-info created
-configmap/chains-info created
-configmap/tekton-chains-config-leader-election created
-configmap/config-logging created
-configmap/tekton-chains-config-observability created
-service/tekton-chains-metrics created
-<b>$ kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=180s</b>
-Waiting for deployment "tekton-chains-controller" rollout to finish: 0 of 1 updated replicas are available...
-deployment "tekton-chains-controller" successfully rolled out
-<b>$ cosign generate-key-pair k8s://tekton-chains/signing-secrets</b>
-Enter password for private key: Error: generating key pair: inappropriate ioctl for device
-error during command execution: generating key pair: inappropriate ioctl for device
+kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.annotations}' | jq 'with_entries(select(.key | startswith("chains")))'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f https://storage.googleapis.com/tekton-releases/chains/latest/release.yaml</b>
+<b>$ kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=300s</b>
+<b>$ kubectl -n tekton-chains get secret signing-secrets -o jsonpath='{.data}{"\n"}'</b>
+<b>$ kubectl -n tekton-chains delete secret signing-secrets</b>
+<b>$ COSIGN_PASSWORD='' cosign generate-key-pair k8s://tekton-chains/signing-secrets</b>
+<b>$ kubectl -n tekton-chains get secret signing-secrets -o json | jq '.data | keys'</b>
 <b>$ kubectl -n tekton-chains patch cm chains-config --type merge -p '{"data":{"artifacts.taskrun.format":"in-toto","artifacts.taskrun.storage":"tekton","artifacts.oci.storage":"tekton"}}'</b>
-configmap/chains-config patched
 <b>$ kubectl -n tekton-chains rollout restart deploy/tekton-chains-controller</b>
-deployment.apps/tekton-chains-controller restarted
-<b>$ kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=120s</b>
-Waiting for deployment spec update to be observed...
-Waiting for deployment "tekton-chains-controller" rollout to finish: 0 out of 1 new replicas have been updated...
-Waiting for deployment "tekton-chains-controller" rollout to finish: 1 old replicas are pending termination...
-Waiting for deployment "tekton-chains-controller" rollout to finish: 1 old replicas are pending termination...
-deployment "tekton-chains-controller" successfully rolled out
+<b>$ kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=180s</b>
 <b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: tekton.dev/v1</b>
 <b>kind: TaskRun</b>
@@ -1056,12 +1033,9 @@ deployment "tekton-chains-controller" successfully rolled out
 <b>        script: |</b>
 <b>          echo pretend this built something</b>
 <b>EOF</b>
-taskrun.tekton.dev/signed-s65wz created
 <b>$ sleep 60</b>
 <b>$ kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.annotations}' | jq 'with_entries(select(.key | startswith("chains")))'</b>
-{
-  "chains.tekton.dev/signed": "true"
-}</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the completed TaskRun carries a <code>chains.tekton.dev/signed</code> annotation set to true, added by a controller the pipeline author never mentioned. If it says <code>failed</code> instead, read the chains-controller log: the reason is almost always the key or the storage backend.</div>
     </div>
 
