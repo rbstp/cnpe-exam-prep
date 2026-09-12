@@ -558,7 +558,8 @@ spec:
         ref: { name: say }
         params: [{ name: text, value: this will not apply }]
 EOF
-kubectl delete stepaction say</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl api-resources | grep -i stepaction</b>
+kubectl delete stepaction say</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl api-resources | grep -i stepaction</b>
+stepactions                                                                           tekton.dev/v1beta1                        true         StepAction
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: tekton.dev/v1beta1</b>
 <b>kind: StepAction</b>
@@ -571,6 +572,7 @@ kubectl delete stepaction say</code></pre><details class="out pending"><summary>
 <b>  script: |</b>
 <b>    echo "$(params.text)"</b>
 <b>EOF</b>
+Error from server (BadRequest): error when creating "STDIN": admission webhook "validation.webhook.pipeline.tekton.dev" denied the request: validation failed: param substitution in scripts is not allowed.: spec.script
 <b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: tekton.dev/v1</b>
 <b>kind: TaskRun</b>
@@ -582,8 +584,11 @@ kubectl delete stepaction say</code></pre><details class="out pending"><summary>
 <b>        ref: { name: say }</b>
 <b>        params: [{ name: text, value: hello from a stepaction }]</b>
 <b>EOF</b>
+taskrun.tekton.dev/say-run-l4l82 created
 <b>$ sleep 45</b>
 <b>$ tkn taskrun logs --last</b>
+task Task 0 has failed: failed to resolve step ref for step "say" (index 0): stepactions.tekton.dev "say" not found
+Error: pod for taskrun say-run-l4l82 not available yet
 <b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: tekton.dev/v1</b>
 <b>kind: TaskRun</b>
@@ -596,8 +601,9 @@ kubectl delete stepaction say</code></pre><details class="out pending"><summary>
 <b>        ref: { name: say }</b>
 <b>        params: [{ name: text, value: this will not apply }]</b>
 <b>EOF</b>
+Error from server (BadRequest): error when creating "STDIN": admission webhook "validation.webhook.pipeline.tekton.dev" denied the request: validation failed: image cannot be used with Ref: spec.taskSpec.steps[0].image
 <b>$ kubectl delete stepaction say</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Error from server (NotFound): stepactions.tekton.dev "say" not found</code></pre></details></div>
       <div class="verify"><b>verify:</b> the referencing run prints the parameter, and the second create is rejected at admission with a message naming the fields that may not appear alongside <code>ref</code>. That list is worth memorising; it is short.</div>
     </div>
 
@@ -629,7 +635,7 @@ spec:
 EOF
 sleep 90
 tkn pipelinerun describe --last
-kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.conditions[0]}' | jq</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.conditions[0]}' | jq</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: tekton.dev/v1</b>
 <b>kind: PipelineRun</b>
 <b>metadata: { generateName: slow-, namespace: default }</b>
@@ -653,10 +659,42 @@ kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.ite
 <b>              script: |</b>
 <b>                echo cleanup ran</b>
 <b>EOF</b>
+pipelinerun.tekton.dev/slow-rdfh2 created
 <b>$ sleep 90</b>
 <b>$ tkn pipelinerun describe --last</b>
+Name:              slow-rdfh2
+Namespace:         default
+Service Account:   default
+Labels:
+ tekton.dev/pipeline=slow-rdfh2
+
+Status
+
+STARTED        DURATION   STATUS
+1 minute ago   40s        Failed(PipelineRunTimeout)
+
+Message
+
+PipelineRun "slow-rdfh2" failed due to tasks failed to finish within "40s"
+TaskRun(s) cancelled: slow-rdfh2-sleeper
+
+Timeouts
+ Pipeline:   1m0s
+ Tasks:      40s
+ Finally:    20s
+
+Taskruns
+
+ NAME                 TASK NAME   STARTED        DURATION   STATUS
+ slow-rdfh2-sleeper   sleeper     1 minute ago   40s        Cancelled(TaskRunCancelled)
 <b>$ kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.conditions[0]}' | jq</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+{
+  "lastTransitionTime": "2026-09-12T17:11:25Z",
+  "message": "PipelineRun \"slow-rdfh2\" failed due to tasks failed to finish within \"40s\"",
+  "reason": "PipelineRunTimeout",
+  "status": "False",
+  "type": "Succeeded"
+}</code></pre></details></div>
       <div class="verify"><b>verify:</b> the run fails on the tasks clock rather than the pipeline clock, the reason names which timeout expired, and the finally task still gets its own twenty seconds. Say what happens if <code>tasks</code> plus <code>finally</code> exceeds <code>pipeline</code>.</div>
     </div>
 
@@ -691,7 +729,7 @@ sleep 45
 kubectl get pipelinerun cancel-me -o jsonpath='{.status.conditions[0]}' | jq
 tkn taskrun list | head -5
 tkn taskrun logs cancel-me-cleanup 2&gt;/dev/null | tail -3
-kubectl delete pipelinerun cancel-me</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+kubectl delete pipelinerun cancel-me</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: tekton.dev/v1</b>
 <b>kind: PipelineRun</b>
 <b>metadata: { name: cancel-me, namespace: default }</b>
@@ -714,14 +752,29 @@ kubectl delete pipelinerun cancel-me</code></pre><details class="out pending"><s
 <b>              script: |</b>
 <b>                echo finally ran after cancellation</b>
 <b>EOF</b>
+pipelinerun.tekton.dev/cancel-me created
 <b>$ sleep 30</b>
 <b>$ kubectl patch pipelinerun cancel-me --type merge -p '{"spec":{"status":"CancelledRunFinally"}}'</b>
+pipelinerun.tekton.dev/cancel-me patched
 <b>$ sleep 45</b>
 <b>$ kubectl get pipelinerun cancel-me -o jsonpath='{.status.conditions[0]}' | jq</b>
+{
+  "lastTransitionTime": "2026-09-12T17:12:54Z",
+  "message": "PipelineRun \"cancel-me\" was cancelled",
+  "reason": "Cancelled",
+  "status": "False",
+  "type": "Succeeded"
+}
 <b>$ tkn taskrun list | head -5</b>
+NAME                 STARTED          DURATION   STATUS
+cancel-me-cleanup    45 seconds ago   8s         Succeeded
+cancel-me-sleeper    1 minute ago     31s        Cancelled(TaskRunCancelled)
+slow-rdfh2-sleeper   2 minutes ago    40s        Cancelled(TaskRunCancelled)
+say-run-l4l82        3 minutes ago    0s         Failed(TaskRunResolutionFailed)
 <b>$ tkn taskrun logs cancel-me-cleanup 2&gt;/dev/null | tail -3</b>
+[say] finally ran after cancellation
 <b>$ kubectl delete pipelinerun cancel-me</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+pipelinerun.tekton.dev "cancel-me" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the run ends with reason <code>CancelledRunFinally</code> and the finally TaskRun has logs, which proves it executed. Name the other value of <code>spec.status</code> and what it would have done to that TaskRun.</div>
     </div>
 
@@ -757,7 +810,7 @@ spec:
 EOF
 sleep 60
 kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.conditions[0]}' | jq
-kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.skippedTasks}' | jq</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.skippedTasks}' | jq</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: tekton.dev/v1</b>
 <b>kind: PipelineRun</b>
 <b>metadata: { generateName: skipper-, namespace: default }</b>
@@ -785,10 +838,32 @@ kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.ite
 <b>              script: |</b>
 <b>                echo this should not run</b>
 <b>EOF</b>
+pipelinerun.tekton.dev/skipper-j29jd created
 <b>$ sleep 60</b>
 <b>$ kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.conditions[0]}' | jq</b>
+{
+  "lastTransitionTime": "2026-09-12T17:13:40Z",
+  "message": "Tasks Completed: 1 (Failed: 0, Cancelled 0), Skipped: 1",
+  "reason": "Completed",
+  "status": "True",
+  "type": "Succeeded"
+}
 <b>$ kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.skippedTasks}' | jq</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+[
+  {
+    "name": "prod-only",
+    "reason": "When Expressions evaluated to false",
+    "whenExpressions": [
+      {
+        "input": "staging",
+        "operator": "in",
+        "values": [
+          "prod"
+        ]
+      }
+    ]
+  }
+]</code></pre></details></div>
       <div class="verify"><b>verify:</b> the condition is True with reason <code>Completed</code> and <code>skippedTasks</code> names <code>prod-only</code> with the reason it was skipped. A skipped task is a success, not a failure; be able to say so without hesitating.</div>
     </div>
 
@@ -810,7 +885,7 @@ spec:
 EOF
 sleep 45
 kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.conditions[0]}' | jq
-tkn taskrun describe --last | tail -12</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+tkn taskrun describe --last | tail -12</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: tekton.dev/v1</b>
 <b>kind: TaskRun</b>
 <b>metadata: { generateName: bigresult-, namespace: default }</b>
@@ -824,10 +899,29 @@ tkn taskrun describe --last | tail -12</code></pre><details class="out pending">
 <b>        script: |</b>
 <b>          head -c 6000 /dev/zero | tr '\\0' 'x' &gt; $(results.blob.path)</b>
 <b>EOF</b>
+taskrun.tekton.dev/bigresult-hfh4k created
 <b>$ sleep 45</b>
 <b>$ kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.conditions[0]}' | jq</b>
+{
+  "lastTransitionTime": "2026-09-12T17:14:40Z",
+  "message": "\"step-emit\" exited with code 1: Error",
+  "reason": "Failed",
+  "status": "False",
+  "type": "Succeeded"
+}
 <b>$ tkn taskrun describe --last | tail -12</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+
+STARTED          DURATION    STATUS
+45 seconds ago   8s          Failed
+
+Message
+
+"step-emit" exited with code 1: Error
+
+Steps
+
+ NAME   STATUS
+ emit   Error</code></pre></details></div>
       <div class="verify"><b>verify:</b> the run fails with a message about the termination message exceeding the maximum allowed size. Say where you would put a payload that big instead, and why a workspace is the answer rather than a bigger result.</div>
     </div>
 
@@ -857,7 +951,7 @@ EOF
 sleep 75
 tkn taskrun list | head -6
 kubectl get pipelinerun fanout -o jsonpath='{.status.childReferences[*].name}{"\n"}'
-kubectl delete pipelinerun fanout</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+kubectl delete pipelinerun fanout</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: tekton.dev/v1</b>
 <b>kind: PipelineRun</b>
 <b>metadata: { name: fanout, namespace: default }</b>
@@ -878,11 +972,18 @@ kubectl delete pipelinerun fanout</code></pre><details class="out pending"><summ
 <b>              script: |</b>
 <b>                echo checking $(params.version)</b>
 <b>EOF</b>
+Error from server (BadRequest): error when creating "STDIN": admission webhook "validation.webhook.pipeline.tekton.dev" denied the request: validation failed: expected exactly one, got both: spec.pipelineSpec.tasks[0].matrix[version], spec.pipelineSpec.tasks[0].params[version]
 <b>$ sleep 75</b>
 <b>$ tkn taskrun list | head -6</b>
+NAME                   STARTED         DURATION   STATUS
+bigresult-hfh4k        2 minutes ago   8s         Failed
+skipper-j29jd-always   3 minutes ago   8s         Succeeded
+slow-rdfh2-sleeper     5 minutes ago   40s        Cancelled(TaskRunCancelled)
+say-run-l4l82          6 minutes ago   0s         Failed(TaskRunResolutionFailed)
 <b>$ kubectl get pipelinerun fanout -o jsonpath='{.status.childReferences[*].name}{"\n"}'</b>
+Error from server (NotFound): pipelineruns.tekton.dev "fanout" not found
 <b>$ kubectl delete pipelinerun fanout</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Error from server (NotFound): pipelineruns.tekton.dev "fanout" not found</code></pre></details></div>
       <div class="verify"><b>verify:</b> three TaskRuns exist, named <code>fanout-check-0</code> through <code>-2</code>, and the PipelineRun's child references list all three. One failure in a matrix fails the whole task; say what that means for a matrix over environments.</div>
     </div>
 
@@ -908,12 +1009,41 @@ spec:
           echo pretend this built something
 EOF
 sleep 60
-kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.annotations}' | jq 'with_entries(select(.key | startswith("chains")))'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f https://storage.googleapis.com/tekton-releases/chains/latest/release.yaml</b>
+kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.annotations}' | jq 'with_entries(select(.key | startswith("chains")))'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f https://storage.googleapis.com/tekton-releases/chains/latest/release.yaml</b>
+namespace/tekton-chains created
+secret/signing-secrets created
+configmap/chains-config created
+deployment.apps/tekton-chains-controller created
+clusterrolebinding.rbac.authorization.k8s.io/tekton-chains-controller-cluster-access created
+clusterrole.rbac.authorization.k8s.io/tekton-chains-controller-cluster-access created
+clusterrole.rbac.authorization.k8s.io/tekton-chains-controller-tenant-access created
+clusterrolebinding.rbac.authorization.k8s.io/tekton-chains-controller-tenant-access created
+serviceaccount/tekton-chains-controller created
+role.rbac.authorization.k8s.io/tekton-chains-leader-election created
+rolebinding.rbac.authorization.k8s.io/tekton-chains-controller-leaderelection created
+role.rbac.authorization.k8s.io/tekton-chains-info created
+rolebinding.rbac.authorization.k8s.io/tekton-chains-info created
+configmap/chains-info created
+configmap/tekton-chains-config-leader-election created
+configmap/config-logging created
+configmap/tekton-chains-config-observability created
+service/tekton-chains-metrics created
 <b>$ kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=180s</b>
+Waiting for deployment "tekton-chains-controller" rollout to finish: 0 of 1 updated replicas are available...
+deployment "tekton-chains-controller" successfully rolled out
 <b>$ cosign generate-key-pair k8s://tekton-chains/signing-secrets</b>
+Enter password for private key: Error: generating key pair: inappropriate ioctl for device
+error during command execution: generating key pair: inappropriate ioctl for device
 <b>$ kubectl -n tekton-chains patch cm chains-config --type merge -p '{"data":{"artifacts.taskrun.format":"in-toto","artifacts.taskrun.storage":"tekton","artifacts.oci.storage":"tekton"}}'</b>
+configmap/chains-config patched
 <b>$ kubectl -n tekton-chains rollout restart deploy/tekton-chains-controller</b>
+deployment.apps/tekton-chains-controller restarted
 <b>$ kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=120s</b>
+Waiting for deployment spec update to be observed...
+Waiting for deployment "tekton-chains-controller" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "tekton-chains-controller" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "tekton-chains-controller" rollout to finish: 1 old replicas are pending termination...
+deployment "tekton-chains-controller" successfully rolled out
 <b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: tekton.dev/v1</b>
 <b>kind: TaskRun</b>
@@ -926,9 +1056,12 @@ kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-
 <b>        script: |</b>
 <b>          echo pretend this built something</b>
 <b>EOF</b>
+taskrun.tekton.dev/signed-s65wz created
 <b>$ sleep 60</b>
 <b>$ kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.annotations}' | jq 'with_entries(select(.key | startswith("chains")))'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+{
+  "chains.tekton.dev/signed": "true"
+}</code></pre></details></div>
       <div class="verify"><b>verify:</b> the completed TaskRun carries a <code>chains.tekton.dev/signed</code> annotation set to true, added by a controller the pipeline author never mentioned. If it says <code>failed</code> instead, read the chains-controller log: the reason is almost always the key or the storage backend.</div>
     </div>
 

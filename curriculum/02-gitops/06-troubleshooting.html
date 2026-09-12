@@ -303,7 +303,7 @@ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phas
 flux reconcile kustomization demo-flux --with-source || true
 kubectl -n flux-system get kustomization demo-flux -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
 kubectl delete clusterpolicy require-owner
-argocd app sync demo-staging --timeout 120</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+argocd app sync demo-staging --timeout 120</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kyverno.io/v1</b>
 <b>kind: ClusterPolicy</b>
 <b>metadata: { name: require-owner }</b>
@@ -323,14 +323,23 @@ argocd app sync demo-staging --timeout 120</code></pre><details class="out pendi
 <b>            labels:</b>
 <b>              owner: "?*"</b>
 <b>EOF</b>
+Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
+clusterpolicy.kyverno.io/require-owner created
 <b>$ sleep 10</b>
 <b>$ argocd app sync demo-staging --timeout 60 || true</b>
+{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T13:30:34-04:00"}
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{.status.operationState.message}{"\n"}'</b>
+Succeeded
+successfully synced (all tasks run)
 <b>$ flux reconcile kustomization demo-flux --with-source || true</b>
+✗ kustomizations.kustomize.toolkit.fluxcd.io "demo-flux" not found
 <b>$ kubectl -n flux-system get kustomization demo-flux -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+Error from server (NotFound): kustomizations.kustomize.toolkit.fluxcd.io "demo-flux" not found
 <b>$ kubectl delete clusterpolicy require-owner</b>
+Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
+clusterpolicy.kyverno.io "require-owner" deleted
 <b>$ argocd app sync demo-staging --timeout 120</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T13:30:45-04:00"}</code></pre></details></div>
       <div class="verify"><b>verify:</b> Argo CD reports the operation <code>Failed</code> quoting the admission webhook by name, and Flux reports Ready False with a reconciliation failure quoting the same webhook. Same cause, two vocabularies; be able to translate either into "a policy refused the manifest".</div>
     </div>
 
@@ -345,17 +354,35 @@ kubectl -n team-a create configmap probe --from-literal=a=1 || true
 kubectl -n kyverno scale deploy kyverno-admission-controller --replicas=1
 kubectl -n kyverno rollout status deploy kyverno-admission-controller --timeout=180s
 kubectl -n team-a delete configmap probe --ignore-not-found
-argocd app sync demo-staging --timeout 120</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get validatingwebhookconfiguration -o custom-columns=NAME:.metadata.name,POLICY:.webhooks[*].failurePolicy | grep -i kyverno</b>
+argocd app sync demo-staging --timeout 120</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get validatingwebhookconfiguration -o custom-columns=NAME:.metadata.name,POLICY:.webhooks[*].failurePolicy | grep -i kyverno</b>
+kyverno-cel-exception-validating-webhook-cfg    Fail
+kyverno-cleanup-validating-webhook-cfg          Fail
+kyverno-exception-validating-webhook-cfg        Fail
+kyverno-global-context-validating-webhook-cfg   Fail
+kyverno-policy-validating-webhook-cfg           Fail
+kyverno-resource-validating-webhook-cfg         Fail
+kyverno-ttl-validating-webhook-cfg              Ignore
 <b>$ kubectl -n kyverno scale deploy kyverno-admission-controller --replicas=0</b>
+deployment.apps/kyverno-admission-controller scaled
 <b>$ kubectl -n kyverno rollout status deploy kyverno-admission-controller --timeout=60s || true</b>
+Waiting for deployment spec update to be observed...
+deployment "kyverno-admission-controller" successfully rolled out
 <b>$ argocd app sync demo-staging --timeout 60 || true</b>
+{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T13:30:55-04:00"}
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.message}{"\n"}'</b>
+successfully synced (all tasks run)
 <b>$ kubectl -n team-a create configmap probe --from-literal=a=1 || true</b>
+configmap/probe created
 <b>$ kubectl -n kyverno scale deploy kyverno-admission-controller --replicas=1</b>
+deployment.apps/kyverno-admission-controller scaled
 <b>$ kubectl -n kyverno rollout status deploy kyverno-admission-controller --timeout=180s</b>
+Waiting for deployment "kyverno-admission-controller" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "kyverno-admission-controller" rollout to finish: 0 of 1 updated replicas are available...
+deployment "kyverno-admission-controller" successfully rolled out
 <b>$ kubectl -n team-a delete configmap probe --ignore-not-found</b>
+configmap "probe" deleted from team-a namespace
 <b>$ argocd app sync demo-staging --timeout 120</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T13:31:43-04:00"}</code></pre></details></div>
       <div class="verify"><b>verify:</b> the message is about failing to call the webhook with no endpoints available, and it appears for plain kubectl writes as well as for the sync. Say which single field would have turned this outage into a gap in policy coverage instead.</div>
     </div>
 
@@ -382,7 +409,7 @@ EOF
 flux reconcile kustomization demo-flux --with-source || true
 kubectl -n flux-system get kustomization demo-flux -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
 kubectl delete validatingwebhookconfiguration no-dry-run
-flux reconcile kustomization demo-flux --with-source</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+flux reconcile kustomization demo-flux --with-source</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: admissionregistration.k8s.io/v1</b>
 <b>kind: ValidatingWebhookConfiguration</b>
 <b>metadata: { name: no-dry-run }</b>
@@ -400,11 +427,15 @@ flux reconcile kustomization demo-flux --with-source</code></pre><details class=
 <b>        resources: ["deployments"]</b>
 <b>        scope: Namespaced</b>
 <b>EOF</b>
+The ValidatingWebhookConfiguration "no-dry-run" is invalid: webhooks[0].sideEffects: Unsupported value: "Unknown": supported values: "None", "NoneOnDryRun"
 <b>$ flux reconcile kustomization demo-flux --with-source || true</b>
+✗ kustomizations.kustomize.toolkit.fluxcd.io "demo-flux" not found
 <b>$ kubectl -n flux-system get kustomization demo-flux -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+Error from server (NotFound): kustomizations.kustomize.toolkit.fluxcd.io "demo-flux" not found
 <b>$ kubectl delete validatingwebhookconfiguration no-dry-run</b>
+Error from server (NotFound): validatingwebhookconfigurations.admissionregistration.k8s.io "no-dry-run" not found
 <b>$ flux reconcile kustomization demo-flux --with-source</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+✗ kustomizations.kustomize.toolkit.fluxcd.io "demo-flux" not found</code></pre></details></div>
       <div class="verify"><b>verify:</b> the message says the webhook does not support dry run, and it names the webhook. Say which value of <code>sideEffects</code> a well-written validating webhook declares, and why that value makes the dry run legal.</div>
     </div>
 
@@ -412,10 +443,22 @@ flux reconcile kustomization demo-flux --with-source</code></pre><details class=
       <p>Every failure on this page shows up as an Application condition, and the type is a faster triage signal than the message. Run through the four buckets and write the type next to each one.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd get app demo-staging -o jsonpath='{range .status.conditions[*]}{.type}: {.message}{"\n"}{end}'
 kubectl -n argocd get app -o custom-columns=NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status,CONDITIONS:.status.conditions[*].type
-kubectl explain application.status.conditions.type</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n argocd get app demo-staging -o jsonpath='{range .status.conditions[*]}{.type}: {.message}{"\n"}{end}'</b>
+kubectl explain application.status.conditions.type</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n argocd get app demo-staging -o jsonpath='{range .status.conditions[*]}{.type}: {.message}{"\n"}{end}'</b>
 <b>$ kubectl -n argocd get app -o custom-columns=NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status,CONDITIONS:.status.conditions[*].type</b>
+NAME           SYNC     HEALTH    CONDITIONS
+demo-prod      Synced   Healthy   &lt;none&gt;
+demo-staging   Synced   Healthy   &lt;none&gt;
 <b>$ kubectl explain application.status.conditions.type</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+GROUP:      argoproj.io
+KIND:       Application
+VERSION:    v1alpha1
+
+FIELD: type &lt;string&gt;
+
+
+DESCRIPTION:
+    Type is an application condition type
+    </code></pre></details></div>
       <div class="verify"><b>verify:</b> you can name which condition type appears for a repo the project forbids, for a manifest admission refuses, and for a controller whose credentials are wrong. Three buckets, three types, and only one of them is about the cluster.</div>
     </div>
 

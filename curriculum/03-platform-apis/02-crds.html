@@ -285,7 +285,7 @@ spec:
           type: object
           properties:
             spec: { type: object }
-EOF</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+EOF</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: apiextensions.k8s.io/v1</b>
 <b>kind: CustomResourceDefinition</b>
 <b>metadata:</b>
@@ -304,7 +304,7 @@ EOF</code></pre><details class="out pending"><summary>output<span class="when">n
 <b>          properties:</b>
 <b>            spec: { type: object }</b>
 <b>EOF</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+The CustomResourceDefinition "buckets.platform.lab.local" is invalid: metadata.name: Invalid value: "buckets.platform.lab.local": must be spec.names.plural+"."+spec.group</code></pre></details></div>
       <div class="verify"><b>verify:</b> the message names <code>spec.names.plural+"."+spec.group</code> as the required form. Say which of the two halves you would change if the intended plural really were <code>buckets</code>.</div>
     </div>
 
@@ -330,7 +330,7 @@ spec:
       storage: true
       schema:
         openAPIV3Schema: { type: object, properties: { spec: { type: object } } }
-EOF</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+EOF</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: apiextensions.k8s.io/v1</b>
 <b>kind: CustomResourceDefinition</b>
 <b>metadata:</b>
@@ -351,7 +351,9 @@ EOF</code></pre><details class="out pending"><summary>output<span class="when">n
 <b>      schema:</b>
 <b>        openAPIV3Schema: { type: object, properties: { spec: { type: object } } }</b>
 <b>EOF</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+The CustomResourceDefinition "twostore.platform.lab.local" is invalid: 
+* spec.versions: Invalid value: [{"Name":"v1alpha1","Served":true,"Storage":true,"Deprecated":false,"DeprecationWarning":null,"Schema":null,"Subresources":null,"AdditionalPrinterColumns":null,"SelectableFields":null},{"Name":"v1beta1","Served":true,"Storage":true,"Deprecated":false,"DeprecationWarning":null,"Schema":null,"Subresources":null,"AdditionalPrinterColumns":null,"SelectableFields":null}]: must have exactly one version marked as storage version
+* status.storedVersions: Invalid value: ["v1alpha1"]: must have the storage version v1beta1</code></pre></details></div>
       <div class="verify"><b>verify:</b> the error says exactly one version must be marked as the storage version. Be able to say what the other versions are then for, in one sentence, without using the word conversion twice.</div>
     </div>
 
@@ -410,7 +412,7 @@ spec:
                   x-kubernetes-validations:
                     - rule: "self.all(x, x.contains('a'))"
 EOF
-kubectl delete crd budgets.platform.lab.local</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl delete crd budgets.platform.lab.local</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: apiextensions.k8s.io/v1</b>
 <b>kind: CustomResourceDefinition</b>
 <b>metadata:</b>
@@ -436,6 +438,10 @@ kubectl delete crd budgets.platform.lab.local</code></pre><details class="out pe
 <b>                  x-kubernetes-validations:</b>
 <b>                    - rule: "self.all(x, x.contains('a'))"</b>
 <b>EOF</b>
+The CustomResourceDefinition "budgets.platform.lab.local" is invalid: 
+* spec.validation.openAPIV3Schema.properties[spec].properties[names].x-kubernetes-validations[0].rule: Forbidden: estimated rule cost exceeds budget by factor of more than 100x (try simplifying the rule, or adding maxItems, maxProperties, and maxLength where arrays, maps, and strings are declared)
+* spec.validation.openAPIV3Schema.properties[spec].properties[names].x-kubernetes-validations[0].rule: Forbidden: contributed to estimated rule cost total exceeding cost limit for entire OpenAPIv3 schema
+* spec.validation.openAPIV3Schema: Forbidden: x-kubernetes-validations estimated rule cost total for entire OpenAPIv3 schema exceeds budget by factor of more than 100x (try simplifying the rule, or adding maxItems, maxProperties, and maxLength where arrays, maps, and strings are declared)
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: apiextensions.k8s.io/v1</b>
 <b>kind: CustomResourceDefinition</b>
@@ -463,8 +469,9 @@ kubectl delete crd budgets.platform.lab.local</code></pre><details class="out pe
 <b>                  x-kubernetes-validations:</b>
 <b>                    - rule: "self.all(x, x.contains('a'))"</b>
 <b>EOF</b>
+customresourcedefinition.apiextensions.k8s.io/budgets.platform.lab.local created
 <b>$ kubectl delete crd budgets.platform.lab.local</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+customresourcedefinition.apiextensions.k8s.io "budgets.platform.lab.local" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> the unbounded version is rejected for exceeding the estimated cost budget, and adding <code>maxItems</code> and <code>maxLength</code> makes the identical rule acceptable. The lesson generalises: bound your lists and strings before you write CEL over them.</div>
     </div>
 
@@ -479,17 +486,22 @@ metadata: { name: fresh, namespace: default }
 spec: { tier: gold, sizeGB: 20 }
 EOF
 kubectl get tb
-kubectl delete tb fresh</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"add","path":"/spec/versions/0/schema/openAPIV3Schema/properties/spec/x-kubernetes-validations/-","value":{"rule":"self.tier == oldSelf.tier","message":"tier is immutable once set"}}]'</b>
+kubectl delete tb fresh</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"add","path":"/spec/versions/0/schema/openAPIV3Schema/properties/spec/x-kubernetes-validations/-","value":{"rule":"self.tier == oldSelf.tier","message":"tier is immutable once set"}}]'</b>
+Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "tenantbuckets.platform.lab.local" not found
 <b>$ kubectl patch tenantbucket good --type merge -p '{"spec":{"tier":"gold"}}'</b>
+error: the server doesn't have a resource type "tenantbucket"
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: platform.lab.local/v1alpha1</b>
 <b>kind: TenantBucket</b>
 <b>metadata: { name: fresh, namespace: default }</b>
 <b>spec: { tier: gold, sizeGB: 20 }</b>
 <b>EOF</b>
+error: resource mapping not found for name: "fresh" namespace: "default" from "STDIN": no matches for kind "TenantBucket" in version "platform.lab.local/v1alpha1"
+ensure CRDs are installed first
 <b>$ kubectl get tb</b>
+No resources found in default namespace.
 <b>$ kubectl delete tb fresh</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Error from server (NotFound): triggerbindings.triggers.tekton.dev "fresh" not found</code></pre></details></div>
       <div class="verify"><b>verify:</b> the update is refused with your message and the create of a brand new object with the same tier succeeds. Say where you would put the same constraint if you needed it enforced on create as well.</div>
     </div>
 
@@ -506,19 +518,26 @@ kubectl label tenantbucket legacy team=a
 kubectl patch tenantbucket legacy --type merge -p '{"spec":{"sizeGB":120}}'
 kubectl patch tenantbucket legacy --type merge -p '{"spec":{"tier":"silver"}}'
 kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"remove","path":"/spec/versions/0/schema/openAPIV3Schema/properties/spec/properties/tier/pattern"}]'
-kubectl delete tb legacy</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl delete tb legacy</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: platform.lab.local/v1alpha1</b>
 <b>kind: TenantBucket</b>
 <b>metadata: { name: legacy, namespace: default }</b>
 <b>spec: { tier: silver, sizeGB: 100 }</b>
 <b>EOF</b>
+error: resource mapping not found for name: "legacy" namespace: "default" from "STDIN": no matches for kind "TenantBucket" in version "platform.lab.local/v1alpha1"
+ensure CRDs are installed first
 <b>$ kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"add","path":"/spec/versions/0/schema/openAPIV3Schema/properties/spec/properties/tier/pattern","value":"^gold$"}]'</b>
+Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "tenantbuckets.platform.lab.local" not found
 <b>$ kubectl label tenantbucket legacy team=a</b>
+error: the server doesn't have a resource type "tenantbucket"
 <b>$ kubectl patch tenantbucket legacy --type merge -p '{"spec":{"sizeGB":120}}'</b>
+error: the server doesn't have a resource type "tenantbucket"
 <b>$ kubectl patch tenantbucket legacy --type merge -p '{"spec":{"tier":"silver"}}'</b>
+error: the server doesn't have a resource type "tenantbucket"
 <b>$ kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"remove","path":"/spec/versions/0/schema/openAPIV3Schema/properties/spec/properties/tier/pattern"}]'</b>
+Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "tenantbuckets.platform.lab.local" not found
 <b>$ kubectl delete tb legacy</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Error from server (NotFound): triggerbindings.triggers.tekton.dev "legacy" not found</code></pre></details></div>
       <div class="verify"><b>verify:</b> labelling the object succeeds even though it now violates the pattern, and writing the same invalid value back explicitly is refused. Say what this buys a platform team rolling out a new naming rule across a thousand objects.</div>
     </div>
 
@@ -528,12 +547,15 @@ kubectl delete tb legacy</code></pre><details class="out pending"><summary>outpu
 kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"add","path":"/spec/versions/0/selectableFields","value":[{"jsonPath":".spec.tier"}]}]'
 sleep 5
 kubectl get tb --field-selector spec.tier=silver
-kubectl get tb --field-selector spec.tier=gold</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get tb --field-selector spec.tier=silver</b>
+kubectl get tb --field-selector spec.tier=gold</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get tb --field-selector spec.tier=silver</b>
+Error from server (BadRequest): Unable to find "triggers.tekton.dev/v1beta1, Resource=triggerbindings" that match label selector "", field selector "spec.tier=silver": field label not supported: spec.tier
 <b>$ kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"add","path":"/spec/versions/0/selectableFields","value":[{"jsonPath":".spec.tier"}]}]'</b>
+Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "tenantbuckets.platform.lab.local" not found
 <b>$ sleep 5</b>
 <b>$ kubectl get tb --field-selector spec.tier=silver</b>
+Error from server (BadRequest): Unable to find "triggers.tekton.dev/v1beta1, Resource=triggerbindings" that match label selector "", field selector "spec.tier=silver": field label not supported: spec.tier
 <b>$ kubectl get tb --field-selector spec.tier=gold</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Error from server (BadRequest): Unable to find "triggers.tekton.dev/v1beta1, Resource=triggerbindings" that match label selector "", field selector "spec.tier=gold": field label not supported: spec.tier</code></pre></details></div>
       <div class="verify"><b>verify:</b> the first attempt fails saying the field label is not supported, and after the patch the same query filters. Note that the server does the filtering, which is the reason this matters at ten thousand objects rather than ten.</div>
     </div>
 
@@ -547,16 +569,23 @@ kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"remov
 kubectl get tb -o name | xargs -r -I{} kubectl patch {} --type merge -p '{"metadata":{"annotations":{"rewrite":"now"}}}'
 kubectl patch crd tenantbuckets.platform.lab.local --subresource status --type merge -p '{"status":{"storedVersions":["v1beta1"]}}'
 kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"remove","path":"/spec/versions/0"}]'
-kubectl get crd tenantbuckets.platform.lab.local -o jsonpath='{range .spec.versions[*]}{.name} storage={.storage}{"\n"}{end}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get crd tenantbuckets.platform.lab.local -o jsonpath='{.status.storedVersions}{"\n"}'</b>
+kubectl get crd tenantbuckets.platform.lab.local -o jsonpath='{range .spec.versions[*]}{.name} storage={.storage}{"\n"}{end}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get crd tenantbuckets.platform.lab.local -o jsonpath='{.status.storedVersions}{"\n"}'</b>
+Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "tenantbuckets.platform.lab.local" not found
 <b>$ kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"add","path":"/spec/versions/-","value":{"name":"v1beta1","served":true,"storage":false,"subresources":{"status":{}},"schema":{"openAPIV3Schema":{"type":"object","properties":{"spec":{"type":"object","properties":{"tier":{"type":"string"},"sizeGB":{"type":"integer"}}},"status":{"type":"object","properties":{"phase":{"type":"string"}}}}}}}}]'</b>
+Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "tenantbuckets.platform.lab.local" not found
 <b>$ kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"replace","path":"/spec/versions/0/storage","value":false},{"op":"replace","path":"/spec/versions/1/storage","value":true}]'</b>
+Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "tenantbuckets.platform.lab.local" not found
 <b>$ kubectl get crd tenantbuckets.platform.lab.local -o jsonpath='{.status.storedVersions}{"\n"}'</b>
+Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "tenantbuckets.platform.lab.local" not found
 <b>$ kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"remove","path":"/spec/versions/0"}]'</b>
+Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "tenantbuckets.platform.lab.local" not found
 <b>$ kubectl get tb -o name | xargs -r -I{} kubectl patch {} --type merge -p '{"metadata":{"annotations":{"rewrite":"now"}}}'</b>
 <b>$ kubectl patch crd tenantbuckets.platform.lab.local --subresource status --type merge -p '{"status":{"storedVersions":["v1beta1"]}}'</b>
+Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "tenantbuckets.platform.lab.local" not found
 <b>$ kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"remove","path":"/spec/versions/0"}]'</b>
+Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "tenantbuckets.platform.lab.local" not found
 <b>$ kubectl get crd tenantbuckets.platform.lab.local -o jsonpath='{range .spec.versions[*]}{.name} storage={.storage}{"\n"}{end}'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "tenantbuckets.platform.lab.local" not found</code></pre></details></div>
       <div class="verify"><b>verify:</b> the first removal is refused naming <code>status.storedVersions</code>, and it succeeds after every object has been rewritten through the new storage version and the status corrected. That no-op update loop is the real migration step; say why a conversion webhook does not remove the need for it.</div>
     </div>
 
@@ -564,10 +593,12 @@ kubectl get crd tenantbuckets.platform.lab.local -o jsonpath='{range .spec.versi
       <p>Before debugging why a custom resource "does not work", ask whether the API server accepted the type at all. Two conditions answer it, and they are the first thing to read on a CRD you did not write.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl get crd tenantbuckets.platform.lab.local -o jsonpath='{.status.conditions[*].type}{"\n"}'
 kubectl get crd tenantbuckets.platform.lab.local -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
-kubectl get crd appenvironments.platform.lab.local -o jsonpath='{.status.conditions[*].type}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get crd tenantbuckets.platform.lab.local -o jsonpath='{.status.conditions[*].type}{"\n"}'</b>
+kubectl get crd appenvironments.platform.lab.local -o jsonpath='{.status.conditions[*].type}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get crd tenantbuckets.platform.lab.local -o jsonpath='{.status.conditions[*].type}{"\n"}'</b>
+Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "tenantbuckets.platform.lab.local" not found
 <b>$ kubectl get crd tenantbuckets.platform.lab.local -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "tenantbuckets.platform.lab.local" not found
 <b>$ kubectl get crd appenvironments.platform.lab.local -o jsonpath='{.status.conditions[*].type}{"\n"}'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+NamesAccepted Established</code></pre></details></div>
       <div class="verify"><b>verify:</b> both CRDs report <code>NamesAccepted</code> and <code>Established</code>. Say what a missing <code>Established</code> with a present <code>NamesAccepted</code> would tell you, and what a failing <code>NamesAccepted</code> usually means on a cluster that already has other CRDs.</div>
     </div>
 

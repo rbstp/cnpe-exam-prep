@@ -283,7 +283,7 @@ kubectl get pvc -l app=keep
 kubectl delete statefulset keep
 sleep 15
 kubectl get pvc -l app=keep
-kubectl delete pvc data-keep-0</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl delete pvc data-keep-0</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: apps/v1</b>
 <b>kind: StatefulSet</b>
 <b>metadata: { name: keep, namespace: default }</b>
@@ -306,17 +306,39 @@ kubectl delete pvc data-keep-0</code></pre><details class="out pending"><summary
 <b>        accessModes: [ReadWriteOnce]</b>
 <b>        resources: { requests: { storage: 64Mi } }</b>
 <b>EOF</b>
+statefulset.apps/keep created
 <b>$ kubectl rollout status statefulset/keep --timeout=180s</b>
+Waiting for statefulset spec update to be observed...
+Waiting for 3 pods to be ready...
+Waiting for 3 pods to be ready...
+Waiting for 2 pods to be ready...
+Waiting for 2 pods to be ready...
+Waiting for 1 pods to be ready...
+Waiting for 1 pods to be ready...
+partitioned roll out complete: 3 new pods have been updated...
 <b>$ kubectl get pvc -l app=keep</b>
+NAME          STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+data-keep-0   Bound    pvc-7a52cbbd-f8fb-4d35-9d64-7a22e91722dc   64Mi       RWO            standard       &lt;unset&gt;                 86s
+data-keep-1   Bound    pvc-4e7f4614-b23a-46e9-9d2a-83306e0ce500   64Mi       RWO            standard       &lt;unset&gt;                 74s
+data-keep-2   Bound    pvc-d993e5f1-f380-4a3a-9292-0c6df3278099   64Mi       RWO            standard       &lt;unset&gt;                 12s
 <b>$ kubectl get pvc data-keep-2 -o jsonpath='{.metadata.ownerReferences}' | jq</b>
 <b>$ kubectl scale statefulset keep --replicas=1</b>
+statefulset.apps/keep scaled
 <b>$ sleep 30</b>
 <b>$ kubectl get pvc -l app=keep</b>
+NAME          STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+data-keep-0   Bound    pvc-7a52cbbd-f8fb-4d35-9d64-7a22e91722dc   64Mi       RWO            standard       &lt;unset&gt;                 117s
+data-keep-1   Bound    pvc-4e7f4614-b23a-46e9-9d2a-83306e0ce500   64Mi       RWO            standard       &lt;unset&gt;                 105s
+data-keep-2   Bound    pvc-d993e5f1-f380-4a3a-9292-0c6df3278099   64Mi       RWO            standard       &lt;unset&gt;                 43s
 <b>$ kubectl delete statefulset keep</b>
+statefulset.apps "keep" deleted from default namespace
 <b>$ sleep 15</b>
 <b>$ kubectl get pvc -l app=keep</b>
+NAME          STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+data-keep-0   Bound    pvc-7a52cbbd-f8fb-4d35-9d64-7a22e91722dc   64Mi       RWO            standard       &lt;unset&gt;                 2m12s
+data-keep-1   Bound    pvc-4e7f4614-b23a-46e9-9d2a-83306e0ce500   64Mi       RWO            standard       &lt;unset&gt;                 2m
 <b>$ kubectl delete pvc data-keep-0</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+persistentvolumeclaim "data-keep-0" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the two higher-ordinal claims disappear on scale-down, carrying an ownerReference to the StatefulSet, and the last one survives deletion of the set itself. Two halves of one field, opposite outcomes.</div>
     </div>
 
@@ -339,8 +361,11 @@ sleep 20
 kubectl get pvc grow -o jsonpath='{.status.conditions}' | jq
 kubectl describe pvc grow | tail -8
 kubectl delete pod grower
-kubectl delete pvc grow</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get storageclass</b>
+kubectl delete pvc grow</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get storageclass</b>
+NAME                 PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+standard (default)   rancher.io/local-path   Delete          WaitForFirstConsumer   false                  43m
 <b>$ kubectl patch storageclass standard -p '{"allowVolumeExpansion":true}'</b>
+storageclass.storage.k8s.io/standard patched
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: v1</b>
 <b>kind: PersistentVolumeClaim</b>
@@ -349,15 +374,28 @@ kubectl delete pvc grow</code></pre><details class="out pending"><summary>output
 <b>  accessModes: [ReadWriteOnce]</b>
 <b>  resources: { requests: { storage: 64Mi } }</b>
 <b>EOF</b>
+persistentvolumeclaim/grow created
 <b>$ kubectl run grower --image=busybox:1.36 --restart=Never --overrides='{"spec":{"containers":[{"name":"c","image":"busybox:1.36","command":["sh","-c","sleep 86400"],"volumeMounts":[{"name":"d","mountPath":"/d"}]}],"volumes":[{"name":"d","persistentVolumeClaim":{"claimName":"grow"}}]}}'</b>
+pod/grower created
 <b>$ kubectl wait --for=condition=Ready pod/grower --timeout=120s</b>
+pod/grower condition met
 <b>$ kubectl patch pvc grow -p '{"spec":{"resources":{"requests":{"storage":"128Mi"}}}}'</b>
+persistentvolumeclaim/grow patched
 <b>$ sleep 20</b>
 <b>$ kubectl get pvc grow -o jsonpath='{.status.conditions}' | jq</b>
 <b>$ kubectl describe pvc grow | tail -8</b>
+Events:
+  Type    Reason                 Age                From                                                                                                Message
+  ----    ------                 ----               ----                                                                                                -------
+  Normal  WaitForFirstConsumer   33s                persistentvolume-controller                                                                         waiting for first consumer to be created before binding
+  Normal  ExternalProvisioning   32s (x2 over 32s)  persistentvolume-controller                                                                         Waiting for a volume to be created either by the external provisioner 'rancher.io/local-path' or manually by the system administrator. If volume creation is delayed, please verify that the provisioner is running and correctly registered.
+  Normal  Provisioning           32s                rancher.io/local-path_local-path-provisioner-855c7b7774-85tt4_e907b925-5259-49d8-86a6-05133b379fc9  External provisioner is provisioning volume for claim "default/grow"
+  Normal  ProvisioningSucceeded  26s                rancher.io/local-path_local-path-provisioner-855c7b7774-85tt4_e907b925-5259-49d8-86a6-05133b379fc9  Successfully provisioned volume pvc-efb5572a-1ac4-4257-b3ed-bf917d863860
+  Normal  ExternalExpanding      21s                volume_expand                                                                                       waiting for an external controller to expand this PVC
 <b>$ kubectl delete pod grower</b>
+pod "grower" deleted from default namespace
 <b>$ kubectl delete pvc grow</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+persistentvolumeclaim "grow" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> either the API refuses the edit outright or the claim parks on a resize condition that never completes, and in both cases you can name the driver as the reason. "The class says it is allowed" is not an answer.</div>
     </div>
 
@@ -386,7 +424,7 @@ kubectl get pvc eph-scratch
 kubectl get pvc eph-scratch -o jsonpath='{.metadata.ownerReferences}' | jq
 kubectl delete pod eph
 sleep 15
-kubectl get pvc eph-scratch</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl get pvc eph-scratch</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: v1</b>
 <b>kind: Pod</b>
 <b>metadata: { name: eph, namespace: default }</b>
@@ -404,13 +442,28 @@ kubectl get pvc eph-scratch</code></pre><details class="out pending"><summary>ou
 <b>            accessModes: [ReadWriteOnce]</b>
 <b>            resources: { requests: { storage: 64Mi } }</b>
 <b>EOF</b>
+pod/eph created
 <b>$ kubectl wait --for=condition=Ready pod/eph --timeout=120s</b>
+pod/eph condition met
 <b>$ kubectl get pvc eph-scratch</b>
+NAME          STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+eph-scratch   Bound    pvc-e9280620-9802-43dc-8e4a-66bc78c3147f   64Mi       RWO            standard       &lt;unset&gt;                 12s
 <b>$ kubectl get pvc eph-scratch -o jsonpath='{.metadata.ownerReferences}' | jq</b>
+[
+  {
+    "apiVersion": "v1",
+    "blockOwnerDeletion": true,
+    "controller": true,
+    "kind": "Pod",
+    "name": "eph",
+    "uid": "e05616fe-4713-40f7-90af-85d4c9e59bb0"
+  }
+]
 <b>$ kubectl delete pod eph</b>
+pod "eph" deleted from default namespace
 <b>$ sleep 15</b>
 <b>$ kubectl get pvc eph-scratch</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Error from server (NotFound): persistentvolumeclaims "eph-scratch" not found</code></pre></details></div>
       <div class="verify"><b>verify:</b> the claim is named <code>&lt;pod&gt;-&lt;volume&gt;</code>, owned by the pod, and gone once the pod is. Say which of emptyDir, this, and a hand-written PVC you would reach for when a task says "scratch space on the same class as the database".</div>
     </div>
 
@@ -419,11 +472,15 @@ kubectl get pvc eph-scratch</code></pre><details class="out pending"><summary>ou
       <div class="cb" data-lang="bash"><pre><code>kubectl get crd | grep snapshot.storage.k8s.io || echo 'no snapshot CRDs installed'
 kubectl api-resources | grep -i volumesnapshot || echo 'no volumesnapshot API on this cluster'
 kubectl get csidrivers
-kubectl get sc standard -o jsonpath='{.provisioner}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get crd | grep snapshot.storage.k8s.io || echo 'no snapshot CRDs installed'</b>
+kubectl get sc standard -o jsonpath='{.provisioner}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get crd | grep snapshot.storage.k8s.io || echo 'no snapshot CRDs installed'</b>
+no snapshot CRDs installed
 <b>$ kubectl api-resources | grep -i volumesnapshot || echo 'no volumesnapshot API on this cluster'</b>
+no volumesnapshot API on this cluster
 <b>$ kubectl get csidrivers</b>
+NAME            ATTACHREQUIRED   PODINFOONMOUNT   STORAGECAPACITY   TOKENREQUESTS   REQUIRESREPUBLISH   MODES       AGE
+csi.spiffe.io   false            true             false             &lt;unset&gt;         false               Ephemeral   21m
 <b>$ kubectl get sc standard -o jsonpath='{.provisioner}{"\n"}'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+rancher.io/local-path</code></pre></details></div>
       <div class="verify"><b>verify:</b> you can state the three pieces a working VolumeSnapshot needs and which of them this cluster has. On the exam cluster, run the same two commands before you write a VolumeSnapshot manifest at all.</div>
     </div>
 
@@ -443,8 +500,11 @@ kubectl get pvc noclass -o jsonpath='class=[{.spec.storageClassName}] phase={.st
 kubectl annotate storageclass standard storageclass.kubernetes.io/is-default-class=true
 sleep 20
 kubectl get pvc noclass -o jsonpath='class=[{.spec.storageClassName}] phase={.status.phase}{"\n"}'
-kubectl delete pvc noclass</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get storageclass -o custom-columns=NAME:.metadata.name,DEFAULT:.metadata.annotations.storageclass\.kubernetes\.io/is-default-class</b>
+kubectl delete pvc noclass</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get storageclass -o custom-columns=NAME:.metadata.name,DEFAULT:.metadata.annotations.storageclass\.kubernetes\.io/is-default-class</b>
+NAME       DEFAULT
+standard   &lt;none&gt;
 <b>$ kubectl annotate storageclass standard storageclass.kubernetes.io/is-default-class-</b>
+storageclass.storage.k8s.io/standard annotated
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: v1</b>
 <b>kind: PersistentVolumeClaim</b>
@@ -453,12 +513,16 @@ kubectl delete pvc noclass</code></pre><details class="out pending"><summary>out
 <b>  accessModes: [ReadWriteOnce]</b>
 <b>  resources: { requests: { storage: 64Mi } }</b>
 <b>EOF</b>
+persistentvolumeclaim/noclass created
 <b>$ kubectl get pvc noclass -o jsonpath='class=[{.spec.storageClassName}] phase={.status.phase}{"\n"}'</b>
+class=[] phase=Pending
 <b>$ kubectl annotate storageclass standard storageclass.kubernetes.io/is-default-class=true</b>
+storageclass.storage.k8s.io/standard annotated
 <b>$ sleep 20</b>
 <b>$ kubectl get pvc noclass -o jsonpath='class=[{.spec.storageClassName}] phase={.status.phase}{"\n"}'</b>
+class=[standard] phase=Pending
 <b>$ kubectl delete pvc noclass</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+persistentvolumeclaim "noclass" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the claim sits Pending with an empty class while no default exists, then has <code>standard</code> written into its spec once the annotation is back. Restore the annotation before you leave this exercise or every later claim on the page hangs.</div>
     </div>
 

@@ -301,8 +301,10 @@ spec:
           other: ${first.metadata.name}
 EOF
 kubectl get rgd cyclic -o jsonpath='{.status.conditions}' 2&gt;/dev/null | jq '.[] | {type, status, message}'
-kubectl delete rgd cyclic --ignore-not-found</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get rgd tenantspace -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+kubectl delete rgd cyclic --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get rgd tenantspace -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+Error from server (NotFound): resourcegraphdefinitions.kro.run "tenantspace" not found
 <b>$ kubectl get rgd tenantspace -o jsonpath='{.status.topologicalOrder}{"\n"}'</b>
+Error from server (NotFound): resourcegraphdefinitions.kro.run "tenantspace" not found
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kro.run/v1alpha1</b>
 <b>kind: ResourceGraphDefinition</b>
@@ -333,9 +335,10 @@ kubectl delete rgd cyclic --ignore-not-found</code></pre><details class="out pen
 <b>        data:</b>
 <b>          other: ${first.metadata.name}</b>
 <b>EOF</b>
+resourcegraphdefinition.kro.run/cyclic created
 <b>$ kubectl get rgd cyclic -o jsonpath='{.status.conditions}' 2&gt;/dev/null | jq '.[] | {type, status, message}'</b>
 <b>$ kubectl delete rgd cyclic --ignore-not-found</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+resourcegraphdefinition.kro.run "cyclic" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> the working RGD is Active with an order that puts the namespace before the quota, and the cyclic one is refused with a message naming the cycle. Say how you would break that cycle without losing the value one resource needed from the other.</div>
     </div>
 
@@ -396,7 +399,7 @@ kubectl -n team-j get configmap tier-note || echo 'omitted by includeWhen'
 kubectl get tieredspace team-j -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'
 kubectl delete tieredspace team-j
 kubectl delete rgd tieredspace
-kubectl delete ns team-j --ignore-not-found</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl delete ns team-j --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kro.run/v1alpha1</b>
 <b>kind: ResourceGraphDefinition</b>
 <b>metadata: { name: tieredspace }</b>
@@ -438,21 +441,32 @@ kubectl delete ns team-j --ignore-not-found</code></pre><details class="out pend
 <b>        data:</b>
 <b>          note: included because cpu was not zero</b>
 <b>EOF</b>
+resourcegraphdefinition.kro.run/tieredspace created
 <b>$ sleep 20</b>
 <b>$ kubectl get rgd tieredspace -o jsonpath='{.status.state} {.status.topologicalOrder}{"\n"}'</b>
+Active ["ns","quota","extra"]
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kro.run/v1alpha1</b>
 <b>kind: TieredSpace</b>
 <b>metadata: { name: team-j, namespace: default }</b>
 <b>spec: { team: team-j, cpu: "0" }</b>
 <b>EOF</b>
+tieredspace.kro.run/team-j created
 <b>$ sleep 30</b>
 <b>$ kubectl -n team-j get configmap tier-note || echo 'omitted by includeWhen'</b>
+Error from server (NotFound): configmaps "tier-note" not found
+omitted by includeWhen
 <b>$ kubectl get tieredspace team-j -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
+{
+  "type": "InstanceSynced",
+  "status": "True",
+  "reason": "ReconciliationSucceeded"
+}
 <b>$ kubectl delete tieredspace team-j</b>
+tieredspace.kro.run "team-j" deleted from default namespace
 <b>$ kubectl delete rgd tieredspace</b>
-<b>$ kubectl delete ns team-j --ignore-not-found</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+resourcegraphdefinition.kro.run "tieredspace" deleted
+<b>$ kubectl delete ns team-j --ignore-not-found</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> the ConfigMap is absent for the instance whose cpu is zero, and the instance still reports ready because the quota satisfied its own <code>readyWhen</code>. Say what would happen to the instance if that condition never became true.</div>
     </div>
 
@@ -465,15 +479,20 @@ kubectl -n team-h get resourcequota || echo 'still gone: reconciliation is suspe
 kubectl annotate tenantspace team-h kro.run/reconcile-
 sleep 45
 kubectl -n team-h get resourcequota tenant-quota
-kubectl get tenantspace team-h -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl annotate tenantspace team-h kro.run/reconcile=suspended --overwrite</b>
+kubectl get tenantspace team-h -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl annotate tenantspace team-h kro.run/reconcile=suspended --overwrite</b>
+error: the server doesn't have a resource type "tenantspace"
 <b>$ kubectl -n team-h delete resourcequota tenant-quota</b>
+Error from server (NotFound): resourcequotas "tenant-quota" not found
 <b>$ sleep 45</b>
 <b>$ kubectl -n team-h get resourcequota || echo 'still gone: reconciliation is suspended'</b>
+No resources found in team-h namespace.
 <b>$ kubectl annotate tenantspace team-h kro.run/reconcile-</b>
+error: the server doesn't have a resource type "tenantspace"
 <b>$ sleep 45</b>
 <b>$ kubectl -n team-h get resourcequota tenant-quota</b>
+Error from server (NotFound): namespaces "team-h" not found
 <b>$ kubectl get tenantspace team-h -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+error: the server doesn't have a resource type "tenantspace"</code></pre></details></div>
       <div class="verify"><b>verify:</b> the quota stays deleted while the annotation is on and returns within one reconcile of removing it. Say when you would reach for this rather than deleting the instance, and what you would write in the ticket.</div>
     </div>
 
@@ -517,7 +536,8 @@ kubectl get needsmore team-k -o jsonpath='{.status.conditions}' | jq '.[] | {typ
 kubectl get pdb tenant-pdb -n default || echo 'not created'
 kubectl delete needsmore team-k
 kubectl delete rgd needsmore
-kubectl delete pdb tenant-pdb -n default --ignore-not-found</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get clusterrole -o name | grep -i kro</b>
+kubectl delete pdb tenant-pdb -n default --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get clusterrole -o name | grep -i kro</b>
+clusterrole.rbac.authorization.k8s.io/kro-cluster-role
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kro.run/v1alpha1</b>
 <b>kind: ResourceGraphDefinition</b>
@@ -542,6 +562,7 @@ kubectl delete pdb tenant-pdb -n default --ignore-not-found</code></pre><details
 <b>            matchLabels:</b>
 <b>              team: ${schema.spec.team}</b>
 <b>EOF</b>
+resourcegraphdefinition.kro.run/needsmore created
 <b>$ sleep 20</b>
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kro.run/v1alpha1</b>
@@ -549,13 +570,23 @@ kubectl delete pdb tenant-pdb -n default --ignore-not-found</code></pre><details
 <b>metadata: { name: team-k, namespace: default }</b>
 <b>spec: { team: team-k }</b>
 <b>EOF</b>
+needsmore.kro.run/team-k created
 <b>$ sleep 45</b>
 <b>$ kubectl get needsmore team-k -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+{
+  "type": "InstanceSynced",
+  "status": "True",
+  "reason": "ReconciliationSucceeded",
+  "message": "Instance reconciled successfully"
+}
 <b>$ kubectl get pdb tenant-pdb -n default || echo 'not created'</b>
+NAME         MIN AVAILABLE   MAX UNAVAILABLE   ALLOWED DISRUPTIONS   AGE
+tenant-pdb   1               N/A               0                     45s
 <b>$ kubectl delete needsmore team-k</b>
+needsmore.kro.run "team-k" deleted from default namespace
 <b>$ kubectl delete rgd needsmore</b>
-<b>$ kubectl delete pdb tenant-pdb -n default --ignore-not-found</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+resourcegraphdefinition.kro.run "needsmore" deleted
+<b>$ kubectl delete pdb tenant-pdb -n default --ignore-not-found</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> either the PodDisruptionBudget appears, in which case the controller already had the permission and you can say which ClusterRole granted it, or the instance condition carries a forbidden message naming the verb. Both are the answer; the point is knowing which object to read.</div>
     </div>
 
@@ -565,11 +596,10 @@ kubectl delete pdb tenant-pdb -n default --ignore-not-found</code></pre><details
       <div class="cb" data-lang="bash"><pre><code>curl -s http://localhost:7007/api/catalog/entities?filter=kind=template | jq '.[] | {name: .metadata.name, steps: [.spec.steps[].action]}'
 curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=template' | jq '.[] | .spec.parameters[]? | .properties.repoUrl?.["ui:options"]?.allowedHosts' | head
 curl -s http://localhost:7007/api/scaffolder/v2/tasks | jq '.tasks[0] | {id, status, spec: .spec.templateInfo.entityRef}'
-curl -s http://localhost:7007/api/scaffolder/v2/tasks/$(curl -s http://localhost:7007/api/scaffolder/v2/tasks | jq -r '.tasks[0].id')/events | jq -r '.[] | select(.type=="log") | .body.message' | tail -20</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ curl -s http://localhost:7007/api/catalog/entities?filter=kind=template | jq '.[] | {name: .metadata.name, steps: [.spec.steps[].action]}'</b>
+curl -s http://localhost:7007/api/scaffolder/v2/tasks/$(curl -s http://localhost:7007/api/scaffolder/v2/tasks | jq -r '.tasks[0].id')/events | jq -r '.[] | select(.type=="log") | .body.message' | tail -20</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ curl -s http://localhost:7007/api/catalog/entities?filter=kind=template | jq '.[] | {name: .metadata.name, steps: [.spec.steps[].action]}'</b>
 <b>$ curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=template' | jq '.[] | .spec.parameters[]? | .properties.repoUrl?.["ui:options"]?.allowedHosts' | head</b>
 <b>$ curl -s http://localhost:7007/api/scaffolder/v2/tasks | jq '.tasks[0] | {id, status, spec: .spec.templateInfo.entityRef}'</b>
-<b>$ curl -s http://localhost:7007/api/scaffolder/v2/tasks/$(curl -s http://localhost:7007/api/scaffolder/v2/tasks | jq -r '.tasks[0].id')/events | jq -r '.[] | select(.type=="log") | .body.message' | tail -20</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+<b>$ curl -s http://localhost:7007/api/scaffolder/v2/tasks/$(curl -s http://localhost:7007/api/scaffolder/v2/tasks | jq -r '.tasks[0].id')/events | jq -r '.[] | select(.type=="log") | .body.message' | tail -20</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> you can name the allowed hosts the RepoUrlPicker enforces and read one task's log to the line that failed. Remove <code>gitea.lab</code> from <code>allowedHosts</code> and the form refuses before any task exists; break the integration token instead and the task fails at <code>publish:gitea</code> with a message you can quote.</div>
     </div>
 
@@ -577,10 +607,9 @@ curl -s http://localhost:7007/api/scaffolder/v2/tasks/$(curl -s http://localhost
       <p>The catalog is an API, not a web page. Query it directly and the entities, their owners and the relations between them come back as data you can check in a script, which is how a portal stays true as the platform grows.</p>
       <div class="cb" data-lang="bash"><pre><code>curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, owner: .spec.owner, type: .spec.type}]'
 curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, relations: [.relations[]? | {type, targetRef}]}]'
-curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=group' | jq '[.[] | .metadata.name]'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, owner: .spec.owner, type: .spec.type}]'</b>
+curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=group' | jq '[.[] | .metadata.name]'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, owner: .spec.owner, type: .spec.type}]'</b>
 <b>$ curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, relations: [.relations[]? | {type, targetRef}]}]'</b>
-<b>$ curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=group' | jq '[.[] | .metadata.name]'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+<b>$ curl -s 'http://localhost:7007/api/catalog/entities?filter=kind=group' | jq '[.[] | .metadata.name]'</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> every component names an owner that exists as a group, and the relations show <code>ownedBy</code> and <code>partOf</code> derived from the descriptor files rather than typed in twice. A component whose owner does not resolve is the catalog's version of a dangling pointer; say how you would catch that in CI.</div>
     </div>
 

@@ -271,10 +271,14 @@ curl -s localhost:9090/api/v1/targets | jq '.data.activeTargets[] | select(.labe
 kill %1
 kubectl delete scrapeconfig static-target -n monitoring
 kubectl -n default delete deployment fakemetrics
-kubectl -n default delete svc fakemetrics</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.scrapeConfigSelector}{"\n"}'</b>
+kubectl -n default delete svc fakemetrics</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.scrapeConfigSelector}{"\n"}'</b>
+{"matchLabels":{"release":"prometheus"}}
 <b>$ kubectl -n default create deployment fakemetrics --image=ghcr.io/stefanprodan/podinfo:6.7.1</b>
+error: failed to create deployment: deployments.apps "fakemetrics" already exists
 <b>$ kubectl -n default expose deployment fakemetrics --port=9898</b>
+Error from server (AlreadyExists): services "fakemetrics" already exists
 <b>$ kubectl -n default get svc fakemetrics -o jsonpath='{.spec.clusterIP}{"\n"}'</b>
+10.96.58.47
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1alpha1</b>
 <b>kind: ScrapeConfig</b>
@@ -286,15 +290,26 @@ kubectl -n default delete svc fakemetrics</code></pre><details class="out pendin
 <b>  metricsPath: /metrics</b>
 <b>  scrapeInterval: 30s</b>
 <b>EOF</b>
+scrapeconfig.monitoring.coreos.com/static-target unchanged
 <b>$ sleep 60</b>
 <b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
 <b>$ sleep 5</b>
+Forwarding from 127.0.0.1:9090 -&gt; 9090
+Forwarding from [::1]:9090 -&gt; 9090
 <b>$ curl -s localhost:9090/api/v1/targets | jq '.data.activeTargets[] | select(.labels.source=="static") | {scrapeUrl, health, lastError}'</b>
+Handling connection for 9090
+{
+  "scrapeUrl": "http://fakemetrics.default.svc.cluster.local:9898/metrics",
+  "health": "up",
+  "lastError": ""
+}
 <b>$ kill %1</b>
 <b>$ kubectl delete scrapeconfig static-target -n monitoring</b>
+scrapeconfig.monitoring.coreos.com "static-target" deleted from monitoring namespace
 <b>$ kubectl -n default delete deployment fakemetrics</b>
+deployment.apps "fakemetrics" deleted from default namespace
 <b>$ kubectl -n default delete svc fakemetrics</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+service "fakemetrics" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the static target appears in the target list with health up and the label you attached. Check <code>scrapeConfigSelector</code> first: if it does not match your labels, the object is valid, ignored, and completely silent.</div>
     </div>
 
@@ -323,9 +338,29 @@ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 909
 sleep 5
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=probe_success' | jq '.data.result[] | {instance: .metric.instance, value: .value[1]}'
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=probe_duration_seconds' | jq '.data.result[] | {instance: .metric.instance, value: .value[1]}'
-kill %1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ helm repo add prometheus-community https://prometheus-community.github.io/helm-charts</b>
+kill %1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ helm repo add prometheus-community https://prometheus-community.github.io/helm-charts</b>
+"prometheus-community" already exists with the same configuration, skipping
 <b>$ helm repo update prometheus-community</b>
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "prometheus-community" chart repository
+Update Complete. ⎈Happy Helming!⎈
 <b>$ helm upgrade --install blackbox prometheus-community/prometheus-blackbox-exporter -n monitoring --wait</b>
+Release "blackbox" does not exist. Installing it now.
+NAME: blackbox
+LAST DEPLOYED: Sat Sep 12 14:04:15 2026
+NAMESPACE: monitoring
+STATUS: deployed
+REVISION: 1
+DESCRIPTION: Install complete
+TEST SUITE: None
+NOTES:
+See https://github.com/prometheus/blackbox_exporter/ for how to configure Prometheus and the Blackbox Exporter.
+
+1. Get the application URL by running these commands:
+  export POD_NAME=$(kubectl get pods --namespace monitoring -l "app.kubernetes.io/name=prometheus-blackbox-exporter,app.kubernetes.io/instance=blackbox" -o jsonpath="{.items[0].metadata.name}")
+  export CONTAINER_PORT=$(kubectl get pod --namespace monitoring $POD_NAME -o jsonpath="{.spec.containers[0].ports[0].containerPort}")
+  echo "Visit http://127.0.0.1:8080 to use your application"
+  kubectl --namespace monitoring port-forward $POD_NAME 8080:$CONTAINER_PORT
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1</b>
 <b>kind: Probe</b>
@@ -340,13 +375,26 @@ kill %1</code></pre><details class="out pending"><summary>output<span class="whe
 <b>      static:</b>
 <b>        - http://staging-demo.team-a.svc.cluster.local</b>
 <b>EOF</b>
+probe.monitoring.coreos.com/demo-reachable created
 <b>$ sleep 60</b>
 <b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
 <b>$ sleep 5</b>
+Forwarding from 127.0.0.1:9090 -&gt; 9090
+Forwarding from [::1]:9090 -&gt; 9090
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=probe_success' | jq '.data.result[] | {instance: .metric.instance, value: .value[1]}'</b>
+Handling connection for 9090
+{
+  "instance": "http://staging-demo.team-a.svc.cluster.local",
+  "value": "0"
+}
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=probe_duration_seconds' | jq '.data.result[] | {instance: .metric.instance, value: .value[1]}'</b>
+Handling connection for 9090
+{
+  "instance": "http://staging-demo.team-a.svc.cluster.local",
+  "value": "5.004824062"
+}
 <b>$ kill %1</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+bash: line 121: kill: (235591) - No such process</code></pre></details></div>
       <div class="verify"><b>verify:</b> <code>probe_success</code> is 1 for the demo Service. Scale the Deployment to zero and it becomes 0 while the pod-level metrics simply vanish; say which of those two signals you would alert on and why.</div>
     </div>
 
@@ -370,7 +418,7 @@ kubectl -n monitoring patch servicemonitor argocd-metrics --type merge -p '{"spe
 sleep 60
 curl -s localhost:9090/api/v1/targets | jq '[.data.activeTargets[] | select(.scrapePool | contains("argocd-metrics"))] | length'
 kill %1
-kubectl -n monitoring delete servicemonitor argocd-metrics</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n monitoring delete servicemonitor argocd-metrics</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1</b>
 <b>kind: ServiceMonitor</b>
 <b>metadata: { name: argocd-metrics, namespace: monitoring, labels: { release: prometheus } }</b>
@@ -380,16 +428,25 @@ kubectl -n monitoring delete servicemonitor argocd-metrics</code></pre><details 
 <b>  endpoints:</b>
 <b>    - port: metrics</b>
 <b>EOF</b>
+servicemonitor.monitoring.coreos.com/argocd-metrics created
 <b>$ sleep 60</b>
 <b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
 <b>$ sleep 5</b>
+Unable to listen on port 9090: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:9090: bind: address already in use unable to create listener: Error listen tcp6 [::1]:9090: bind: address already in use]
+error: unable to listen on any of the requested ports: [{9090 9090}]
 <b>$ curl -s localhost:9090/api/v1/targets | jq '[.data.activeTargets[] | select(.scrapePool | contains("argocd-metrics"))] | length'</b>
+Handling connection for 9090
+0
 <b>$ kubectl -n monitoring patch servicemonitor argocd-metrics --type merge -p '{"spec":{"namespaceSelector":{"matchNames":["argocd"]}}}'</b>
+servicemonitor.monitoring.coreos.com/argocd-metrics patched
 <b>$ sleep 60</b>
 <b>$ curl -s localhost:9090/api/v1/targets | jq '[.data.activeTargets[] | select(.scrapePool | contains("argocd-metrics"))] | length'</b>
+Handling connection for 9090
+0
 <b>$ kill %1</b>
+bash: line 166: kill: (235591) - No such process
 <b>$ kubectl -n monitoring delete servicemonitor argocd-metrics</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+servicemonitor.monitoring.coreos.com "argocd-metrics" deleted from monitoring namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> zero targets before the patch and a non-zero count after it, with nothing else changed. Add <code>namespaceSelector</code> to your mental template for every ServiceMonitor you write in a task.</div>
     </div>
 
@@ -400,13 +457,76 @@ sleep 5
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=topk(10, count by (__name__) ({__name__=~".+"}))' | jq -r '.data.result[] | "\(.metric.__name__) \(.value[1])"'
 curl -s localhost:9090/api/v1/status/tsdb | jq '{numSeries: .data.headStats.numSeries, numLabelPairs: .data.headStats.numLabelPairs, topSeriesCountByMetricName: .data.seriesCountByMetricName[:5]}'
 curl -s localhost:9090/api/v1/status/tsdb | jq '.data.labelValueCountByLabelName[:5]'
-kill %1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
+kill %1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
 <b>$ sleep 5</b>
+Unable to listen on port 9090: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:9090: bind: address already in use unable to create listener: Error listen tcp6 [::1]:9090: bind: address already in use]
+error: unable to listen on any of the requested ports: [{9090 9090}]
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=topk(10, count by (__name__) ({__name__=~".+"}))' | jq -r '.data.result[] | "\(.metric.__name__) \(.value[1])"'</b>
+Handling connection for 9090
+apiserver_request_body_size_bytes_bucket 16352
+apiserver_request_duration_seconds_bucket 15230
+apiserver_request_sli_duration_seconds_bucket 9360
+etcd_request_duration_seconds_bucket 8650
+apiserver_watch_list_duration_seconds_bucket 6156
+apiserver_response_sizes_bucket 5352
+apiserver_watch_cache_read_wait_seconds_bucket 3990
+apiserver_watch_events_sizes_bucket 2691
+kubernetes_feature_enabled 2177
+apiserver_request_total 1900
 <b>$ curl -s localhost:9090/api/v1/status/tsdb | jq '{numSeries: .data.headStats.numSeries, numLabelPairs: .data.headStats.numLabelPairs, topSeriesCountByMetricName: .data.seriesCountByMetricName[:5]}'</b>
+Handling connection for 9090
+{
+  "numSeries": 214908,
+  "numLabelPairs": 13823,
+  "topSeriesCountByMetricName": [
+    {
+      "name": "apiserver_request_body_size_bytes_bucket",
+      "value": 16352
+    },
+    {
+      "name": "apiserver_request_duration_seconds_bucket",
+      "value": 15230
+    },
+    {
+      "name": "apiserver_request_sli_duration_seconds_bucket",
+      "value": 9360
+    },
+    {
+      "name": "etcd_request_duration_seconds_bucket",
+      "value": 8650
+    },
+    {
+      "name": "apiserver_watch_list_duration_seconds_bucket",
+      "value": 6156
+    }
+  ]
+}
 <b>$ curl -s localhost:9090/api/v1/status/tsdb | jq '.data.labelValueCountByLabelName[:5]'</b>
+Handling connection for 9090
+[
+  {
+    "name": "__name__",
+    "value": 2510
+  },
+  {
+    "name": "name",
+    "value": 1743
+  },
+  {
+    "name": "id",
+    "value": 1159
+  },
+  {
+    "name": "resource",
+    "value": 639
+  },
+  {
+    "name": "container_id",
+    "value": 502
+  }
+]
 <b>$ kill %1</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+bash: line 194: kill: (235591) - No such process</code></pre></details></div>
       <div class="verify"><b>verify:</b> you can name the metric with the most series and the label with the most distinct values on this cluster. Say which of the two lists you would take to a developer and what you would ask them to change.</div>
     </div>
 
@@ -417,13 +537,30 @@ sleep 5
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=predict_linear(node_filesystem_avail_bytes{mountpoint="/"}[1h], 24*3600)' | jq '.data.result[] | {instance: .metric.instance, predicted: .value[1]}'
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=absent_over_time(up{job="does-not-exist"}[5m])' | jq '.data.result'
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=absent_over_time(up{job="kubelet"}[5m])' | jq '.data.result'
-kill %1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
+kill %1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
 <b>$ sleep 5</b>
+Unable to listen on port 9090: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:9090: bind: address already in use unable to create listener: Error listen tcp6 [::1]:9090: bind: address already in use]
+error: unable to listen on any of the requested ports: [{9090 9090}]
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=predict_linear(node_filesystem_avail_bytes{mountpoint="/"}[1h], 24*3600)' | jq '.data.result[] | {instance: .metric.instance, predicted: .value[1]}'</b>
+Handling connection for 9090
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=absent_over_time(up{job="does-not-exist"}[5m])' | jq '.data.result'</b>
+Handling connection for 9090
+[
+  {
+    "metric": {
+      "job": "does-not-exist"
+    },
+    "value": [
+      1789236467.188,
+      "1"
+    ]
+  }
+]
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=absent_over_time(up{job="kubelet"}[5m])' | jq '.data.result'</b>
+Handling connection for 9090
+[]
 <b>$ kill %1</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+bash: line 218: kill: (235591) - No such process</code></pre></details></div>
       <div class="verify"><b>verify:</b> the prediction returns a number per filesystem, and <code>absent_over_time</code> returns a series for the job that does not exist and nothing for the one that does. That inversion is the whole idea: the alert fires when the query has a result.</div>
     </div>
 
@@ -432,11 +569,13 @@ kill %1</code></pre><details class="out pending"><summary>output<span class="whe
       <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.retention} {.items[0].spec.retentionSize}{"\n"}'
 kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.storage}' | jq
 kubectl -n monitoring get pvc -l app.kubernetes.io/name=prometheus
-kubectl -n monitoring exec sts/prometheus-prometheus-kube-prometheus-prometheus -c prometheus -- df -h /prometheus</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.retention} {.items[0].spec.retentionSize}{"\n"}'</b>
+kubectl -n monitoring exec sts/prometheus-prometheus-kube-prometheus-prometheus -c prometheus -- df -h /prometheus</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.retention} {.items[0].spec.retentionSize}{"\n"}'</b>
+6h 
 <b>$ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.storage}' | jq</b>
 <b>$ kubectl -n monitoring get pvc -l app.kubernetes.io/name=prometheus</b>
+No resources found in monitoring namespace.
 <b>$ kubectl -n monitoring exec sts/prometheus-prometheus-kube-prometheus-prometheus -c prometheus -- df -h /prometheus</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+error: Internal error occurred: Internal error occurred: error executing command in container: failed to exec in container: failed to start exec "9ec400a0bc7c1ce3acfcc12746ff56bf104935761ab133f5b3c11878acba4f35": OCI runtime exec failed: exec failed: unable to start container process: exec: "df": executable file not found in $PATH</code></pre></details></div>
       <div class="verify"><b>verify:</b> you can say how far back a query on this cluster can reach and what would stop it first, time or disk. If the storage block is empty, the answer is "until the pod restarts", and that is worth saying out loud.</div>
     </div>
 
@@ -469,7 +608,7 @@ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 909
 sleep 5
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=gotk_reconcile_duration_seconds_count' | jq '.data.result | length'
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=tekton_pipelines_controller_pipelinerun_total' | jq '.data.result[] | {status: .metric.status, value: .value[1]}'
-kill %1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kill %1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1</b>
 <b>kind: PodMonitor</b>
 <b>metadata: { name: flux-controllers, namespace: monitoring, labels: { release: prometheus } }</b>
@@ -491,13 +630,32 @@ kill %1</code></pre><details class="out pending"><summary>output<span class="whe
 <b>  endpoints:</b>
 <b>    - port: http-metrics</b>
 <b>EOF</b>
+podmonitor.monitoring.coreos.com/flux-controllers created
+servicemonitor.monitoring.coreos.com/tekton-controller created
 <b>$ sleep 90</b>
 <b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
 <b>$ sleep 5</b>
+Unable to listen on port 9090: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:9090: bind: address already in use unable to create listener: Error listen tcp6 [::1]:9090: bind: address already in use]
+error: unable to listen on any of the requested ports: [{9090 9090}]
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=gotk_reconcile_duration_seconds_count' | jq '.data.result | length'</b>
+Handling connection for 9090
+5
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=tekton_pipelines_controller_pipelinerun_total' | jq '.data.result[] | {status: .metric.status, value: .value[1]}'</b>
+Handling connection for 9090
+{
+  "status": "cancelled",
+  "value": "1"
+}
+{
+  "status": "failed",
+  "value": "2"
+}
+{
+  "status": "success",
+  "value": "1"
+}
 <b>$ kill %1</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+bash: line 283: kill: (235591) - No such process</code></pre></details></div>
       <div class="verify"><b>verify:</b> both queries return series. If either returns nothing, the port name in the monitor does not match the container's; read the pod spec rather than the chart's documentation, because the chart may have renamed it.</div>
     </div>
 

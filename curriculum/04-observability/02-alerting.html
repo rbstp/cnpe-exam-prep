@@ -261,7 +261,7 @@ EOF
 sleep 45
 kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | sed -n '/mute_time_intervals/,/^[a-z]/p'
 kubectl -n monitoring exec sts/alertmanager-prometheus-kube-prometheus-alertmanager -c alertmanager -- sh -c 'amtool config routes test --config.file=/etc/alertmanager/config_out/alertmanager.env.yaml alertname=TooManyExamplePods severity=warning namespace=default'
-kubectl -n default delete alertmanagerconfig quiet-hours</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n default delete alertmanagerconfig quiet-hours</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1alpha1</b>
 <b>kind: AlertmanagerConfig</b>
 <b>metadata: { name: quiet-hours, namespace: default, labels: { release: prometheus } }</b>
@@ -278,11 +278,29 @@ kubectl -n default delete alertmanagerconfig quiet-hours</code></pre><details cl
 <b>        - times:</b>
 <b>            - { startTime: "00:00", endTime: "24:00" }</b>
 <b>EOF</b>
+alertmanagerconfig.monitoring.coreos.com/quiet-hours created
 <b>$ sleep 45</b>
 <b>$ kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | sed -n '/mute_time_intervals/,/^[a-z]/p'</b>
+    mute_time_intervals:
+    - default/quiet-hours/always-now
+  - receiver: "null"
+    matchers:
+    - alertname = "Watchdog"
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+inhibit_rules:
+mute_time_intervals:
+- name: default/quiet-hours/always-now
+  time_intervals:
+  - times:
+    - start_time: "00:00"
+      end_time: "24:00"
+templates:
 <b>$ kubectl -n monitoring exec sts/alertmanager-prometheus-kube-prometheus-alertmanager -c alertmanager -- sh -c 'amtool config routes test --config.file=/etc/alertmanager/config_out/alertmanager.env.yaml alertname=TooManyExamplePods severity=warning namespace=default'</b>
+default/quiet-hours/blackhole
 <b>$ kubectl -n default delete alertmanagerconfig quiet-hours</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+alertmanagerconfig.monitoring.coreos.com "quiet-hours" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the rendered config contains your interval and the route that references it, and <code>amtool config routes test</code> names the receiver a matching alert would land on. Say why testing the rendered config beats waiting for the alert.</div>
     </div>
 
@@ -311,7 +329,7 @@ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-alertmanager 9
 sleep 5
 curl -s localhost:9093/api/v2/alerts | jq '[.[] | {alertname: .labels.alertname, state: .status.state, inhibitedBy: .status.inhibitedBy}]'
 kill %1
-kubectl -n default delete alertmanagerconfig inhibit-demo</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n default delete alertmanagerconfig inhibit-demo</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1alpha1</b>
 <b>kind: AlertmanagerConfig</b>
 <b>metadata: { name: inhibit-demo, namespace: default, labels: { release: prometheus } }</b>
@@ -328,14 +346,58 @@ kubectl -n default delete alertmanagerconfig inhibit-demo</code></pre><details c
 <b>        - { name: severity, value: warning }</b>
 <b>      equal: [namespace]</b>
 <b>EOF</b>
+alertmanagerconfig.monitoring.coreos.com/inhibit-demo created
 <b>$ sleep 45</b>
 <b>$ kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | sed -n '/inhibit_rules/,/^[a-z]/p'</b>
+inhibit_rules:
+- target_matchers:
+  - severity =~ warning|info
+  source_matchers:
+  - severity = critical
+  equal:
+  - namespace
+  - alertname
+- target_matchers:
+  - severity = info
+  source_matchers:
+  - severity = warning
+  equal:
+  - namespace
+  - alertname
+- target_matchers:
+  - severity = info
+  source_matchers:
+  - alertname = InfoInhibitor
+  equal:
+  - namespace
+- target_matchers:
+  - alertname = InfoInhibitor
+- target_matchers:
+  - severity="warning"
+  - namespace="default"
+  source_matchers:
+  - alertname="Watchdog"
+  - namespace="default"
+  equal:
+  - namespace
+receivers:
 <b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-alertmanager 9093:9093 &amp;</b>
 <b>$ sleep 5</b>
+Forwarding from 127.0.0.1:9093 -&gt; 9093
+Forwarding from [::1]:9093 -&gt; 9093
 <b>$ curl -s localhost:9093/api/v2/alerts | jq '[.[] | {alertname: .labels.alertname, state: .status.state, inhibitedBy: .status.inhibitedBy}]'</b>
+Handling connection for 9093
+[
+  {
+    "alertname": "Watchdog",
+    "state": "active",
+    "inhibitedBy": []
+  }
+]
 <b>$ kill %1</b>
+bash: line 363: kill: (235591) - No such process
 <b>$ kubectl -n default delete alertmanagerconfig inhibit-demo</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+alertmanagerconfig.monitoring.coreos.com "inhibit-demo" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the rendered config carries the rule, and any alert it suppresses shows <code>inhibitedBy</code> naming the source alert's fingerprint. An empty <code>equal</code> would inhibit across namespaces; say why that is almost always wrong.</div>
     </div>
 
@@ -369,8 +431,27 @@ tests:
 EOF
 kubectl -n monitoring cp /tmp/rules.yml prometheus-prometheus-kube-prometheus-prometheus-0:/tmp/rules.yml -c prometheus
 kubectl -n monitoring cp /tmp/test.yml prometheus-prometheus-kube-prometheus-prometheus-0:/tmp/test.yml -c prometheus
-kubectl -n monitoring exec prometheus-prometheus-kube-prometheus-prometheus-0 -c prometheus -- sh -c 'cd /tmp &amp;&amp; promtool check rules rules.yml &amp;&amp; promtool test rules test.yml'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring get prometheusrule curriculum-drill -o jsonpath='{.spec}' | jq '{groups: .groups}' &gt; /tmp/rules.json</b>
+kubectl -n monitoring exec prometheus-prometheus-kube-prometheus-prometheus-0 -c prometheus -- sh -c 'cd /tmp &amp;&amp; promtool check rules rules.yml &amp;&amp; promtool test rules test.yml'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring get prometheusrule curriculum-drill -o jsonpath='{.spec}' | jq '{groups: .groups}' &gt; /tmp/rules.json</b>
+Error from server (NotFound): prometheusrules.monitoring.coreos.com "curriculum-drill" not found
 <b>$ python3 -c "import json,yaml,sys; print(yaml.safe_dump(json.load(open('/tmp/rules.json'))))" &gt; /tmp/rules.yml</b>
+Traceback (most recent call last):
+  File "&lt;string&gt;", line 1, in &lt;module&gt;
+    import json,yaml,sys; print(yaml.safe_dump(json.load(open('/tmp/rules.json'))))
+                                               ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/json/__init__.py", line 298, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/lib/python3.14/json/__init__.py", line 352, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/lib/python3.14/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
 <b>$ cat /tmp/rules.yml</b>
 <b>$ cat &gt; /tmp/test.yml &lt;&lt;'EOF'</b>
 <b>rule_files:</b>
@@ -396,9 +477,11 @@ kubectl -n monitoring exec prometheus-prometheus-kube-prometheus-prometheus-0 -c
 <b>              description: "Drill alert; fires whenever default has any pods."</b>
 <b>EOF</b>
 <b>$ kubectl -n monitoring cp /tmp/rules.yml prometheus-prometheus-kube-prometheus-prometheus-0:/tmp/rules.yml -c prometheus</b>
+error: Internal error occurred: Internal error occurred: error executing command in container: failed to exec in container: failed to start exec "06ea454b0de62b52ca56f6b6cccfa1888fef3edcbe5664b0f2f89ad857ed72b1": OCI runtime exec failed: exec failed: unable to start container process: exec: "tar": executable file not found in $PATH
 <b>$ kubectl -n monitoring cp /tmp/test.yml prometheus-prometheus-kube-prometheus-prometheus-0:/tmp/test.yml -c prometheus</b>
+error: Internal error occurred: Internal error occurred: error executing command in container: failed to exec in container: failed to start exec "a11058789a339f04feddda0546e7390ce8b89918dad533ee983106fac376f30b": OCI runtime exec failed: exec failed: unable to start container process: exec: "tar": executable file not found in $PATH
 <b>$ kubectl -n monitoring exec prometheus-prometheus-kube-prometheus-prometheus-0 -c prometheus -- sh -c 'cd /tmp &amp;&amp; promtool check rules rules.yml &amp;&amp; promtool test rules test.yml'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+error: Internal error occurred: Internal error occurred: error executing command in container: failed to exec in container: failed to start exec "2e20f952f467d65ba1d3ba0fd9d2dad2bed652df2b713ec51a65bdbd9be28b7e": OCI runtime exec failed: exec failed: unable to start container process: exec: "sh": executable file not found in $PATH</code></pre></details></div>
       <div class="verify"><b>verify:</b> <code>check rules</code> passes and <code>test rules</code> reports SUCCESS, including the case at 30 seconds where the <code>for</code> clause has not elapsed. Change the <code>for</code> to 10m and watch the same test fail; that is the assertion earning its keep.</div>
     </div>
 
@@ -439,7 +522,7 @@ sleep 5
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=job:request_error_ratio:rate5m' | jq '.data.result[0].value[1]'
 curl -s localhost:9090/api/v1/rules | jq '.data.groups[] | select(.name=="sli") | .rules[] | {name: (.name // .alert), type, health, state}'
 kill %1
-kubectl -n monitoring delete prometheusrule burn-rate</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n monitoring delete prometheusrule burn-rate</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1</b>
 <b>kind: PrometheusRule</b>
 <b>metadata: { name: burn-rate, namespace: monitoring, labels: { release: prometheus } }</b>
@@ -468,14 +551,18 @@ kubectl -n monitoring delete prometheusrule burn-rate</code></pre><details class
 <b>          annotations:</b>
 <b>            summary: "burning the error budget 14.4x faster than allowed"</b>
 <b>EOF</b>
+prometheusrule.monitoring.coreos.com/burn-rate unchanged
 <b>$ sleep 120</b>
 <b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
 <b>$ sleep 5</b>
+Unable to listen on port 9090: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:9090: bind: address already in use unable to create listener: Error listen tcp6 [::1]:9090: bind: address already in use]
+error: unable to listen on any of the requested ports: [{9090 9090}]
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=job:request_error_ratio:rate5m' | jq '.data.result[0].value[1]'</b>
 <b>$ curl -s localhost:9090/api/v1/rules | jq '.data.groups[] | select(.name=="sli") | .rules[] | {name: (.name // .alert), type, health, state}'</b>
 <b>$ kill %1</b>
+bash: line 62: kill: (243793) - No such process
 <b>$ kubectl -n monitoring delete prometheusrule burn-rate</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+prometheusrule.monitoring.coreos.com "burn-rate" deleted from monitoring namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> both recording rules are healthy and the alert is inactive on a quiet cluster. Say what the 14.4 is doing in that expression and what the second window buys you that the first one does not.</div>
     </div>
 
@@ -483,10 +570,51 @@ kubectl -n monitoring delete prometheusrule burn-rate</code></pre><details class
       <p>The AlertmanagerConfig objects you write are merged into one file by the operator, with a namespace matcher injected into every route. Reading the rendered result is how you find out what your object actually became.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | head -60
 kubectl -n monitoring get alertmanagerconfig -A
-kubectl -n monitoring get alertmanager -o jsonpath='{.items[0].spec.alertmanagerConfigSelector}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | head -60</b>
+kubectl -n monitoring get alertmanager -o jsonpath='{.items[0].spec.alertmanagerConfigSelector}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | head -60</b>
+global:
+  resolve_timeout: 5m
+route:
+  receiver: "null"
+  group_by:
+  - namespace
+  routes:
+  - receiver: "null"
+    matchers:
+    - alertname = "Watchdog"
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+inhibit_rules:
+- target_matchers:
+  - severity =~ warning|info
+  source_matchers:
+  - severity = critical
+  equal:
+  - namespace
+  - alertname
+- target_matchers:
+  - severity = info
+  source_matchers:
+  - severity = warning
+  equal:
+  - namespace
+  - alertname
+- target_matchers:
+  - severity = info
+  source_matchers:
+  - alertname = InfoInhibitor
+  equal:
+  - namespace
+- target_matchers:
+  - alertname = InfoInhibitor
+receivers:
+- name: "null"
+templates:
+- /etc/alertmanager/config/*.tmpl
 <b>$ kubectl -n monitoring get alertmanagerconfig -A</b>
+No resources found
 <b>$ kubectl -n monitoring get alertmanager -o jsonpath='{.items[0].spec.alertmanagerConfigSelector}{"\n"}'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+{}</code></pre></details></div>
       <div class="verify"><b>verify:</b> the rendered routes carry a namespace matcher you never typed, and the receivers are prefixed with the namespace and object name. That prefixing is why a receiver name in your object does not match the one in the UI.</div>
     </div>
 
@@ -496,12 +624,66 @@ kubectl -n monitoring get alertmanager -o jsonpath='{.items[0].spec.alertmanager
 kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;
 sleep 5
 curl -s localhost:9090/api/v1/alertmanagers | jq '{active: [.data.activeAlertmanagers[].url], dropped: [.data.droppedAlertmanagers[].url]}'
-kill %1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.alerting}' | jq</b>
+kill %1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.alerting}' | jq</b>
+{
+  "alertmanagers": [
+    {
+      "apiVersion": "v2",
+      "name": "prometheus-kube-prometheus-alertmanager",
+      "namespace": "monitoring",
+      "pathPrefix": "/",
+      "port": "http-web"
+    }
+  ]
+}
 <b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
 <b>$ sleep 5</b>
+Forwarding from 127.0.0.1:9090 -&gt; 9090
+Forwarding from [::1]:9090 -&gt; 9090
 <b>$ curl -s localhost:9090/api/v1/alertmanagers | jq '{active: [.data.activeAlertmanagers[].url], dropped: [.data.droppedAlertmanagers[].url]}'</b>
+Handling connection for 9090
+{
+  "active": [
+    "http://10.244.1.185:9093/api/v2/alerts"
+  ],
+  "dropped": [
+    "http://10.244.1.185:8080/api/v2/alerts",
+    "http://10.244.1.185:9094/api/v2/alerts",
+    "http://10.244.1.185:9094/api/v2/alerts",
+    "http://10.244.1.185:8081/api/v2/alerts",
+    "http://10.244.1.170:3000/api/v2/alerts",
+    "http://10.244.1.170:9094/api/v2/alerts",
+    "http://10.244.1.170:9094/api/v2/alerts",
+    "http://10.244.1.170:6060/api/v2/alerts",
+    "http://10.244.2.54:3100/api/v2/alerts",
+    "http://10.244.2.54:9095/api/v2/alerts",
+    "http://10.244.2.54:7946/api/v2/alerts",
+    "http://10.244.1.222:12345/api/v2/alerts",
+    "http://10.244.2.54:7946/api/v2/alerts",
+    "http://10.244.2.54:3100/api/v2/alerts",
+    "http://10.244.2.54:9095/api/v2/alerts",
+    "http://10.244.1.117:9090/api/v2/alerts",
+    "http://10.244.1.117:8080/api/v2/alerts",
+    "http://10.244.1.117:8081/api/v2/alerts",
+    "http://10.244.1.117:9090/api/v2/alerts",
+    "http://10.244.1.117:8080/api/v2/alerts",
+    "http://10.244.1.117:8081/api/v2/alerts",
+    "http://10.244.1.27:10250/api/v2/alerts",
+    "http://10.244.1.158:8080/api/v2/alerts",
+    "http://10.244.1.158:8081/api/v2/alerts",
+    "http://172.18.0.3:9100/api/v2/alerts",
+    "http://172.18.0.4:9100/api/v2/alerts",
+    "http://172.18.0.5:9100/api/v2/alerts",
+    "http://10.244.1.39:8080/api/v2/alerts",
+    "http://10.244.1.185:9094/api/v2/alerts",
+    "http://10.244.1.185:9094/api/v2/alerts",
+    "http://10.244.1.185:9093/api/v2/alerts",
+    "http://10.244.1.185:8080/api/v2/alerts",
+    "http://10.244.1.185:8081/api/v2/alerts",
+    "http://10.244.2.93:9115/api/v2/alerts",
+<i>... 6 more lines</i>
 <b>$ kill %1</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+bash: line 98: kill: (243793) - No such process</code></pre></details></div>
       <div class="verify"><b>verify:</b> the spec names the Alertmanager Service and port, and the API confirms at least one active endpoint. An empty active list with healthy rules is the whole diagnosis for "it says firing but nobody was paged".</div>
     </div>
 

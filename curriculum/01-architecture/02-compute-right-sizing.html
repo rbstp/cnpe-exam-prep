@@ -361,16 +361,83 @@ kubectl get pod burst -o jsonpath='{.status.containerStatuses[0].allocatedResour
 kubectl get pod burst -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'
 kubectl patch pod burst --subresource resize --patch '{"spec":{"containers":[{"name":"burst","resources":{"requests":{"cpu":"64","memory":"64Mi"},"limits":{"cpu":"80","memory":"128Mi"}}}]}}'
 kubectl get pod burst -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
-kubectl delete pod burst</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl run burst --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"containers":[{"name":"burst","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"100m","memory":"64Mi"},"limits":{"cpu":"200m","memory":"128Mi"}}}]}}'</b>
+kubectl delete pod burst</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl run burst --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"containers":[{"name":"burst","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"100m","memory":"64Mi"},"limits":{"cpu":"200m","memory":"128Mi"}}}]}}'</b>
+pod/burst created
 <b>$ kubectl wait --for=condition=Ready pod/burst --timeout=90s</b>
+pod/burst condition met
 <b>$ kubectl get pod burst -o jsonpath='{.status.qosClass}{"\n"}'</b>
+Burstable
 <b>$ kubectl patch pod burst --subresource resize --patch '{"spec":{"containers":[{"name":"burst","resources":{"requests":{"cpu":"200m","memory":"64Mi"},"limits":{"cpu":"400m","memory":"128Mi"}}}]}}'</b>
+pod/burst patched
 <b>$ kubectl get pod burst -o jsonpath='{.status.containerStatuses[0].allocatedResources}{"\n"}{.status.containerStatuses[0].restartCount}{"\n"}'</b>
+{"cpu":"100m","memory":"64Mi"}
+0
 <b>$ kubectl get pod burst -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
+{
+  "type": "PodResizeInProgress",
+  "status": "True",
+  "reason": null
+}
+{
+  "type": "PodReadyToStartContainers",
+  "status": "True",
+  "reason": null
+}
+{
+  "type": "Initialized",
+  "status": "True",
+  "reason": null
+}
+{
+  "type": "Ready",
+  "status": "True",
+  "reason": null
+}
+{
+  "type": "ContainersReady",
+  "status": "True",
+  "reason": null
+}
+{
+  "type": "PodScheduled",
+  "status": "True",
+  "reason": null
+}
 <b>$ kubectl patch pod burst --subresource resize --patch '{"spec":{"containers":[{"name":"burst","resources":{"requests":{"cpu":"64","memory":"64Mi"},"limits":{"cpu":"80","memory":"128Mi"}}}]}}'</b>
+Error from server (Forbidden): pods "burst" is forbidden: node didn't have enough allocatable resources: cpu, requested: 64000, allocatable: 16000
 <b>$ kubectl get pod burst -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+{
+  "type": "PodReadyToStartContainers",
+  "status": "True",
+  "reason": null,
+  "message": null
+}
+{
+  "type": "Initialized",
+  "status": "True",
+  "reason": null,
+  "message": null
+}
+{
+  "type": "Ready",
+  "status": "True",
+  "reason": null,
+  "message": null
+}
+{
+  "type": "ContainersReady",
+  "status": "True",
+  "reason": null,
+  "message": null
+}
+{
+  "type": "PodScheduled",
+  "status": "True",
+  "reason": null,
+  "message": null
+}
 <b>$ kubectl delete pod burst</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+pod "burst" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the reachable resize lands with <code>restartCount</code> still 0 and <code>allocatedResources</code> updated, and the impossible one parks the pod on <code>PodResizePending</code> with reason <code>Infeasible</code> instead of failing the patch. The API accepts a request the node cannot satisfy; the condition is where the refusal shows up.</div>
     </div>
 
@@ -380,12 +447,16 @@ kubectl delete pod burst</code></pre><details class="out pending"><summary>outpu
 kubectl wait --for=condition=Ready pod/guar --timeout=90s
 kubectl get pod guar -o jsonpath='{.status.qosClass}{"\n"}'
 kubectl patch pod guar --subresource resize --patch '{"spec":{"containers":[{"name":"guar","resources":{"requests":{"cpu":"50m","memory":"64Mi"},"limits":{"cpu":"100m","memory":"64Mi"}}}]}}'
-kubectl delete pod guar</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl run guar --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"containers":[{"name":"guar","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"100m","memory":"64Mi"},"limits":{"cpu":"100m","memory":"64Mi"}}}]}}'</b>
+kubectl delete pod guar</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl run guar --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"containers":[{"name":"guar","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"100m","memory":"64Mi"},"limits":{"cpu":"100m","memory":"64Mi"}}}]}}'</b>
+pod/guar created
 <b>$ kubectl wait --for=condition=Ready pod/guar --timeout=90s</b>
+pod/guar condition met
 <b>$ kubectl get pod guar -o jsonpath='{.status.qosClass}{"\n"}'</b>
+Guaranteed
 <b>$ kubectl patch pod guar --subresource resize --patch '{"spec":{"containers":[{"name":"guar","resources":{"requests":{"cpu":"50m","memory":"64Mi"},"limits":{"cpu":"100m","memory":"64Mi"}}}]}}'</b>
+The Pod "guar" is invalid: spec: Invalid value: "Guaranteed": Pod QOS Class may not change as a result of resizing
 <b>$ kubectl delete pod guar</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+pod "guar" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the patch is refused with a message naming the QoS class, and the pod is untouched. Say out loud which of the three classes you would have to recreate the pod to reach.</div>
     </div>
 
@@ -422,7 +493,10 @@ kubectl patch pdb crasher --type merge -p '{"spec":{"unhealthyPodEvictionPolicy"
 kubectl drain cnpe-worker2 --ignore-daemonsets --delete-emptydir-data --timeout=60s
 kubectl uncordon cnpe-worker2
 kubectl delete deployment crasher
-kubectl delete pdb crasher</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get pdb -A -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,ALLOWED:.status.disruptionsAllowed</b>
+kubectl delete pdb crasher</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get pdb -A -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,ALLOWED:.status.disruptionsAllowed</b>
+NS                  NAME                            ALLOWED
+gatekeeper-system   gatekeeper-controller-manager   0
+tracing             otel-collector                  1
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: apps/v1</b>
 <b>kind: Deployment</b>
@@ -446,15 +520,99 @@ kubectl delete pdb crasher</code></pre><details class="out pending"><summary>out
 <b>  minAvailable: 100%</b>
 <b>  selector: { matchLabels: { app: crasher } }</b>
 <b>EOF</b>
+deployment.apps/crasher created
+poddisruptionbudget.policy/crasher created
 <b>$ sleep 30</b>
 <b>$ kubectl get pdb crasher -o jsonpath='{.status.disruptionsAllowed}{"\n"}'</b>
+0
 <b>$ kubectl drain cnpe-worker2 --ignore-daemonsets --delete-emptydir-data --timeout=60s</b>
+node/cnpe-worker2 cordoned
+Warning: ignoring DaemonSet-managed Pods: kube-system/cilium-lxtrm, kube-system/kube-proxy-cwbj8, monitoring/prometheus-prometheus-node-exporter-v9slj, spire/spire-agent-lgqdw, spire/spire-spiffe-csi-driver-9n9zq
+evicting pod argo/argo-workflows-workflow-controller-6fdd59bf75-ndwk5
+evicting pod default/crasher-7857b795db-wg6q8
+evicting pod argo-rollouts/argo-rollouts-dashboard-769cf7b9d4-27h26
+evicting pod monitoring/prometheus-grafana-8f4f87ff4-hpqr7
+evicting pod monitoring/loki-gateway-75fdc66c6f-959xv
+evicting pod argo-rollouts/argo-rollouts-7f8f6559c9-dpd2k
+evicting pod tekton-pipelines/tekton-pipelines-webhook-5568b6-k4c4k
+evicting pod tekton-pipelines/tekton-triggers-controller-7c58c64549-vt8bw
+evicting pod argo/argo-workflows-server-5d466c6cbf-6xcdx
+evicting pod trivy-system/trivy-operator-6c644c5f6d-zj9n4
+evicting pod vpa/vpa-updater-57dc7f8b46-wvsgq
+evicting pod argocd/argocd-application-controller-0
+evicting pod kube-system/sealed-secrets-7fc797b545-n97qp
+evicting pod kro/kro-7b49bdb574-w2sbz
+evicting pod argocd/argocd-applicationset-controller-756c899f6-lk5xm
+evicting pod crossplane-system/provider-helm-fdbfef781539-95cd7787f-wkhtj
+evicting pod opentelemetry-operator-system/opentelemetry-operator-fc8b8557f-9l5sz
+evicting pod crossplane-system/provider-kubernetes-17261e579786-767c5b99b7-clblb
+evicting pod tekton-pipelines/tekton-dashboard-58997b9fd9-z9hml
+evicting pod crossplane-system/crossplane-867fc94669-7n7ts
+evicting pod tracing/jaeger-66dd489c78-hk2cr
+evicting pod external-secrets/external-secrets-cert-controller-b88bd7b49-nrwb6
+evicting pod default/demo-5765f7b4bd-q5z4p
+evicting pod default/crasher-7857b795db-k6zrz
+evicting pod spire/spire-server-0
+evicting pod tekton-pipelines/tekton-events-controller-7bf458d4c-7xm4t
+evicting pod flux-system/helm-controller-66b87ccf5b-wgjbw
+evicting pod kube-system/coredns-5b49dd88c6-ffgkk
+evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
+evicting pod default/demo-5765f7b4bd-hjnnk
+evicting pod kyverno/kyverno-background-controller-578fbb987b-m9d5x
+evicting pod kube-system/metrics-server-97d8bf855-wpk4m
+evicting pod vpa/vpa-admission-controller-f5b47c5c9-t4n8t
+evicting pod monitoring/loki-0
+evicting pod vpa/vpa-recommender-8746fd98d-44pkh
+error when evicting pods/"crasher-7857b795db-k6zrz" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+I0912 12:38:43.019004  116658 request.go:752] "Waited before sending request" delay="1.000019523s" reason="client-side throttling, not priority and fairness" verb="POST" URL="https://127.0.0.1:44987/api/v1/namespaces/kube-system/pods/coredns-5b49dd88c6-ffgkk/eviction"
+error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+<i>... 102 more lines</i>
 <b>$ kubectl patch pdb crasher --type merge -p '{"spec":{"unhealthyPodEvictionPolicy":"AlwaysAllow"}}'</b>
+poddisruptionbudget.policy/crasher patched
 <b>$ kubectl drain cnpe-worker2 --ignore-daemonsets --delete-emptydir-data --timeout=60s</b>
+node/cnpe-worker2 already cordoned
+Warning: ignoring DaemonSet-managed Pods: kube-system/cilium-lxtrm, kube-system/kube-proxy-cwbj8, monitoring/prometheus-prometheus-node-exporter-v9slj, spire/spire-agent-lgqdw, spire/spire-spiffe-csi-driver-9n9zq
+evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
+evicting pod default/crasher-7857b795db-wg6q8
+evicting pod default/crasher-7857b795db-k6zrz
+error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+pod/crasher-7857b795db-wg6q8 evicted
+pod/crasher-7857b795db-k6zrz evicted
+evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
+error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
+error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
+error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
+error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
+error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
+error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
+error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
+error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
+error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
+error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
+error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
+There are pending pods in node "cnpe-worker2" when an error occurred: error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system": global timeout reached: 1m0s
+pod/gatekeeper-controller-manager-6b665d555d-8v6hj
+error: unable to drain node "cnpe-worker2" due to error: error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system": global timeout reached: 1m0s, continuing command...
+There are pending nodes to be drained:
+ cnpe-worker2
+error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system": global timeout reached: 1m0s
 <b>$ kubectl uncordon cnpe-worker2</b>
+node/cnpe-worker2 uncordoned
 <b>$ kubectl delete deployment crasher</b>
+deployment.apps "crasher" deleted from default namespace
 <b>$ kubectl delete pdb crasher</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+poddisruptionbudget.policy "crasher" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the first drain times out quoting the budget by name, and the second walks past the crash-looping pods. Uncordon the node afterwards, or every later exercise on this page schedules onto one worker and you will blame the scheduler.</div>
     </div>
 
@@ -462,10 +620,36 @@ kubectl delete pdb crasher</code></pre><details class="out pending"><summary>out
       <p>Allocatable is capacity minus what the kubelet reserved, and the reservation is a kubelet flag rather than anything in the API. Read both halves on the same node so the subtraction is yours, not a slide's.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl describe node cnpe-worker | sed -n '/Capacity/,/Allocatable/p'
 kubectl get --raw /api/v1/nodes/cnpe-worker/proxy/configz | jq '.kubeletconfig | {kubeReserved, systemReserved, evictionHard}'
-kubectl describe node cnpe-worker | sed -n '/Allocated resources/,/Events/p'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl describe node cnpe-worker | sed -n '/Capacity/,/Allocatable/p'</b>
+kubectl describe node cnpe-worker | sed -n '/Allocated resources/,/Events/p'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl describe node cnpe-worker | sed -n '/Capacity/,/Allocatable/p'</b>
+Capacity:
+  cpu:                16
+  ephemeral-storage:  952138Mi
+  hugepages-1Gi:      0
+  hugepages-2Mi:      0
+  memory:             32747836Ki
+  pods:               110
+Allocatable:
 <b>$ kubectl get --raw /api/v1/nodes/cnpe-worker/proxy/configz | jq '.kubeletconfig | {kubeReserved, systemReserved, evictionHard}'</b>
+{
+  "kubeReserved": null,
+  "systemReserved": null,
+  "evictionHard": {
+    "imagefs.available": "0%",
+    "nodefs.available": "0%",
+    "nodefs.inodesFree": "0%"
+  }
+}
 <b>$ kubectl describe node cnpe-worker | sed -n '/Allocated resources/,/Events/p'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Allocated resources:
+  (Total limits may be over 100 percent, i.e., overcommitted.)
+  Resource           Requests      Limits
+  --------           --------      ------
+  cpu                2286m (14%)   10200m (63%)
+  memory             4664Mi (14%)  18846Mi (58%)
+  ephemeral-storage  0 (0%)        0 (0%)
+  hugepages-1Gi      0 (0%)        0 (0%)
+  hugepages-2Mi      0 (0%)        0 (0%)
+Events:</code></pre></details></div>
       <div class="verify"><b>verify:</b> you can account for the gap between Capacity and Allocatable from the kubelet's own config, and you can say which of the three numbers the scheduler actually adds up when it places a pod.</div>
     </div>
 
@@ -483,20 +667,39 @@ kubectl run urgentpod --image=nginx:1.27-alpine --restart=Never --overrides='{"s
 sleep 30
 kubectl get pods filler batchpod urgentpod -o wide
 kubectl delete pod filler batchpod urgentpod --ignore-not-found
-kubectl delete priorityclass batch urgent</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create priorityclass batch --value=1000 --preemption-policy=Never</b>
+kubectl delete priorityclass batch urgent</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create priorityclass batch --value=1000 --preemption-policy=Never</b>
+priorityclass.scheduling.k8s.io/batch created
 <b>$ kubectl create priorityclass urgent --value=1000</b>
+priorityclass.scheduling.k8s.io/urgent created
 <b>$ kubectl run filler --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"nodeSelector":{"kubernetes.io/hostname":"cnpe-worker2"},"containers":[{"name":"filler","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"12"}}}]}}'</b>
+pod/filler created
 <b>$ kubectl wait --for=condition=Ready pod/filler --timeout=120s</b>
+pod/filler condition met
 <b>$ kubectl run batchpod --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"priorityClassName":"batch","nodeSelector":{"kubernetes.io/hostname":"cnpe-worker2"},"containers":[{"name":"batchpod","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"8"}}}]}}'</b>
+pod/batchpod created
 <b>$ sleep 20</b>
 <b>$ kubectl get pod batchpod -o wide</b>
+NAME       READY   STATUS    RESTARTS   AGE   IP       NODE     NOMINATED NODE   READINESS GATES
+batchpod   0/1     Pending   0          20s   &lt;none&gt;   &lt;none&gt;   &lt;none&gt;           &lt;none&gt;
 <b>$ kubectl describe pod batchpod | tail -4</b>
+  Type     Reason            Age   From               Message
+  ----     ------            ----  ----               -------
+  Warning  PolicyViolation   20s   kyverno-admission  policy require-resource-requests/ fail: every container must set cpu and memory requests
+  Warning  FailedScheduling  20s   default-scheduler  0/3 nodes are available: 1 Insufficient cpu, 1 node(s) didn't match Pod's node affinity/selector, 1 node(s) had untolerated taint(s). no new claims to deallocate, preemption: not eligible due to preemptionPolicy=Never.
 <b>$ kubectl run urgentpod --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"priorityClassName":"urgent","nodeSelector":{"kubernetes.io/hostname":"cnpe-worker2"},"containers":[{"name":"urgentpod","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"8"}}}]}}'</b>
+pod/urgentpod created
 <b>$ sleep 30</b>
 <b>$ kubectl get pods filler batchpod urgentpod -o wide</b>
+NAME        READY   STATUS    RESTARTS   AGE   IP            NODE           NOMINATED NODE   READINESS GATES
+batchpod    0/1     Pending   0          51s   &lt;none&gt;        &lt;none&gt;         &lt;none&gt;           &lt;none&gt;
+urgentpod   1/1     Running   0          31s   10.244.2.42   cnpe-worker2   &lt;none&gt;           &lt;none&gt;
+Error from server (NotFound): pods "filler" not found
 <b>$ kubectl delete pod filler batchpod urgentpod --ignore-not-found</b>
+pod "batchpod" deleted from default namespace
+pod "urgentpod" deleted from default namespace
 <b>$ kubectl delete priorityclass batch urgent</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+priorityclass.scheduling.k8s.io "batch" deleted
+priorityclass.scheduling.k8s.io "urgent" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> <code>batchpod</code> stays Pending with an Insufficient cpu event and nothing is evicted, while <code>urgentpod</code> at the same value takes the room by pushing <code>filler</code> out. Same number, opposite blast radius.</div>
     </div>
 
@@ -509,15 +712,76 @@ kubectl get hpa hpademo -o jsonpath='{.spec.behavior}{"\n"}'
 kubectl get hpa hpademo -o yaml | sed -n '/^spec:/,/^status:/p'
 kubectl explain hpa.spec.behavior.scaleDown
 kubectl delete hpa hpademo
-kubectl delete deployment hpademo</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create deployment hpademo --image=nginx:1.27-alpine</b>
+kubectl delete deployment hpademo</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create deployment hpademo --image=nginx:1.27-alpine</b>
+deployment.apps/hpademo created
 <b>$ kubectl set resources deployment hpademo --requests=cpu=50m</b>
+deployment.apps/hpademo resource requirements updated
 <b>$ kubectl autoscale deployment hpademo --cpu-percent=80 --min=1 --max=5</b>
+Flag --cpu-percent has been deprecated, Use --cpu with percentage or resource quantity format (e.g., '70%' for utilization or '500m' for milliCPU).
+horizontalpodautoscaler.autoscaling/hpademo autoscaled
 <b>$ kubectl get hpa hpademo -o jsonpath='{.spec.behavior}{"\n"}'</b>
 <b>$ kubectl get hpa hpademo -o yaml | sed -n '/^spec:/,/^status:/p'</b>
+spec:
+  maxReplicas: 5
+  metrics:
+  - resource:
+      name: cpu
+      target:
+        averageUtilization: 80
+        type: Utilization
+    type: Resource
+  minReplicas: 1
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hpademo
+status:
 <b>$ kubectl explain hpa.spec.behavior.scaleDown</b>
+GROUP:      autoscaling
+KIND:       HorizontalPodAutoscaler
+VERSION:    v2
+
+FIELD: scaleDown &lt;HPAScalingRules&gt;
+
+
+DESCRIPTION:
+    scaleDown is scaling policy for scaling Down. If not set, the default value
+    is to allow to scale down to minReplicas pods, with a 300 second
+    stabilization window (i.e., the highest recommendation for the last 300sec
+    is used).
+    HPAScalingRules configures the scaling behavior for one direction via
+    scaling Policy Rules and a configurable metric tolerance.
+    
+    Scaling Policy Rules are applied after calculating DesiredReplicas from
+    metrics for the HPA. They can limit the scaling velocity by specifying
+    scaling policies. They can prevent flapping by specifying the stabilization
+    window, so that the number of replicas is not set instantly, instead, the
+    safest value from the stabilization window is chosen.
+    
+    The tolerance is applied to the metric values and prevents scaling too
+    eagerly for small metric variations. (Note that setting a tolerance requires
+    the beta HPAConfigurableTolerance feature gate to be enabled.)
+    
+FIELDS:
+  policies	&lt;[]HPAScalingPolicy&gt;
+    policies is a list of potential scaling polices which can be used during
+    scaling. If not set, use the default values: - For scale up: allow doubling
+    the number of pods, or an absolute change of 4 pods in a 15s window. - For
+    scale down: allow all pods to be removed in a 15s window.
+
+  selectPolicy	&lt;string&gt;
+    selectPolicy is used to specify which policy should be used. If not set, the
+    default value Max is used.
+
+  stabilizationWindowSeconds	&lt;integer&gt;
+    stabilizationWindowSeconds is the number of seconds for which past
+    recommendations should be considered while scaling up or scaling down.
+    StabilizationWindowSeconds must be greater than or equal to zero and less
+<i>... 17 more lines</i>
 <b>$ kubectl delete hpa hpademo</b>
+horizontalpodautoscaler.autoscaling "hpademo" deleted from default namespace
 <b>$ kubectl delete deployment hpademo</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+deployment.apps "hpademo" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> you can state the stabilisation window that applies to scale-down on this HPA and where that number came from. If <code>spec.behavior</code> reads back empty, the defaults are the controller's rather than the object's, and that is the answer to give.</div>
     </div>
 

@@ -491,7 +491,7 @@ kubectl -n team-a get analysisrun -o jsonpath='{range .items[*]}{.metadata.name}
 kubectl argo rollouts status demo -n team-a --timeout 10s || true
 kubectl argo rollouts get rollout demo -n team-a --no-color | head -20
 kubectl argo rollouts promote demo -n team-a
-kubectl argo rollouts status demo -n team-a --timeout 120s</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl argo rollouts status demo -n team-a --timeout 120s</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: AnalysisTemplate</b>
 <b>metadata: { name: undecided, namespace: team-a }</b>
@@ -512,15 +512,21 @@ kubectl argo rollouts status demo -n team-a --timeout 120s</code></pre><details 
 <b>                    command: ["sh", "-c", "echo no verdict here"]</b>
 <b>            backoffLimit: 0</b>
 <b>EOF</b>
+analysistemplate.argoproj.io/undecided created
 <b>$ kubectl -n team-a patch rollout demo --type merge -p '{"spec":{"strategy":{"canary":{"analysis":{"templates":[{"templateName":"undecided"}],"startingStep":0,"args":null}}}}}'</b>
+Error from server (NotFound): rollouts.argoproj.io "demo" not found
 <b>$ kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.26-alpine -n team-a</b>
+Error: rollouts.argoproj.io "demo" not found
 <b>$ sleep 90</b>
 <b>$ kubectl -n team-a get analysisrun -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{"\n"}{end}'</b>
 <b>$ kubectl argo rollouts status demo -n team-a --timeout 10s || true</b>
+Error: rollout.argoproj.io "demo" not found
 <b>$ kubectl argo rollouts get rollout demo -n team-a --no-color | head -20</b>
+Error: rollout.argoproj.io "demo" not found
 <b>$ kubectl argo rollouts promote demo -n team-a</b>
+Error: rollouts.argoproj.io "demo" not found
 <b>$ kubectl argo rollouts status demo -n team-a --timeout 120s</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Error: rollout.argoproj.io "demo" not found</code></pre></details></div>
       <div class="verify"><b>verify:</b> the AnalysisRun ends <code>Inconclusive</code>, the Rollout is paused rather than aborted, and a promote is what moves it. Restore the original analysis from <code>examples/rollouts/canary.yaml</code> before the next exercise.</div>
     </div>
 
@@ -558,7 +564,7 @@ kubectl patch analysistemplate always-fails -n team-a --type merge -p '{"spec":{
 kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.24-alpine -n team-a
 sleep 120
 kubectl -n team-a get analysisrun -o jsonpath='{.items[-1:].status.metricResults[0]}' | jq
-kubectl argo rollouts undo demo -n team-a</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl argo rollouts undo demo -n team-a</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: AnalysisTemplate</b>
 <b>metadata: { name: always-fails, namespace: team-a }</b>
@@ -581,17 +587,33 @@ kubectl argo rollouts undo demo -n team-a</code></pre><details class="out pendin
 <b>                    command: ["sh", "-c", "exit 1"]</b>
 <b>            backoffLimit: 0</b>
 <b>EOF</b>
+analysistemplate.argoproj.io/always-fails created
 <b>$ kubectl -n team-a patch rollout demo --type merge -p '{"spec":{"strategy":{"canary":{"analysis":{"templates":[{"templateName":"always-fails"}],"startingStep":0,"args":null}}}}}'</b>
+Error from server (NotFound): rollouts.argoproj.io "demo" not found
 <b>$ kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.25-alpine -n team-a</b>
+Error: rollouts.argoproj.io "demo" not found
 <b>$ sleep 75</b>
 <b>$ kubectl -n team-a get analysisrun -o jsonpath='{.items[-1:].status.metricResults[0]}' | jq</b>
+error: error executing jsonpath "{.items[-1:].status.metricResults[0]}": Error executing template: array index out of bounds: index -1, length 0. Printing more information for debugging the template:
+	template was:
+		{.items[-1:].status.metricResults[0]}
+	object given to jsonpath engine was:
+		map[string]interface {}{"apiVersion":"v1", "items":[]interface {}{}, "kind":"List", "metadata":map[string]interface {}{"resourceVersion":""}}
 <b>$ kubectl argo rollouts undo demo -n team-a</b>
+Error: rollouts.argoproj.io "demo" not found
 <b>$ kubectl patch analysistemplate always-fails -n team-a --type merge -p '{"spec":{"metrics":[{"name":"always-fails","interval":"15s","count":5,"failureLimit":2,"successCondition":"result == \"never\"","provider":{"job":{"spec":{"backoffLimit":0,"template":{"spec":{"restartPolicy":"Never","containers":[{"name":"check","image":"busybox:1.36","command":["sh","-c","exit 1"]}]}}}}}}]}}'</b>
+analysistemplate.argoproj.io/always-fails patched
 <b>$ kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.24-alpine -n team-a</b>
+Error: rollouts.argoproj.io "demo" not found
 <b>$ sleep 120</b>
 <b>$ kubectl -n team-a get analysisrun -o jsonpath='{.items[-1:].status.metricResults[0]}' | jq</b>
+error: error executing jsonpath "{.items[-1:].status.metricResults[0]}": Error executing template: array index out of bounds: index -1, length 0. Printing more information for debugging the template:
+	template was:
+		{.items[-1:].status.metricResults[0]}
+	object given to jsonpath engine was:
+		map[string]interface {}{"apiVersion":"v1", "items":[]interface {}{}, "kind":"List", "metadata":map[string]interface {}{"resourceVersion":""}}
 <b>$ kubectl argo rollouts undo demo -n team-a</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Error: rollouts.argoproj.io "demo" not found</code></pre></details></div>
       <div class="verify"><b>verify:</b> the first run records one failure and aborts; the second records three before it does. <code>count</code> is how many measurements you asked for, <code>failureLimit</code> is how many you will tolerate, and only the second one aborts anything.</div>
     </div>
 
@@ -637,7 +659,7 @@ kubectl -n team-a get rs -l app=bg -o custom-columns=NAME:.metadata.name,DESIRED
 sleep 45
 kubectl -n team-a get rs -l app=bg -o custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,READY:.status.readyReplicas
 kubectl -n team-a delete rollout bg
-kubectl -n team-a delete svc bg-active bg-preview</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n team-a delete svc bg-active bg-preview</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: Rollout</b>
 <b>metadata: { name: bg, namespace: team-a }</b>
@@ -670,15 +692,29 @@ kubectl -n team-a delete svc bg-active bg-preview</code></pre><details class="ou
 <b>metadata: { name: bg-preview, namespace: team-a }</b>
 <b>spec: { selector: { app: bg }, ports: [{ port: 80, targetPort: 8080 }] }</b>
 <b>EOF</b>
+rollout.argoproj.io/bg created
+service/bg-active created
+service/bg-preview created
 <b>$ kubectl argo rollouts status bg -n team-a --timeout 180s</b>
+Degraded - InvalidSpec: The Rollout "bg" is invalid: spec.strategy.blueGreen.previewService: Invalid value: "bg-preview": service "bg-preview" not found
+Error: The rollout is in a degraded state with message: InvalidSpec: The Rollout "bg" is invalid: spec.strategy.blueGreen.previewService: Invalid value: "bg-preview": service "bg-preview" not found
 <b>$ kubectl argo rollouts set image bg web=ghcr.io/nginxinc/nginx-unprivileged:1.26-alpine -n team-a</b>
+rollout "bg" image updated
 <b>$ sleep 15</b>
 <b>$ kubectl -n team-a get rs -l app=bg -o custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,READY:.status.readyReplicas</b>
+NAME            DESIRED   READY
+bg-5cb944994f   4         4
+bg-845689b9dd   4         &lt;none&gt;
 <b>$ sleep 45</b>
 <b>$ kubectl -n team-a get rs -l app=bg -o custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,READY:.status.readyReplicas</b>
+NAME            DESIRED   READY
+bg-5cb944994f   0         &lt;none&gt;
+bg-845689b9dd   4         4
 <b>$ kubectl -n team-a delete rollout bg</b>
+rollout.argoproj.io "bg" deleted from team-a namespace
 <b>$ kubectl -n team-a delete svc bg-active bg-preview</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+service "bg-active" deleted from team-a namespace
+service "bg-preview" deleted from team-a namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the new ReplicaSet sits at one replica while the old one still serves four, then scales to four and takes the active Service after the promotion window. Say what <code>previewReplicaCount</code> costs you in confidence in exchange for the saving.</div>
     </div>
 
@@ -748,7 +784,7 @@ kubectl --context kind-mesh get virtualservice hdr -o yaml | sed -n '/http:/,$p'
 kubectl --context kind-mesh argo rollouts abort hdr
 kubectl --context kind-mesh delete rollout hdr
 kubectl --context kind-mesh delete svc hdr-canary hdr-stable
-kubectl --context kind-mesh delete virtualservice hdr</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
+kubectl --context kind-mesh delete virtualservice hdr</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: Rollout</b>
 <b>metadata: { name: hdr, namespace: default }</b>
@@ -781,6 +817,8 @@ kubectl --context kind-mesh delete virtualservice hdr</code></pre><details class
 <b>                headerValue: { exact: "true" }</b>
 <b>        - pause: {}</b>
 <b>EOF</b>
+error: resource mapping not found for name: "hdr" namespace: "default" from "STDIN": no matches for kind "Rollout" in version "argoproj.io/v1alpha1"
+ensure CRDs are installed first
 <b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: v1</b>
 <b>kind: Service</b>
@@ -805,15 +843,33 @@ kubectl --context kind-mesh delete virtualservice hdr</code></pre><details class
 <b>        - destination: { host: hdr-canary }</b>
 <b>          weight: 0</b>
 <b>EOF</b>
+service/hdr-canary created
+service/hdr-stable created
+virtualservice.networking.istio.io/hdr created
 <b>$ kubectl --context kind-mesh argo rollouts status hdr --timeout 180s || true</b>
+Error: flags cannot be placed before plugin name: --context
 <b>$ kubectl --context kind-mesh argo rollouts set image hdr web=ghcr.io/stefanprodan/podinfo:6.7.0</b>
+Error: flags cannot be placed before plugin name: --context
 <b>$ sleep 45</b>
 <b>$ kubectl --context kind-mesh get virtualservice hdr -o yaml | sed -n '/http:/,$p'</b>
+  http:
+  - name: primary
+    route:
+    - destination:
+        host: hdr-stable
+      weight: 100
+    - destination:
+        host: hdr-canary
+      weight: 0
 <b>$ kubectl --context kind-mesh argo rollouts abort hdr</b>
+Error: flags cannot be placed before plugin name: --context
 <b>$ kubectl --context kind-mesh delete rollout hdr</b>
+error: the server doesn't have a resource type "rollout"
 <b>$ kubectl --context kind-mesh delete svc hdr-canary hdr-stable</b>
+service "hdr-canary" deleted from default namespace
+service "hdr-stable" deleted from default namespace
 <b>$ kubectl --context kind-mesh delete virtualservice hdr</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+virtualservice.networking.istio.io "hdr" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the controller has written a second HTTP route into the VirtualService, above the weighted one, matching the header and sending it to the canary destination. The weighted route is still 0/100, which is the point: nobody else is affected.</div>
     </div>
 
@@ -824,13 +880,17 @@ kubectl --context kind-mesh -n test patch canary podinfo --type merge -p '{"spec
 kubectl --context kind-mesh -n test set image deploy/podinfo podinfod=ghcr.io/stefanprodan/podinfo:6.7.0
 sleep 180
 kubectl --context kind-mesh -n test describe canary podinfo | sed -n '/Events/,$p'
-kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.status.phase} {.status.failedChecks}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.spec.analysis}' | jq</b>
+kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.status.phase} {.status.failedChecks}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.spec.analysis}' | jq</b>
+Error from server (NotFound): namespaces "test" not found
 <b>$ kubectl --context kind-mesh -n test patch canary podinfo --type merge -p '{"spec":{"analysis":{"interval":"15s","iterations":3,"threshold":2,"match":[{"headers":{"x-canary":{"regex":"^insider$"}}}]}}}'</b>
+Error from server (NotFound): namespaces "test" not found
 <b>$ kubectl --context kind-mesh -n test set image deploy/podinfo podinfod=ghcr.io/stefanprodan/podinfo:6.7.0</b>
+Error from server (NotFound): namespaces "test" not found
 <b>$ sleep 180</b>
 <b>$ kubectl --context kind-mesh -n test describe canary podinfo | sed -n '/Events/,$p'</b>
+Error from server (NotFound): namespaces "test" not found
 <b>$ kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.status.phase} {.status.failedChecks}{"\n"}'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Error from server (NotFound): namespaces "test" not found</code></pre></details></div>
       <div class="verify"><b>verify:</b> the events walk <code>Advance podinfo.test canary iteration 1/3</code> rather than a weight ladder, then promote. Say which of the two shapes you would pick for a change that cannot be judged by error rate, such as a new checkout page.</div>
     </div>
 
@@ -843,15 +903,38 @@ kubectl rollout status deployment/stuck || true
 kubectl get deployment stuck -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
 kubectl rollout undo deployment/stuck
 kubectl rollout status deployment/stuck
-kubectl delete deployment stuck</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create deployment stuck --image=nginx:1.27-alpine</b>
+kubectl delete deployment stuck</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create deployment stuck --image=nginx:1.27-alpine</b>
+deployment.apps/stuck created
 <b>$ kubectl patch deployment stuck -p '{"spec":{"progressDeadlineSeconds":60}}'</b>
+deployment.apps/stuck patched
 <b>$ kubectl set image deployment/stuck nginx=kind-registry:5000/does-not-exist:nope</b>
+deployment.apps/stuck image updated
 <b>$ kubectl rollout status deployment/stuck || true</b>
+Waiting for deployment spec update to be observed...
+Waiting for deployment "stuck" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "stuck" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "stuck" rollout to finish: 1 old replicas are pending termination...
+error: deployment "stuck" exceeded its progress deadline
 <b>$ kubectl get deployment stuck -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+{
+  "type": "Available",
+  "status": "True",
+  "reason": "MinimumReplicasAvailable",
+  "message": "Deployment has minimum availability."
+}
+{
+  "type": "Progressing",
+  "status": "False",
+  "reason": "ProgressDeadlineExceeded",
+  "message": "ReplicaSet \"stuck-57cb855fcc\" has timed out progressing."
+}
 <b>$ kubectl rollout undo deployment/stuck</b>
+deployment.apps/stuck rolled back
 <b>$ kubectl rollout status deployment/stuck</b>
+Waiting for deployment spec update to be observed...
+error: deployment "stuck" exceeded its progress deadline
 <b>$ kubectl delete deployment stuck</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+deployment.apps "stuck" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> <code>kubectl rollout status</code> exits non-zero quoting the progress deadline, and the Progressing condition is False with reason <code>ProgressDeadlineExceeded</code>. The old pods are still serving the whole time; say why that is the correct default.</div>
     </div>
 

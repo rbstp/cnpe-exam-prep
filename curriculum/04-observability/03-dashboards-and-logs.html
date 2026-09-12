@@ -246,7 +246,8 @@ kubectl -n monitoring port-forward svc/prometheus-grafana 3000:80 &amp;
 sleep 5
 curl -s -u admin:admin localhost:3000/api/datasources | jq '[.[] | {name, uid, type}]'
 curl -s -u admin:admin localhost:3000/api/datasources/uid/loki-lab | jq '.jsonData'
-kill %1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring get cm -l grafana_datasource=1 -o name</b>
+kill %1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring get cm -l grafana_datasource=1 -o name</b>
+configmap/prometheus-kube-prometheus-grafana-datasource
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: v1</b>
 <b>kind: ConfigMap</b>
@@ -271,14 +272,26 @@ kill %1</code></pre><details class="out pending"><summary>output<span class="whe
 <b>              url: "$${__value.raw}"</b>
 <b>              datasourceUid: jaeger-lab</b>
 <b>EOF</b>
+configmap/loki-datasource-linked created
 <b>$ kubectl -n monitoring rollout restart deploy prometheus-grafana</b>
+deployment.apps/prometheus-grafana restarted
 <b>$ kubectl -n monitoring rollout status deploy prometheus-grafana --timeout=180s</b>
+Waiting for deployment spec update to be observed...
+Waiting for deployment spec update to be observed...
+Waiting for deployment "prometheus-grafana" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "prometheus-grafana" rollout to finish: 1 old replicas are pending termination...
+error: timed out waiting for the condition
 <b>$ kubectl -n monitoring port-forward svc/prometheus-grafana 3000:80 &amp;</b>
 <b>$ sleep 5</b>
+Forwarding from 127.0.0.1:3000 -&gt; 3000
+Forwarding from [::1]:3000 -&gt; 3000
 <b>$ curl -s -u admin:admin localhost:3000/api/datasources | jq '[.[] | {name, uid, type}]'</b>
+Handling connection for 3000
+E0912 14:17:46.674173  246345 portforward.go:522] "Unhandled Error" err="an error occurred forwarding 3000 -&gt; 3000: error forwarding port 3000 to pod 5f3b713cef479c98e21665b7717a7013c8d59fc3fa4e2ff0697228421df8ad30, uid : network namespace for sandbox \"5f3b713cef479c98e21665b7717a7013c8d59fc3fa4e2ff0697228421df8ad30\" is closed"
+error: lost connection to pod
 <b>$ curl -s -u admin:admin localhost:3000/api/datasources/uid/loki-lab | jq '.jsonData'</b>
 <b>$ kill %1</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+bash: line 157: kill: (243793) - No such process</code></pre></details></div>
       <div class="verify"><b>verify:</b> the datasource exists with the uid you chose and its <code>jsonData</code> carries the derived field. Open a log line in Explore and the TraceID appears as a link; if the link is dead, the target uid is wrong, not the regex.</div>
     </div>
 
@@ -308,7 +321,7 @@ sleep 60
 kubectl -n monitoring port-forward svc/prometheus-grafana 3000:80 &amp;
 sleep 5
 curl -s -u admin:admin localhost:3000/api/search?query=Platform%20overview | jq '.[] | {title, folderTitle, uid}'
-kill %1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kill %1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: v1</b>
 <b>kind: ConfigMap</b>
 <b>metadata:</b>
@@ -328,12 +341,21 @@ kill %1</code></pre><details class="out pending"><summary>output<span class="whe
 <b>      ]</b>
 <b>    }</b>
 <b>EOF</b>
+configmap/platform-overview created
 <b>$ sleep 60</b>
 <b>$ kubectl -n monitoring port-forward svc/prometheus-grafana 3000:80 &amp;</b>
 <b>$ sleep 5</b>
+Forwarding from 127.0.0.1:3000 -&gt; 3000
+Forwarding from [::1]:3000 -&gt; 3000
 <b>$ curl -s -u admin:admin localhost:3000/api/search?query=Platform%20overview | jq '.[] | {title, folderTitle, uid}'</b>
+Handling connection for 3000
+{
+  "title": "Platform overview",
+  "folderTitle": null,
+  "uid": "platform-overview"
+}
 <b>$ kill %1</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+bash: line 200: kill: (243793) - No such process</code></pre></details></div>
       <div class="verify"><b>verify:</b> the dashboard is listed with <code>folderTitle</code> set to Platform. Say what the sidecar is watching for, and what happens to this dashboard if someone edits it in the UI.</div>
     </div>
 
@@ -367,9 +389,21 @@ sleep 45
 kubectl -n grafana-operator get grafanadashboard orphan -o jsonpath='{.status}' | jq
 kubectl -n grafana-operator patch grafanadashboard orphan --type merge -p '{"spec":{"instanceSelector":{"matchLabels":{"dashboards":"lab"}}}}'
 sleep 45
-kubectl -n grafana-operator get grafanadashboard orphan -o jsonpath='{.status}' | jq</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ helm repo add grafana-operator https://grafana.github.io/helm-charts</b>
+kubectl -n grafana-operator get grafanadashboard orphan -o jsonpath='{.status}' | jq</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ helm repo add grafana-operator https://grafana.github.io/helm-charts</b>
+"grafana-operator" has been added to your repositories
 <b>$ helm repo update grafana-operator</b>
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "grafana-operator" chart repository
+Update Complete. ⎈Happy Helming!⎈
 <b>$ helm upgrade --install grafana-operator grafana-operator/grafana-operator -n grafana-operator --create-namespace --wait</b>
+Release "grafana-operator" does not exist. Installing it now.
+NAME: grafana-operator
+LAST DEPLOYED: Sat Sep 12 14:18:56 2026
+NAMESPACE: grafana-operator
+STATUS: deployed
+REVISION: 1
+DESCRIPTION: Install complete
+TEST SUITE: None
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: grafana.integreatly.org/v1beta1</b>
 <b>kind: Grafana</b>
@@ -381,6 +415,7 @@ kubectl -n grafana-operator get grafanadashboard orphan -o jsonpath='{.status}' 
 <b>  config:</b>
 <b>    security: { admin_user: admin, admin_password: admin }</b>
 <b>EOF</b>
+grafana.grafana.integreatly.org/lab-grafana created
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: grafana.integreatly.org/v1beta1</b>
 <b>kind: GrafanaDashboard</b>
@@ -390,12 +425,41 @@ kubectl -n grafana-operator get grafanadashboard orphan -o jsonpath='{.status}' 
 <b>    matchLabels: { dashboards: nobody }</b>
 <b>  json: '{"title": "Orphan", "uid": "orphan", "schemaVersion": 39, "panels": []}'</b>
 <b>EOF</b>
+grafanadashboard.grafana.integreatly.org/orphan created
 <b>$ sleep 45</b>
 <b>$ kubectl -n grafana-operator get grafanadashboard orphan -o jsonpath='{.status}' | jq</b>
+{
+  "NoMatchingInstances": true,
+  "conditions": [
+    {
+      "lastTransitionTime": "2026-09-12T18:19:07Z",
+      "message": "None of the available Grafana instances matched the selector, skipping reconciliation",
+      "observedGeneration": 1,
+      "reason": "EmptyAPIReply",
+      "status": "True",
+      "type": "NoMatchingInstance"
+    }
+  ],
+  "lastResync": "2026-09-12T18:19:49Z"
+}
 <b>$ kubectl -n grafana-operator patch grafanadashboard orphan --type merge -p '{"spec":{"instanceSelector":{"matchLabels":{"dashboards":"lab"}}}}'</b>
+The GrafanaDashboard "orphan" is invalid: spec.instanceSelector: Invalid value: spec.instanceSelector is immutable
 <b>$ sleep 45</b>
 <b>$ kubectl -n grafana-operator get grafanadashboard orphan -o jsonpath='{.status}' | jq</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+{
+  "NoMatchingInstances": true,
+  "conditions": [
+    {
+      "lastTransitionTime": "2026-09-12T18:19:07Z",
+      "message": "None of the available Grafana instances matched the selector, skipping reconciliation",
+      "observedGeneration": 1,
+      "reason": "EmptyAPIReply",
+      "status": "True",
+      "type": "NoMatchingInstance"
+    }
+  ],
+  "lastResync": "2026-09-12T18:20:30Z"
+}</code></pre></details></div>
       <div class="verify"><b>verify:</b> the status is empty or unmatched while the selector points at nobody, and lists the instance once it matches. No event, no error, no log line in between; that silence is the thing to recognise.</div>
     </div>
 
@@ -407,14 +471,105 @@ curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query={namespa
 curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query=quantile_over_time(0.95, {namespace="team-a"} | pattern `&lt;_&gt; &lt;_&gt; &lt;_&gt; &lt;_&gt; "&lt;_&gt; &lt;_&gt; &lt;_&gt;" &lt;status&gt; &lt;size&gt; ` | unwrap size [5m]) by (status)' | jq '.data.result'
 curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query=absent_over_time({namespace="default", pod="does-not-exist"}[5m])' | jq '.data.result'
 curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query={namespace="team-a"} | logfmt | __error__ != ""' --data-urlencode 'limit=5' | jq '.data.result[0].stream'
-kill %1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring port-forward svc/loki 3100:3100 &amp;</b>
+kill %1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring port-forward svc/loki 3100:3100 &amp;</b>
 <b>$ sleep 5</b>
+Forwarding from 127.0.0.1:3100 -&gt; 3100
+Forwarding from [::1]:3100 -&gt; 3100
 <b>$ curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query={namespace="team-a"} | pattern `&lt;ip&gt; - - &lt;_&gt; "&lt;method&gt; &lt;uri&gt; &lt;_&gt;" &lt;status&gt; &lt;size&gt;`' --data-urlencode 'limit=5' | jq '.data.result[0].values[0]'</b>
+Handling connection for 3100
+[
+  "1789237234111966440",
+  "10.244.2.137 - - [12/Sep/2026:18:20:34 +0000] \"GET / HTTP/1.1\" 200 615 \"-\" \"kube-probe/1.36\" \"-\"\n"
+]
 <b>$ curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query=quantile_over_time(0.95, {namespace="team-a"} | pattern `&lt;_&gt; &lt;_&gt; &lt;_&gt; &lt;_&gt; "&lt;_&gt; &lt;_&gt; &lt;_&gt;" &lt;status&gt; &lt;size&gt; ` | unwrap size [5m]) by (status)' | jq '.data.result'</b>
+Handling connection for 3100
+[
+  {
+    "metric": {
+      "status": "200"
+    },
+    "values": [
+      [
+        1789233642,
+        "615"
+      ],
+      [
+        1789233656,
+        "615"
+      ],
+      [
+        1789233670,
+        "615"
+      ],
+      [
+        1789233684,
+        "615"
+      ],
+      [
+        1789233698,
+        "615"
+      ],
+      [
+        1789233712,
+        "615"
+      ],
+      [
+        1789233726,
+        "615"
+      ],
+      [
+        1789233740,
+        "615"
+      ],
+      [
+<i>... 1002 more lines</i>
 <b>$ curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query=absent_over_time({namespace="default", pod="does-not-exist"}[5m])' | jq '.data.result'</b>
+Handling connection for 3100
+[
+  {
+    "metric": {
+      "namespace": "default",
+      "pod": "does-not-exist"
+    },
+    "values": [
+      [
+        1789233642,
+        "1"
+      ],
+      [
+        1789233656,
+        "1"
+      ],
+      [
+        1789233670,
+        "1"
+      ],
+      [
+        1789233684,
+        "1"
+      ],
+      [
+        1789233698,
+        "1"
+      ],
+      [
+        1789233712,
+        "1"
+      ],
+      [
+        1789233726,
+        "1"
+      ],
+      [
+        1789233740,
+        "1"
+      ],
+<i>... 1003 more lines</i>
 <b>$ curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query={namespace="team-a"} | logfmt | __error__ != ""' --data-urlencode 'limit=5' | jq '.data.result[0].stream'</b>
+Handling connection for 3100
+null
 <b>$ kill %1</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+bash: line 286: kill: (243793) - No such process</code></pre></details></div>
       <div class="verify"><b>verify:</b> the pattern parser produces labelled fields, <code>unwrap</code> turns one of them into a number you can take a quantile of, absence returns a series, and the <code>__error__</code> query finds the lines that are not logfmt at all. That last query is how you find out your parser is quietly dropping half the data.</div>
     </div>
 
@@ -435,7 +590,7 @@ scrape_configs:
 EOF
 POD=$(kubectl -n monitoring get pod -l app.kubernetes.io/name=alloy -o jsonpath='{.items[0].metadata.name}')
 kubectl -n monitoring cp /tmp/promtail.yaml "$POD":/tmp/promtail.yaml
-kubectl -n monitoring exec "$POD" -- alloy convert --source-format=promtail /tmp/promtail.yaml</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ cat &gt; /tmp/promtail.yaml &lt;&lt;'EOF'</b>
+kubectl -n monitoring exec "$POD" -- alloy convert --source-format=promtail /tmp/promtail.yaml</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ cat &gt; /tmp/promtail.yaml &lt;&lt;'EOF'</b>
 <b>server:</b>
 <b>  http_listen_port: 9080</b>
 <b>clients:</b>
@@ -451,7 +606,40 @@ kubectl -n monitoring exec "$POD" -- alloy convert --source-format=promtail /tmp
 <b>$ POD=$(kubectl -n monitoring get pod -l app.kubernetes.io/name=alloy -o jsonpath='{.items[0].metadata.name}')</b>
 <b>$ kubectl -n monitoring cp /tmp/promtail.yaml "$POD":/tmp/promtail.yaml</b>
 <b>$ kubectl -n monitoring exec "$POD" -- alloy convert --source-format=promtail /tmp/promtail.yaml</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+discovery.kubernetes "kubernetes_pods" {
+	role = "pod"
+
+	selectors {
+		role  = "pod"
+		field = "spec.nodeName=" + coalesce(sys.env("HOSTNAME"), constants.hostname)
+	}
+}
+
+discovery.relabel "kubernetes_pods" {
+	targets = discovery.kubernetes.kubernetes_pods.targets
+
+	rule {
+		source_labels = ["__meta_kubernetes_namespace"]
+		target_label  = "namespace"
+	}
+}
+
+loki.source.file "kubernetes_pods" {
+	targets    = discovery.relabel.kubernetes_pods.output
+	forward_to = [loki.write.default.receiver]
+
+	file_match {
+		enabled = true
+	}
+	legacy_positions_file = "/var/log/positions.yaml"
+}
+
+loki.write "default" {
+	endpoint {
+		url = "http://loki.monitoring.svc:3100/loki/api/v1/push"
+	}
+	external_labels = {}
+}</code></pre></details></div>
       <div class="verify"><b>verify:</b> the converter prints Alloy components: a discovery block, a relabel block, a source block and a write block, wired by references. Say which component corresponds to <code>relabel_configs</code> and which to <code>clients</code>.</div>
     </div>
 
@@ -459,10 +647,19 @@ kubectl -n monitoring exec "$POD" -- alloy convert --source-format=promtail /tmp
       <p>Retention in Loki is a compactor setting, and it is off by default in more distributions than people expect. Read it before you promise a week of logs to an audit.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring get cm loki -o yaml | grep -A6 -E 'compactor|retention'
 kubectl -n monitoring get cm loki -o jsonpath='{.data.config\.yaml}' | grep -E 'retention_enabled|retention_period|delete_request' || echo 'no retention keys in the rendered config'
-kubectl -n monitoring get pvc -l app.kubernetes.io/name=loki</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring get cm loki -o yaml | grep -A6 -E 'compactor|retention'</b>
+kubectl -n monitoring get pvc -l app.kubernetes.io/name=loki</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring get cm loki -o yaml | grep -A6 -E 'compactor|retention'</b>
+      compactor_grpc_address: 'loki.monitoring.svc.cluster.local:9095'
+      path_prefix: /var/loki
+      replication_factor: 1
+      storage:
+        filesystem:
+          chunks_directory: /var/loki/chunks
+          rules_directory: /var/loki/rules
 <b>$ kubectl -n monitoring get cm loki -o jsonpath='{.data.config\.yaml}' | grep -E 'retention_enabled|retention_period|delete_request' || echo 'no retention keys in the rendered config'</b>
+no retention keys in the rendered config
 <b>$ kubectl -n monitoring get pvc -l app.kubernetes.io/name=loki</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+NAME             STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+storage-loki-0   Bound    pvc-4589502f-0ed6-4923-9993-473e891d6ebf   10Gi       RWO            standard       &lt;unset&gt;                 123m</code></pre></details></div>
       <div class="verify"><b>verify:</b> you can say whether <code>retention_enabled</code> is set on this install and what would delete old chunks if it is not. "The disk fills up" is a legitimate answer, and it is the one that matters for capacity planning.</div>
     </div>
 

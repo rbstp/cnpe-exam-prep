@@ -383,8 +383,15 @@ flux -n flux-demo events --for HelmRelease/broken | tail -15
 kubectl -n flux-demo patch hr broken --type merge -p '{"spec":{"values":{"image":{"repository":"ghcr.io/stefanprodan/podinfo","tag":"6.7.1"}}}}'
 flux -n flux-demo reconcile hr broken --reset
 kubectl -n flux-demo get hr broken -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'
-flux -n flux-demo delete hr broken -s</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ flux create source helm podinfo --url=https://stefanprodan.github.io/podinfo --interval=10m</b>
+flux -n flux-demo delete hr broken -s</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ flux create source helm podinfo --url=https://stefanprodan.github.io/podinfo --interval=10m</b>
+✚ generating HelmRepository source
+► applying HelmRepository source
+✔ source created
+◎ waiting for HelmRepository source reconciliation
+✔ HelmRepository source reconciliation completed
+✔ fetched revision: sha256:e7dc68a4dec90a35c2c6d8cdfedb7eaaee17fde45dced5898289df85069ec089
 <b>$ kubectl create ns flux-demo --dry-run=client -o yaml | kubectl apply -f -</b>
+namespace/flux-demo created
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: helm.toolkit.fluxcd.io/v2</b>
 <b>kind: HelmRelease</b>
@@ -403,15 +410,71 @@ flux -n flux-demo delete hr broken -s</code></pre><details class="out pending"><
 <b>      repository: kind-registry:5000/does-not-exist</b>
 <b>      tag: nope</b>
 <b>EOF</b>
+helmrelease.helm.toolkit.fluxcd.io/broken created
 <b>$ sleep 240</b>
 <b>$ kubectl -n flux-demo get hr broken -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+{
+  "type": "Stalled",
+  "status": "True",
+  "reason": "RetriesExceeded",
+  "message": "Failed to install after 3 attempt(s)"
+}
+{
+  "type": "Ready",
+  "status": "False",
+  "reason": "InstallFailed",
+  "message": "Helm install failed for release flux-demo/broken with chart podinfo@6.15.0: timeout waiting for: [Deployment/flux-demo/broken-podinfo status: 'InProgress']"
+}
+{
+  "type": "Released",
+  "status": "False",
+  "reason": "InstallFailed",
+  "message": "Helm install failed for release flux-demo/broken with chart podinfo@6.15.0: timeout waiting for: [Deployment/flux-demo/broken-podinfo status: 'InProgress']"
+}
 <b>$ kubectl -n flux-demo get hr broken -o jsonpath='{.status.installFailures}{"\n"}'</b>
+3
 <b>$ flux -n flux-demo events --for HelmRelease/broken | tail -15</b>
+           	                    	       	                  	                          	                                                                                                                                                           	
+           	                    	       	                  	                          	2026-09-12T16:55:27.397269908Z: creating resource(s): {"resources":2}                                                                                      	
+           	                    	       	                  	                          	2026-09-12T16:55:27.39728069Z: using server-side apply for resource creation: {"dryRun":false,"fieldValidationDirective":"Strict","forceConflicts":false}  	
+           	                    	       	                  	                          	2026-09-12T16:55:27.556722324Z: Created resource via patch: {"gvk":"/v1, Kind=Service","name":"broken-podinfo","namespace":"flux-demo"}                    	
+           	                    	       	                  	                          	2026-09-12T16:55:27.734563362Z: Created resource via patch: {"gvk":"apps/v1, Kind=Deployment","name":"broken-podinfo","namespace":"flux-demo"}             	
+flux-demo  	104s (x2 over 2m56s)	Normal 	UninstallSucceeded	HelmRelease/broken        	Helm uninstall remediation for release flux-demo/broken.v1 with chart podinfo@6.15.0 succeeded                                                             	
+flux-system	57s (x3 over 2m56s) 	Normal 	ArtifactUpToDate  	HelmChart/flux-demo-broken	artifact up-to-date with remote revision: '6.15.0'                                                                                                         	
+flux-demo  	31s                 	Warning	InstallFailed     	HelmRelease/broken        	Helm install failed for release flux-demo/broken with chart podinfo@6.15.0: timeout waiting for: [Deployment/flux-demo/broken-podinfo status: 'InProgress']	
+           	                    	       	                  	                          	                                                                                                                                                           	
+           	                    	       	                  	                          	Last Helm logs:                                                                                                                                            	
+           	                    	       	                  	                          	                                                                                                                                                           	
+           	                    	       	                  	                          	2026-09-12T16:56:40.814607001Z: creating resource(s): {"resources":2}                                                                                      	
+           	                    	       	                  	                          	2026-09-12T16:56:40.814613561Z: using server-side apply for resource creation: {"dryRun":false,"fieldValidationDirective":"Strict","forceConflicts":false} 	
+           	                    	       	                  	                          	2026-09-12T16:56:41.000497205Z: Created resource via patch: {"gvk":"/v1, Kind=Service","name":"broken-podinfo","namespace":"flux-demo"}                    	
+           	                    	       	                  	                          	2026-09-12T16:56:41.16491428Z: Created resource via patch: {"gvk":"apps/v1, Kind=Deployment","name":"broken-podinfo","namespace":"flux-demo"}              	
 <b>$ kubectl -n flux-demo patch hr broken --type merge -p '{"spec":{"values":{"image":{"repository":"ghcr.io/stefanprodan/podinfo","tag":"6.7.1"}}}}'</b>
+helmrelease.helm.toolkit.fluxcd.io/broken patched
 <b>$ flux -n flux-demo reconcile hr broken --reset</b>
+► annotating HelmRelease broken in flux-demo namespace
+✔ HelmRelease annotated
+◎ waiting for HelmRelease reconciliation
+✗ Failed to upgrade after 1 attempt(s)
 <b>$ kubectl -n flux-demo get hr broken -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
+{
+  "type": "Stalled",
+  "status": "True",
+  "reason": "RetriesExceeded"
+}
+{
+  "type": "Ready",
+  "status": "False",
+  "reason": "UpgradeFailed"
+}
+{
+  "type": "Released",
+  "status": "False",
+  "reason": "UpgradeFailed"
+}
 <b>$ flux -n flux-demo delete hr broken -s</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+► deleting helmrelease broken in flux-demo namespace
+✔ helmrelease deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> the failing install retries the number of times you asked for, then stops with a reason that says so, and <code>--reset</code> is what clears the failure counter after you fix the values. Name what the release itself looks like between the last retry and the reset.</div>
     </div>
 
@@ -424,15 +487,21 @@ kubectl -n flux-demo get deploy podinfo -o jsonpath='{.spec.replicas}{"\n"}'
 sleep 120
 kubectl -n flux-demo get deploy podinfo -o jsonpath='{.spec.replicas}{"\n"}'
 flux -n flux-demo events --for HelmRelease/podinfo | tail -10
-kubectl -n flux-demo get hr podinfo -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n flux-demo get hr podinfo -o jsonpath='{.spec.driftDetection}{"\n"}'</b>
+kubectl -n flux-demo get hr podinfo -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n flux-demo get hr podinfo -o jsonpath='{.spec.driftDetection}{"\n"}'</b>
+Error from server (NotFound): helmreleases.helm.toolkit.fluxcd.io "podinfo" not found
 <b>$ kubectl -n flux-demo patch hr podinfo --type merge -p '{"spec":{"driftDetection":{"mode":"enabled"}}}'</b>
+Error from server (NotFound): helmreleases.helm.toolkit.fluxcd.io "podinfo" not found
 <b>$ kubectl -n flux-demo scale deploy podinfo --replicas=5</b>
+Error from server (NotFound): deployments.apps "podinfo" not found
 <b>$ kubectl -n flux-demo get deploy podinfo -o jsonpath='{.spec.replicas}{"\n"}'</b>
+Error from server (NotFound): deployments.apps "podinfo" not found
 <b>$ sleep 120</b>
 <b>$ kubectl -n flux-demo get deploy podinfo -o jsonpath='{.spec.replicas}{"\n"}'</b>
+Error from server (NotFound): deployments.apps "podinfo" not found
 <b>$ flux -n flux-demo events --for HelmRelease/podinfo | tail -10</b>
+✗ helmreleases.helm.toolkit.fluxcd.io "podinfo" not found
 <b>$ kubectl -n flux-demo get hr podinfo -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Error from server (NotFound): helmreleases.helm.toolkit.fluxcd.io "podinfo" not found</code></pre></details></div>
       <div class="verify"><b>verify:</b> the replica count returns on its own and an event says the cluster state of the release had drifted. This exercise needs the HelmRelease from the exercise above it; if <code>podinfo</code> is not installed, do that one first.</div>
     </div>
 
@@ -449,19 +518,31 @@ kubectl -n flux-demo get deploy demo
 flux events --for Kustomization/demo-flux | tail -10
 cd /tmp/platform-prune-flux &amp;&amp; git revert --no-edit HEAD &amp;&amp; git push
 flux reconcile kustomization demo-flux --with-source
-kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune-</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ rm -rf /tmp/platform-prune-flux &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune-flux &amp;&amp; cd /tmp/platform-prune-flux</b>
+kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune-</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune-flux &amp;&amp; cd /tmp/platform-prune-flux</b>
+Cloning into '/tmp/platform-prune-flux'...
+fatal: Unable to read current working directory: No such file or directory
+fatal: remote helper 'http' aborted session
 <b>$ kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune=disabled --overwrite</b>
+Error from server (NotFound): deployments.apps "demo" not found
 <b>$ git rm demo-app/base/deployment.yaml</b>
+fatal: Unable to read current working directory: No such file or directory
 <b>$ sed -i '/deployment.yaml/d' demo-app/base/kustomization.yaml</b>
+sed: can't read demo-app/base/kustomization.yaml: No such file or directory
 <b>$ git commit -am 'remove the deployment from git' &amp;&amp; git push</b>
+fatal: Unable to read current working directory: No such file or directory
 <b>$ flux reconcile kustomization demo-flux --with-source</b>
+✗ kustomizations.kustomize.toolkit.fluxcd.io "demo-flux" not found
 <b>$ sleep 20</b>
 <b>$ kubectl -n flux-demo get deploy demo</b>
+Error from server (NotFound): deployments.apps "demo" not found
 <b>$ flux events --for Kustomization/demo-flux | tail -10</b>
+✗ kustomizations.kustomize.toolkit.fluxcd.io "demo-flux" not found
 <b>$ cd /tmp/platform-prune-flux &amp;&amp; git revert --no-edit HEAD &amp;&amp; git push</b>
+bash: line 279: cd: /tmp/platform-prune-flux: No such file or directory
 <b>$ flux reconcile kustomization demo-flux --with-source</b>
+✗ kustomizations.kustomize.toolkit.fluxcd.io "demo-flux" not found
 <b>$ kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune-</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Error from server (NotFound): deployments.apps "demo" not found</code></pre></details></div>
       <div class="verify"><b>verify:</b> the Deployment is still running after a reconcile that removed it from git, and the events say the object was skipped rather than deleted. Put the manifest back and remove the annotation, or the next exercise inherits a lie.</div>
     </div>
 
@@ -481,7 +562,7 @@ EOF
 sleep 30
 kubectl -n flux-system get kustomization nowhere -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
 flux events --for Kustomization/nowhere | tail -5
-flux delete kustomization nowhere -s</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+flux delete kustomization nowhere -s</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kustomize.toolkit.fluxcd.io/v1</b>
 <b>kind: Kustomization</b>
 <b>metadata: { name: nowhere, namespace: flux-system }</b>
@@ -492,11 +573,30 @@ flux delete kustomization nowhere -s</code></pre><details class="out pending"><s
 <b>  path: ./does-not-exist</b>
 <b>  targetNamespace: flux-demo</b>
 <b>EOF</b>
+kustomization.kustomize.toolkit.fluxcd.io/nowhere created
 <b>$ sleep 30</b>
 <b>$ kubectl -n flux-system get kustomization nowhere -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+{
+  "type": "Reconciling",
+  "status": "True",
+  "reason": "ProgressingWithRetry",
+  "message": "Fetching manifests for revision main@sha1:8a8142cc9861fed0e37229617f152f27909a3081 with a timeout of 30s"
+}
+{
+  "type": "Ready",
+  "status": "False",
+  "reason": "ArtifactFailed",
+  "message": "kustomization path not found: stat /tmp/kustomization-83564322/does-not-exist: no such file or directory"
+}
 <b>$ flux events --for Kustomization/nowhere | tail -5</b>
+55m                	Normal 	NewArtifact               	GitRepository/platform	stored artifact for commit 'seed lab manifests'                                                             	
+14m (x41 over 54m) 	Normal 	GitOperationSucceeded     	GitRepository/platform	no changes since last reconciliation: observed revision 'main@sha1:c9d066255db33d9c2085a7804b3bcd55f5ec6918'	
+9m17s              	Normal 	GarbageCollectionSucceeded	GitRepository/platform	garbage collected 1 artifacts                                                                               	
+29s                	Warning	ArtifactFailed            	Kustomization/nowhere 	kustomization path not found: stat /tmp/kustomization-83564322/does-not-exist: no such file or directory    	
+6s (x10 over 9m16s)	Normal 	GitOperationSucceeded     	GitRepository/platform	no changes since last reconciliation: observed revision 'main@sha1:8a8142cc9861fed0e37229617f152f27909a3081'	
 <b>$ flux delete kustomization nowhere -s</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+► deleting kustomization nowhere in flux-system namespace
+✔ kustomization deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> the reason is about building the kustomization, not about the source, and the message quotes the path. Say what the reason would be instead if the GitRepository itself were broken.</div>
     </div>
 
@@ -519,8 +619,9 @@ sleep 10
 kubectl -n flux-system get receiver gitea-receiver -o jsonpath='{.status.webhookPath}{"\n"}'
 kubectl -n flux-system patch svc webhook-receiver -p '{"spec":{"type":"LoadBalancer"}}'
 kubectl -n flux-system get svc webhook-receiver -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}'
-flux events --for GitRepository/platform | tail -5</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ TOKEN=$(head -c 24 /dev/urandom | base64 | tr -d '=+/')</b>
+flux events --for GitRepository/platform | tail -5</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ TOKEN=$(head -c 24 /dev/urandom | base64 | tr -d '=+/')</b>
 <b>$ kubectl -n flux-system create secret generic receiver-token --from-literal=token="$TOKEN"</b>
+secret/receiver-token created
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: notification.toolkit.fluxcd.io/v1</b>
 <b>kind: Receiver</b>
@@ -532,12 +633,21 @@ flux events --for GitRepository/platform | tail -5</code></pre><details class="o
 <b>  resources:</b>
 <b>    - { kind: GitRepository, name: platform }</b>
 <b>EOF</b>
+The Receiver "gitea-receiver" is invalid: 
+* spec.type: Unsupported value: "gitea": supported values: "generic", "generic-hmac", "generic-oidc", "github", "gitlab", "bitbucket", "harbor", "dockerhub", "quay", "gcr", "nexus", "acr", "cdevents"
+* &lt;nil&gt;: Invalid value: null: some validation rules were not checked because the object was invalid; correct the existing errors to complete validation
 <b>$ sleep 10</b>
 <b>$ kubectl -n flux-system get receiver gitea-receiver -o jsonpath='{.status.webhookPath}{"\n"}'</b>
+Error from server (NotFound): receivers.notification.toolkit.fluxcd.io "gitea-receiver" not found
 <b>$ kubectl -n flux-system patch svc webhook-receiver -p '{"spec":{"type":"LoadBalancer"}}'</b>
+service/webhook-receiver patched
 <b>$ kubectl -n flux-system get svc webhook-receiver -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}'</b>
 <b>$ flux events --for GitRepository/platform | tail -5</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+LAST SEEN           	TYPE  	REASON                    	OBJECT                	MESSAGE                                                                                                      
+55m                 	Normal	NewArtifact               	GitRepository/platform	stored artifact for commit 'seed lab manifests'                                                             	
+14m (x41 over 54m)  	Normal	GitOperationSucceeded     	GitRepository/platform	no changes since last reconciliation: observed revision 'main@sha1:c9d066255db33d9c2085a7804b3bcd55f5ec6918'	
+9m28s               	Normal	GarbageCollectionSucceeded	GitRepository/platform	garbage collected 1 artifacts                                                                               	
+17s (x10 over 9m27s)	Normal	GitOperationSucceeded     	GitRepository/platform	no changes since last reconciliation: observed revision 'main@sha1:8a8142cc9861fed0e37229617f152f27909a3081'	</code></pre></details></div>
       <div class="verify"><b>verify:</b> the Receiver reports a webhook path and the Service has an address. Point the Gitea repository's webhook at <code>http://&lt;ip&gt;&lt;webhookPath&gt;</code> with the same token, push, and the reconcile shows up in the events within seconds rather than at the next interval.</div>
     </div>
 
@@ -558,9 +668,16 @@ flux create image update demo-auto \
 skopeo copy --dest-tls-verify=false docker://ghcr.io/stefanprodan/podinfo:6.7.1 docker://localhost:5001/demo:1.0.1
 sleep 90
 flux events --for ImageUpdateAutomation/demo-auto | tail -10
-git -c http.sslVerify=false ls-remote "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" main</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ flux create image repository demo --image=kind-registry:5000/demo --interval=1m --insecure</b>
+git -c http.sslVerify=false ls-remote "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" main</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ flux create image repository demo --image=kind-registry:5000/demo --interval=1m --insecure</b>
+✗ unknown flag: --insecure
 <b>$ flux create image policy demo --image-ref=demo --select-semver='&gt;=1.0.0'</b>
+✚ generating ImagePolicy
+► applying ImagePolicy
+✔ ImagePolicy created
+◎ waiting for ImagePolicy reconciliation
+✗ context deadline exceeded
 <b>$ kubectl -n flux-system get imagerepository demo -o jsonpath='{.status.lastScanResult}' | jq</b>
+Error from server (NotFound): imagerepositories.image.toolkit.fluxcd.io "demo" not found
 <b>$ kubectl -n flux-system get imagepolicy demo -o jsonpath='{.status.latestRef}' | jq</b>
 <b>$ flux create image update demo-auto \</b>
 <b>    --interval=1m \</b>
@@ -570,11 +687,29 @@ git -c http.sslVerify=false ls-remote "http://lab:${GITEA_PASS}@gitea.lab:3000/l
 <b>    --push-branch=main \</b>
 <b>    --author-name=fluxcdbot \</b>
 <b>    --author-email=fluxcdbot@lab.local</b>
+✚ generating ImageUpdateAutomation
+► applying ImageUpdateAutomation
+✔ ImageUpdateAutomation created
+◎ waiting for ImageUpdateAutomation reconciliation
+✔ ImageUpdateAutomation reconciliation completed
 <b>$ skopeo copy --dest-tls-verify=false docker://ghcr.io/stefanprodan/podinfo:6.7.1 docker://localhost:5001/demo:1.0.1</b>
+Getting image source signatures
+Copying blob sha256:7e517c53cd4ca936c3bc3d3dc66419278a680214f37444ad0ad1b8bd65968940
+Copying blob sha256:43c4264eed91be63b206e17d93e75256a6097070ce643c5e8f0379998b44f170
+Copying blob sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1
+Copying blob sha256:35d14af0e611499048effc4d39a2341345f96dd9103c8c186b7cc239a687de5c
+Copying blob sha256:2bf70b2badb9fa00aa36d50d61c6b9cc094d7a18fb4a3c7a91ce950dd7202900
+Copying blob sha256:31eaa2883f08a0ce854d061714a111f052444a3ba1b2323719cb12b872a0dbe3
+Copying blob sha256:47f87f374862e0c7555781b116554936999ad2e8e4c6a4e7417688ffe57d8b88
+Copying config sha256:c875de4397634b0dc138954cbe2c11b9d86d948b98b17bd9fc3227b3ad992eae
+Writing manifest to image destination
 <b>$ sleep 90</b>
 <b>$ flux events --for ImageUpdateAutomation/demo-auto | tail -10</b>
+LAST SEEN	TYPE  	REASON   	OBJECT                         	MESSAGE                             
+98s      	Normal	Succeeded	ImageUpdateAutomation/demo-auto	repository up-to-date              	
+38s      	Normal	Succeeded	ImageUpdateAutomation/demo-auto	no change since last reconciliation	
 <b>$ git -c http.sslVerify=false ls-remote "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" main</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+fatal: Unable to read current working directory: No such file or directory</code></pre></details></div>
       <div class="verify"><b>verify:</b> the policy resolves to the tag you pushed, and the automation writes a commit authored by fluxcdbot. Until the overlay carries a marker comment such as <code># {"$imagepolicy": "flux-system:demo"}</code> on the image line, the automation has nothing to rewrite and says so; add it and run again.</div>
     </div>
 
