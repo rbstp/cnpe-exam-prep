@@ -153,8 +153,8 @@ module.exports = async function (h) {
     await page.keyboard.press('m');
     let s = await store(page);
     assert(s.done['1.1'] === 1, 'm marks the section complete');
-    const prog = await page.evaluate(() => document.querySelector('.topbar .prog').textContent);
-    assert(/^1\/29/.test(prog.trim()), 'topbar progress shows 1/29: ' + JSON.stringify(prog));
+    assert((await page.evaluate(() => (document.querySelector('.topbar .trace path.tr').getAttribute('d').match(/ 2(?=L|$)/g) || []).length)) === 2,
+      'the masthead trace rises for the one done section');
     await page.keyboard.press('m');
     s = await store(page);
     assert(!s.done['1.1'], 'm again un-marks it');
