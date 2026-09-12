@@ -353,7 +353,7 @@
 
     inner.appendChild(themeButton());
 
-    if (isStudy()) {
+    if (isReading()) {
       var fb = el("button", "iconbtn focusbtn",
         '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" aria-hidden="true">' +
         '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M8 8h8v8H8Z"/></svg>');
@@ -406,11 +406,6 @@
 
   /* ── theme switch ──────────────────────────────────────────── */
   var THEME_ICON = {
-    system:
-      '<svg class="thm" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" ' +
-        'stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">' +
-        '<rect x="1.5" y="2.5" width="13" height="9" rx="1.1"/>' +
-        '<path d="M5.6 13.8h4.8" stroke-linecap="round"/></svg>',
     light:
       '<svg class="thm" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" ' +
         'stroke="currentColor" stroke-width="1.5" stroke-linecap="round">' +
@@ -442,10 +437,8 @@
   function paintTheme(b) {
     if (!b || !window.CNPE_THEME) return;
     var pref = window.CNPE_THEME.pref();
-    var name = pref === "system" ? "system (" + window.CNPE_THEME.resolved() + ")" : pref;
     b.innerHTML = THEME_ICON[pref];
-    var next = window.CNPE_THEME.resolved() === "dark" ? "light" : "dark";
-    b.title = "Theme: " + name + " · switch to " + next + " (t)";
+    b.title = "Theme: " + pref + " · switch to " + (pref === "dark" ? "light" : "dark") + " (t)";
     b.setAttribute("aria-label", b.title);
   }
 
@@ -647,16 +640,16 @@
     requestAnimationFrame(spy);
   }
 
-  /* Reading controls enhance the original document, never replace its content. */
+  /* ── reading controls: added around the authored document, not on the quest page ── */
   var readingFocus = false, readingLarge = false, readingPrefsRead = false;
-  function isStudy() { return PAGE_ID !== "GM"; }
+  function isReading() { return PAGE_ID !== "GM"; }
   function toggleReadingFocus() {
     readingFocus = !readingFocus;
     paintReading();
   }
   function paintReading() {
-    body.classList.toggle("reading-focus", isStudy() && readingFocus);
-    body.classList.toggle("reading-large", isStudy() && readingLarge);
+    body.classList.toggle("reading-focus", isReading() && readingFocus);
+    body.classList.toggle("reading-large", isReading() && readingLarge);
     var focus = document.querySelector(".focusbtn");
     if (focus) {
       focus.setAttribute("aria-pressed", String(readingFocus));
@@ -712,7 +705,7 @@
     var head = art && art.querySelector(".pagehead");
     if (!head) return;
     var tools = head.querySelector(".reading-tools");
-    if (!tools && isStudy()) {
+    if (!tools && isReading()) {
       tools = el("div", "reading-tools");
       var size = el("button", "iconbtn reading-size", "Aa");
       size.type = "button";
@@ -1060,7 +1053,7 @@
           "<dt>c</dt><dd>collapse or expand every exercise</dd>" +
           "<dt>m</dt><dd>mark this section complete</dd>"
         : "") +
-      (isStudy() ? "<dt>f</dt><dd>toggle focus view</dd><dt>t</dt><dd>switch dark / light theme</dd>" :
+      (isReading() ? "<dt>f</dt><dd>toggle focus view</dd><dt>t</dt><dd>switch dark / light theme</dd>" :
         "<dt>f</dt><dd>fullscreen while the game is focused</dd><dt>t</dt><dd>switch dark / light theme</dd>") +
       "<dt>?</dt><dd>this card</dd>" +
       "<dt>esc</dt><dd>close</dd></dl>" +
@@ -1134,7 +1127,7 @@
           if (window.CNPE_THEME) window.CNPE_THEME.cycle();
           break;
         case "f":
-          if (isStudy()) { e.preventDefault(); toggleReadingFocus(); }
+          if (isReading()) { e.preventDefault(); toggleReadingFocus(); }
           break;
       }
     });
@@ -1514,7 +1507,6 @@
   var wired = false;
   function boot() {
     readPage();
-    if (window.CNPE_THEME && window.CNPE_THEME.study) window.CNPE_THEME.study(true);
     Array.prototype.forEach.call(document.querySelectorAll(".topbar, .overlay"), function (n) { n.remove(); });
     lockScroll(false);                 // the bundle boots straight out of an open palette
     buildTopbar();

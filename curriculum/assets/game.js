@@ -199,7 +199,7 @@
     var battle = null;
     var hp = 0; // the session's hearts; a page load heals
     var dlg = null; // { who, pages: [], i, done: fn }
-    var posTimer = 0, dirty = true, themeOnce = false;
+    var posTimer = 0, dirty = true;
     var bt = null; // the battle screen, while one is built
     /** a keep's next monster waiting for the last one's fall: paints are deferred and the prompt shut until it fires */
     var swapPending = null;
@@ -2825,12 +2825,8 @@
         miniBoxW = parseFloat(getComputedStyle(miniWin).getPropertyValue("--gm-mini-w")) || mapW;
         readPalette();
         fitCanvas();
-        // the theme's listener, held like the rest of the mount's and let go by unmount(). A cached
-        // theme.js from before offChange() cannot let one go: then it is wired once for the page,
-        // as before, and does nothing while the quest is unmounted.
-        // (the type says offChange is always there; a cached script is what the check is for)
-        var themeOff = window.CNPE_THEME && window.CNPE_THEME.offChange;
-        if (window.CNPE_THEME && (themeOff || !themeOnce)) {
+        // the theme's listener, held like the rest of the mount's and let go by unmount()
+        if (window.CNPE_THEME) {
             var theme = window.CNPE_THEME;
             var onTheme = function () {
                 if (!host)
@@ -2849,10 +2845,7 @@
                     paintBackdrop(tn.scenery, domainOfSec(town.sec));
             };
             theme.onChange(onTheme);
-            if (themeOff)
-                undo.push(function () { theme.offChange(onTheme); });
-            else
-                themeOnce = true;
+            undo.push(function () { theme.offChange(onTheme); });
         }
         // fonts arrive after first paint, and the town labels are text
         if (document.fonts && document.fonts.ready)

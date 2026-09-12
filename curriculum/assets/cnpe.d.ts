@@ -273,7 +273,6 @@ interface CnpeThemeApi {
   resolved(): string;
   set(next: string): void;
   cycle(): void;
-  study(on: boolean): void;
   onChange(fn: (pref: string, resolved: string) => void): void;
   /** stop telling this function; the same reference that was given to onChange */
   offChange(fn: (pref: string, resolved: string) => void): void;

@@ -61,7 +61,7 @@ def favicon_uri():
 
 # The theme-color metas must come before the theme script, which recolors them.
 HEAD = """<!doctype html>
-<html lang="en" data-study>
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
