@@ -35,6 +35,10 @@ command, so the sections read self-contained even away from a running cluster. E
 in the curriculum was run, and its output captured, against a freshly built lab on
 **August 26, 2026** (the date each drawer carries). Expand a drawer only after predicting what
 it should say; the lab's tool versions float, so details may drift from what your lab prints.
+A drawer marked **not yet captured** (class `out pending`, a red "placeholder" tag) belongs to a
+command that has not been run against the lab yet; its body is a placeholder, and
+[`docs/curriculum-command-queue.md`](../docs/curriculum-command-queue.md) is the list of those
+commands with the outcome each should show and the procedure for replacing the placeholder.
 
 Press `/` in any page to jump to a section by name, tool or concept, `g` for a drill session, `q` for the quest,
 `t` to switch dark / light (dark by default) and `?` for the shortcuts.
