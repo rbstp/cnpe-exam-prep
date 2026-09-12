@@ -151,8 +151,10 @@ module.exports = async function (h) {
     assert(await page.isVisible('.gm-opt.right'), 'the right option is marked');
     await page.keyboard.press('Enter');
     await nextQuestion(page);
-    // miss the rest by picking an option that is not marked right; the trial fails and stays sealed
-    for (let i = 1; i < 6; i++) {
+    // miss the rest by picking an option that is not marked right; the trial fails and stays sealed.
+    // The trial deals every card the section has, so read that count rather than fix it here.
+    const deck = await page.evaluate(() => window.CNPE_DRILL.filter(c => c.sec === '1.1').length);
+    for (let i = 1; i < deck; i++) {
       const done = await page.evaluate(() => !document.querySelector('.gm-opt'));
       if (done) break;
       const wrong = await page.evaluate(() => {
@@ -168,8 +170,8 @@ module.exports = async function (h) {
       await nextQuestion(page);
     }
     s = await store(page);
-    assert(!(s.game.towns && s.game.towns['1.1']), 'one right of six does not clear the trial');
-    assert(Object.keys(s.drill).length === 6 && Object.keys(s.drill).filter(k => s.drill[k].ok === false).length === 5, 'six records, five misses: the drill will deal them again');
+    assert(!(s.game.towns && s.game.towns['1.1']), 'one right of ' + deck + ' does not clear the trial');
+    assert(Object.keys(s.drill).length === deck && Object.keys(s.drill).filter(k => s.drill[k].ok === false).length === deck - 1, deck + ' records, ' + (deck - 1) + ' misses: the drill will deal them again');
     assert(/Not this time/.test(await page.textContent('.gm-screen')), 'and the town says so');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();

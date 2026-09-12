@@ -53,17 +53,72 @@
 </section>
 
 <section class="panel accent-y" id="exam">
-  <div class="phdr"><h2>The exam</h2><span class="meta">validated as of August 2026</span></div>
+  <div class="phdr"><h2>The exam</h2><span class="meta">validated as of September 2026</span></div>
   <div class="pbody">
     <p>From the <a href="https://training.linuxfoundation.org/certification/certified-cloud-native-platform-engineer-cnpe/">certification page</a> and the official curriculum PDF:</p>
     <ul>
       <li><strong>Performance-based.</strong> You solve tasks on a remote Linux desktop with a terminal and web UIs, not multiple choice.</li>
-      <li><strong>120 minutes.</strong> That number should shape your prep. Roughly 15–20 tasks in two hours means 6–8 minutes each, which is why <code>make break</code> uses a 7-minute clock.</li>
+      <li><strong>120 minutes, 15 to 20 tasks.</strong> The Linux Foundation's own instructions give that range, so budget 6 to 8 minutes a task, which is why <code>make break</code> uses a 7-minute clock. Tasks are weighted; the heavy ones are usually the multi-step ones in domains 2 and 3.</li>
+      <li><strong>One SSH host per task.</strong> You land on a base machine (hostname <code>base</code>) that has none of the tools installed. Each task's info box names the host to <code>ssh</code> into, and you must <code>exit</code> back to base before the next one. Forgetting to exit, or running a task's commands on the wrong host, is a zero for that task with no error to warn you. The environment tracks the latest Kubernetes minor within a couple of months of release (v1.35 with etcd v3.6 at the time of writing), so read release notes for the minor in front of you, not the one you run at work.</li>
       <li><strong>Documentation is limited</strong>, and less generous than people assume. The <a href="https://docs.linuxfoundation.org/tc-docs/certification/important-instructions-cnpe">exam instructions</a> allow browsing kubernetes.io/docs plus the task-specific links in each question's Quick Reference panel, and prohibit everything else. Tool docs reach you only through those links. That makes <code>kubectl explain</code>, <code>kubectl api-resources</code> and <code>--help</code> your primary references, which is why every section here leans on them. The per-section "Docs to know your way around" lists are for study time.</li>
       <li><strong>Tools named as examples:</strong> Argo, Crossplane, Flagger, Flux, Gatekeeper, Grafana, Istio, Jaeger, Kyverno, Linkerd, OPA, OpenCost, OpenTelemetry, Prometheus, Tekton. The PDF is explicit that you will not be tested on deep tool-specific knowledge beyond the listed competencies.</li>
       <li><strong>Registration includes</strong> two killer.sh simulator sessions (20 questions each), one retake, a 12-month eligibility window, and a certificate valid 2 years.</li>
       <li><strong>The passing score is not disclosed.</strong> Ignore any number a course quotes.</li>
     </ul>
+  </div>
+</section>
+
+<section class="panel accent-c" id="reports">
+  <div class="phdr"><h2>What candidates report</h2><span class="meta">public write-ups from the beta and the first months, read critically</span></div>
+  <div class="pbody">
+    <p>Nobody may share task text, so what reaches print is shape, not content. The shapes agree with each other, and with the curriculum PDF, closely enough to steer study time.</p>
+    <ul>
+      <li><strong>Breadth is the difficulty, not depth.</strong> Golden Kubestronaut finishers rank the CNPE the hardest of the set, and every one of them says the same thing: no single task is deep, but you have to be fluent enough in a dozen tools to finish each in a few minutes. A tool you have only read about costs you the task. The lab's rule of "every layer installed, every layer made to do something" exists for this reason.</li>
+      <li><strong>Where you get to choose, and where you do not.</strong> Reports say Argo CD versus Flux and Argo Rollouts versus Flagger are effectively pick-your-stack: a task states the tool that is installed, and knowing one well transfers. Kyverno and Gatekeeper are tested separately, and so are Argo Workflows and Tekton, even though each pair overlaps in what it can do. Do not skip one half of either pair.</li>
+      <li><strong>The BACK stack is the reference architecture.</strong> Backstage, Argo CD, Crossplane, Kyverno: the combination the platform community documents most, and the one the exam's domain 3 leans on. Section 3.6's golden path (template, repo, ApplicationSet, running workload) is that stack end to end.</li>
+      <li><strong>Task shapes named in write-ups:</strong> a canary with Argo Rollouts that verifies itself before promoting (2.5); zero-code OpenTelemetry instrumentation feeding Jaeger and Prometheus (4.4); OpenCost attributing spend to namespaces for showback (1.5); Kyverno guardrails and a scan gate in the pipeline (5.2, 5.6); a Backstage template that turns a form into a Crossplane resource (3.6); Crossplane compositions as the self-service API (3.5). Everyone singles out Argo CD and Crossplane as the two most-tested tools, which matches domains 2 and 3 being half the marks.</li>
+      <li><strong>Kyverno moved under the exam.</strong> Kyverno 1.17 (February 2026) deprecated the classic <code>ClusterPolicy</code>, <code>Policy</code> and <code>CleanupPolicy</code> kinds; 1.19 (August 2026) declared the CEL-based <code>ValidatingPolicy</code>, <code>MutatingPolicy</code>, <code>GeneratingPolicy</code>, <code>ImageValidatingPolicy</code> and <code>DeletingPolicy</code> stable and at feature parity, with removal of the legacy kinds planned for 1.20. Learn the new kinds first, and be able to read the old one, because the cluster in front of you decides which is installed (section 5.2).</li>
+    </ul>
+    <div class="callout trap">
+      <span class="tag">Documentation in the exam is thinner than in the simulator</span>
+      <p>killer.sh gives you two runs of 20 scenarios with graded solutions, and it is the single best signal you will get. But its allowed-docs list is broader than the real exam's, where only kubernetes.io/docs plus each task's Quick Reference links are reachable. Practise the simulator with your browser closed to everything else, so the real thing does not feel like a downgrade.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel accent-y" id="shapes">
+  <div class="phdr"><h2>Task shapes to rehearse</h2><span class="meta">one plausible task per competency, with what a grader can check</span></div>
+  <div class="pbody">
+    <p>A performance-based exam can only grade what it can read back from the cluster: an object exists with these fields, a status condition is True, a request is admitted or refused, a metric or log line exists. Every task shape below ends in something like that. Rehearse the shape until the check passes first time; the exact nouns will differ.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Task shape</th><th>What the grader reads back</th><th>Rehearse in</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">1.1</td><td>Expose a Service through Gateway API, or fix a Service whose endpoints are empty; make a StatefulSet's storage bind on a given class; spread a Deployment across zones</td><td>HTTPRoute Accepted/ResolvedRefs True, EndpointSlice populated, PVC Bound with the right class, pods on distinct zones</td><td>1.1, 1.2, 1.3</td></tr>
+          <tr><td class="mono">1.2</td><td>Find the most over-requested workload from cost data and right-size it; add an HPA or apply a VPA recommendation</td><td>requests changed to the stated values, HPA/VPA object present with the stated targets</td><td>1.5, 1.2</td></tr>
+          <tr><td class="mono">1.3</td><td>Onboard a tenant namespace: quota, LimitRange, default-deny NetworkPolicy, PSS labels, a scoped Role</td><td>each object present with the stated limits; a test pod refused for the stated reason</td><td>1.4</td></tr>
+          <tr><td class="mono">2.1</td><td>Point Argo CD (or Flux) at a repo path and get the app Synced and Healthy; fix an app that is OutOfSync or stuck; enable self-heal and prune</td><td>Application (or Kustomization) status Synced/Healthy (Ready True), the workload present, drift reverted after a manual edit</td><td>2.1, 2.2, 2.3, 2.6</td></tr>
+          <tr><td class="mono">2.2</td><td>Author or repair a Tekton Pipeline: wire a workspace, pass a result between tasks, make a run succeed; or the same shape in Argo Workflows</td><td>PipelineRun (or Workflow) Succeeded, the image or artifact it was meant to produce present</td><td>2.4, 3.4</td></tr>
+          <tr><td class="mono">2.3</td><td>Convert a Deployment to a Rollout (or Flagger Canary) with the stated steps and an analysis; promote or abort a stuck one</td><td>Rollout Healthy at the new revision with the stated steps in spec; AnalysisRun Successful; or the old revision restored</td><td>2.5</td></tr>
+          <tr><td class="mono">3.1</td><td>Write a CRD with the stated fields, validation and printer columns; make a bad instance fail at admission</td><td>CRD Established, a valid CR accepted, an invalid one refused with a schema or CEL message</td><td>3.2</td></tr>
+          <tr><td class="mono">3.2</td><td>Build a workflow (Argo Workflows) that provisions a namespace or a tenant from parameters, with the RBAC it needs</td><td>Workflow Succeeded and the provisioned objects present, submitted as the stated ServiceAccount</td><td>3.4</td></tr>
+          <tr><td class="mono">3.3</td><td>Install an operator and use its CRD to run a service (a database, say); diagnose a CR that never becomes Ready</td><td>the CR's Ready condition True, its child objects owned and healthy</td><td>3.3</td></tr>
+          <tr><td class="mono">3.4</td><td>Create or extend a Crossplane XRD and Composition (or a kro ResourceGraphDefinition) and consume it as a developer would</td><td>XR Synced and Ready True, the composed resources present with the patched values</td><td>3.5, 3.6</td></tr>
+          <tr><td class="mono">4.1</td><td>Get a workload scraped (ServiceMonitor with the right selectors and port name); write a PrometheusRule that fires; make its logs appear in Loki; route traces to Jaeger</td><td>target UP in Prometheus, alert Firing, LogQL returning lines, a trace visible</td><td>4.1, 4.2, 4.3, 4.4</td></tr>
+          <tr><td class="mono">4.2</td><td>Produce a deployment-frequency or lead-time figure from the delivery system's metrics; build a recording rule or dashboard panel for it</td><td>the PromQL or rule object present and returning a value</td><td>4.5</td></tr>
+          <tr><td class="mono">4.3</td><td>A namespace is broken (bad image, missing ConfigMap, quota, webhook, DNS, PSS); find and fix it under the clock</td><td>pods Running and Ready, the app answering</td><td>4.6, <code>make break</code></td></tr>
+          <tr><td class="mono">5.1</td><td>Enforce STRICT mTLS for a namespace, and allow only one identity to call a service</td><td>PeerAuthentication STRICT, AuthorizationPolicy present, plaintext refused, the allowed caller succeeding</td><td>5.5</td></tr>
+          <tr><td class="mono">5.2</td><td>Grant a group or ServiceAccount exactly the stated verbs across N namespaces; make a secret available from an external store</td><td><code>auth can-i</code> as the subject matches the matrix; ExternalSecret SecretSynced and the Secret present</td><td>5.1</td></tr>
+          <tr><td class="mono">5.3</td><td>Enable audit logging with the stated policy; produce an SBOM or a vulnerability or compliance report for an image or the cluster</td><td>audit lines for the stated resource, the report CR present with the stated format</td><td>5.4</td></tr>
+          <tr><td class="mono">5.4</td><td>Write a Kyverno (or Gatekeeper, or ValidatingAdmissionPolicy) rule that refuses X and mutates Y; move a namespace to a stricter PSS profile</td><td>a violating object refused with the policy's message, a compliant one admitted, the mutation visible on the object</td><td>5.2, 5.3</td></tr>
+          <tr><td class="mono">5.5</td><td>Add a scan step that fails the pipeline on the stated severity; sign the image and make admission verify the signature</td><td>PipelineRun Failed on a bad image and Succeeded on a good one; unsigned image refused at admission</td><td>5.6</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout reflex">
+      <span class="tag">The last clause is the graded one</span>
+      <p>Each task ends with a sentence like "ensure the application reports Healthy" or "the pod must be rejected". That sentence is the grader's check. Read it first, decide how you will observe it yourself, do the work, then run that observation before moving on. The mock exams' grading blocks are written the same way so the habit forms.</p>
+    </div>
   </div>
 </section>
 
