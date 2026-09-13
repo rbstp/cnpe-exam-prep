@@ -340,7 +340,7 @@ kubectl get appenvironment team-c-dev -o jsonpath='{.spec.crossplane.composition
 kubectl patch composition appenvironment-kubernetes --type merge -p '{"metadata":{"labels":{"edited":"twice"}}}'
 sleep 20
 kubectl get appenvironment team-f-dev -o jsonpath='{.spec.crossplane.compositionRevisionRef}{"\n"}'
-kubectl get appenvironment team-c-dev -o jsonpath='{.spec.crossplane.compositionRevisionRef}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get compositionrevisions</b>
+kubectl get appenvironment team-c-dev -o jsonpath='{.spec.crossplane.compositionRevisionRef}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl get compositionrevisions</b>
 NAME                                REVISION   XR-KIND          XR-APIVERSION                 AGE
 appenvironment-kubernetes-670ddf1   1          AppEnvironment   platform.lab.local/v1alpha1   16h
 <b>$ kubectl patch composition appenvironment-kubernetes --type merge -p '{"metadata":{"labels":{"edited":"once"}}}'</b>
@@ -391,7 +391,7 @@ EOF
 sleep 20
 kubectl get appenvironment team-i-dev -o jsonpath='{.spec.crossplane.compositionRef}{"\n"}'
 kubectl patch xrd appenvironments.platform.lab.local --type json -p '[{"op":"remove","path":"/spec/enforcedCompositionRef"}]'
-kubectl delete appenvironment team-i-dev</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl patch xrd appenvironments.platform.lab.local --type merge -p '{"spec":{"enforcedCompositionRef":{"name":"appenvironment-kubernetes"}}}'</b>
+kubectl delete appenvironment team-i-dev</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl patch xrd appenvironments.platform.lab.local --type merge -p '{"spec":{"enforcedCompositionRef":{"name":"appenvironment-kubernetes"}}}'</b>
 compositeresourcedefinition.apiextensions.crossplane.io/appenvironments.platform.lab.local patched
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: platform.lab.local/v1alpha1</b>
@@ -415,7 +415,12 @@ appenvironment.platform.lab.local "team-i-dev" deleted from default namespace</c
 
     <div class="exercise" data-title="Pause a reconcile without deleting anything">
       <p>The pause annotation is the safe way to stop a controller touching an object while you investigate. The <code>Synced</code> condition says paused rather than lying about being up to date, which is the part that makes it safe.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl annotate appenvironment team-c-dev crossplane.io/paused=true --overwrite
+      <div class="cb" data-lang="bash"><pre><code># start from a known value: without this the patch below is a no-op and nothing can move
+kubectl annotate appenvironment team-c-dev crossplane.io/paused- --overwrite 2&gt;/dev/null || true
+kubectl patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"4"}}'
+sleep 60
+kubectl -n team-c get resourcequota -o jsonpath='{.items[0].spec.hard}{"\n"}'
+kubectl annotate appenvironment team-c-dev crossplane.io/paused=true --overwrite
 kubectl patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"16"}}'
 sleep 30
 kubectl get appenvironment team-c-dev -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'
@@ -423,10 +428,18 @@ kubectl -n team-c get resourcequota -o jsonpath='{.items[0].spec.hard}{"\n"}'
 kubectl annotate appenvironment team-c-dev crossplane.io/paused-
 sleep 30
 kubectl -n team-c get resourcequota -o jsonpath='{.items[0].spec.hard}{"\n"}'
-kubectl patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"4"}}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl annotate appenvironment team-c-dev crossplane.io/paused=true --overwrite</b>
+kubectl patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"4"}}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # start from a known value: without this the patch below is a no-op and nothing can move</b>
+<b>$ kubectl annotate appenvironment team-c-dev crossplane.io/paused- --overwrite 2&gt;/dev/null || true</b>
+appenvironment.platform.lab.local/team-c-dev annotated
+<b>$ kubectl patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"4"}}'</b>
+appenvironment.platform.lab.local/team-c-dev patched (no change)
+<b>$ sleep 60</b>
+<b>$ kubectl -n team-c get resourcequota -o jsonpath='{.items[0].spec.hard}{"\n"}'</b>
+{"requests.cpu":"4","requests.memory":"8Gi"}
+<b>$ kubectl annotate appenvironment team-c-dev crossplane.io/paused=true --overwrite</b>
 appenvironment.platform.lab.local/team-c-dev annotated
 <b>$ kubectl patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"16"}}'</b>
-appenvironment.platform.lab.local/team-c-dev patched (no change)
+appenvironment.platform.lab.local/team-c-dev patched
 <b>$ sleep 30</b>
 <b>$ kubectl get appenvironment team-c-dev -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
 {
@@ -445,7 +458,7 @@ appenvironment.platform.lab.local/team-c-dev patched (no change)
   "reason": "WatchCircuitClosed"
 }
 <b>$ kubectl -n team-c get resourcequota -o jsonpath='{.items[0].spec.hard}{"\n"}'</b>
-{"requests.cpu":"16","requests.memory":"8Gi"}
+{"requests.cpu":"4","requests.memory":"8Gi"}
 <b>$ kubectl annotate appenvironment team-c-dev crossplane.io/paused-</b>
 appenvironment.platform.lab.local/team-c-dev annotated
 <b>$ sleep 30</b>
@@ -476,7 +489,7 @@ EOF
 crossplane composition render examples/crossplane/xr.yaml examples/crossplane/composition.yaml /tmp/functions.yaml
 kubectl get functions.pkg.crossplane.io
 kubectl get function -o jsonpath='{range .items[*]}{.metadata.name} {.spec.package}{"\n"}{end}'
-rm -f /tmp/functions.yaml</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ cat &gt; /tmp/functions.yaml &lt;&lt;'EOF'</b>
+rm -f /tmp/functions.yaml</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ cat &gt; /tmp/functions.yaml &lt;&lt;'EOF'</b>
 <b>apiVersion: pkg.crossplane.io/v1</b>
 <b>kind: Function</b>
 <b>metadata:</b>
@@ -558,7 +571,7 @@ kubectl -n default get objects.kubernetes.m.crossplane.io -o jsonpath='{range .i
 kubectl apply -f /tmp/provider-crb.yaml
 sleep 45
 kubectl -n default get objects.kubernetes.m.crossplane.io -o jsonpath='{range .items[*]}{.metadata.name} {.status.conditions[?(@.type=="Synced")].status}{"\n"}{end}'
-kubectl patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"4"}}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get managed</b>
+kubectl patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"4"}}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl get managed</b>
 NAME                                                        KIND            PROVIDERCONFIG   SYNCED   READY   AGE
 object.kubernetes.m.crossplane.io/team-c-dev-91fc2ee050c5   ResourceQuota   default          True     True    17h
 object.kubernetes.m.crossplane.io/team-c-dev-f9c700a787d0   Namespace       default          True     True    17h

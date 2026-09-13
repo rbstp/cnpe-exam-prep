@@ -356,7 +356,12 @@ podinfo   1/1     1            1           48s</code></pre></details></div>
 
     <div class="exercise" data-title="Fail a HelmRelease on purpose">
       <p>Remediation is the part of a HelmRelease you only meet when something breaks, which is the worst time to read the field names. Break one deliberately and watch the retry count, the reason strings, and the recovery.</p>
-      <div class="cb" data-lang="bash"><pre><code>flux create source helm podinfo --url=https://stefanprodan.github.io/podinfo --interval=10m
+      <div class="cb" data-lang="bash"><pre><code># a leftover release makes this an upgrade, and the install remediation never runs
+flux -n flux-demo delete hr broken -s --timeout=90s 2&gt;/dev/null || true
+kubectl -n flux-demo patch hr broken --type merge -p '{"metadata":{"finalizers":null}}' 2&gt;/dev/null || true
+kubectl -n flux-demo delete hr broken --ignore-not-found --timeout=60s
+kubectl -n flux-demo wait --for=delete hr/broken --timeout=60s 2&gt;/dev/null || true
+flux create source helm podinfo --url=https://stefanprodan.github.io/podinfo --interval=10m
 kubectl create ns flux-demo --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: helm.toolkit.fluxcd.io/v2
@@ -376,20 +381,25 @@ spec:
       repository: kind-registry:5000/does-not-exist
       tag: nope
 EOF
-sleep 240
+sleep 210
 kubectl -n flux-demo get hr broken -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
 kubectl -n flux-demo get hr broken -o jsonpath='{.status.installFailures}{"\n"}'
 flux -n flux-demo events --for HelmRelease/broken | tail -15
 # the install remediation already uninstalled, so the recovery runs as an upgrade:
 # give it a timeout it can meet and a retry budget, or --reset clears a counter and the retry stalls anyway
 kubectl -n flux-demo patch hr broken --type merge -p '{"spec":{"timeout":"5m","upgrade":{"remediation":{"retries":2}},"values":{"image":{"repository":"ghcr.io/stefanprodan/podinfo","tag":"6.7.1"}}}}'
-flux -n flux-demo reconcile hr broken --reset
+flux -n flux-demo reconcile hr broken --reset --timeout=60s || true
 kubectl -n flux-demo get hr broken -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'
-flux -n flux-demo delete hr broken -s
-flux -n flux-system delete source helm podinfo -s</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ flux create source helm podinfo --url=https://stefanprodan.github.io/podinfo --interval=10m</b>
+flux -n flux-demo delete hr broken -s --timeout=90s
+flux -n flux-system delete source helm podinfo -s</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # a leftover release makes this an upgrade, and the install remediation never runs</b>
+<b>$ flux -n flux-demo delete hr broken -s --timeout=90s 2&gt;/dev/null || true</b>
+<b>$ kubectl -n flux-demo patch hr broken --type merge -p '{"metadata":{"finalizers":null}}' 2&gt;/dev/null || true</b>
+<b>$ kubectl -n flux-demo delete hr broken --ignore-not-found --timeout=60s</b>
+<b>$ kubectl -n flux-demo wait --for=delete hr/broken --timeout=60s 2&gt;/dev/null || true</b>
+<b>$ flux create source helm podinfo --url=https://stefanprodan.github.io/podinfo --interval=10m</b>
 ✚ generating HelmRepository source
 ► applying HelmRepository source
-✔ source updated
+✔ source created
 ◎ waiting for HelmRepository source reconciliation
 ✔ HelmRepository source reconciliation completed
 ✔ fetched revision: sha256:e7dc68a4dec90a35c2c6d8cdfedb7eaaee17fde45dced5898289df85069ec089
@@ -413,49 +423,50 @@ namespace/flux-demo unchanged
 <b>      repository: kind-registry:5000/does-not-exist</b>
 <b>      tag: nope</b>
 <b>EOF</b>
-helmrelease.helm.toolkit.fluxcd.io/broken configured
-<b>$ sleep 240</b>
+helmrelease.helm.toolkit.fluxcd.io/broken created
+<b>$ sleep 210</b>
 <b>$ kubectl -n flux-demo get hr broken -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
 {
   "type": "Stalled",
   "status": "True",
-  "reason": "MissingRollbackTarget",
-  "message": "Failed to perform remediation: missing target release for rollback: cannot remediate failed release"
+  "reason": "RetriesExceeded",
+  "message": "Failed to install after 3 attempt(s)"
 }
 {
   "type": "Ready",
   "status": "False",
-  "reason": "UpgradeFailed",
-  "message": "Helm upgrade failed for release flux-demo/broken with chart podinfo@6.15.0: timeout waiting for: [Deployment/flux-demo/broken-podinfo status: 'InProgress']"
+  "reason": "InstallFailed",
+  "message": "Helm install failed for release flux-demo/broken with chart podinfo@6.15.0: timeout waiting for: [Deployment/flux-demo/broken-podinfo status: 'InProgress']"
 }
 {
   "type": "Released",
   "status": "False",
-  "reason": "UpgradeFailed",
-  "message": "Helm upgrade failed for release flux-demo/broken with chart podinfo@6.15.0: timeout waiting for: [Deployment/flux-demo/broken-podinfo status: 'InProgress']"
+  "reason": "InstallFailed",
+  "message": "Helm install failed for release flux-demo/broken with chart podinfo@6.15.0: timeout waiting for: [Deployment/flux-demo/broken-podinfo status: 'InProgress']"
 }
 <b>$ kubectl -n flux-demo get hr broken -o jsonpath='{.status.installFailures}{"\n"}'</b>
+3
 <b>$ flux -n flux-demo events --for HelmRelease/broken | tail -15</b>
-flux-demo  	97s                 	Warning	UpgradeFailed             	HelmRelease/broken        	Helm upgrade failed for release flux-demo/broken with chart podinfo@6.15.0: timeout waiting for: [Deployment/flux-demo/broken-podinfo status: 'InProgress']                                  	
+           	                    	       	                          	                          	                                                                                                                                                                                             	
+           	                    	       	                          	                          	2026-09-13T16:35:17.741388114Z: creating resource(s): {"resources":2}                                                                                                                        	
+           	                    	       	                          	                          	2026-09-13T16:35:17.741398875Z: using server-side apply for resource creation: {"dryRun":false,"fieldValidationDirective":"Strict","forceConflicts":false}                                   	
+           	                    	       	                          	                          	2026-09-13T16:35:17.925407257Z: Created resource via patch: {"gvk":"/v1, Kind=Service","name":"broken-podinfo","namespace":"flux-demo"}                                                      	
+           	                    	       	                          	                          	2026-09-13T16:35:18.0179015Z: Created resource via patch: {"gvk":"apps/v1, Kind=Deployment","name":"broken-podinfo","namespace":"flux-demo"}                                                 	
+flux-demo  	74s (x2 over 2m26s) 	Normal 	UninstallSucceeded        	HelmRelease/broken        	Helm uninstall remediation for release flux-demo/broken.v1 with chart podinfo@6.15.0 succeeded                                                                                               	
+flux-system	29s (x3 over 2m28s) 	Normal 	ArtifactUpToDate          	HelmChart/flux-demo-broken	artifact up-to-date with remote revision: '6.15.0'                                                                                                                                           	
+flux-demo  	1s                  	Warning	InstallFailed             	HelmRelease/broken        	Helm install failed for release flux-demo/broken with chart podinfo@6.15.0: timeout waiting for: [Deployment/flux-demo/broken-podinfo status: 'InProgress']                                  	
            	                    	       	                          	                          	                                                                                                                                                                                             	
            	                    	       	                          	                          	Last Helm logs:                                                                                                                                                                              	
            	                    	       	                          	                          	                                                                                                                                                                                             	
-           	                    	       	                          	                          	2026-09-13T12:16:37.764403252Z: resetting values to the chart's original version: {}                                                                                                         	
-           	                    	       	                          	                          	2026-09-13T12:16:37.798688194Z: determined release apply method: {"previous_release_apply_method":"ssa","server_side_apply":true}                                                            	
-           	                    	       	                          	                          	2026-09-13T12:16:37.862086772Z: performing update: {"name":"broken"}                                                                                                                         	
-           	                    	       	                          	                          	2026-09-13T12:16:37.92236838Z: creating upgraded release: {"name":"broken"}                                                                                                                  	
-           	                    	       	                          	                          	2026-09-13T12:16:38.092382715Z: using server-side apply for resource creation: {"dryRun":false,"fieldValidationDirective":"Strict","forceConflicts":true}                                    	
-           	                    	       	                          	                          	2026-09-13T12:16:38.092388119Z: using server-side apply for resource update: {"dryRun":false,"fieldValidationDirective":"Strict","forceConflicts":true,"upgradeClientSideFieldManager":false}	
-           	                    	       	                          	                          	2026-09-13T12:16:38.092391321Z: checking resources for changes: {"resources":2}                                                                                                              	
-           	                    	       	                          	                          	2026-09-13T12:16:38.097308714Z: Patched resource: {"gvk":"/v1, Kind=Service","name":"broken-podinfo","namespace":"flux-demo"}                                                                	
-           	                    	       	                          	                          	2026-09-13T12:16:38.203902051Z: Patched resource: {"gvk":"apps/v1, Kind=Deployment","name":"broken-podinfo","namespace":"flux-demo"}                                                         	
-           	                    	       	                          	                          	2026-09-13T12:17:38.306443794Z: warning: upgrade failed: {"error":{},"name":"broken"}                                                                                                        	
-flux-system	3s (x16 over 15m)   	Normal 	ArtifactUpToDate          	HelmChart/flux-demo-broken	artifact up-to-date with remote revision: '6.15.0'                                                                                                                                           	
+           	                    	       	                          	                          	2026-09-13T16:36:31.153330997Z: creating resource(s): {"resources":2}                                                                                                                        	
+           	                    	       	                          	                          	2026-09-13T16:36:31.153335997Z: using server-side apply for resource creation: {"dryRun":false,"fieldValidationDirective":"Strict","forceConflicts":false}                                   	
+           	                    	       	                          	                          	2026-09-13T16:36:31.198687584Z: Created resource via patch: {"gvk":"/v1, Kind=Service","name":"broken-podinfo","namespace":"flux-demo"}                                                      	
+           	                    	       	                          	                          	2026-09-13T16:36:31.405086633Z: Created resource via patch: {"gvk":"apps/v1, Kind=Deployment","name":"broken-podinfo","namespace":"flux-demo"}                                               	
 <b>$ # the install remediation already uninstalled, so the recovery runs as an upgrade:</b>
 <b>$ # give it a timeout it can meet and a retry budget, or --reset clears a counter and the retry stalls anyway</b>
 <b>$ kubectl -n flux-demo patch hr broken --type merge -p '{"spec":{"timeout":"5m","upgrade":{"remediation":{"retries":2}},"values":{"image":{"repository":"ghcr.io/stefanprodan/podinfo","tag":"6.7.1"}}}}'</b>
 helmrelease.helm.toolkit.fluxcd.io/broken patched
-<b>$ flux -n flux-demo reconcile hr broken --reset</b>
+<b>$ flux -n flux-demo reconcile hr broken --reset --timeout=60s || true</b>
 ► annotating HelmRelease broken in flux-demo namespace
 ✔ HelmRelease annotated
 ◎ waiting for HelmRelease reconciliation
@@ -474,15 +485,15 @@ helmrelease.helm.toolkit.fluxcd.io/broken patched
 {
   "type": "Released",
   "status": "False",
-  "reason": "UpgradeFailed"
+  "reason": "InstallFailed"
 }
-<b>$ flux -n flux-demo delete hr broken -s</b>
+<b>$ flux -n flux-demo delete hr broken -s --timeout=90s</b>
 ► deleting helmrelease broken in flux-demo namespace
 ✔ helmrelease deleted
 <b>$ flux -n flux-system delete source helm podinfo -s</b>
 ► deleting source helm podinfo in flux-system namespace
 ✔ source helm deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the failing install retries the number of times you asked for and then stops, <code>Stalled</code> with reason <code>RetriesExceeded</code> and the message <code>Failed to install after 3 attempt(s)</code>, with <code>status.installFailures</code> at 3. <code>--reset</code> clears that counter, but the retry only lands if the spec can accommodate it: the remediation left a release in history so the recovery runs as an upgrade, and with <code>spec.timeout</code> at 1m and no <code>spec.upgrade.remediation</code> it counts one failure and stalls again.</div>
+      <div class="verify"><b>verify:</b> the failing install retries the number of times you asked for and then stops: <code>Stalled</code> with reason <code>RetriesExceeded</code>, the message <code>Failed to install after 3 attempt(s)</code>, and <code>status.installFailures</code> at 3. <code>--reset</code> then clears that counter and the release goes back to <code>Reconciling / Progressing</code>, which is why the 60 second wait returns <code>context deadline exceeded</code> rather than a verdict: resetting starts the attempts again, it does not finish them. Delete any earlier release first, and clear its finalizer: with one already in history this is an upgrade rather than an install, and you get <code>UpgradeFailed</code> and <code>MissingRollbackTarget</code> from an <code>install.remediation</code> block that never ran.</div>
     </div>
 
     <div class="exercise" data-title="Let Flux notice a Helm drift">
@@ -606,7 +617,7 @@ To http://gitea.lab:3000/lab/platform.git
 <b>$ kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune-</b>
 deployment.apps/demo annotated
 <b>$ cd "$START"</b></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the Deployment is still running after a reconcile that removed it from git, and the events say the object was skipped rather than deleted. Put the manifest back and remove the annotation before moving on; the later exercises on this page assume git and the cluster agree.</div>
+      <div class="verify"><b>verify:</b> the reconcile succeeds against a revision that no longer contains the Deployment, and the Deployment is still running. That pair is the whole evidence: Flux emits no event for an object it skipped, so a prune that did not happen looks exactly like a reconcile with nothing to do. The annotation on the object is the only place the exemption is written down, which is why it belongs in the manifests rather than in the controller. Put the manifest back and remove the annotation before moving on; the later exercises on this page assume git and the cluster agree.</div>
     </div>
 
     <div class="exercise" data-title="Point a Kustomization at nothing">
@@ -625,7 +636,7 @@ EOF
 sleep 30
 kubectl -n flux-system get kustomization nowhere -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
 flux events --for Kustomization/nowhere | tail -5
-flux delete kustomization nowhere -s</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+flux delete kustomization nowhere -s</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kustomize.toolkit.fluxcd.io/v1</b>
 <b>kind: Kustomization</b>
 <b>metadata: { name: nowhere, namespace: flux-system }</b>
@@ -691,7 +702,7 @@ flux events --for GitRepository/platform | tail -5
 # put the lab back: the Receiver and its token are the only things this exercise needed
 kubectl -n flux-system delete receiver gitea-receiver
 kubectl -n flux-system delete secret receiver-token
-kubectl -n flux-system patch svc webhook-receiver -p '{"spec":{"type":"ClusterIP"}}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ TOKEN=$(head -c 24 /dev/urandom | base64 | tr -d '=+/')</b>
+kubectl -n flux-system patch svc webhook-receiver -p '{"spec":{"type":"ClusterIP"}}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ TOKEN=$(head -c 24 /dev/urandom | base64 | tr -d '=+/')</b>
 <b>$ kubectl -n flux-system create secret generic receiver-token --from-literal=token="$TOKEN"</b>
 secret/receiver-token created
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
@@ -780,7 +791,7 @@ flux -n flux-system delete image update demo-auto -s
 flux -n flux-system delete image policy demo -s
 flux -n flux-system delete image repository demo -s
 git -C /tmp/platform-img pull --rebase &amp;&amp; git -C /tmp/platform-img rm -r image-automation &amp;&amp; git -C /tmp/platform-img -c user.name=lab -c user.email=lab@lab.local commit -m 'remove the automation target' &amp;&amp; git -C /tmp/platform-img push
-rm -rf /tmp/platform-img</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ flux create image repository demo --image=kind-registry:5000/demo --interval=1m</b>
+rm -rf /tmp/platform-img</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ flux create image repository demo --image=kind-registry:5000/demo --interval=1m</b>
 ✚ generating ImageRepository
 ► applying ImageRepository
 ✔ ImageRepository updated

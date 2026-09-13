@@ -261,7 +261,7 @@ EOF
 sleep 45
 kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | sed -n '/mute_time_intervals/,/^[a-z]/p'
 kubectl -n monitoring exec sts/alertmanager-prometheus-kube-prometheus-alertmanager -c alertmanager -- sh -c 'amtool config routes test --config.file=/etc/alertmanager/config_out/alertmanager.env.yaml alertname=TooManyExamplePods severity=warning namespace=default'
-kubectl -n default delete alertmanagerconfig quiet-hours</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n default delete alertmanagerconfig quiet-hours</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1alpha1</b>
 <b>kind: AlertmanagerConfig</b>
 <b>metadata: { name: quiet-hours, namespace: default, labels: { release: prometheus } }</b>
@@ -333,7 +333,7 @@ curl -s -XPOST localhost:9093/api/v2/alerts -H 'Content-Type: application/json' 
 sleep 45
 curl -s localhost:9093/api/v2/alerts | jq '[.[] | select(.labels.alertname|startswith("Drill")) | {alertname: .labels.alertname, state: .status.state, inhibitedBy: .status.inhibitedBy}]'
 kill $PF1
-kubectl -n default delete alertmanagerconfig inhibit-demo</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n default delete alertmanagerconfig inhibit-demo</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1alpha1</b>
 <b>kind: AlertmanagerConfig</b>
 <b>metadata: { name: inhibit-demo, namespace: default, labels: { release: prometheus } }</b>
@@ -395,7 +395,8 @@ alertmanagerconfig.monitoring.coreos.com "inhibit-demo" deleted from default nam
 
     <div class="exercise" data-title="Unit-test the alert rule">
       <p>Alerting rules are code and can be tested without waiting for reality to cooperate. <code>promtool test rules</code> feeds synthetic series in and asserts which alerts fire, which is the only way to be sure about a <code>for</code> clause.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring delete pod promtool-check --ignore-not-found
+kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -446,7 +447,10 @@ kubectl -n monitoring run promtool-check --rm -i --restart=Never --image="$IMG" 
 kubectl -n monitoring run promtool-unit --rm -i --restart=Never --image="$IMG" --overrides="{\"spec\":{\"containers\":[{\"name\":\"promtool-unit\",\"image\":\"$IMG\",\"workingDir\":\"/t\",\"command\":[\"promtool\",\"test\",\"rules\",\"test.yml\"],\"volumeMounts\":[{\"name\":\"t\",\"mountPath\":\"/t\"}]}],\"volumes\":[{\"name\":\"t\",\"configMap\":{\"name\":\"promtool-test\"}}]}}"
 kubectl -n monitoring delete configmap promtool-test
 # otherwise TooManyExamplePods fires on this cluster forever
-kubectl -n monitoring delete prometheusrule curriculum-drill</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n monitoring delete prometheusrule curriculum-drill
+kubectl -n monitoring delete pod promtool-check --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring delete pod promtool-check --ignore-not-found</b>
+pod "promtool-check" deleted from monitoring namespace
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1</b>
 <b>kind: PrometheusRule</b>
 <b>metadata:</b>
@@ -465,7 +469,7 @@ kubectl -n monitoring delete prometheusrule curriculum-drill</code></pre><detail
 <b>            summary: "{{ $value }} pods in default"</b>
 <b>            description: "Drill alert; fires whenever default has any pods."</b>
 <b>EOF</b>
-prometheusrule.monitoring.coreos.com/curriculum-drill unchanged
+prometheusrule.monitoring.coreos.com/curriculum-drill created
 <b>$ kubectl -n monitoring get prometheusrule curriculum-drill -o jsonpath='{.spec}' | jq '{groups: .groups}' &gt; /tmp/rules.json</b>
 <b>$ python3 -c "import json,yaml; print(yaml.safe_dump(json.load(open('/tmp/rules.json'))))" &gt; /tmp/rules.yml</b>
 <b>$ cat /tmp/rules.yml</b>
@@ -505,11 +509,20 @@ groups:
 <b>              description: "Drill alert; fires whenever default has any pods."</b>
 <b>EOF</b>
 <b>$ kubectl -n monitoring create configmap promtool-test --from-file=rules.yml=/tmp/rules.yml --from-file=test.yml=/tmp/test.yml --dry-run=client -o yaml | kubectl apply -f -</b>
-configmap/promtool-test unchanged
+configmap/promtool-test created
 <b>$ IMG=$(kubectl -n monitoring get sts prometheus-prometheus-kube-prometheus-prometheus -o jsonpath='{.spec.template.spec.containers[?(@.name=="prometheus")].image}'); echo "$IMG"</b>
 quay.io/prometheus/prometheus:v3.14.0-distroless
 <b>$ kubectl -n monitoring run promtool-check --rm -i --restart=Never --image="$IMG" --overrides="{\"spec\":{\"containers\":[{\"name\":\"promtool-check\",\"image\":\"$IMG\",\"workingDir\":\"/t\",\"command\":[\"promtool\",\"check\",\"rules\",\"rules.yml\"],\"volumeMounts\":[{\"name\":\"t\",\"mountPath\":\"/t\"}]}],\"volumes\":[{\"name\":\"t\",\"configMap\":{\"name\":\"promtool-test\"}}]}}"</b>
-Error from server (AlreadyExists): pods "promtool-check" already exists
+Checking rules.yml
+  SUCCESS: 1 rules found
+
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+warning: couldn't attach to pod/promtool-check, falling back to streaming logs: unable to upgrade connection: container promtool-check not found in pod promtool-check_monitoring
+Checking rules.yml
+  SUCCESS: 1 rules found
+
+pod "promtool-check" deleted from monitoring namespace
 <b>$ kubectl -n monitoring run promtool-unit --rm -i --restart=Never --image="$IMG" --overrides="{\"spec\":{\"containers\":[{\"name\":\"promtool-unit\",\"image\":\"$IMG\",\"workingDir\":\"/t\",\"command\":[\"promtool\",\"test\",\"rules\",\"test.yml\"],\"volumeMounts\":[{\"name\":\"t\",\"mountPath\":\"/t\"}]}],\"volumes\":[{\"name\":\"t\",\"configMap\":{\"name\":\"promtool-test\"}}]}}"</b>
   SUCCESS
 
@@ -523,7 +536,8 @@ pod "promtool-unit" deleted from monitoring namespace
 configmap "promtool-test" deleted from monitoring namespace
 <b>$ # otherwise TooManyExamplePods fires on this cluster forever</b>
 <b>$ kubectl -n monitoring delete prometheusrule curriculum-drill</b>
-prometheusrule.monitoring.coreos.com "curriculum-drill" deleted from monitoring namespace</code></pre></details></div>
+prometheusrule.monitoring.coreos.com "curriculum-drill" deleted from monitoring namespace
+<b>$ kubectl -n monitoring delete pod promtool-check --ignore-not-found</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> <code>check rules</code> passes and <code>test rules</code> reports SUCCESS, including the case at 30 seconds where the <code>for</code> clause has not elapsed. Change the <code>for</code> to 10m and watch the same test fail; that is the assertion earning its keep.</div>
     </div>
 

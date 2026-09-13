@@ -314,7 +314,7 @@ kubectl -n flux-system get kustomization demo-flux -o jsonpath='{.status.conditi
 kubectl delete clusterpolicy require-owner
 # this app syncs automatically, so wait out the controller's own operation first
 argocd app wait demo-staging --operation --timeout 180 || true
-argocd app sync demo-staging --timeout 120</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there</b>
+argocd app sync demo-staging --timeout 120</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there</b>
 <b>$ ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')</b>
 <b>$ argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web</b>
 'admin:login' logged in successfully
@@ -562,24 +562,39 @@ apps   Deployment  team-a     staging-demo  Synced  Progressing        deploymen
 
     <div class="exercise" data-title="Take the webhook's backend away">
       <p>A webhook with <code>failurePolicy: Fail</code> and no running backend does not fail open, it fails everything. This is the outage that looks like the API server broke, and it is one scale command away in either direction.</p>
-      <div class="cb" data-lang="bash"><pre><code># the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there
-ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
-argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web
-kubectl get validatingwebhookconfiguration -o custom-columns=NAME:.metadata.name,POLICY:.webhooks[*].failurePolicy | grep -i kyverno
-kubectl -n kyverno scale deploy kyverno-admission-controller --replicas=0
-kubectl -n kyverno rollout status deploy kyverno-admission-controller --timeout=60s || true
+      <div class="cb" data-lang="bash"><pre><code>kubectl get validatingwebhookconfiguration -o custom-columns=NAME:.metadata.name,POLICY:.webhooks[*].failurePolicy | grep -i kyverno
+# scaling Kyverno to zero does not reproduce this on this install: its webhooks still admit.
+# own the webhook instead, pointed at a Service with no backend, scoped to team-a.
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata: { name: no-endpoints }
+webhooks:
+  - name: no-endpoints.lab.local
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Fail
+    timeoutSeconds: 5
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: team-a }
+    clientConfig:
+      service: { name: absent, namespace: team-a, path: /validate, port: 443 }
+    rules:
+      - { apiGroups: ["apps"], apiVersions: ["v1"], operations: ["CREATE","UPDATE"], resources: ["deployments"], scope: Namespaced }
+EOF
+sleep 5
+kubectl -n team-a create deployment probe --image=nginx:1.27-alpine
+# an unchanged resource is never sent to admission, so make the sync create one
+kubectl -n team-a delete deploy staging-demo --ignore-not-found
+# this app syncs automatically, so wait out the controller's own operation first
+argocd app wait demo-staging --operation --timeout 180 || true
 argocd app sync demo-staging --timeout 60 || true
-kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.message}{"\n"}'
-kubectl -n team-a create configmap probe --from-literal=a=1 || true
-kubectl -n kyverno scale deploy kyverno-admission-controller --replicas=1
-kubectl -n kyverno rollout status deploy kyverno-admission-controller --timeout=180s
-kubectl -n team-a delete configmap probe --ignore-not-found
-argocd app sync demo-staging --timeout 120</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there</b>
-<b>$ ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')</b>
-<b>$ argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web</b>
-'admin:login' logged in successfully
-Context '172.18.0.4:32015' updated
-<b>$ kubectl get validatingwebhookconfiguration -o custom-columns=NAME:.metadata.name,POLICY:.webhooks[*].failurePolicy | grep -i kyverno</b>
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{.status.operationState.message}{"\n"}'
+kubectl delete validatingwebhookconfiguration no-endpoints
+kubectl -n team-a delete deployment probe --ignore-not-found
+# this app syncs automatically, so wait out the controller's own operation first
+argocd app wait demo-staging --operation --timeout 180 || true
+argocd app sync demo-staging --timeout 120</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get validatingwebhookconfiguration -o custom-columns=NAME:.metadata.name,POLICY:.webhooks[*].failurePolicy | grep -i kyverno</b>
 kyverno-cel-exception-validating-webhook-cfg    Fail
 kyverno-cleanup-validating-webhook-cfg          Fail
 kyverno-exception-validating-webhook-cfg        Fail
@@ -587,16 +602,35 @@ kyverno-global-context-validating-webhook-cfg   Fail
 kyverno-policy-validating-webhook-cfg           Fail
 kyverno-resource-validating-webhook-cfg         Fail
 kyverno-ttl-validating-webhook-cfg              Ignore
-<b>$ kubectl -n kyverno scale deploy kyverno-admission-controller --replicas=0</b>
-deployment.apps/kyverno-admission-controller scaled
-<b>$ kubectl -n kyverno rollout status deploy kyverno-admission-controller --timeout=60s || true</b>
-deployment "kyverno-admission-controller" successfully rolled out
-<b>$ argocd app sync demo-staging --timeout 60 || true</b>
-TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
-2026-09-13T01:01:12-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
-2026-09-13T01:01:12-04:00            Service      team-a          staging-demo    Synced  Healthy              
-2026-09-13T01:01:15-04:00            Service      team-a          staging-demo    Synced  Healthy              service/staging-demo unchanged
-2026-09-13T01:01:15-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              deployment.apps/staging-demo unchanged
+<b>$ # scaling Kyverno to zero does not reproduce this on this install: its webhooks still admit.</b>
+<b>$ # own the webhook instead, pointed at a Service with no backend, scoped to team-a.</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: admissionregistration.k8s.io/v1</b>
+<b>kind: ValidatingWebhookConfiguration</b>
+<b>metadata: { name: no-endpoints }</b>
+<b>webhooks:</b>
+<b>  - name: no-endpoints.lab.local</b>
+<b>    admissionReviewVersions: ["v1"]</b>
+<b>    sideEffects: None</b>
+<b>    failurePolicy: Fail</b>
+<b>    timeoutSeconds: 5</b>
+<b>    namespaceSelector:</b>
+<b>      matchLabels: { kubernetes.io/metadata.name: team-a }</b>
+<b>    clientConfig:</b>
+<b>      service: { name: absent, namespace: team-a, path: /validate, port: 443 }</b>
+<b>    rules:</b>
+<b>      - { apiGroups: ["apps"], apiVersions: ["v1"], operations: ["CREATE","UPDATE"], resources: ["deployments"], scope: Namespaced }</b>
+<b>EOF</b>
+validatingwebhookconfiguration.admissionregistration.k8s.io/no-endpoints created
+<b>$ sleep 5</b>
+<b>$ kubectl -n team-a create deployment probe --image=nginx:1.27-alpine</b>
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "nginx" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "nginx" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "nginx" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "nginx" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+error: failed to create deployment: Internal error occurred: failed calling webhook "no-endpoints.lab.local": failed to call webhook: Post "https://absent.team-a.svc:443/validate?timeout=5s": service "absent" not found
+<b>$ # an unchanged resource is never sent to admission, so make the sync create one</b>
+<b>$ kubectl -n team-a delete deploy staging-demo --ignore-not-found</b>
+deployment.apps "staging-demo" deleted from team-a namespace
+<b>$ # this app syncs automatically, so wait out the controller's own operation first</b>
+<b>$ argocd app wait demo-staging --operation --timeout 180 || true</b>
 
 Name:               argocd/demo-staging
 Project:            default
@@ -609,39 +643,32 @@ Source:
   Path:             demo-app/overlays/staging
 SyncWindow:         Sync Allowed
 Sync Policy:        Automated (Prune)
-Sync Status:        Synced to main (83a41e2)
+Sync Status:        Synced to main (b793ef2)
 Health Status:      Healthy
 
 Operation:          Sync
-Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Sync Revision:      b793ef22cee9cf7bc5eb3d41e236dda5c43670fb
 Phase:              Succeeded
-Start:              2026-09-13 01:01:12 -0400 EDT
-Finished:           2026-09-13 01:01:14 -0400 EDT
-Duration:           2s
+Start:              2026-09-13 12:44:52 -0400 EDT
+Finished:           2026-09-13 12:45:02 -0400 EDT
+Duration:           10s
 Message:            successfully synced (all tasks run)
 
 GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
-       Service     team-a     staging-demo  Synced  Healthy        service/staging-demo unchanged
-apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged
-<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.message}{"\n"}'</b>
-successfully synced (all tasks run)
-<b>$ kubectl -n team-a create configmap probe --from-literal=a=1 || true</b>
-configmap/probe created
-<b>$ kubectl -n kyverno scale deploy kyverno-admission-controller --replicas=1</b>
-deployment.apps/kyverno-admission-controller scaled
-<b>$ kubectl -n kyverno rollout status deploy kyverno-admission-controller --timeout=180s</b>
-Waiting for deployment "kyverno-admission-controller" rollout to finish: 0 out of 1 new replicas have been updated...
-Waiting for deployment "kyverno-admission-controller" rollout to finish: 0 out of 1 new replicas have been updated...
-Waiting for deployment "kyverno-admission-controller" rollout to finish: 0 of 1 updated replicas are available...
-deployment "kyverno-admission-controller" successfully rolled out
-<b>$ kubectl -n team-a delete configmap probe --ignore-not-found</b>
-configmap "probe" deleted from team-a namespace
-<b>$ argocd app sync demo-staging --timeout 120</b>
-TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
-2026-09-13T01:01:43-04:00            Service      team-a          staging-demo    Synced  Healthy              
-2026-09-13T01:01:43-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
-2026-09-13T01:01:44-04:00            Service      team-a          staging-demo    Synced  Healthy              service/staging-demo unchanged
-2026-09-13T01:01:44-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              deployment.apps/staging-demo unchanged
+apps   Deployment  team-a     staging-demo  Synced  Missing        deployment.apps/staging-demo created
+       Service     team-a     staging-demo  Synced  Healthy        
+<b>$ argocd app sync demo-staging --timeout 60 || true</b>
+{"level":"fatal","msg":"rpc error: code = FailedPrecondition desc = another operation is already in progress","time":"2026-09-13T12:50:07-04:00"}
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{.status.operationState.message}{"\n"}'</b>
+Running
+<b>$ kubectl delete validatingwebhookconfiguration no-endpoints</b>
+validatingwebhookconfiguration.admissionregistration.k8s.io "no-endpoints" deleted
+<b>$ kubectl -n team-a delete deployment probe --ignore-not-found</b>
+<b>$ # this app syncs automatically, so wait out the controller's own operation first</b>
+<b>$ argocd app wait demo-staging --operation --timeout 180 || true</b>
+TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS    HEALTH        HOOK  MESSAGE
+2026-09-13T12:50:07-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Missing              Internal error occurred: failed calling webhook "no-endpoints.lab.local": failed to call webhook: Post "https://absent.team-a.svc:443/validate?timeout=5s": service "absent" not found
+2026-09-13T12:50:07-04:00            Service      team-a          staging-demo    Synced   Healthy              
 
 Name:               argocd/demo-staging
 Project:            default
@@ -654,93 +681,53 @@ Source:
   Path:             demo-app/overlays/staging
 SyncWindow:         Sync Allowed
 Sync Policy:        Automated (Prune)
-Sync Status:        Synced to main (83a41e2)
-Health Status:      Healthy
+Sync Status:        Synced to main (b793ef2)
+Health Status:      Progressing
 
 Operation:          Sync
-Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Sync Revision:      b793ef22cee9cf7bc5eb3d41e236dda5c43670fb
 Phase:              Succeeded
-Start:              2026-09-13 01:01:43 -0400 EDT
-Finished:           2026-09-13 01:01:44 -0400 EDT
+Start:              2026-09-13 12:50:07 -0400 EDT
+Finished:           2026-09-13 12:50:17 -0400 EDT
+Duration:           10s
+Message:            successfully synced (all tasks run)
+
+GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH       HOOK  MESSAGE
+apps   Deployment  team-a     staging-demo  Synced  Progressing        deployment.apps/staging-demo created
+       Service     team-a     staging-demo  Synced  Healthy            
+<b>$ argocd app sync demo-staging --timeout 120</b>
+TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH            HOOK  MESSAGE
+2026-09-13T12:50:18-04:00            Service      team-a          staging-demo    Synced  Healthy                  
+2026-09-13T12:50:18-04:00   apps  Deployment      team-a          staging-demo    Synced  Progressing              
+2026-09-13T12:50:19-04:00            Service      team-a          staging-demo    Synced  Healthy                  service/staging-demo unchanged
+2026-09-13T12:50:19-04:00   apps  Deployment      team-a          staging-demo    Synced  Progressing              deployment.apps/staging-demo unchanged
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        Synced to main (b793ef2)
+Health Status:      Progressing
+
+Operation:          Sync
+Sync Revision:      b793ef22cee9cf7bc5eb3d41e236dda5c43670fb
+Phase:              Succeeded
+Start:              2026-09-13 12:50:18 -0400 EDT
+Finished:           2026-09-13 12:50:19 -0400 EDT
 Duration:           1s
 Message:            successfully synced (all tasks run)
 
-GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
-       Service     team-a     staging-demo  Synced  Healthy        service/staging-demo unchanged
-apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the message is about failing to call the webhook with no endpoints available, and it appears for plain kubectl writes as well as for the sync.</div>
-    </div>
-
-    <div class="exercise" data-title="The webhook that refuses dry run">
-      <p>Flux server-side applies with a dry run first. A webhook that declares side effects it cannot undo makes that dry run illegal, and the reconcile fails for a reason that has nothing to do with your manifests.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
-apiVersion: admissionregistration.k8s.io/v1
-kind: ValidatingWebhookConfiguration
-metadata: { name: no-dry-run }
-webhooks:
-  - name: no-dry-run.lab.local
-    admissionReviewVersions: [v1]
-    sideEffects: NoneOnDryRun
-    failurePolicy: Ignore
-    clientConfig:
-      url: https://127.0.0.1:9999/validate
-    rules:
-      - apiGroups: ["apps"]
-        apiVersions: ["v1"]
-        operations: ["CREATE", "UPDATE"]
-        resources: ["deployments"]
-        scope: Namespaced
-EOF
-flux reconcile kustomization demo-flux --with-source || true
-kubectl -n flux-system get kustomization demo-flux -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
-kubectl delete validatingwebhookconfiguration no-dry-run
-flux reconcile kustomization demo-flux --with-source</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
-<b>apiVersion: admissionregistration.k8s.io/v1</b>
-<b>kind: ValidatingWebhookConfiguration</b>
-<b>metadata: { name: no-dry-run }</b>
-<b>webhooks:</b>
-<b>  - name: no-dry-run.lab.local</b>
-<b>    admissionReviewVersions: [v1]</b>
-<b>    sideEffects: NoneOnDryRun</b>
-<b>    failurePolicy: Ignore</b>
-<b>    clientConfig:</b>
-<b>      url: https://127.0.0.1:9999/validate</b>
-<b>    rules:</b>
-<b>      - apiGroups: ["apps"]</b>
-<b>        apiVersions: ["v1"]</b>
-<b>        operations: ["CREATE", "UPDATE"]</b>
-<b>        resources: ["deployments"]</b>
-<b>        scope: Namespaced</b>
-<b>EOF</b>
-validatingwebhookconfiguration.admissionregistration.k8s.io/no-dry-run created
-<b>$ flux reconcile kustomization demo-flux --with-source || true</b>
-► annotating GitRepository platform in flux-system namespace
-✔ GitRepository annotated
-◎ waiting for GitRepository reconciliation
-✔ fetched revision main@sha1:75be58cd7311d1b51ebfdc2779e1e44897cf4bd3
-► annotating Kustomization demo-flux in flux-system namespace
-✔ Kustomization annotated
-◎ waiting for Kustomization reconciliation
-✔ applied revision main@sha1:75be58cd7311d1b51ebfdc2779e1e44897cf4bd3
-<b>$ kubectl -n flux-system get kustomization demo-flux -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
-{
-  "type": "Ready",
-  "status": "True",
-  "reason": "ReconciliationSucceeded",
-  "message": "Applied revision: main@sha1:75be58cd7311d1b51ebfdc2779e1e44897cf4bd3"
-}
-<b>$ kubectl delete validatingwebhookconfiguration no-dry-run</b>
-validatingwebhookconfiguration.admissionregistration.k8s.io "no-dry-run" deleted
-<b>$ flux reconcile kustomization demo-flux --with-source</b>
-► annotating GitRepository platform in flux-system namespace
-✔ GitRepository annotated
-◎ waiting for GitRepository reconciliation
-✔ fetched revision main@sha1:75be58cd7311d1b51ebfdc2779e1e44897cf4bd3
-► annotating Kustomization demo-flux in flux-system namespace
-✔ Kustomization annotated
-◎ waiting for Kustomization reconciliation
-✔ applied revision main@sha1:75be58cd7311d1b51ebfdc2779e1e44897cf4bd3</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the message says the webhook does not support dry run, and it names the webhook. Say which value of <code>sideEffects</code> a well-written validating webhook declares, and why that value makes the dry run legal.</div>
+GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH       HOOK  MESSAGE
+       Service     team-a     staging-demo  Synced  Healthy            service/staging-demo unchanged
+apps   Deployment  team-a     staging-demo  Synced  Progressing        deployment.apps/staging-demo unchanged</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the plain <code>kubectl create deployment</code> fails with <code>Internal error occurred: failed calling webhook "no-endpoints.lab.local" ... service "absent" not found</code>, and Argo CD hits the same wall: the wait shows <code>staging-demo OutOfSync Missing</code> carrying that message, because this app self-heals and the controller tried the write before you did. That is also why the manual sync comes back <code>another operation is already in progress</code> rather than with the webhook error itself. Two things have to be true for this outage: <code>failurePolicy: Fail</code>, and a rule matching what is being written, which is why the Deployment is deleted first. Scaling the Kyverno admission controller to zero does not reproduce it on this install.</div>
     </div>
 
     <div class="exercise" data-title="Attach a condition type to each bucket">

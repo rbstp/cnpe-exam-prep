@@ -334,12 +334,12 @@ spec:
         - http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090/-/healthy
         - http://staging-demo.team-a.svc.cluster.local
 EOF
-sleep 60
+sleep 120
 kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!
 sleep 5
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=probe_success' | jq '.data.result[] | {instance: .metric.instance, value: .value[1]}'
 # Prometheus reloads its config and scrapes before any of this appears
-sleep 60
+sleep 120
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=probe_duration_seconds' | jq '.data.result[] | {instance: .metric.instance, value: .value[1]}'
 kill $PF1
 kubectl -n monitoring delete probe demo-reachable
@@ -352,7 +352,7 @@ Update Complete. ⎈Happy Helming!⎈
 <b>$ helm upgrade --install blackbox prometheus-community/prometheus-blackbox-exporter -n monitoring --wait</b>
 Release "blackbox" does not exist. Installing it now.
 NAME: blackbox
-LAST DEPLOYED: Sun Sep 13 09:36:28 2026
+LAST DEPLOYED: Sun Sep 13 12:44:55 2026
 NAMESPACE: monitoring
 STATUS: deployed
 REVISION: 1
@@ -382,24 +382,32 @@ See https://github.com/prometheus/blackbox_exporter/ for how to configure Promet
 <b>        - http://staging-demo.team-a.svc.cluster.local</b>
 <b>EOF</b>
 probe.monitoring.coreos.com/demo-reachable created
-<b>$ sleep 60</b>
+<b>$ sleep 120</b>
 <b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
 Forwarding from 127.0.0.1:9090 -&gt; 9090
 Forwarding from [::1]:9090 -&gt; 9090
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=probe_success' | jq '.data.result[] | {instance: .metric.instance, value: .value[1]}'</b>
 Handling connection for 9090
+{
+  "instance": "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090/-/healthy",
+  "value": "1"
+}
+{
+  "instance": "http://staging-demo.team-a.svc.cluster.local",
+  "value": "0"
+}
 <b>$ # Prometheus reloads its config and scrapes before any of this appears</b>
-<b>$ sleep 60</b>
+<b>$ sleep 120</b>
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=probe_duration_seconds' | jq '.data.result[] | {instance: .metric.instance, value: .value[1]}'</b>
 Handling connection for 9090
 {
-  "instance": "http://staging-demo.team-a.svc.cluster.local",
-  "value": "5.000899293"
+  "instance": "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090/-/healthy",
+  "value": "0.003463362"
 }
 {
-  "instance": "http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090/-/healthy",
-  "value": "0.001528046"
+  "instance": "http://staging-demo.team-a.svc.cluster.local",
+  "value": "5.002871734"
 }
 <b>$ kill $PF1</b>
 <b>$ kubectl -n monitoring delete probe demo-reachable</b>
@@ -432,7 +440,7 @@ sleep 60
 sleep 60
 curl -s localhost:9090/api/v1/targets | jq '[.data.activeTargets[] | select(.scrapePool | contains("argocd-metrics"))] | length'
 kill $PF1
-kubectl -n monitoring delete servicemonitor argocd-metrics</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring delete servicemonitor argocd-metrics --ignore-not-found</b>
+kubectl -n monitoring delete servicemonitor argocd-metrics</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl -n monitoring delete servicemonitor argocd-metrics --ignore-not-found</b>
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1</b>
 <b>kind: ServiceMonitor</b>
@@ -553,7 +561,7 @@ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=count by (mountpoin
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=predict_linear(node_filesystem_avail_bytes[1h], 24*3600)' | jq '[.data.result[] | {instance: .metric.instance, mountpoint: .metric.mountpoint, predicted: .value[1]}] | .[0:3]'
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=absent_over_time(up{job="does-not-exist"}[5m])' | jq '.data.result'
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=absent_over_time(up{job="kubelet"}[5m])' | jq '.data.result'
-kill $PF1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!</b>
+kill $PF1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
 Forwarding from 127.0.0.1:9090 -&gt; 9090
 Forwarding from [::1]:9090 -&gt; 9090

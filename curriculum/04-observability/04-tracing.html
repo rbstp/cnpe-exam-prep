@@ -225,7 +225,7 @@ kubectl -n default wait --for=condition=Ready pod/sidecar-demo --timeout=120s
 kubectl -n default get pod sidecar-demo -o json | jq -r '[.spec.initContainers[]?, .spec.containers[]?] | .[] | "\(.name) \(.image)"'
 kubectl -n default get opentelemetrycollector -o custom-columns=NAME:.metadata.name,MODE:.spec.mode
 kubectl -n default delete pod sidecar-demo
-kubectl -n default delete opentelemetrycollector side</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n default delete opentelemetrycollector side</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: opentelemetry.io/v1beta1</b>
 <b>kind: OpenTelemetryCollector</b>
 <b>metadata: { name: side, namespace: default }</b>
@@ -475,7 +475,7 @@ subjects:
 EOF
 kubectl -n tracing rollout restart deploy otel-collector
 kubectl -n tracing rollout status deploy otel-collector --timeout=180s
-kill $PF1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # the tail-sampling exercise above leaves the shared pipeline dropping ordinary traces</b>
+kill $PF1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ # the tail-sampling exercise above leaves the shared pipeline dropping ordinary traces</b>
 <b>$ kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"processors":{"tail_sampling":null},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","batch"],"exporters":["otlp/jaeger","spanmetrics"]}}}}}}'</b>
 opentelemetrycollector.opentelemetry.io/otel patched (no change)
 <b>$ # there is no ClusterRoleBinding to back up here: create the RBAC so there is something to take away</b>
@@ -643,32 +643,6 @@ Waiting for deployment "otel-collector" rollout to finish: 1 old replicas are pe
 deployment "otel-collector" successfully rolled out
 <b>$ kill $PF1</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> the enriched spans carry <code>k8s.pod.name</code> and friends, the unenriched ones do not, and the collector log has a Forbidden line explaining why. Nothing fails; you just lose the ability to ask "which pod".</div>
-    </div>
-
-    <div class="exercise" data-title="Point the agent at the wrong port">
-      <p>OTLP has two ports and the auto-instrumentation agent will happily be configured with the wrong one. The app starts, serves traffic, and exports nothing, with the only evidence in the app's own log.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl -n default get instrumentation auto -o jsonpath='{.spec.exporter.endpoint}{"\n"}'
-kubectl -n default patch instrumentation auto --type merge -p '{"spec":{"exporter":{"endpoint":"http://otel-collector.tracing.svc:4317"}}}'
-kubectl -n default run pytraced --restart=Never --image=python:3.12-slim --annotations="instrumentation.opentelemetry.io/inject-python=true" --command -- python -c "import time;from opentelemetry import trace;t=trace.get_tracer('drill');[(lambda s:(time.sleep(1),s.end()))(t.start_span('tick')) for _ in range(120)]"
-kubectl -n default wait --for=condition=Ready pod/pytraced --timeout=180s
-sleep 60
-kubectl -n default logs pytraced -c pytraced | tail -20
-kubectl -n default patch instrumentation auto --type merge -p '{"spec":{"exporter":{"endpoint":"http://otel-collector.tracing.svc:4318"}}}'
-kubectl -n default delete pod pytraced</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n default get instrumentation auto -o jsonpath='{.spec.exporter.endpoint}{"\n"}'</b>
-http://otel-collector.tracing.svc:4317
-<b>$ kubectl -n default patch instrumentation auto --type merge -p '{"spec":{"exporter":{"endpoint":"http://otel-collector.tracing.svc:4317"}}}'</b>
-instrumentation.opentelemetry.io/auto patched (no change)
-<b>$ kubectl -n default run pytraced --restart=Never --image=python:3.12-slim --annotations="instrumentation.opentelemetry.io/inject-python=true" --command -- python -c "import time;from opentelemetry import trace;t=trace.get_tracer('drill');[(lambda s:(time.sleep(1),s.end()))(t.start_span('tick')) for _ in range(120)]"</b>
-pod/pytraced created
-<b>$ kubectl -n default wait --for=condition=Ready pod/pytraced --timeout=180s</b>
-pod/pytraced condition met
-<b>$ sleep 60</b>
-<b>$ kubectl -n default logs pytraced -c pytraced | tail -20</b>
-<b>$ kubectl -n default patch instrumentation auto --type merge -p '{"spec":{"exporter":{"endpoint":"http://otel-collector.tracing.svc:4318"}}}'</b>
-instrumentation.opentelemetry.io/auto patched
-<b>$ kubectl -n default delete pod pytraced</b>
-pod "pytraced" deleted from default namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the pod log repeats an OTLP export failure naming <code>http://otel-collector.tracing.svc:4317/v1/traces</code>. The Python agent speaks OTLP over HTTP, 4317 is the gRPC port, and the app keeps serving throughout. A workload that emits no spans logs nothing at all, which is why the drill makes one span per second.</div>
     </div>
 
     <div class="exercise" data-title="Turn spans into metrics">
