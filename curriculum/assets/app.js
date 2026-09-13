@@ -10,8 +10,8 @@
   /* The root comes out of the DOM, and href() splices it into markup that half a
      dozen builders hand to innerHTML, so the string itself must not travel: a
      value read from an attribute has no business being spliced into HTML, even
-     one this site writes itself. Its shape is fixed, zero or more "../" (a page
-     at the top writes "", one in a section directory "../"), so check that shape
+     one this site writes itself. Its form is fixed, zero or more "../" (a page
+     at the top writes "", one in a section directory "../"), so check that form
      and rebuild the value from a literal. Anything else is not a root this site
      produces, and the top is the safe reading of it. */
   function relRoot(raw) {

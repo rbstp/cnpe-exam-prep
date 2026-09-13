@@ -10,7 +10,7 @@ const pad = n => (n < 10 ? '0' : '') + n;
 /** @param {Date} d */
 const dayKey = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
 // One day's counter, summed over the browsers that contributed to it, which is
-// the shape merge.js keeps them in. A plain number is one unnamed browser.
+// the form merge.js keeps them in. A plain number is one unnamed browser.
 /** @param {*} rec @param {string} k @return {number} */
 const dayCount = (rec, k) => {
   const v = rec && rec[k];

@@ -152,7 +152,7 @@ module.exports = async function (h) {
 
   /** Boot signed in, wait out the boot push, hand the page to the body, then
    *  report what the Worker saw. The stub answers a GET with a bare payload
-   *  rather than the wire shape, so the boot pull always pushes once; waiting for
+   *  rather than the wire form, so the boot pull always pushes once; waiting for
    *  that rather than sleeping past it keeps it out of every count below.
    *  @param {{ hang?: boolean, debounce?: number }} o
    *  @param {(page: import('playwright').Page, srv: *) => Promise<*>} body */

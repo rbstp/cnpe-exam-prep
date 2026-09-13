@@ -57,7 +57,7 @@ SAME.forEach(([want, forms]) => {
     const got = S.normalize(f);
     ok(got === want, JSON.stringify(f) + " -> " + want + (got === want ? "" : ", got " + got));
   });
-  ok(S.normalize(want) === want, "and the canonical form is a fixed point: " + want);
+  ok(S.normalize(want) === want, "and the normalised form is a fixed point: " + want);
 });
 ok(S.normalize("") === "" && S.normalize("   ") === "" && S.normalize("$") === "", "a blank line normalises to nothing");
 ok(S.normalize("kubectl get pods -a") === "kubectl get pods -a", "-a and -A are different flags");
@@ -181,7 +181,7 @@ D.scenarios.forEach(sc => {
   const ot = S.run(sc, found, p.other);
   ok(ot.generic === true && ot.out.length > 0 && !looksLikeError(ot.out), "an unrelated valid command gets a generic answer: " + JSON.stringify(p.other) + " -> " + ot.out.split("\n")[0].slice(0, 60));
   ok(S.run(sc, found, "kubectl frobnicate").out.indexOf("unknown command") >= 0 && S.run(sc, found, "frobnicate").out.indexOf("command not found") >= 0,
-    "an unknown verb and an unknown tool are errors of the right shape");
+    "an unknown verb and an unknown tool are errors of the right kind");
   ok(S.run(sc, found, "kubectl get pods -n nowhere-" + sc.id).out === "No resources found in nowhere-" + sc.id + " namespace.", "a wrong namespace is empty, not an error");
 
   // every resource renders three ways without throwing or leaking undefined

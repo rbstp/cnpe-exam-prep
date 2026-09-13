@@ -37,7 +37,7 @@
 </section>
 
 <section class="panel accent-c" id="istio">
-  <div class="phdr"><h2>Istio ambient, the shape of it</h2><span class="meta">ztunnel · HBONE · waypoints</span></div>
+  <div class="phdr"><h2>Istio ambient, how it fits together</h2><span class="meta">ztunnel · HBONE · waypoints</span></div>
   <div class="pbody">
     <p>The mesh cluster runs Istio's <strong>ambient</strong> mode: no sidecars. A per-node proxy (<strong>ztunnel</strong>, a DaemonSet) intercepts traffic for enrolled namespaces and wraps it in mTLS over <strong>HBONE</strong> (HTTP/2 CONNECT tunnels on port 15008), using per-workload certificates issued by istiod. Enrolment is one label on the namespace: <code>istio.io/dataplane-mode=ambient</code>, and the lab pre-enrols <code>default</code> on the mesh cluster.</p>
 
@@ -396,7 +396,7 @@ spire-spire-test-keys                 46m</code></pre></details></div>
     </div>
 
     <div class="exercise" data-title="Put a waypoint in front of the namespace">
-      <p>Ambient mode gives you L4 identity for free and L7 policy only where you put a waypoint. Enrolling a namespace and writing a method-scoped rule is the whole shape of an L7 authorization task.</p>
+      <p>Ambient mode gives you L4 identity for free and L7 policy only where you put a waypoint. Enrolling a namespace and writing a method-scoped rule is all an L7 authorization task amounts to.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl --context kind-mesh label ns default istio.io/dataplane-mode=ambient --overwrite
 istioctl --context kind-mesh waypoint apply -n default --enroll-namespace --overwrite --wait
 kubectl --context kind-mesh get gtw waypoint
@@ -768,7 +768,7 @@ authorizationpolicy.security.istio.io "ztunnel-demo" deleted from default namesp
       <div class="verify"><b>verify:</b> each workload has a certificate whose identity is <code>cluster.local/ns/&lt;ns&gt;/sa/&lt;sa&gt;</code>, and the log lines name both ends of a connection by identity rather than by IP.</div>
     </div>
 
-    <div class="exercise" data-title="The Linkerd shape of the same rule">
+    <div class="exercise" data-title="The Linkerd version of the same rule">
       <p>Linkerd expresses the same idea with different objects: a Server names the port, an AuthorizationPolicy references it, and MeshTLSAuthentication names the identities. Knowing both vocabularies is on the exam's tool list.</p>
       <p>This block runs only if the mesh cluster was built with <code>MESH=linkerd make mesh</code>; on an Istio mesh the first command tells you so and the rest will not apply.</p>
       <div class="cb" data-lang="bash"><pre><code># this lab's mesh cluster runs Istio; the Linkerd objects only apply if you rebuilt it with MESH=linkerd make mesh
@@ -947,7 +947,7 @@ pod "svid-reader" deleted from default namespace</code></pre></details></div>
       <div class="answer"><p>An AuthorizationPolicy with an L7 <code>to.operation</code> rule <em>and</em> a waypoint proxy for the target, because ztunnel alone enforces L4. Without the waypoint the method/path clauses have nothing to evaluate them.</p></div></details>
 
     <details class="quiz"><summary>NetworkPolicy or AuthorizationPolicy: when do you use each?</summary>
-      <div class="answer"><p>Both, at different layers. NetworkPolicy is CNI-enforced, identity-by-label, works for all traffic including non-mesh workloads. AuthorizationPolicy is mesh-enforced, identity-by-certificate, survives IP churn and works across clusters. Defence in depth: the CNI keeps the blast radius small, the mesh makes the caller prove who it is.</p></div></details>
+      <div class="answer"><p>Both, at different layers. NetworkPolicy is CNI-enforced, identity-by-label, works for all traffic including non-mesh workloads. AuthorizationPolicy is mesh-enforced, identity-by-certificate, survives IP churn and works across clusters. Defence in depth: the CNI keeps the reachable set small, the mesh makes the caller prove who it is.</p></div></details>
 
     <details class="quiz"><summary>Give a scenario where SPIRE beats a mesh.</summary>
       <div class="answer"><p>A workload must authenticate to something outside the cluster (a managed database, a partner API, a legacy service) with short-lived credentials and no static secret. SPIRE issues an SVID through the Workload API socket; the mesh only secures traffic between meshed services. Bonus: SPIFFE IDs federate across trust domains, which is how you extend identity beyond one cluster.</p></div></details>

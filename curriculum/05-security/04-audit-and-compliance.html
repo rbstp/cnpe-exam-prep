@@ -49,7 +49,7 @@
       </table>
     </div>
 
-    <p><strong>Stages</strong>: <code>RequestReceived</code>, <code>ResponseStarted</code> (long-running watches), <code>ResponseComplete</code>, <code>Panic</code>. Most analysis uses ResponseComplete. Policy rules match <em>in order, first hit wins</em> (the same mental model as Alertmanager routes), so the file reads as: drop the noise, raise the sensitive, catch everything else at Metadata. Read <code>kind/audit-policy.yaml</code> in this repo and you will see exactly that shape.</p>
+    <p><strong>Stages</strong>: <code>RequestReceived</code>, <code>ResponseStarted</code> (long-running watches), <code>ResponseComplete</code>, <code>Panic</code>. Most analysis uses ResponseComplete. Policy rules match <em>in order, first hit wins</em> (the same mental model as Alertmanager routes), so the file reads as: drop the noise, raise the sensitive, catch everything else at Metadata. Read <code>kind/audit-policy.yaml</code> in this repo and you will see exactly that.</p>
 
     <h3>Fields that answer real questions</h3>
     <div class="tbl-wrap">
@@ -139,7 +139,7 @@ rules:
       <li><code>validation.policy.admission.k8s.io/validation_failure</code>: a ValidatingAdmissionPolicy binding with <code>validationActions: [Audit]</code> records here; the policy's own <code>auditAnnotations</code> add custom keys.</li>
       <li><code>mutation.webhook.admission.k8s.io/round_0_index_N</code> and <code>patch.webhook.admission.k8s.io/...</code>: which mutating webhooks touched the object and what they changed, when the level is <code>Request</code> or higher.</li>
     </ul>
-    <div class="callout exam"><span class="tag">How this gets tested</span><p>Two shapes. Write or fix a policy: "record who reads Secrets without logging their contents, and drop health checks" is a Metadata rule on <code>secrets</code> plus a <code>None</code> rule on <code>nonResourceURLs</code>, in that order relative to the catch-all. Query the log: "which ServiceAccount deleted the Deployment" is a <code>jq</code> filter on <code>verb</code>, <code>objectRef.resource</code>, <code>objectRef.name</code> and <code>user.username</code>. Both are graded on the output, so run the query after the change.</p></div>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>Two kinds of task. Write or fix a policy: "record who reads Secrets without logging their contents, and drop health checks" is a Metadata rule on <code>secrets</code> plus a <code>None</code> rule on <code>nonResourceURLs</code>, in that order relative to the catch-all. Query the log: "which ServiceAccount deleted the Deployment" is a <code>jq</code> filter on <code>verb</code>, <code>objectRef.resource</code>, <code>objectRef.name</code> and <code>user.username</code>. Both are graded on the output, so run the query after the change.</p></div>
   </div>
 </section>
 
@@ -651,7 +651,7 @@ job.batch "kube-bench" deleted from default namespace</code></pre></details></di
     <details class="quiz"><summary>Which audit level would you set for Secrets, and which for Events? Why?</summary>
       <div class="answer"><p>Secrets: <code>Metadata</code>, never Request or RequestResponse, or you write secret values into a log file. Events: <code>None</code>; they are high-volume and low-value, and dropping them keeps the log readable. First-match-wins ordering makes those two rules the top of the file.</p></div></details>
 
-    <details class="quiz"><summary>Find every request a specific ServiceAccount was denied. Shape of the query?</summary>
+    <details class="quiz"><summary>Find every request a specific ServiceAccount was denied. What does the query look like?</summary>
       <div class="answer"><p>Filter on <code>.user.username == "system:serviceaccount:&lt;ns&gt;:&lt;name&gt;"</code> and either <code>.responseStatus.code == 403</code> or <code>.annotations["authorization.k8s.io/decision"] == "forbid"</code>, then print verb and objectRef. That is the audit-log form of the RBAC debugging you did in 5.1.</p></div></details>
 
     <details class="quiz"><summary>An SBOM and a vulnerability report: what is the difference and why keep both?</summary>

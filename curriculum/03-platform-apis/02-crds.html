@@ -55,7 +55,7 @@
       </table>
     </div>
 
-    <p><strong>Versioning, at exam depth:</strong> deprecating a version means <code>served: true</code> with storage moved on; removing it means <code>served: false</code>. That is the whole mechanism unless the schemas actually differ, in which case you need conversion: <code>strategy: None</code> (same shape, different name) or a <code>Webhook</code> converter (real transformation). Know that the choice exists and what each costs.</p>
+    <p><strong>Versioning, at exam depth:</strong> deprecating a version means <code>served: true</code> with storage moved on; removing it means <code>served: false</code>. That is the whole mechanism unless the schemas actually differ, in which case you need conversion: <code>strategy: None</code> (same fields, different name) or a <code>Webhook</code> converter (real transformation). Know that the choice exists and what each costs.</p>
 
     <h3>Schema: where design happens</h3>
     <p>The schema is OpenAPI v3: types, <code>required</code>, <code>enum</code>, <code>pattern</code>, <code>minimum</code>/<code>maximum</code>, <code>default</code>, <code>format</code>. Two extensions worth knowing by name:</p>
@@ -132,7 +132,7 @@
     <h3>List semantics</h3>
     <p><code>x-kubernetes-list-type: atomic</code> (default for lists of primitives and structs): server-side apply replaces the whole list and one manager owns it. <code>set</code>: scalar elements, unique, merged as a set. <code>map</code> with <code>x-kubernetes-list-map-keys: [name]</code>: elements are identified by key, so two field managers can each own their entries, and CEL can correlate items in transition rules. Conditions lists use <code>map</code> keyed on <code>type</code>. Argo CD and Flux server-side apply both behave differently on atomic lists (any change reverts the whole list), which is the source of "my sidecar keeps disappearing" reports.</p>
 
-    <div class="callout trap"><span class="tag">The error you will read most</span><p>"The X "y" is invalid: spec.tier: Unsupported value: "platinum": supported values: "bronze", "silver", "gold"" is the enum; "spec.sizeGB: Invalid value: 900: spec.sizeGB in body should be less than or equal to 500" is a bound; "spec: Invalid value: ...: bronze tier is capped at 50GB" is your CEL message; "strict decoding error: unknown field "spec.color"" is kubectl's field validation, not the schema. Four validators, four sentence shapes; knowing which produced the text tells you which line of the CRD to edit.</p></div>
+    <div class="callout trap"><span class="tag">The error you will read most</span><p>"The X "y" is invalid: spec.tier: Unsupported value: "platinum": supported values: "bronze", "silver", "gold"" is the enum; "spec.sizeGB: Invalid value: 900: spec.sizeGB in body should be less than or equal to 500" is a bound; "spec: Invalid value: ...: bronze tier is capped at 50GB" is your CEL message; "strict decoding error: unknown field "spec.color"" is kubectl's field validation, not the schema. Four validators, four sentence styles; knowing which produced the text tells you which line of the CRD to edit.</p></div>
   </div>
 </section>
 
@@ -784,8 +784,8 @@ NamesAccepted Established</code></pre></details></div>
     <details class="quiz"><summary>You must forbid changing <code>spec.tier</code> after creation. How, without a webhook?</summary>
       <div class="answer"><p>A CEL validation on the field: <code>rule: "self == oldSelf"</code> with a message like "tier is immutable". <code>x-kubernetes-validations</code> is evaluated by the API server and can compare against the old object, which is exactly the immutability case.</p></div></details>
 
-    <details class="quiz"><summary>You want to serve <code>v1alpha1</code> and <code>v1beta1</code> with different shapes. What do you need?</summary>
-      <div class="answer"><p>Both versions <code>served</code>, exactly one marked <code>storage</code>, and a conversion strategy: <code>None</code> only if the shapes are compatible, otherwise a conversion webhook. Everything read from etcd is stored in the storage version and converted on the way out.</p></div></details>
+    <details class="quiz"><summary>You want to serve <code>v1alpha1</code> and <code>v1beta1</code> with different fields. What do you need?</summary>
+      <div class="answer"><p>Both versions <code>served</code>, exactly one marked <code>storage</code>, and a conversion strategy: <code>None</code> only if the fields are compatible, otherwise a conversion webhook. Everything read from etcd is stored in the storage version and converted on the way out.</p></div></details>
 
     <details class="quiz"><summary>What does a CRD give you for free, and what does it definitively not give you?</summary>
       <div class="answer"><p>Free: persistence, validation, defaulting, RBAC integration, watch/informers, <code>kubectl</code> support and explain docs, quota counting, policy-engine visibility. Not free: any behaviour whatsoever. Nothing happens until a controller acts on the object.</p></div></details>

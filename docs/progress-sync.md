@@ -102,7 +102,7 @@ The counters are a per-field max. `drill.r` and `m` take it independently, `days
 counts the same way, and only `ok` and `t` follow the clock, so two browsers that
 each answered the same card offline keep both answers. Nothing lowers them.
 
-Ticks are a three-way merge, the shape `git merge` uses. Each browser keeps a
+Ticks are a three-way merge, the same kind `git merge` does. Each browser keeps a
 **base** in `localStorage` under `cnpe:sync-base`: the ticked keys of the last
 state it and the server agreed on. Then, per key,
 
@@ -268,7 +268,7 @@ ten minutes. Everything that is *code* is already in `sync/`.
 ## 1. A GitHub OAuth app
 
 github.com → Settings → Developer settings → **OAuth Apps** → **New OAuth App**.
-(Not "GitHub App": a plain OAuth app is the right shape for identity-only login.)
+(Not "GitHub App": a plain OAuth app is the right fit for identity-only login.)
 
 | Field | Value |
 |---|---|
@@ -512,7 +512,7 @@ Worth knowing if you change any of it:
   plain objects: all 27 base/local/remote combinations in each of the four tick
   buckets, the counter maxima, the prototype guards on a payload that arrives over
   the network, the narrowed base one tab holds against another, and the base rules
-  above, meaning the rev and account checks, the wire shape the exam clock is
+  above, meaning the rev and account checks, the wire form the exam clock is
   stripped from, and what counts as having anything to save. Whether this browser
   may hold a base at all stays in `sync.js`, since that is a question about the
   disk and the other tabs rather than a rule. Plain `node`, no dependencies, and

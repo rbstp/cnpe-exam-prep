@@ -15,7 +15,7 @@
 (function (root: Pick<Window, "CNPE_SIM">) {
   "use strict";
 
-  /** the flags a normalised command carries, by canonical name; a bare flag is "true" */
+  /** the flags a normalised command carries, by normalised name; a bare flag is "true" */
   type Flags = Record<string, string>;
   /** argocd app get/list's fields, as the resource table declares them */
   type ArgoInfo = NonNullable<CnpeGameResource["argo"]>;
@@ -95,7 +95,7 @@
     if (dot > 0 && KINDS[low.slice(0, dot)]) return KINDS[low.slice(0, dot)];
     return low;
   }
-  /** kind/name and kind,kind lists, into one canonical token */
+  /** kind/name and kind,kind lists, into one normalised token */
   function kindTok(tok: string): string {
     return tok.split(",").map(function (part) {
       var slash = part.indexOf("/");
@@ -115,7 +115,7 @@
       }
       // A quote opens a group at the start of a token or right after an =, as
       // in -p '{...}' and --patch="{...}". Anywhere else it is a character: the
-      // canonical form of a patch carries its JSON quotes bare, and has to
+      // the normalised form of a patch carries its JSON quotes bare, and has to
       // normalise to itself.
       if ((c === "'" || c === '"') && (cur === "" || cur[cur.length - 1] === "=")) { q = c; had = true; continue; }
       if (c === "\\" && i + 1 < s.length) { cur += s[++i]; continue; }
@@ -128,7 +128,7 @@
     return out.filter(function (t) { return !/^\d?>/.test(t) && t !== "2>&1"; });
   }
 
-  // Flags that take a value, by their canonical name.
+  // Flags that take a value, by their normalised name.
   var VALUED: Record<string, string> = {
     "-n": "-n", "--namespace": "-n", "-o": "-o", "--output": "-o", "-l": "-l", "--selector": "-l",
     "--sort-by": "--sort-by", "--as": "--as", "--as-group": "--as-group", "--type": "--type",
@@ -146,7 +146,7 @@
     "--user": "--user", "--group": "--group", "--schedule": "--schedule", "--limit": "--limit",
     "--label": "--label", "--message": "--message"
   };
-  // The flags whose canonical order the matchers rely on; anything else is
+  // The flags whose normalised order the matchers rely on; anything else is
   // appended sorted, so two spellings of one command still meet.
   var ORDER: string[] = ["-n", "-l", "-A", "-o", "--previous", "--sort-by", "--show-labels", "--as", "--as-group",
     "--type", "-p", "--tail", "--overwrite", "--image", "--requests", "--limits", "--replicas", "-f",

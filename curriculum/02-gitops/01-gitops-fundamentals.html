@@ -47,7 +47,7 @@
   <div class="phdr"><h2>The concepts questions hang off</h2><span class="meta">reconciliation · drift · push vs pull</span></div>
   <div class="pbody">
     <h3>Reconciliation is a loop, not an event</h3>
-    <p>The controller compares live state with git on an interval and on webhooks. So a change made with <code>kubectl edit</code> does not <em>fail</em>; it gets reverted on the next loop if self-heal is on, or reported as drift if not. "Why did my manual fix disappear" is the canonical symptom, and "OutOfSync" is the canonical report. The loop also means recovery is free: delete the whole namespace and the next reconcile rebuilds it. That is the disaster-recovery argument for GitOps.</p>
+    <p>The controller compares live state with git on an interval and on webhooks. So a change made with <code>kubectl edit</code> does not <em>fail</em>; it gets reverted on the next loop if self-heal is on, or reported as drift if not. "Why did my manual fix disappear" is the symptom you will see most, and "OutOfSync" is how the controller reports it. The loop also means recovery is free: delete the whole namespace and the next reconcile rebuilds it. That is the disaster-recovery argument for GitOps.</p>
 
     <pre class="diagram">   ┌──────────── git (desired) ────────────┐
    │  demo-app/overlays/staging/…          │
@@ -78,7 +78,7 @@
 <section class="panel accent-p" id="repos">
   <div class="phdr"><h2>Repo design</h2><span class="meta">directories, not branches</span></div>
   <div class="pbody">
-    <p>This lab seeds two Gitea repos that model the standard split: <code>platform</code> (cluster-level config: policies, tenants, the app-of-apps) and <code>demo-app</code> (one workload). The split matters because the two have different reviewers, different blast radius and different cadence.</p>
+    <p>This lab seeds two Gitea repos that model the standard split: <code>platform</code> (cluster-level config: policies, tenants, the app-of-apps) and <code>demo-app</code> (one workload). The split matters because the two have different reviewers, different reach when something breaks, and different cadence.</p>
 
     <div class="tbl-wrap">
       <table>
@@ -124,14 +124,14 @@
 </section>
 
 <section class="panel accent-c" id="repos-promotion">
-  <div class="phdr"><h2>Repos, promotion and rendered manifests</h2><span class="meta">layouts by team shape · promotion as a diff · hydration · OCI as a source · Kustomize vs Helm</span></div>
+  <div class="phdr"><h2>Repos, promotion and rendered manifests</h2><span class="meta">layouts by team structure · promotion as a diff · hydration · OCI as a source · Kustomize vs Helm</span></div>
   <div class="pbody">
     <p>The OpenGitOps principles are versioned (v1.0.0); the glossary behind them defines <em>desired state</em>, <em>state store</em>, <em>reconciliation</em> and <em>continuous</em>, and "continuous" is defined there as "continues to happen" rather than instantaneous. The rest of this panel is the layout and promotion decisions that turn the principles into a repository.</p>
 
     <h3>Three layouts the Flux guide names, and when each wins</h3>
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>Layout</th><th>Shape</th><th>Choose it when</th><th>Cost</th></tr></thead>
+        <thead><tr><th>Layout</th><th>Tree</th><th>Choose it when</th><th>Cost</th></tr></thead>
         <tbody>
           <tr><td>Monorepo</td><td class="mono">apps/{base,staging,production} · infrastructure/{base,staging,production} · clusters/{staging,production}</td><td>one platform team, few tenants, atomic cross-cutting changes wanted</td><td>everyone can read production config; big PRs hide production changes</td></tr>
           <tr><td>Repo per environment</td><td>same tree, but production in its own repository</td><td>production access must be narrower than staging access</td><td>promotion is a cross-repo PR; infrastructure changes need two commits</td></tr>
@@ -154,7 +154,7 @@
 
     <h3>OCI artifacts as a source</h3>
     <ul>
-      <li>Argo CD (3.1+): <code>repoURL: oci://registry/org/config</code>, <code>targetRevision</code> a tag or digest, <code>path: .</code>; Helm charts in OCI are the same shape with <code>chart</code> semantics.</li>
+      <li>Argo CD (3.1+): <code>repoURL: oci://registry/org/config</code>, <code>targetRevision</code> a tag or digest, <code>path: .</code>; Helm charts in OCI work the same way, with <code>chart</code> semantics.</li>
       <li>Flux: <code>flux push artifact oci://registry/org/config:tag --path ./deploy --source ... --revision ...</code> produces an artifact with Flux media types; an <code>OCIRepository</code> with <code>ref.tag</code>, <code>ref.semver</code> or <code>ref.digest</code> consumes it, optionally with <code>verify.provider: cosign</code> or <code>notation</code>. A Kustomization uses it exactly like a GitRepository.</li>
       <li>Why: registries already hold the images, so config and image can share signing, retention and promotion (retag), and clusters without git access can still pull.</li>
     </ul>

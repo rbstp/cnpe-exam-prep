@@ -34,7 +34,7 @@
    ├─ 2.4 <i>pipeline scan gate</i>      catches known-bad <u>before publish</u>
    ├─ 5.6 <i>signature</i>               catches tampering and untrusted builders
    ├─ 5.6 <i>admission verification</i>  catches images that <em>bypassed the pipeline entirely</em>
-   ├─ 5.3 <i>Pod Security Standards</i>  catches dangerous runtime shape, regardless of provenance
+   ├─ 5.3 <i>Pod Security Standards</i>  catches dangerous runtime settings, regardless of provenance
    └─ 5.4 <i>continuous rescanning</i>   catches CVEs published <u>after</u> you shipped
    ▼
 <b>running pod</b></pre>
@@ -114,7 +114,7 @@
         </tbody>
       </table>
     </div>
-    <p>v1.0 has only the Build track; later versions add Source and build-environment tracks with the same shape. Provenance is an in-toto Statement with <code>predicateType: https://slsa.dev/provenance/v1</code> whose predicate has <code>buildDefinition</code> (<code>buildType</code>, <code>externalParameters</code>, <code>resolvedDependencies</code>) and <code>runDetails</code> (<code>builder.id</code>, metadata). Verification means checking the signature, the <code>builder.id</code> against the builders you trust, and the source in <code>externalParameters</code> against the repository you expect.</p>
+    <p>v1.0 has only the Build track; later versions add Source and build-environment tracks built the same way. Provenance is an in-toto Statement with <code>predicateType: https://slsa.dev/provenance/v1</code> whose predicate has <code>buildDefinition</code> (<code>buildType</code>, <code>externalParameters</code>, <code>resolvedDependencies</code>) and <code>runDetails</code> (<code>builder.id</code>, metadata). Verification means checking the signature, the <code>builder.id</code> against the builders you trust, and the source in <code>externalParameters</code> against the repository you expect.</p>
 
     <h3>Tekton Chains</h3>
     <p>Chains watches TaskRuns and PipelineRuns, and on completion formats, signs and uploads provenance. Everything is in the <code>chains-config</code> ConfigMap in <code>tekton-chains</code>:</p>
@@ -177,7 +177,7 @@ The following checks were performed on each of these signatures:
     </div>
 
     <div class="exercise" data-title="Close the door at admission">
-      <p>Kyverno's current kind for this is ImageValidatingPolicy (<code>kubectl explain imagevalidatingpolicies.spec</code>; the API has moved before and the checking <em>is</em> the exercise). Three facts shape the setup:</p>
+      <p>Kyverno's current kind for this is ImageValidatingPolicy (<code>kubectl explain imagevalidatingpolicies.spec</code>; the API has moved before and the checking <em>is</em> the exercise). Three facts govern the setup:</p>
       <ol>
         <li>Kyverno fetches signatures itself, from inside the cluster, so the pod images and the policy globs must use the in-cluster registry name (<code>kind-registry:5000</code>, which the lab wires into CoreDNS and containerd), never <code>localhost:5001</code>, which inside the Kyverno pod is the Kyverno pod.</li>
         <li>The registry is plain http, and the knob for that is on the <em>engine</em>, not the policy: the lab installs Kyverno with <code>features.registryClient.allowInsecure=true</code>. Without it, every verification dies on <code>server gave HTTP response to HTTPS client</code> before any signature is read.</li>
@@ -204,7 +204,7 @@ Error from server: admission webhook "ivpol.validate.kyverno.svc-fail" denied th
 
     <div class="exercise" data-title="Wire the gate order into one sentence each">
       <p>Five controls now exist between a git push and a running pod in this lab: pipeline scan gate (2.4), registry signature (here), admission verification (here), PSS (5.3), continuous rescanning (5.4). Write one line per control naming the failure class only it catches.</p>
-      <div class="verify"><b>verify:</b> against this: gate catches known-bad before publish; signature catches tampering and untrusted builders; admission catches bypassing the pipeline entirely; PSS catches dangerous runtime shape regardless of provenance; the operator catches CVEs discovered after ship. If your five lines cover those five distinct failure classes, this competency is done.</div>
+      <div class="verify"><b>verify:</b> against this: gate catches known-bad before publish; signature catches tampering and untrusted builders; admission catches bypassing the pipeline entirely; PSS catches dangerous runtime settings regardless of provenance; the operator catches CVEs discovered after ship. If your five lines cover those five distinct failure classes, this competency is done.</div>
     </div>
 
     <div class="exercise" data-title="Verify a keyless signature properly">

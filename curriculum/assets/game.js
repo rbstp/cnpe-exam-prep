@@ -6,7 +6,7 @@
    techniques; its trial is the section's self-check cards; the dungeon behind it
    holds a fault, and the fight is real commands against game-sim.js's cluster.
 
-   Progress lives in store.game, in the shapes merge.js merges (see cnpe.d.ts):
+   Progress lives in store.game, in the structures merge.js merges (see cnpe.d.ts):
    counters per browser slot, ticks as unions, the position stamped. Trial
    answers go into store.drill exactly as drill.js writes them, so the drill and
    the quest share one memory and one heartbeat.

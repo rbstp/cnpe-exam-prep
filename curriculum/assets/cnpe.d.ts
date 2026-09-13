@@ -178,7 +178,7 @@ interface CnpeSyncBase extends CnpeTickSets {
   rev?: number;
 }
 
-/** The same four buckets as lookup maps, which is the shape the merge reads. */
+/** The same four buckets as lookup maps, which is what the merge reads. */
 type CnpeMergeBase = Record<"done" | "ex" | "exam" | "exam2", Record<string, 1>>;
 
 /** The DOM-free merge, shared by app.js, sync.js and tools/merge-test.mjs. */
@@ -203,7 +203,7 @@ interface CnpeMergeApi {
   /** whether a store holds anything worth a remote row */
   hasAnything(p: unknown): boolean;
   /** milliseconds until a drill card comes round again; zero or less is due now,
-      worked out from the card's own r/m/ok/t on an SM-2 shaped ladder */
+      worked out from the card's own r/m/ok/t on an SM-2 style ladder */
   dueIn(rec: unknown, now: number): number;
   /** backfill days for a streak earned before the console counted them */
   seedDays(s: unknown): void;
@@ -229,7 +229,7 @@ interface CnpeMergeApi {
   DAY_RE: RegExp;
 }
 
-/** The seam between app.js and drill.js / sync.js (CNPE_PROGRESS). */
+/** The interface between app.js and drill.js / sync.js (CNPE_PROGRESS). */
 interface CnpeProgressApi {
   get(): CnpeStore;
   save(): void;
@@ -599,13 +599,13 @@ interface CnpeSimResult {
 /** The DOM-free command interpreter (CNPE_SIM), driven by tools/game-sim-test.mjs. */
 interface CnpeSimApi {
   /** a command as the matchers see it: aliases expanded, namespace and output
-      flags in canonical form, pipes stripped */
+      flags in normalised form, pipes stripped */
   normalize(cmd: string): string;
   /** the scenario's answer to one command; found is the evidence ids already surfaced */
   run(scenario: CnpeGameScenario, found: Record<string, number>, cmd: string): CnpeSimResult;
   /** the command's tool family, which cheat sheets and typed bonuses key on */
   toolOf(cmd: string): string;
-  /** a kind alias in its plural canonical form */
+  /** a kind alias in its plural normalised form */
   kindOf(k: string): string;
 }
 

@@ -760,7 +760,7 @@ module.exports = async function (h) {
   /* 15. a store the server already has costs no write */
   await group('reloading with nothing new does not write again', async () => {
     // The row the server holds is whatever a client last pushed, so let the
-    // first load produce it rather than guessing the normalised shape by hand.
+    // first load produce it rather than guessing the normalised form by hand.
     /** @type {*} */
     let stored = null;
     let rev = 0;

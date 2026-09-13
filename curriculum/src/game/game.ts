@@ -5,7 +5,7 @@
    techniques; its trial is the section's self-check cards; the dungeon behind it
    holds a fault, and the fight is real commands against game-sim.js's cluster.
 
-   Progress lives in store.game, in the shapes merge.js merges (see cnpe.d.ts):
+   Progress lives in store.game, in the structures merge.js merges (see cnpe.d.ts):
    counters per browser slot, ticks as unions, the position stamped. Trial
    answers go into store.drill exactly as drill.js writes them, so the drill and
    the quest share one memory and one heartbeat.
@@ -32,7 +32,7 @@
   var STARTER_ITEMS: Record<string, number> = { scroll: 2 };
   var WALK: Record<string, number> = { grass: 1, road: 1, sand: 1, bridge: 1, town: 1, door: 1, keep: 1, gate: 1, flower: 1 };
 
-  /* ── the shapes the scenes build ────────────────────────── */
+  /* ── the records the scenes build ───────────────────────── */
   type Scene = "map" | "town" | "trial" | "battle" | "shop" | "journal";
   type BattleMode = "menu" | "typed" | "inspect" | "fix" | "item" | "target";
   /** the theme's colours, read live from the stylesheet's custom properties (CnpeGamePalette in cnpe.d.ts) */

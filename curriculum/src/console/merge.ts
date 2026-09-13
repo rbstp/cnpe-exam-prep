@@ -185,7 +185,7 @@
   }
 
   /* ── the drill's schedule ─────────────────────────────────── */
-  /* SM-2's shape over the counters the drill has always kept. A card sits on a
+  /* SM-2's schedule over the counters the drill has always kept. A card sits on a
      ladder at its lifetime score, right net of missed, and each rung waits longer
      than the last by an ease its own miss rate sets. A miss costs a rung and makes
      the card due now; the next right answer buys that rung back, so a lapse sets a
@@ -314,7 +314,7 @@
 
   /* ── the ticked keys of a store ───────────────────────────── */
   /* What cnpe:sync-base holds, and what a tab keeps of the last store it saw on
-     the disk. Both are bases for the merge below; sets() is the shape it reads. */
+     the disk. Both are bases for the merge below; sets() is the form it reads. */
   // exam and exam2 keep their ticks under .tasks; done and ex are the map itself.
   function bucketOf(p: any, b: string): Record<string, any> | null {
     var m = b === "exam" || b === "exam2" ? p && p[b] && p[b].tasks : p && p[b];
@@ -383,8 +383,8 @@
   }
 
   /* A store as it goes over the wire. A running exam clock stays on the machine
-     that started it, as import has always left it. The shape is stable so an
-     unchanged store canonicalises to exactly what was sent last time: the resume
+     that started it, as import has always left it. The layout is stable so an
+     unchanged store normalises to exactly what was sent last time: the resume
      pointer travels, and app.js moves it only when a new section is opened. */
   function wire(p: unknown): Record<string, any> | null {
     if (!p || typeof p !== "object") return null;

@@ -100,7 +100,7 @@
         <tbody>
           <tr><td class="mono">Grafana</td><td>an instance (or an external one via <code>spec.external.url</code> plus admin credentials)</td><td>its labels are what every other kind selects with <code>instanceSelector</code></td></tr>
           <tr><td class="mono">GrafanaDashboard</td><td>one dashboard from <code>json</code>, <code>gzipJson</code>, <code>url</code>, <code>configMapRef</code>, <code>jsonnet</code> or <code>grafanaCom.id</code></td><td><code>instanceSelector</code>, <code>folder</code>/<code>folderRef</code>, <code>resyncPeriod</code>, <code>datasources[]</code> to rewrite <code>${DS_PROMETHEUS}</code> inputs</td></tr>
-          <tr><td class="mono">GrafanaDatasource</td><td>one datasource in the same shape as the provisioning file (<code>datasource.jsonData</code>, <code>secureJsonData</code>, <code>valuesFrom</code> for Secret refs)</td><td><code>instanceSelector</code>; <code>allowCrossNamespaceImport: true</code> on the Grafana when the datasource lives elsewhere</td></tr>
+          <tr><td class="mono">GrafanaDatasource</td><td>one datasource with the same fields as the provisioning file (<code>datasource.jsonData</code>, <code>secureJsonData</code>, <code>valuesFrom</code> for Secret refs)</td><td><code>instanceSelector</code>; <code>allowCrossNamespaceImport: true</code> on the Grafana when the datasource lives elsewhere</td></tr>
           <tr><td class="mono">GrafanaFolder</td><td>a folder, optionally with <code>parentFolderRef</code> and <code>permissions</code></td><td>dashboards point at it by <code>folderRef</code></td></tr>
           <tr><td class="mono">GrafanaAlertRuleGroup / GrafanaContactPoint / GrafanaNotificationPolicy / GrafanaMuteTiming</td><td>Grafana-managed alerting as code</td><td>irrelevant if Prometheus rules are the model, but a task may hand you one</td></tr>
         </tbody>
@@ -114,7 +114,7 @@
   <div class="phdr"><h2>Loki under the hood, and LogQL past the first five constructs</h2><span class="meta">components, labels vs structured metadata, parsers, shippers, retention</span></div>
   <div class="pbody">
     <h3>Components and deployment modes</h3>
-    <p>The write path is <em>distributor</em> (validates, hashes each stream to a ring position) → <em>ingester</em> (builds chunks in memory, flushes to object storage) with a quorum of replicas acknowledging. The read path is <em>query-frontend</em> (splits and queues) → <em>query-scheduler</em> → <em>querier</em> (asks ingesters for recent data, then the store). The <em>compactor</em> merges index files and applies retention; the <em>ruler</em> evaluates alerting and recording rules; the <em>index gateway</em> serves index lookups. Everything persists to one object store (S3, GCS, Azure, MinIO) with the TSDB index shipped alongside the chunks. Three deployment shapes: single binary (<code>-target=all</code>), simple scalable (<code>read</code>, <code>write</code>, <code>backend</code> targets, the Helm default at scale) and full microservices. "Loki is up but returns nothing" in the SSD shape is usually the write path (shipper cannot push, ingester ring unhealthy) rather than the read path.</p>
+    <p>The write path is <em>distributor</em> (validates, hashes each stream to a ring position) → <em>ingester</em> (builds chunks in memory, flushes to object storage) with a quorum of replicas acknowledging. The read path is <em>query-frontend</em> (splits and queues) → <em>query-scheduler</em> → <em>querier</em> (asks ingesters for recent data, then the store). The <em>compactor</em> merges index files and applies retention; the <em>ruler</em> evaluates alerting and recording rules; the <em>index gateway</em> serves index lookups. Everything persists to one object store (S3, GCS, Azure, MinIO) with the TSDB index shipped alongside the chunks. Three deployment modes: single binary (<code>-target=all</code>), simple scalable (<code>read</code>, <code>write</code>, <code>backend</code> targets, the Helm default at scale) and full microservices. "Loki is up but returns nothing" in the SSD mode is usually the write path (shipper cannot push, ingester ring unhealthy) rather than the read path.</p>
 
     <h3>Labels, cardinality, structured metadata</h3>
     <p>Every unique label set is a stream, every stream has its own chunks and index entries, and Loki caps streams per tenant (<code>max_streams_per_user</code>) and labels per stream (15 by default). Labels should be low-cardinality and long-lived: <code>namespace</code>, <code>app</code>, <code>container</code>, <code>level</code> at most. Anything high-cardinality that you still want to filter on quickly (pod name, trace ID, request ID) belongs in <em>structured metadata</em>, per-line key-value pairs stored with the chunk and queryable with the same label-filter syntax, without creating streams. The OTLP endpoint (<code>/otlp/v1/logs</code>) maps resource attributes such as <code>service.name</code> and <code>k8s.namespace.name</code> to index labels and the rest to structured metadata automatically; the docs now recommend moving <code>k8s.pod.name</code> off the index label list.</p>
@@ -127,7 +127,7 @@
           <tr><td class="mono">| pattern</td><td><code>| pattern "&lt;ip&gt; - - &lt;_&gt; \"&lt;method&gt; &lt;path&gt; &lt;_&gt;\" &lt;status&gt;"</code></td><td>fast field extraction for fixed-format lines; <code>&lt;_&gt;</code> skips</td></tr>
           <tr><td class="mono">| regexp</td><td><code>| regexp "(?P&lt;user&gt;\\w+) logged in"</code></td><td>named groups become labels; slowest parser</td></tr>
           <tr><td class="mono">| json a="b.c"</td><td>extract only named paths</td><td>bare <code>| json</code> flattens everything, which explodes label counts on wide events</td></tr>
-          <tr><td class="mono">| line_format / | label_format</td><td><code>| line_format "{{.method}} {{.status}}"</code></td><td>Go templates; reshape the line before further filters</td></tr>
+          <tr><td class="mono">| line_format / | label_format</td><td><code>| line_format "{{.method}} {{.status}}"</code></td><td>Go templates; rewrite the line before further filters</td></tr>
           <tr><td class="mono">| __error__=""</td><td>drop lines the parser could not read</td><td>parse failures are not dropped by default; they get an <code>__error__</code> label</td></tr>
           <tr><td class="mono">| unwrap duration</td><td><code>quantile_over_time(0.95, {app="api"} | logfmt | unwrap duration [5m]) by (path)</code></td><td>turns an extracted number into samples; <code>unwrap duration_seconds(x)</code> and <code>bytes(x)</code> convert units</td></tr>
           <tr><td class="mono">count_over_time / bytes_rate / absent_over_time</td><td><code>absent_over_time({job="backup"} |= "completed" [25h])</code></td><td>the "the nightly job did not log success" alert</td></tr>
@@ -444,7 +444,7 @@ configmap "platform-overview" deleted from monitoring namespace</code></pre></de
       <div class="verify"><b>verify:</b> the dashboard is imported and <code>/api/search</code> finds it by title, but <code>folderTitle</code> is <code>null</code>: it landed at the top level, not in Platform. The annotation is not wrong, it is unread. The sidecar's environment carries only <code>FOLDER=/tmp/dashboards</code> and no <code>FOLDER_ANNOTATION</code>, so no annotation on any ConfigMap can place a dashboard in a folder on this install. Set <code>sidecar.dashboards.folderAnnotation</code> and <code>sidecar.dashboards.provider.foldersFromFilesStructure</code> in the chart values and the same ConfigMap lands in Platform. A convention that depends on a setting nobody enabled is the most common way dashboards end up in one flat list.</div>
     </div>
 
-    <div class="exercise" data-title="Four LogQL shapes on real logs">
+    <div class="exercise" data-title="Four LogQL queries on real logs">
       <p>LogQL beyond a plain filter is where the marks are: parse a line into fields, turn a field into a number, notice an absence, and find the lines your parser could not handle.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring port-forward svc/loki 3100:3100 &amp; PF1=$!
 sleep 5
@@ -565,7 +565,7 @@ Handling connection for 3100
     </div>
 
     <div class="exercise" data-title="Translate a promtail config">
-      <p>Alloy replaced promtail, and every migration task is the same shape: take the old config, run the converter, read what it produced. The command lives in the Alloy image.</p>
+      <p>Alloy replaced promtail, and every migration task is the same: take the old config, run the converter, read what it produced. The command lives in the Alloy image.</p>
       <div class="cb" data-lang="bash"><pre><code>cat &gt; /tmp/promtail.yaml &lt;&lt;'EOF'
 server:
   http_listen_port: 9080

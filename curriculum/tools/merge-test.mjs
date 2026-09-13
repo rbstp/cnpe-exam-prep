@@ -227,7 +227,7 @@ group("and a day's counter adds its browsers up");
     Object.keys(h.days[TODAY].c).length);
   const b = store();
   M.merge(b, { days: { [TODAY]: { c: { "a name that is not one": 5, "UPPER": 5, ok1: 5 } } } });
-  ok(M.countOf(b.days[TODAY].c) === 5, "and only names shaped like the ones it writes: " +
+  ok(M.countOf(b.days[TODAY].c) === 5, "and only names built like the ones it writes: " +
     JSON.stringify(b.days[TODAY].c));
 }
 
@@ -505,7 +505,7 @@ group("the base a browser may hold against the copy that arrived");
   ok(M.pickBase(exam, { exam: { tasks: { 4: 1 } } }, 2, "42") === null, "and a different task is a different row");
 }
 
-group("the shape a store goes over the wire in");
+group("the form a store goes over the wire in");
 {
   const store = {
     done: { "1.1": 1 }, ex: {}, drill: {}, drillmeta: {}, days: {},
@@ -523,7 +523,7 @@ group("the shape a store goes over the wire in");
   ok(store.exam.startedAt === 999 && store.last === "2.3", "and the store itself is not touched");
   w.done["9.9"] = 1;
   ok(store.done["9.9"] === undefined, "the copy is deep, so the caller cannot write through it");
-  ok(M.wire(null) === null && M.wire("nope") === null, "there is no wire shape for nothing");
+  ok(M.wire(null) === null && M.wire("nope") === null, "there is no wire form for nothing");
   const ticking = JSON.parse(JSON.stringify(store));
   ticking.exam.spent = 60; ticking.exam.running = false;
   ok(M.canon(M.wire(ticking)) === M.canon(M.wire(store)),

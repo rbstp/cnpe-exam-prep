@@ -79,7 +79,7 @@ window.CNPE_NAV = [
     tags: "dora deployment frequency lead time mttr change failure rate argocd metrics argocd_app_sync_total argocd_app_info fulfillment latency adoption slo golden signals" },
   { id: "4.6", d: 4, path: "04-observability/06-incident-response.html",    title: "Incident response: diagnosis under a clock",
     needs: "make core obs sec", mins: 90,
-    tags: "incident triage blast radius timeline events describe logs previous ephemeral containers kubectl debug node shell crashloopbackoff imagepullbackoff pending oomkilled postmortem make break" },
+    tags: "incident triage impact timeline events describe logs previous ephemeral containers kubectl debug node shell crashloopbackoff imagepullbackoff pending oomkilled postmortem make break" },
 
   { id: "5.1", d: 5, path: "05-security/01-rbac-and-secrets.html",          title: "RBAC and secrets: least privilege in practice",
     needs: "make up sec", mins: 80,
