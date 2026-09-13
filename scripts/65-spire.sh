@@ -39,7 +39,7 @@ cat <<INFO
     kubectl -n ${NS} exec -it statefulset/spire-server -c spire-server -- \\
       /opt/spire/bin/spire-server healthcheck
 
-  The self-service part (this is the bit worth practising, identity as a
+  The self-service part (this is the bit worth practicing, identity as a
   declarative platform API rather than a ticket):
     kubectl get clusterspiffeids
     kubectl explain clusterspiffeid.spec

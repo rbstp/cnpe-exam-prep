@@ -1,5 +1,5 @@
 "use strict";
-/* CNPE curriculum: the colouring on command blocks. Escaped HTML in, escaped
+/* CNPE curriculum: the coloring on command blocks. Escaped HTML in, escaped
    HTML out, no DOM, so tools/syntax-test.mjs drives it in bare node.
    Compiled into assets/syntax.js by tools/build-ts.sh. */
 (function (root) {

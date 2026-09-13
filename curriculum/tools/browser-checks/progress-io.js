@@ -97,7 +97,7 @@ module.exports = async function (h) {
     page.once('dialog', d => d.dismiss());
     await page.click('#reset-progress');
     let s = await store(page);
-    assert(s.done['1.1'] === 1, 'cancelling the confirm keeps everything');
+    assert(s.done['1.1'] === 1, 'canceling the confirm keeps everything');
 
     page.once('dialog', d => d.accept());
     const reloaded = page.waitForNavigation({ waitUntil: 'load' });

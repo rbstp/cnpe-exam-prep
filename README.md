@@ -50,7 +50,7 @@ Only the Kubernetes node image is pinned, by digest, in `lab.env`. Helm charts a
 ## Tools
 
 Everything the lab installs, with a link to each project. The CNCF exam tool list is
-broad, so I aimed for coverage of it rather than picking favourites.
+broad, so I aimed for coverage of it rather than picking favorites.
 
 Cluster and networking:
 [Kubernetes](https://kubernetes.io/) ·
@@ -213,7 +213,7 @@ section in front of you uses. A layer's CRDs stay behind; nothing else does.
 
 ## make validate
 
-The part I care about most. It checks behaviour, not pod status.
+The part I care about most. It checks behavior, not pod status.
 
 ```
 ── Domain 3: Platform APIs & self-service
@@ -283,7 +283,7 @@ Real LoadBalancer IPs need `cloud-provider-kind`, which wants root to bind ports
 
 ## make break
 
-Incident response is a third of the observability domain and the hardest thing to practise alone. `make break` injects one fault at random from a scenario library, prints the kind of ticket a platform team actually receives, and starts you on a clock. Target is 7 minutes for the workload group and 10 for the platform ones, which is roughly exam pace.
+Incident response is a third of the observability domain and the hardest thing to practice alone. `make break` injects one fault at random from a scenario library, prints the kind of ticket a platform team actually receives, and starts you on a clock. Target is 7 minutes for the workload group and 10 for the platform ones, which is roughly exam pace.
 
 The `workload` group is the classic broken-pod drill in `team-a`: image, probe, resources, rbac, quota, netpol and config. Each fails differently, and some are invisible in `kubectl get pods`. The rbac one only shows up under `kubectl auth can-i --as=...`, and the netpol one strips the DNS egress rule off the tenant policy, leaving a Running pod that cannot resolve anything. That last one is worth understanding: NetworkPolicies are additive allow-lists, so you cannot break DNS by *adding* a restrictive policy. You have to remove the rule that allowed it.
 
@@ -331,13 +331,13 @@ These cost me real time, and none of them are obvious from the upstream docs.
 
 **Use Cilium, not kindnet.** kindnet does not enforce NetworkPolicy, so every network-policy exercise silently passes and you learn nothing. `make validate` proves enforcement with an egress probe that must fail.
 
-**Turn on API server audit logging.** Generating audit trails is an explicit exam competency and almost nobody practises it. One gotcha: the apiserver is started with `--audit-policy-file=/etc/kubernetes/audit/policy.yaml`, so the mounted directory must contain a file named exactly `policy.yaml`. A missing audit policy stops kube-apiserver from starting at all, which looks like a cluster that never boots.
+**Turn on API server audit logging.** Generating audit trails is an explicit exam competency and almost nobody practices it. One gotcha: the apiserver is started with `--audit-policy-file=/etc/kubernetes/audit/policy.yaml`, so the mounted directory must contain a file named exactly `policy.yaml`. A missing audit policy stops kube-apiserver from starting at all, which looks like a cluster that never boots.
 
 **kubeadm binds control-plane metrics to localhost.** kube-controller-manager, kube-scheduler and etcd all listen on 127.0.0.1, so Prometheus cannot scrape them and Grafana's control-plane dashboards stay empty. Fix it in the kind config with `bind-address: 0.0.0.0` and `listen-metrics-urls`, plus a `KubeProxyConfiguration` patch for kube-proxy. `make fix-cp-metrics` retrofits a running cluster.
 
 **A namespaced Crossplane v2 XR cannot compose cluster-scoped resources.** provider-kubernetes serves `Object` as cluster-scoped in `kubernetes.crossplane.io` and namespaced in `kubernetes.m.crossplane.io`. Mixing them gives you `cannot apply cluster scoped composed resource`. The namespaced variant also needs a `ClusterProviderConfig` rather than a `ProviderConfig`.
 
-**Argo CD's Gitea SCM generator needs an organisation, not a user.** It lists repos through the org API, so repos owned by a user account return `error listing repos: not found`. It also wants a token with `write:repository`, `write:organization` and `read:issue`, and each missing scope only shows up as a runtime ApplicationSet error. Set `cloneProtocol: https` too, or `{{ .url }}` resolves to an SSH URL and Argo CD fails with `SSH agent requested but SSH_AUTH_SOCK not-specified`.
+**Argo CD's Gitea SCM generator needs an organization, not a user.** It lists repos through the org API, so repos owned by a user account return `error listing repos: not found`. It also wants a token with `write:repository`, `write:organization` and `read:issue`, and each missing scope only shows up as a runtime ApplicationSet error. Set `cloneProtocol: https` too, or `{{ .url }}` resolves to an SSH URL and Argo CD fails with `SSH agent requested but SSH_AUTH_SOCK not-specified`.
 
 **Run the service mesh on a second cluster.** Istio ambient and Cilium both rewrite the dataplane. Debugging that interaction teaches you nothing about the exam, and a broken mesh should not cost you your GitOps state.
 

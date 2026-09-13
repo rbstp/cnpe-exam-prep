@@ -39,7 +39,7 @@
 <section class="panel accent-c" id="model">
   <div class="phdr"><h2>The model</h2><span class="meta">entrypoint · templates · parameters</span></div>
   <div class="pbody">
-    <p>A Workflow is a spec with an <code>entrypoint</code> and a list of <code>templates</code>. Templates come in flavours, and picking the right one is most of the authoring skill:</p>
+    <p>A Workflow is a spec with an <code>entrypoint</code> and a list of <code>templates</code>. Templates come in flavors, and picking the right one is most of the authoring skill:</p>
 
     <div class="tbl-wrap">
       <table>
@@ -74,7 +74,7 @@
 <section class="panel accent-r" id="rbac">
   <div class="phdr"><h2>RBAC is the part that actually fails</h2><span class="meta">and the Argo-specific wrinkle</span></div>
   <div class="pbody">
-    <p>Workflow pods run as a ServiceAccount, and a <code>resource</code> template creating namespaces needs cluster-scoped rights that <code>default</code> does not have. The skill the exam wants is wiring SA → Role/ClusterRole → binding → <code>spec.serviceAccountName</code>, and then recognising a <em>Forbidden</em> error inside a workflow node as an RBAC problem rather than a workflow problem.</p>
+    <p>Workflow pods run as a ServiceAccount, and a <code>resource</code> template creating namespaces needs cluster-scoped rights that <code>default</code> does not have. The skill the exam wants is wiring SA → Role/ClusterRole → binding → <code>spec.serviceAccountName</code>, and then recognizing a <em>Forbidden</em> error inside a workflow node as an RBAC problem rather than a workflow problem.</p>
 
     <div class="callout trap">
       <span class="tag">The one nobody guesses</span>
@@ -135,9 +135,9 @@ time=2026-08-27T03:31:18.375Z level=WARN msg="Non-transient error" argo=true err
 </section>
 
 <section class="panel accent-c" id="controls">
-  <div class="phdr"><h2>The fields that decide behaviour</h2><span class="meta">retries, deadlines, exit handlers, locks, cleanup</span></div>
+  <div class="phdr"><h2>The fields that decide behavior</h2><span class="meta">retries, deadlines, exit handlers, locks, cleanup</span></div>
   <div class="pbody">
-    <p>The six template types above cover the lab. The exam's cluster may hand you a workflow using one of the other four, so recognise them on sight:</p>
+    <p>The six template types above cover the lab. The exam's cluster may hand you a workflow using one of the other four, so recognize them on sight:</p>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th class="mono">Template type</th><th>Does</th><th>Wrinkle</th></tr></thead>
@@ -208,7 +208,7 @@ time=2026-08-27T03:31:18.375Z level=WARN msg="Non-transient error" argo=true err
           <tr><td class="mono">schedules</td><td>required</td><td>a <em>list</em> of cron expressions (v3.6+; older manifests use singular <code>schedule</code>)</td></tr>
           <tr><td class="mono">concurrencyPolicy</td><td class="mono">Allow</td><td><code>Forbid</code> skips a tick while the previous run is alive; <code>Replace</code> kills the old run first</td></tr>
           <tr><td class="mono">startingDeadlineSeconds</td><td>0</td><td>grace period after a missed tick (controller was down) during which one catch-up run still starts</td></tr>
-          <tr><td class="mono">timezone</td><td>machine tz</td><td>IANA name; DST is honoured, so 02:30 can be skipped or run twice</td></tr>
+          <tr><td class="mono">timezone</td><td>machine tz</td><td>IANA name; DST is honored, so 02:30 can be skipped or run twice</td></tr>
           <tr><td class="mono">suspend</td><td>false</td><td>the GitOps-friendly pause; <code>argo cron suspend</code> flips the same field</td></tr>
           <tr><td class="mono">successfulJobsHistoryLimit / failedJobsHistoryLimit</td><td>3 / 1</td><td>how many finished Workflows to keep</td></tr>
         </tbody>
@@ -231,7 +231,7 @@ time=2026-08-27T03:31:18.375Z level=WARN msg="Non-transient error" argo=true err
           <tr><td class="mono">Pod was active on the node longer than the specified deadline</td><td><code>activeDeadlineSeconds</code> tripped</td><td>the deadline or the step's speed</td></tr>
           <tr><td class="mono">No more retries left</td><td><code>retryStrategy.limit</code> exhausted</td><td>the underlying child's message</td></tr>
           <tr><td class="mono">... is forbidden: User "system:serviceaccount:..." cannot create resource "workflowtaskresults"</td><td>executor RBAC</td><td>Role/RoleBinding for the workflow SA</td></tr>
-          <tr><td class="mono">child 'name' failed</td><td>a DAG or steps parent summarising a child</td><td>descend to the child node</td></tr>
+          <tr><td class="mono">child 'name' failed</td><td>a DAG or steps parent summarizing a child</td><td>descend to the child node</td></tr>
           <tr><td class="mono">Error (exit code 64)</td><td>emissary executor failure</td><td>usually RBAC or image command resolution</td></tr>
           <tr><td>node stays <code>Pending</code>, message names a lock or a ConfigMap key</td><td>waiting on <code>synchronization</code></td><td>the other holder, or the semaphore size</td></tr>
         </tbody>
@@ -239,7 +239,7 @@ time=2026-08-27T03:31:18.375Z level=WARN msg="Non-transient error" argo=true err
     </div>
     <p>Two other silent stalls: a Workflow in a namespace the controller does not watch (this lab: only <code>argo</code> and <code>default</code>) shows no status at all, and a Workflow whose SA lacks <code>pods</code> permissions in <code>server</code> auth mode fails at the server, not in a node. <code>argo retry</code> resumes a failed Workflow from the failed nodes; <code>argo resubmit</code> starts a fresh one; <code>argo stop</code> runs exit handlers, <code>argo terminate</code> does not.</p>
 
-    <div class="callout exam"><span class="tag">How this gets tested</span><p>Expect tasks like "make this workflow retry up to three times with backoff", "notify on completion regardless of outcome", "run this nightly and never overlap", or "expose this Workflow so a user can submit it with a parameter". Each maps to one field above: <code>retryStrategy</code>, <code>onExit</code>, <code>CronWorkflow</code> with <code>concurrencyPolicy: Forbid</code>, and promotion to a <code>WorkflowTemplate</code>. Verify by reading <code>status.nodes</code>, not the UI's colour.</p></div>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>Expect tasks like "make this workflow retry up to three times with backoff", "notify on completion regardless of outcome", "run this nightly and never overlap", or "expose this Workflow so a user can submit it with a parameter". Each maps to one field above: <code>retryStrategy</code>, <code>onExit</code>, <code>CronWorkflow</code> with <code>concurrencyPolicy: Forbid</code>, and promotion to a <code>WorkflowTemplate</code>. Verify by reading <code>status.nodes</code>, not the UI's color.</p></div>
   </div>
 </section>
 
@@ -539,7 +539,7 @@ Failed No more retries left</code></pre></details></div>
     </div>
 
     <div class="exercise" data-title="Put a deadline on the work">
-      <p><code>activeDeadlineSeconds</code> is enforced by the pod, not by the controller, so the message you get back is Kubernetes' own. Recognise it, because it looks nothing like an Argo error.</p>
+      <p><code>activeDeadlineSeconds</code> is enforced by the pod, not by the controller, so the message you get back is Kubernetes' own. Recognize it, because it looks nothing like an Argo error.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -
 kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -
 kubectl create -f - &lt;&lt;'EOF'
@@ -592,7 +592,7 @@ workflow.argoproj.io "deadline-pwgzt" deleted from default namespace</code></pre
     </div>
 
     <div class="exercise" data-title="Two workflows, one mutex">
-      <p>Self-service means two people submit at once. A mutex serialises them without either one failing, and the waiting workflow records what it is waiting for in <code>status.message</code>, which is where you look when someone asks why their run has not started.</p>
+      <p>Self-service means two people submit at once. A mutex serializes them without either one failing, and the waiting workflow records what it is waiting for in <code>status.message</code>, which is where you look when someone asks why their run has not started.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -
 kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -
 cat &gt; /tmp/locked.yaml &lt;&lt;'EOF'
@@ -1185,7 +1185,7 @@ workflow.argoproj.io "via-api-8tft9" deleted from default namespace</code></pre>
       <div class="answer"><p>Use <code>depends</code> rather than <code>dependencies</code>: <code>depends: "(build.Succeeded || build.Failed) &amp;&amp; lint.Succeeded"</code>. The result operands (<code>.Succeeded</code>, <code>.Failed</code>, <code>.Errored</code>, <code>.Skipped</code>, <code>.Omitted</code>, <code>.Daemoned</code>) are what make outcome-based ordering possible; <code>dependencies</code> can only say "after it finished successfully".</p></div></details>
 
     <details class="quiz"><summary>Two provisioning runs for the same tenant must never execute concurrently, and a nightly job must skip its tick if the previous one is still running. Fields?</summary>
-      <div class="answer"><p>A workflow-level <code>synchronization.mutexes</code> entry named per tenant (or a ConfigMap-backed <code>semaphores</code> entry of size 1) serialises submissions in a namespace. For the schedule, <code>CronWorkflow.spec.concurrencyPolicy: Forbid</code>; <code>Replace</code> would kill the running one instead. A waiting Workflow shows <code>Pending</code> with a message naming the lock, not a scheduling error.</p></div></details>
+      <div class="answer"><p>A workflow-level <code>synchronization.mutexes</code> entry named per tenant (or a ConfigMap-backed <code>semaphores</code> entry of size 1) serializes submissions in a namespace. For the schedule, <code>CronWorkflow.spec.concurrencyPolicy: Forbid</code>; <code>Replace</code> would kill the running one instead. A waiting Workflow shows <code>Pending</code> with a message naming the lock, not a scheduling error.</p></div></details>
 
     <details class="quiz"><summary>You submit a Workflow with <code>serviceAccountName</code> set and the controller rejects it, although the SA exists. Likely cause?</summary>
       <div class="answer"><p>The controller runs with <code>workflowRestrictions.templateReferencing: Strict</code> or <code>Secure</code>: submissions must use <code>workflowTemplateRef</code> and may only override an allow-listed set of fields (<code>arguments</code>, <code>entrypoint</code>, GC settings and a few more). Security-sensitive fields such as <code>serviceAccountName</code>, <code>volumes</code> or <code>podSpecPatch</code> must live in the WorkflowTemplate. Move the field there and resubmit.</p></div></details>

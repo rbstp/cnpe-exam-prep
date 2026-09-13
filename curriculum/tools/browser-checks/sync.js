@@ -232,7 +232,7 @@ module.exports = async function (h) {
           // The Worker answers with a 302, but a redirect from route.fulfill
           // escapes interception in the headless shell CI runs, so send the
           // browser back with a navigation instead. sync/test.mjs asserts the
-          // real 302; what matters here is the client's behaviour on return.
+          // real 302; what matters here is the client's behavior on return.
           route.fulfill({
             status: 200, contentType: 'text/html',
             body: '<meta http-equiv="refresh" content="0;url=' + started + '">',
@@ -368,7 +368,7 @@ module.exports = async function (h) {
     });
     await s.go();
     await s.page.waitForFunction(() => window.CNPE_SYNC.signedIn());
-    // the panel button is a deliberate, fully labelled control: no confirm here
+    // the panel button is a deliberate, fully labeled control: no confirm here
     let dialogs = 0;
     s.page.on('dialog', d => { dialogs++; d.accept(); });
     await s.page.click('.syncbtn');
@@ -401,7 +401,7 @@ module.exports = async function (h) {
     await s.page.waitForFunction(() => window.CNPE_SYNC.signedIn());
     s.page.once('dialog', d => d.dismiss());
     await s.page.click('#sync-forget');
-    assert(s.seen.indexOf('DELETE /v1/progress') < 0, 'cancelling the confirm deletes nothing');
+    assert(s.seen.indexOf('DELETE /v1/progress') < 0, 'canceling the confirm deletes nothing');
     s.page.once('dialog', d => d.accept());
     await s.page.click('#sync-forget');
     await s.page.waitForFunction(() => /Deleted the copy/.test(
@@ -414,7 +414,7 @@ module.exports = async function (h) {
     await s.ctx.close();
   });
 
-  /* 10. reset asks about the saved copy separately, and honours either answer */
+  /* 10. reset asks about the saved copy separately, and honors either answer */
   await group('reset asks twice: the browser, then the saved copy', async () => {
     const s = await site({
       signedIn: true,
@@ -429,10 +429,10 @@ module.exports = async function (h) {
     await s.go();
     await s.page.waitForFunction(() => window.CNPE_SYNC.signedIn());
 
-    // cancelling the first confirm changes nothing at all
+    // canceling the first confirm changes nothing at all
     s.page.once('dialog', d => d.dismiss());
     await s.page.click('#reset-progress');
-    assert((await readStore(s.page)).done['1.1'] === 1, 'cancelling the first confirm keeps everything');
+    assert((await readStore(s.page)).done['1.1'] === 1, 'canceling the first confirm keeps everything');
 
     // accepting the first and declining the second clears only the browser
     /** @type {string[]} */
@@ -468,7 +468,7 @@ module.exports = async function (h) {
   });
 
   /* 11. remote content reaches the merge, so prototype keys must not.
-         A `{__proto__: 1}` literal sets the prototype and never serialises, so
+         A `{__proto__: 1}` literal sets the prototype and never serializes, so
          the payload is built as raw JSON: the wire is what matters here. */
   await group('a poisoned remote copy cannot reach the prototype', async () => {
     // toString rode in on the base lookup: it used to be inert only because
@@ -661,7 +661,7 @@ module.exports = async function (h) {
     assert(/Sign out of progress sync\?/.test(asked), 'it asks before signing out: ' + JSON.stringify(asked));
     assert(/stays in this browser/.test(asked) && /left alone/.test(asked),
       'and says what survives either way');
-    assert(await s.page.evaluate(() => window.CNPE_SYNC.signedIn()), 'cancelling keeps the session');
+    assert(await s.page.evaluate(() => window.CNPE_SYNC.signedIn()), 'canceling keeps the session');
     assert(s.seen.indexOf('POST /auth/signout') < 0, 'and tells the Worker nothing');
 
     s.page.once('dialog', d => d.accept());
@@ -760,7 +760,7 @@ module.exports = async function (h) {
   /* 15. a store the server already has costs no write */
   await group('reloading with nothing new does not write again', async () => {
     // The row the server holds is whatever a client last pushed, so let the
-    // first load produce it rather than guessing the normalised form by hand.
+    // first load produce it rather than guessing the normalized form by hand.
     /** @type {*} */
     let stored = null;
     let rev = 0;
@@ -866,7 +866,7 @@ module.exports = async function (h) {
   /* 18. the only 409 group: the retry carries the conflict's rev, this browser's
          own work, the removal the other browser made against the base, and the
          tick that browser made which this one has never heard of. */
-  await group('a 409 carrying someone elses un-tick is honoured, not undone', async () => {
+  await group('a 409 carrying someone elses un-tick is honored, not undone', async () => {
     /** @type {*[]} */
     const puts = [];
     const s = await site({
@@ -927,7 +927,7 @@ module.exports = async function (h) {
   });
 
   /* 20. merge-test.mjs walks every reason pickBase refuses a base; here the only
-         question is whether the client hands it one and honours the null it gets
+         question is whether the client hands it one and honors the null it gets
          back. A refused base and no base reach the merge alike, as that null, so
          with nothing to tell a removal from a gap the un-tick comes back a tick. */
   await group('a base the client cannot trust falls back to a union', async () => {

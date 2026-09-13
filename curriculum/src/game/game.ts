@@ -35,7 +35,7 @@
   /* ── the records the scenes build ───────────────────────── */
   type Scene = "map" | "town" | "trial" | "battle" | "shop" | "journal";
   type BattleMode = "menu" | "typed" | "inspect" | "fix" | "item" | "target";
-  /** the theme's colours, read live from the stylesheet's custom properties (CnpeGamePalette in cnpe.d.ts) */
+  /** the theme's colors, read live from the stylesheet's custom properties (CnpeGamePalette in cnpe.d.ts) */
   type Palette = CnpeGamePalette;
   /** the dialogue window: one speaker, pages of text, an optional yes/no */
   interface Dialogue { who: string; pages: string[]; i: number; yes: (() => void) | null; ask: boolean; done?: () => void; }
@@ -646,7 +646,7 @@
   var ease: { fx: number; fy: number; t0: number } | null = null;   // the ease in flight: from (fx, fy) to the player's camera; t0 is set by its first frame
   var lastCam: { x: number; y: number } | null = null;               // the camera as last drawn
 
-  /** the camera, in map pixels: the player's pixel position centred, clamped to the map */
+  /** the camera, in map pixels: the player's pixel position centered, clamped to the map */
   function camera(px: number, py: number) {
     return { x: Math.max(0, Math.min((mapW - VW) * TILE, px - Math.floor(VW / 2) * TILE)), y: Math.max(0, Math.min((mapH - VH) * TILE, py - Math.floor(VH / 2) * TILE)) };
   }
@@ -662,16 +662,16 @@
   function isWater(x: number, y: number) { var t = tileAt(x, y); return t === "water" || t === "bridge" || t === "void"; }
   function isRoadLike(x: number, y: number) { var t = tileAt(x, y); return t === "road" || t === "bridge" || t === "town" || t === "door" || t === "keep" || t === "gate"; }
   function isCliff(x: number, y: number) { return tileAt(x, y) === "cliff"; }
-  /** N=1 E=2 S=4 W=8, set where the neighbour is not the same kind */
+  /** N=1 E=2 S=4 W=8, set where the neighbor is not the same kind */
   function edgeMask(x: number, y: number, same: (x: number, y: number) => boolean) {
     return (same(x, y - 1) ? 0 : 1) | (same(x + 1, y) ? 0 : 2) | (same(x, y + 1) ? 0 : 4) | (same(x - 1, y) ? 0 : 8);
   }
-  /** N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128, set where the neighbour is land */
+  /** N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128, set where the neighbor is land */
   function shoreMask(x: number, y: number) {
     return (isWater(x, y - 1) ? 0 : 1) | (isWater(x + 1, y - 1) ? 0 : 2) | (isWater(x + 1, y) ? 0 : 4) | (isWater(x + 1, y + 1) ? 0 : 8) |
       (isWater(x, y + 1) ? 0 : 16) | (isWater(x - 1, y + 1) ? 0 : 32) | (isWater(x - 1, y) ? 0 : 64) | (isWater(x - 1, y - 1) ? 0 : 128);
   }
-  /** which region each tile is in, for its colours: the region of the town
+  /** which region each tile is in, for its colors: the region of the town
       nearest by land, flooding out from every town at once and never across
       water, so the tint changes at the rivers and the strait rather than in the
       middle of a meadow. The sand around the Exam gate belongs to no region. */
@@ -737,7 +737,7 @@
   }
   /* The whole map is 9,600 tiles and some 90 ms of drawImage, and it was paid in
      one go: a second of dropped frames on the load and on every theme switch,
-     with the map on the ground colour until the last tile landed. A render
+     with the map on the ground color until the last tile landed. A render
      paints the tiles the camera can see and leaves the rest to a sweep, a slice
      of tiles an animation frame, so the map is up in the frame that asked for it
      and the rest of the cost lands in the frames after it. A frame that reads
@@ -798,7 +798,7 @@
   function renderTerrain() {
     if (!terrain) { terrain = document.createElement("canvas"); terrain.width = mapW * TILE; terrain.height = mapH * TILE; }
     var k = terrain.getContext("2d");
-    if (!k) return;                                    // before the sweep is cancelled: a render that cannot start must not strand one
+    if (!k) return;                                    // before the sweep is canceled: a render that cannot start must not strand one
     cancelSweep();
     k.imageSmoothingEnabled = false;
     k.fillStyle = P.sunk; k.fillRect(0, 0, terrain.width, terrain.height);
@@ -825,7 +825,7 @@
     if (!cellsLeft) buildMinimap();                    // a cleared town turns green on it; a sweep still running builds it at its end
   }
   /** the minimap's ground: the terrain scaled to a pixel a tile, each region's
-      tint over its land, the towns, the keeps and the gate in their state's colour */
+      tint over its land, the towns, the keeps and the gate in their state's color */
   function buildMinimap() {
     if (!terrain || !mini) return;
     if (!miniBase) { miniBase = document.createElement("canvas"); miniBase.width = mapW; miniBase.height = mapH; }
@@ -985,7 +985,7 @@
     if (!rafId && host && scene === "map") rafId = requestAnimationFrame(frame);
   }
   function frame() { rafId = 0; draw(); }
-  /** paint now: the frame pending, if any, is cancelled first, or two would run side by side */
+  /** paint now: the frame pending, if any, is canceled first, or two would run side by side */
   function paintNow() { if (rafId) { cancelAnimationFrame(rafId); rafId = 0; } dirty = true; draw(); }
   function draw() {
     if (!ctx || !host || scene !== "map" || !dirty) return;
@@ -1056,7 +1056,7 @@
     if (walk) { if (p >= 1) landStep(); else requestDraw(); }   // the step in flight: land it, or paint its next frame
     else if (ease) requestDraw();                     // the camera still on its way
   }
-  /** a pixel banner: ink on a rim, a pointer toward the tile, the name in its state's colour; px, py the tile's top-left on the canvas */
+  /** a pixel banner: ink on a rim, a pointer toward the tile, the name in its state's color; px, py the tile's top-left on the canvas */
   function label(s: string, px: number, py: number, color: string) {
     if (px < -4 * TILE || px >= W + 4 * TILE || py <= -TILE || py >= H) return;
     var w = s.length * 5 + 8, x = Math.round(px + TILE / 2 - w / 2), y = py - 14, below = false;
@@ -1103,7 +1103,7 @@
     scale = s; canvas.width = W * s; canvas.height = H * s;
     requestDraw();
   }
-  /** the monster: the fault family's sprite, painted in the theme's colours */
+  /** the monster: the fault family's sprite, painted in the theme's colors */
   function drawMonster(c: HTMLCanvasElement, family: string) {
     var k = c.getContext("2d");
     if (!k) return;
@@ -1251,7 +1251,7 @@
     if (right && right.querySelector("button:not(:disabled), a[href], input:not(:disabled)")) focusFirst(right);
     else focusFirst(v.menu);
   }
-  /** a strip of scenery: the town square, its people, the inn or the shop, in the region's colours */
+  /** a strip of scenery: the town square, its people, the inn or the shop, in the region's colors */
   function backdrop(sceneName: string, d: number, height?: number) {
     var c = el("canvas", "gm-scene") as HTMLCanvasElement;
     c.width = 480; c.height = height || 144; c.setAttribute("aria-hidden", "true"); c.setAttribute("data-scene", sceneName);
@@ -1383,7 +1383,7 @@
   /* ── the trial: the section's self-check cards, multiple choice ── */
   function deckFor(sec: string) { return (window.CNPE_DRILL || []).filter(function (q) { return q.sec === sec; }); }
   /** a card's answer as an option reads it: the markup stripped, whole.
-      An answer cut short is an answer you cannot tell from its neighbour, so the
+      An answer cut short is an answer you cannot tell from its neighbor, so the
       option carries all of it and the screen scrolls; fullscreen (the pad's ⛶, or
       f) gives the trial the window when four long answers want the room.
       Stripping it parses the markup, and a question draws its wrong answers from the
@@ -1701,7 +1701,7 @@
     if (e.hit) return '<span class="hit">' + esc(e.hit) + "</span>";
     if (e.gain) return '<span class="' + (e.crit ? "crit" : "gain") + '">' + esc(e.gain) + "</span>";
     var out = esc(e.out || "");
-    // The tell is cut out before the colouring and each run is coloured on its
+    // The tell is cut out before the coloring and each run is colored on its
     // own: a keyword the highlighter wraps inside the tell would otherwise split
     // it, and the mark would be silently dropped.
     var t = e.tell ? esc(e.tell) : "", at = t ? out.indexOf(t) : -1;
@@ -2217,7 +2217,7 @@
     unmount: function () {
       if (!host) return;
       savePos(true);                                  // a step taken is worth writing before the page goes
-      // the window goes back first, while the host is still there to take the class off: the frame it asks for is cancelled below
+      // the window goes back first, while the host is still there to take the class off: the frame it asks for is canceled below
       if (fullOn) toggleFull(false);
       document.documentElement.classList.remove("gm-full-lock");
       fullBtn = null;

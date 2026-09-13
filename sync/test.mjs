@@ -179,9 +179,9 @@ async function run() {
     const res = await call("/auth/callback" + q, { cookie });
     ok(res.status === 400, label + " is refused");
   }
-  const cancelled = await call("/auth/callback?error=access_denied&state=" + state, { cookie: "__Host-cnpe_oauth=" + nonce });
-  ok(cancelled.status === 302 && cancelled.headers.get("Location") === SITE + "/",
-    "a cancelled sign-in goes home, not to a dead end: " + cancelled.headers.get("Location"));
+  const canceled = await call("/auth/callback?error=access_denied&state=" + state, { cookie: "__Host-cnpe_oauth=" + nonce });
+  ok(canceled.status === 302 && canceled.headers.get("Location") === SITE + "/",
+    "a canceled sign-in goes home, not to a dead end: " + canceled.headers.get("Location"));
   const exact = await call("/auth/callback?error=access_denied&state=" +
     await seal(SECRET, { n: nonce, r: SITE + "/mock-exam.html", e: hour(1) }), { cookie: "__Host-cnpe_oauth=" + nonce });
   ok(exact.headers.get("Location") === SITE + "/mock-exam.html", "and back to the exact page it left");

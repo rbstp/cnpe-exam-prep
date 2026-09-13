@@ -16,8 +16,11 @@ test descriptions, commit messages and PR bodies.
 - **No em dashes.** Use a colon, a comma, parentheses, or two sentences. The
   box-drawing runs in code comments (`── like this ──`) are not em dashes and
   stay as they are.
-- **British spelling**, matching the existing prose: normalise, materialise,
-  behaviour, defence, colour.
+- **American spelling**, matching the existing prose: normalize, materialize,
+  behavior, defense, color, center, labeled, canceled, gray, practice (noun and
+  verb). Keep the British form only where it is part of a name that has to match
+  something real: the `aria-labelledby` attribute, Tekton's `CancelledRunFinally`
+  and friends, the `cost-centre` label this lab's Kyverno policy writes.
 - **Say what a thing does**, not what it resembles. A metaphor that needs
   unpacking costs more than the sentence it saved.
 
@@ -30,7 +33,7 @@ come back:
 | --- | --- |
 | blast radius | what is affected, how far it reaches, who was hit, the risk |
 | shape, shaped (as a catch-all noun) | fields, pattern, form, task, mode, how it works |
-| canonical | normalised (in code), the one you will see most (in prose) |
+| canonical | normalized (in code), the one you will see most (in prose) |
 | load-bearing | the part everything else rests on, the decisive reason |
 | seam, spine | interface, where they join, the line down the middle |
 | footgun, smoking gun | the trap, the evidence |

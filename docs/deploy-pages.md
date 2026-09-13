@@ -19,7 +19,7 @@ Two deliberate differences from gist-blog:
 
 | | gist-blog | here | why |
 |---|---|---|---|
-| `cancel-in-progress` | `true` | `false` | Cancelling a *deployment* mid-flight can leave the Pages deploy half-applied. GitHub's own Pages starter workflow uses `false` for the same reason. Cheap to differ, and there is no long build to cancel. |
+| `cancel-in-progress` | `true` | `false` | Canceling a *deployment* mid-flight can leave the Pages deploy half-applied. GitHub's own Pages starter workflow uses `false` for the same reason. Cheap to differ, and there is no long build to cancel. |
 | `CNAME` | repo root, not in the artifact | written into the artifact | gist-blog's root `CNAME` is not actually in its `dist/`, so its custom domain lives only in repo settings. That works, but a custom domain that exists only as a setting is the one that gets silently dropped. Carrying it in the artifact makes the deploy self-describing. |
 
 The source tree is untouched. `curriculum/tools/stage-site.sh` does the layout work in
@@ -71,7 +71,7 @@ These are repo settings, not repo contents, so a PR cannot set them.
 | Visibility | Settings → General → Danger Zone | public | **already public**, nothing to do. (Pages on a *private* repo needs Pro/Team/Enterprise; not your case.) |
 | Source | Settings → Pages → Build and deployment → **Source** | **GitHub Actions** | **you must set this.** Pages is not enabled on this repo yet. |
 | Custom domain | Settings → Pages → **Custom domain** | `cnpe.rbstp.dev` → Save | **you must set this**, *after* the DNS record exists; GitHub runs a DNS check on save and rejects a name that does not resolve to it yet. |
-| Enforce HTTPS | Settings → Pages → **Enforce HTTPS** | ticked | **you must tick this**, and the checkbox stays greyed out until GitHub has issued the certificate. Come back to it. |
+| Enforce HTTPS | Settings → Pages → **Enforce HTTPS** | ticked | **you must tick this**, and the checkbox stays grayed out until GitHub has issued the certificate. Come back to it. |
 
 Order: merge this PR → set Source = GitHub Actions → add the Cloudflare record → set the
 custom domain → wait for the cert → tick Enforce HTTPS.
@@ -92,12 +92,12 @@ touched**: `rbstp.dev` keeps whatever A/AAAA/flattened-CNAME records gist-blog n
 
 Cloudflare dashboard → **rbstp.dev** → **DNS** → **Records** → **Add record**:
 
-| Field (as labelled in the UI) | Value |
+| Field (as labeled in the UI) | Value |
 |---|---|
 | **Type** | `CNAME` |
 | **Name** | `cnpe` (Cloudflare appends the zone; it will read `cnpe.rbstp.dev`) |
 | **Target** | `rbstp.github.io`, your Pages host, **not** `cnpe-exam-prep.rbstp.github.io` and **not** an IP |
-| **Proxy status** | click the toggle to **DNS only** (grey cloud); see below |
+| **Proxy status** | click the toggle to **DNS only** (gray cloud); see below |
 | **TTL** | `Auto` |
 | **Comment** (optional) | `GitHub Pages: cnpe-exam-prep` |
 
@@ -112,19 +112,19 @@ only be used by one repository" rule does not put this in conflict with gist-blo
 
 ### The certificate: start DNS-only, proxy later if you want
 
-**Start grey (DNS only), and leave it grey until the certificate is issued.**
+**Start gray (DNS only), and leave it gray until the certificate is issued.**
 
 GitHub gets its Let's Encrypt certificate for `cnpe.rbstp.dev` via an HTTP-01 challenge
 served over **plain HTTP** at `http://cnpe.rbstp.dev/.well-known/acme-challenge/…`. With
-the record grey, requests bypass Cloudflare's edge entirely, GitHub sees the real request
+the record gray, requests bypass Cloudflare's edge entirely, GitHub sees the real request
 and issues the cert, usually within minutes, occasionally up to an hour.
 
 With the record **orange (Proxied)** before the cert exists, two things break it:
 
 * Your zone's **Always Use HTTPS** (SSL/TLS → Edge Certificates) makes Cloudflare answer
   the plaintext challenge with a `301` to HTTPS. The challenge never reaches GitHub and
-  the cert is never issued. Grey-cloud records are not subject to it at all, which is why
-  starting grey sidesteps this instead of requiring you to turn a zone-wide setting off.
+  the cert is never issued. Gray-cloud records are not subject to it at all, which is why
+  starting gray sidesteps this instead of requiring you to turn a zone-wide setting off.
 * GitHub's own domain check sees Cloudflare's IPs rather than its own, which can leave the
   custom domain stuck in an unverified state.
 
@@ -140,7 +140,7 @@ the record to **Proxied** if you want to. If you do:
 * Universal SSL already covers `cnpe.rbstp.dev` (it covers the apex and one level of
   subdomain), so the edge cert needs no action.
 
-**My recommendation: leave it grey.** Pages is already behind a CDN with a valid cert and
+**My recommendation: leave it gray.** Pages is already behind a CDN with a valid cert and
 HTTP/2. Proxying adds a second TLS hop, a cache layer that can serve a stale console for
 a few minutes after a deploy, and one more thing to be wrong the next time a cert
 renews, in exchange for WAF and analytics you do not need on a static study site.
@@ -151,7 +151,7 @@ Check these before blaming the deploy:
 
 | Thing | Where | Effect |
 |---|---|---|
-| **Always Use HTTPS** | SSL/TLS → Edge Certificates | Only affects *proxied* records. Harmless while `cnpe` is grey; blocks cert issuance if you proxy too early. |
+| **Always Use HTTPS** | SSL/TLS → Edge Certificates | Only affects *proxied* records. Harmless while `cnpe` is gray; blocks cert issuance if you proxy too early. |
 | **CAA records** | DNS → Records, type `CAA` | The one that silently kills this. If the zone restricts issuance to specific CAs and `letsencrypt.org` is not among them, GitHub can never get a cert. Check with `dig +short CAA rbstp.dev`: if that returns nothing, you are fine; if it returns entries, one must permit `letsencrypt.org`. |
 | **HSTS with `includeSubDomains`** | SSL/TLS → Edge Certificates → HTTP Strict Transport Security | If enabled (especially with preload), browsers will force HTTPS on `cnpe.rbstp.dev` before the cert exists, so you get a TLS error rather than a working HTTP page during the issuance window. Wait it out; do not disable HSTS. |
 | **A wildcard `*` record** | DNS → Records | An explicit `cnpe` record wins over `*`, so no conflict. But if a wildcard exists, `cnpe.rbstp.dev` *already resolves* today, so a `dig` that "works" before you add the record proves nothing. Check what is there first. |
@@ -187,7 +187,7 @@ It answers each objection to (c) and (d) rather than accepting them:
   reads anyone else's progress.
 * **The orange cloud is not forced onto `cnpe`.** The Worker answers on
   `sync.rbstp.dev`, a Custom Domain whose only origin is the Worker. `cnpe` stays
-  grey and §2 above is unchanged. The record must share the registrable domain
+  gray and §2 above is unchanged. The record must share the registrable domain
   `rbstp.dev`, though, or the session cookie becomes a third-party cookie.
 * **"Both wrote while offline" has a real answer.** Counters take a per-field max,
   and ticks resolve three ways against the last state the browser and the server
@@ -208,7 +208,7 @@ After the DNS record is saved and the Pages custom domain is set.
 ```bash
 # ── DNS ────────────────────────────────────────────────────────────────
 dig +short CNAME cnpe.rbstp.dev          # -> rbstp.github.io.
-dig +short A     cnpe.rbstp.dev          # -> 185.199.108-111.153  (grey cloud)
+dig +short A     cnpe.rbstp.dev          # -> 185.199.108-111.153  (gray cloud)
                                          #    104.x / 172.67.x     (orange cloud)
 dig +short CAA rbstp.dev                 # empty, or must allow letsencrypt.org
 
@@ -225,7 +225,7 @@ curl -sSI http://cnpe.rbstp.dev/ | sed -n '1p;/^[Ll]ocation:/p'
 # ── the certificate ───────────────────────────────────────────────────
 echo | openssl s_client -connect cnpe.rbstp.dev:443 -servername cnpe.rbstp.dev 2>/dev/null \
   | openssl x509 -noout -subject -issuer -dates -ext subjectAltName
-#   grey:   issuer Let's Encrypt, SAN includes cnpe.rbstp.dev
+#   gray:   issuer Let's Encrypt, SAN includes cnpe.rbstp.dev
 #   orange: issuer Google Trust Services / Let's Encrypt via Cloudflare, SAN *.rbstp.dev
 curl -sSI https://cnpe.rbstp.dev/ >/dev/null && echo "cert verifies"
 
@@ -271,7 +271,7 @@ curl -sS -o /dev/null -w 'apex %{http_code}\n' https://rbstp.dev/
    Reload: the saved theme returns without a flash because `assets/theme.js`
    runs from `<head>`. The standalone quest and the bundle's `#GM` route share
    the same page palette and switch. RPG windows inherit the charcoal-and-gold
-   colours, while pixel-art scenery retains natural light/dark terrain colours.
+   colors, while pixel-art scenery retains natural light/dark terrain colors.
 7. **The single file.** `/console.html` → same dashboard. Network shows one document and
    **zero** font requests (they are `data:` URIs). Clicking a section only changes the
    `#hash`. Save it with <kbd>Ctrl/Cmd-S</kbd>, turn off wifi, open the saved file: it
@@ -282,8 +282,8 @@ curl -sS -o /dev/null -w 'apex %{http_code}\n' https://rbstp.dev/
 | Symptom | Cause |
 |---|---|
 | Pages settings reject the custom domain | DNS has not propagated. `dig +short CNAME cnpe.rbstp.dev` first. |
-| **Enforce HTTPS** stays greyed out for over an hour | Cert not issued. Confirm the record is **grey**, then check `dig +short CAA rbstp.dev`. |
-| `ERR_TOO_MANY_REDIRECTS` | Proxied with SSL/TLS mode `Flexible`. Set `Full (strict)`, or go back to grey. |
+| **Enforce HTTPS** stays grayed out for over an hour | Cert not issued. Confirm the record is **gray**, then check `dig +short CAA rbstp.dev`. |
+| `ERR_TOO_MANY_REDIRECTS` | Proxied with SSL/TLS mode `Flexible`. Set `Full (strict)`, or go back to gray. |
 | Site loads unstyled | `/assets/style.css` is 404ing; check the workflow's *Check the staged site* step ran green. |
 | Custom domain reverted to blank after a deploy | The classic Actions-Pages failure mode; the `CNAME` in the artifact is there to prevent it. Re-set it and check the artifact contains `CNAME`. |
 | A deploy did not fire | The push touched nothing under `curriculum/`. Run the workflow manually: Actions → Deploy Study Console → Run workflow. |

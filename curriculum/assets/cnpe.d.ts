@@ -193,7 +193,7 @@ interface CnpeMergeApi {
   /** the same, narrowed to the keys another store mentions: what one tab may
       hold as a base against another tab's copy */
   shared(seen: CnpeTickSets, p: unknown): CnpeMergeBase;
-  /** key-order-independent serialisation, for comparing two stores */
+  /** key-order-independent serialization, for comparing two stores */
   canon(v: unknown): string;
   /** the base a browser may hold against the copy that arrived, or null when the
       row it came from is not the row that arrived; the caller owns the rest */
@@ -247,7 +247,7 @@ interface CnpeProgressApi {
   slot(): string;
 }
 
-/** The command-block colouring (CNPE_SYNTAX). Escaped HTML in, escaped out. */
+/** The command-block coloring (CNPE_SYNTAX). Escaped HTML in, escaped out. */
 interface CnpeSyntaxApi {
   /** shield strings and comments, then run the language's passes */
   highlight(html: string, lang: string): string;
@@ -335,7 +335,7 @@ interface CnpeGameItem {
 /** One piece of evidence a battle wants found. */
 interface CnpeGameEvidence {
   id: string;
-  /** regexes over the normalised command, any of which surfaces it */
+  /** regexes over the normalized command, any of which surfaces it */
   match: string[];
   /** what the cluster answers; absent, the generic handler's rendering of the
       resource table is the answer, and the table carries the tell */
@@ -361,7 +361,7 @@ interface CnpeGameEvent {
 
 /** One resource in a scenario's fake cluster, for the generic handlers. */
 interface CnpeGameResource {
-  /** plural, lower-case, as the normaliser writes it */
+  /** plural, lower-case, as the normalizer writes it */
   kind: string;
   name: string;
   ns?: string;
@@ -432,7 +432,7 @@ interface CnpeGameScenario {
   /** image references cosign verify accepts */
   signed?: string[];
   evidence: CnpeGameEvidence[];
-  /** regexes over the normalised command that repair the fault */
+  /** regexes over the normalized command that repair the fault */
   fix: string[];
   /** what the cluster says to a correct fix */
   fixOut: string;
@@ -458,7 +458,7 @@ interface CnpeGameData {
   start: { x: number; y: number };
 }
 
-/** The theme's colours, read live from the stylesheet's custom properties by
+/** The theme's colors, read live from the stylesheet's custom properties by
     game.js and handed to the art so every sprite is painted in the current theme. */
 interface CnpeGamePalette {
   ink: string; sunk: string; s1: string; s2: string; s3: string;
@@ -469,7 +469,7 @@ interface CnpeGamePalette {
 
 /** The quest's art (CNPE_ART, assets/game-art.js): palette-indexed pixel grids
     painted to small canvases on demand and cached per theme. Tile masks name
-    the neighbours of a different kind: N=1 E=2 S=4 W=8 for road and cliff,
+    the neighbors of a different kind: N=1 E=2 S=4 W=8 for road and cliff,
     and the eight-way N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128 for the shore. */
 interface CnpeArtApi {
   /** the tile size in pixels, 16 */
@@ -506,7 +506,7 @@ interface CnpeArtApi {
   /** a transparent overlay drawn over a tile the terrain already holds: "puff",
       the smoke over a town's chimney, or "torch", the flames on an open door's posts */
   ambient(kind: "puff" | "torch", frame: number): HTMLCanvasElement;
-  /** the colour a region tints its ground with, for the minimap */
+  /** the color a region tints its ground with, for the minimap */
   tint(region: number): string;
   /** a strip of scenery for a town menu: square, talk, inn or shop */
   backdrop(scene: string, region: number, w: number, h: number): HTMLCanvasElement;
@@ -599,13 +599,13 @@ interface CnpeSimResult {
 /** The DOM-free command interpreter (CNPE_SIM), driven by tools/game-sim-test.mjs. */
 interface CnpeSimApi {
   /** a command as the matchers see it: aliases expanded, namespace and output
-      flags in normalised form, pipes stripped */
+      flags in normalized form, pipes stripped */
   normalize(cmd: string): string;
   /** the scenario's answer to one command; found is the evidence ids already surfaced */
   run(scenario: CnpeGameScenario, found: Record<string, number>, cmd: string): CnpeSimResult;
   /** the command's tool family, which cheat sheets and typed bonuses key on */
   toolOf(cmd: string): string;
-  /** a kind alias in its plural normalised form */
+  /** a kind alias in its plural normalized form */
   kindOf(k: string): string;
 }
 

@@ -253,7 +253,7 @@ reload the other tabs first.
   visible again, which covers coming back to it, but not a save made from a tab
   that is still in the background.
 
-One deliberate change of behaviour: the mock exam's own **Reset** button now clears
+One deliberate change of behavior: the mock exam's own **Reset** button now clears
 that paper on every synced browser. It zeroes its task keys rather than deleting
 them, because a key that is simply gone says nothing to the merge.
 
@@ -363,9 +363,9 @@ table. It returns 503 when configuration or D1 is unavailable.
 
 ### This does not touch the Pages hostname
 
-`docs/deploy-pages.md` §2 says to leave `cnpe` grey-cloud, and that still holds.
+`docs/deploy-pages.md` §2 says to leave `cnpe` gray-cloud, and that still holds.
 The orange-cloud record this creates is `sync`, a different name whose only origin
-is the Worker. `cnpe.rbstp.dev` keeps its GitHub Pages certificate and its grey
+is the Worker. `cnpe.rbstp.dev` keeps its GitHub Pages certificate and its gray
 cloud, and nothing in that document changes.
 
 ### Why `sync.rbstp.dev` and not `*.workers.dev`

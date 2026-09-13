@@ -9,20 +9,20 @@
    Two layers. The generic handlers render any sensible kubectl, argocd, flux, tkn
    or crossplane command from the table, so a player who explores gets plausible
    answers everywhere rather than "unknown command". The scenario's own evidence,
-   fix and wrong-fix matchers sit on top, written against the normalised form of
+   fix and wrong-fix matchers sit on top, written against the normalized form of
    a command so that "k get po -nteam-a", "kubectl get pods --namespace=team-a"
    and "kubectl -n team-a get pod | grep broken" are all one command. */
 (function (root: Pick<Window, "CNPE_SIM">) {
   "use strict";
 
-  /** the flags a normalised command carries, by normalised name; a bare flag is "true" */
+  /** the flags a normalized command carries, by normalized name; a bare flag is "true" */
   type Flags = Record<string, string>;
   /** argocd app get/list's fields, as the resource table declares them */
   type ArgoInfo = NonNullable<CnpeGameResource["argo"]>;
   /** the argo rollouts plugin's view of a Rollout */
   type RolloutInfo = NonNullable<CnpeGameResource["canary"]>;
 
-  /* ── normalisation ──────────────────────────────────────── */
+  /* ── normalization ──────────────────────────────────────── */
   var KINDS: Record<string, string> = {
     po: "pods", pod: "pods", pods: "pods",
     deploy: "deployments", deployment: "deployments", deployments: "deployments",
@@ -95,7 +95,7 @@
     if (dot > 0 && KINDS[low.slice(0, dot)]) return KINDS[low.slice(0, dot)];
     return low;
   }
-  /** kind/name and kind,kind lists, into one normalised token */
+  /** kind/name and kind,kind lists, into one normalized token */
   function kindTok(tok: string): string {
     return tok.split(",").map(function (part) {
       var slash = part.indexOf("/");
@@ -115,8 +115,8 @@
       }
       // A quote opens a group at the start of a token or right after an =, as
       // in -p '{...}' and --patch="{...}". Anywhere else it is a character: the
-      // the normalised form of a patch carries its JSON quotes bare, and has to
-      // normalise to itself.
+      // the normalized form of a patch carries its JSON quotes bare, and has to
+      // normalize to itself.
       if ((c === "'" || c === '"') && (cur === "" || cur[cur.length - 1] === "=")) { q = c; had = true; continue; }
       if (c === "\\" && i + 1 < s.length) { cur += s[++i]; continue; }
       if (c === "|" || c === ";" || (c === "&" && s[i + 1] === "&")) break;
@@ -128,7 +128,7 @@
     return out.filter(function (t) { return !/^\d?>/.test(t) && t !== "2>&1"; });
   }
 
-  // Flags that take a value, by their normalised name.
+  // Flags that take a value, by their normalized name.
   var VALUED: Record<string, string> = {
     "-n": "-n", "--namespace": "-n", "-o": "-o", "--output": "-o", "-l": "-l", "--selector": "-l",
     "--sort-by": "--sort-by", "--as": "--as", "--as-group": "--as-group", "--type": "--type",
@@ -146,7 +146,7 @@
     "--user": "--user", "--group": "--group", "--schedule": "--schedule", "--limit": "--limit",
     "--label": "--label", "--message": "--message"
   };
-  // The flags whose normalised order the matchers rely on; anything else is
+  // The flags whose normalized order the matchers rely on; anything else is
   // appended sorted, so two spellings of one command still meet.
   var ORDER: string[] = ["-n", "-l", "-A", "-o", "--previous", "--sort-by", "--show-labels", "--as", "--as-group",
     "--type", "-p", "--tail", "--overwrite", "--image", "--requests", "--limits", "--replicas", "-f",
@@ -524,7 +524,7 @@
     return { out: generic(sc, n), generic: true };
   }
 
-  /** @param n normalised command */
+  /** @param n normalized command */
   function parts(n: string): { tool: string, pos: string[], f: Flags } {
     var t = n.split(" "), tool = t[0], i = 1, pos: string[] = [], f: Flags = {};
     if (tool === "kubectl" && t[1] === "argo" && t[2] === "rollouts") { tool = "kubectl argo rollouts"; i = 3; }

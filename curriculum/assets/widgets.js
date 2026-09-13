@@ -664,7 +664,7 @@
           "</div>" +
           '<div class="wnote ' + (st.binding === "ClusterRoleBinding" && !clusterScoped ? "warn" : "") + '">' +
             (st.role === "ClusterRole" && st.binding === "RoleBinding"
-              ? "<b>The pattern worth memorising:</b> define the role once as a ClusterRole, bind it per tenant with a RoleBinding. One definition, per-namespace grants."
+              ? "<b>The pattern worth memorizing:</b> define the role once as a ClusterRole, bind it per tenant with a RoleBinding. One definition, per-namespace grants."
               : st.binding === "ClusterRoleBinding" && !clusterScoped
                 ? "This grants the rules in <em>every</em> namespace, including ones that do not exist yet. Almost always the wrong default, and the check an exam task adds to catch it is \"and not in team-b\"."
                 : "Namespaced and self-contained. Fine for one tenant; you will copy the Role into every new namespace.") +

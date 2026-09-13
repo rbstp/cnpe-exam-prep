@@ -19,7 +19,7 @@ CUT = os.path.join(SRC, "cut.txt")
 
 # The OFL reserves the name "Plex" for IBM's own builds, so a cut of one may not
 # present itself under it. Only the records that name the font are rewritten: the
-# copyright, version, trademark, vendor and licence records are attribution, and
+# copyright, version, trademark, vendor and license records are attribution, and
 # stay exactly as they arrived.
 BRAND = "CNPE"
 ATTRIBUTION = {0, 5, 7, 8, 9, 11, 12, 13, 14}

@@ -53,7 +53,7 @@
       <table>
         <thead><tr><th>Field</th><th>Values</th><th>What it changes</th></tr></thead>
         <tbody>
-          <tr><td class="mono">accessModes</td><td class="mono">RWO · ROX · RWX · RWOP</td><td>A claim binds only to a PV offering what it asks. local-path only does RWO, so an RWX claim here pends forever; recognising <em>why</em> is the skill.</td></tr>
+          <tr><td class="mono">accessModes</td><td class="mono">RWO · ROX · RWX · RWOP</td><td>A claim binds only to a PV offering what it asks. local-path only does RWO, so an RWX claim here pends forever; recognizing <em>why</em> is the skill.</td></tr>
           <tr><td class="mono">volumeBindingMode</td><td class="mono">Immediate · WaitForFirstConsumer</td><td>WFFC keeps the PVC Pending until a pod uses it, so topology can be considered. The <code>standard</code> class here uses it, so you meet this "problem" immediately, and it is not a problem.</td></tr>
           <tr><td class="mono">persistentVolumeReclaimPolicy</td><td class="mono">Delete · Retain</td><td>Delete throws data away with the claim; Retain keeps the PV in <em>Released</em>, and it will not rebind until someone clears <code>spec.claimRef</code>. Released-but-unusable PVs are a classic troubleshooting scenario.</td></tr>
           <tr><td class="mono">allowVolumeExpansion</td><td class="mono">true · false</td><td>Only classes that set it let you grow a PVC by editing <code>spec.resources.requests.storage</code>. Shrinking is never allowed, anywhere.</td></tr>
@@ -421,7 +421,7 @@ persistentvolumeclaim "grow" deleted from default namespace
 <b>$ # put the shared default class back the way it was</b>
 <b>$ kubectl patch storageclass standard -p '{"allowVolumeExpansion":false}'</b>
 storageclass.storage.k8s.io/standard patched</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the class accepts <code>allowVolumeExpansion: true</code> and the claim accepts the larger request, so <code>spec</code> reads 128Mi while <code>status.capacity</code> stays at 64Mi. <code>status.conditions</code> is empty and the only event is <code>ExternalExpanding: waiting for an external controller to expand this PVC</code>, which is the whole answer: local-path has no resize support, so no controller ever picks the request up and the claim waits forever with its spec and status disagreeing. There is no error to find, which is the failure mode worth recognising.</div>
+      <div class="verify"><b>verify:</b> the class accepts <code>allowVolumeExpansion: true</code> and the claim accepts the larger request, so <code>spec</code> reads 128Mi while <code>status.capacity</code> stays at 64Mi. <code>status.conditions</code> is empty and the only event is <code>ExternalExpanding: waiting for an external controller to expand this PVC</code>, which is the whole answer: local-path has no resize support, so no controller ever picks the request up and the claim waits forever with its spec and status disagreeing. There is no error to find, which is the failure mode worth recognizing.</div>
     </div>
 
     <div class="exercise" data-title="A claim that lives and dies with its pod">
@@ -561,7 +561,7 @@ persistentvolumeclaim "noclass" deleted from default namespace</code></pre></det
       <div class="answer"><p>Not a bug if the class uses <code>WaitForFirstConsumer</code> and nothing mounts the claim yet: no scheduling decision exists, so there is nothing to provision and nothing to report. It becomes a finding the moment a pod references it and the claim <em>stays</em> Pending; then the events appear and name the real reason.</p></div></details>
 
     <details class="quiz"><summary>A PV sits in Released and your new, identical PVC will not bind to it. Why, and what is the fix?</summary>
-      <div class="answer"><p>Retain leaves <code>spec.claimRef</code> pointing at the deleted claim, and a PV with a claimRef is spoken for. Clear it (<code>kubectl patch pv &lt;name&gt; -p '{"spec":{"claimRef":null}}'</code>) and it returns to Available. Deciding whether the old data should be wiped first is the actual judgement call.</p></div></details>
+      <div class="answer"><p>Retain leaves <code>spec.claimRef</code> pointing at the deleted claim, and a PV with a claimRef is spoken for. Clear it (<code>kubectl patch pv &lt;name&gt; -p '{"spec":{"claimRef":null}}'</code>) and it returns to Available. Deciding whether the old data should be wiped first is the actual judgment call.</p></div></details>
 
     <details class="quiz"><summary>You delete a StatefulSet and its PVCs remain. Accident or design?</summary>
       <div class="answer"><p>Design. The claims outlive the set so scaling back up reattaches the same data, and so an accidental delete does not destroy the database. Newer clusters can opt in to cleanup via <code>persistentVolumeClaimRetentionPolicy</code> (<code>whenDeleted</code> / <code>whenScaled</code>).</p></div></details>
@@ -574,7 +574,7 @@ persistentvolumeclaim "noclass" deleted from default namespace</code></pre></det
   
 
     <details class="quiz"><summary>You want scale-down to reclaim volumes but deleting the StatefulSet by mistake to keep them. Which fields, and since when is this GA?</summary>
-      <div class="answer"><p><code>persistentVolumeClaimRetentionPolicy: { whenScaled: Delete, whenDeleted: Retain }</code>, GA since Kubernetes 1.32 (StatefulSetAutoDeletePVC). Delete works through an ownerReference on the PVC that the garbage collector honours after the pod is gone; a pod replaced after a node failure is not a scale event and keeps its claim.</p></div></details>
+      <div class="answer"><p><code>persistentVolumeClaimRetentionPolicy: { whenScaled: Delete, whenDeleted: Retain }</code>, GA since Kubernetes 1.32 (StatefulSetAutoDeletePVC). Delete works through an ownerReference on the PVC that the garbage collector honors after the pod is gone; a pod replaced after a node failure is not a scale event and keeps its claim.</p></div></details>
 
     <details class="quiz"><summary>An expansion to 500Gi failed because the backend has no capacity and the PVC keeps retrying. Can you back out?</summary>
       <div class="answer"><p>Yes: RecoverVolumeExpansionFailure is GA since 1.34, so edit the request down to any value still above <code>status.capacity</code> (never below it; shrinking is impossible). Watch <code>status.allocatedResourceStatuses</code> and events. Before 1.34 the recovery was the manual dance of Retain, delete the PVC, clear <code>claimRef</code>, recreate.</p></div></details>
