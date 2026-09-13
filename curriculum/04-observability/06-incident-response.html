@@ -36,7 +36,7 @@
   <div class="phdr"><h2>The method</h2><span class="meta">four steps, in order</span></div>
   <div class="pbody">
     <ol>
-      <li><strong>What is affected, first.</strong> What is broken and what still works. <code>kubectl get pods -A | grep -v Running</code>, <code>make status</code>, the top-level dashboards. One namespace or all? Data plane or control plane? This bounds everything that follows and stops you debugging a symptom two layers from the cause.</li>
+      <li><strong>Blast radius first.</strong> What is broken and what still works. <code>kubectl get pods -A | grep -v Running</code>, <code>make status</code>, the top-level dashboards. One namespace or all? Data plane or control plane? This bounds everything that follows and stops you debugging a symptom two layers from the cause.</li>
       <li><strong>Timeline second.</strong> What changed. <code>kubectl get events -A --sort-by=.lastTimestamp | tail -30</code>, recent syncs in Argo CD, <code>helm list -A</code> for fresh revisions, <code>kubectl rollout history</code>. <em>Most incidents turn out to be a recent deployment.</em></li>
       <li><strong>Descend one resource at a time.</strong> describe → events → logs → previous logs (<code>--previous</code>, for crash loops) → exec/debug. Resist skipping levels; the fast-looking jump is where wrong theories come from.</li>
       <li><strong>Fix the cause, then prove recovery with the same signal that showed the failure.</strong> If you found it via a failing curl, the incident ends with that curl succeeding, not with a pod showing Running.</li>
@@ -175,7 +175,7 @@ cnpe-worker
     <p>Remediation is half the competency; the process around it is the other half, and it compresses to five lines you can write in five minutes:</p>
     <ol>
       <li><strong>Symptom</strong>: what a user or a check observed, with a timestamp.</li>
-      <li><strong>Who was hit</strong>: what was affected, and what was not.</li>
+      <li><strong>Blast radius</strong>: who and what was affected, and who was not.</li>
       <li><strong>Root cause</strong>: the change or condition that produced it, stated as a mechanism, not a culprit.</li>
       <li><strong>Fix</strong>: what you did, including anything you did that turned out to be irrelevant.</li>
       <li><strong>Proof of recovery</strong>: the command or signal that confirms it, and the follow-up that prevents recurrence (an alert that would have caught it sooner, a policy, a default).</li>
@@ -225,7 +225,7 @@ the pod was switched to sa/app-sa, which has no RBAC at all. Nothing in pod stat
     </div>
 
     <div class="exercise" data-title="One structured postmortem">
-      <p>After any drill, write five lines: symptom, who was hit, root cause, fix, the check that proves recovery.</p>
+      <p>After any drill, write five lines: symptom, blast radius, root cause, fix, the check that proves recovery.</p>
       <div class="verify"><b>verify:</b> a stranger could re-run your incident from those lines. Five minutes, once per drill; this is what a "structured incident response process" reduces to in practice.</div>
     </div>
 
@@ -654,7 +654,7 @@ etcd-0               Healthy   ok        </code></pre></details></div>
       <div class="answer"><p>An admission webhook's backend is down and its <code>failurePolicy</code> is <code>Fail</code>, so the API server refuses writes it cannot validate. Restore the backend, or (as a deliberate emergency step) remove/scope the webhook configuration. That is why <code>failurePolicy</code> is a governance decision, not a default to accept blindly (5.2).</p></div></details>
 
     <details class="quiz"><summary>You have four minutes left and no theory that fits the evidence. What do you do?</summary>
-      <div class="answer"><p>Go back to step 1 and widen: re-check what is affected and the timeline rather than digging deeper into the current object. Most stuck diagnoses are the result of over-committing to the first plausible layer. On the exam, flag it and move on; a stuck task costs you two easy ones.</p></div></details>
+      <div class="answer"><p>Go back to step 1 and widen: re-check blast radius and timeline rather than digging deeper into the current object. Most stuck diagnoses are the result of over-committing to the first plausible layer. On the exam, flag it and move on; a stuck task costs you two easy ones.</p></div></details>
 
     <details class="quiz"><summary>What proves an incident is over?</summary>
       <div class="answer"><p>The same signal that showed the failure, now succeeding: the failing curl returns 200, the alert resolves, the validation check passes. A pod showing Running proves only that a container started.</p></div></details>

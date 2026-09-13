@@ -35,7 +35,6 @@ come back:
 
 | Avoid | Use instead |
 | --- | --- |
-| blast radius | what is affected, how far it reaches, who was hit, the risk |
 | shape, shaped (as a catch-all noun) | fields, pattern, form, task, mode, how it works |
 | canonical | normalized (in code), the one you will see most (in prose) |
 | load-bearing | the part everything else rests on, the decisive reason |
@@ -47,11 +46,14 @@ come back:
 | leverage (as a verb or adjective) | use, the section that pays back the most |
 | delve, robust, seamless, holistic, cornerstone | plain equivalents |
 
-Two nuances:
+Three nuances:
 
 - **`scope` is fine as Kubernetes terminology**: cluster-scoped, namespace-scoped,
   RBAC scope, an OAuth scope. Avoid it as a filler noun for the extent of
   something.
+- **`blast radius` is fine, and wanted.** It is ordinary SRE and platform
+  vocabulary, the exam's included, so this site should teach it rather than talk
+  around it. A pass once replaced all 20 uses and they were put back.
 - **Keep a listed word when it is the literal term of art.** The repo already
   does this for OperatorHub's `Seamless Upgrades` capability level, the Kyverno
   policy named `legacy-shape` in captured lab output, and the literal sprite and

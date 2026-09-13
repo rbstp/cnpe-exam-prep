@@ -137,7 +137,7 @@ function.pkg.crossplane.io/function-patch-and-transform   True        True      
     <p>Two more operational facts worth carrying:</p>
     <ul>
       <li><strong>Composition selection.</strong> An XR picks its composition by <code>compositionRef</code>, by <code>compositionSelector</code> labels, or by the XRD's default. When the wrong recipe runs, that is where to look, not in the composition itself.</li>
-      <li><strong>Changing the recipe changes existing instances.</strong> Edit a composition and every XR using it reconciles to the new definition without anyone touching them. That is the platform team's side of the contract, and it is also the risk: a bad composition edit hits every tenant at once. Version compositions (and pin XRs with <code>compositionUpdatePolicy: Manual</code>) when that matters.</li>
+      <li><strong>Changing the recipe changes existing instances.</strong> Edit a composition and every XR using it reconciles to the new definition without anyone touching them. That is the platform team's side of the contract, and it is also the blast radius: a bad composition edit hits every tenant at once. Version compositions (and pin XRs with <code>compositionUpdatePolicy: Manual</code>) when that matters.</li>
     </ul>
 
     <div class="callout exam">
@@ -180,7 +180,7 @@ function.pkg.crossplane.io/function-patch-and-transform   True        True      
     writeConnectionSecretToRef: { name: team-c-conn }</code></pre></div>
     <ul>
       <li><strong>Selection order.</strong> <code>enforcedCompositionRef</code> on the XRD wins; otherwise the XR's <code>compositionRef</code>, then <code>compositionSelector</code> labels, then the XRD's <code>defaultCompositionRef</code>. Crossplane writes the resolved <code>compositionRef</code> back onto the XR, so an XR created before you changed the default keeps the old recipe.</li>
-      <li><strong>Revisions.</strong> Every Composition edit creates an immutable <code>CompositionRevision</code> (<code>kubectl get compositionrevision -l crossplane.io/composition-name=&lt;name&gt;</code>). With <code>compositionUpdatePolicy: Automatic</code> XRs follow the newest revision; with <code>Manual</code> they stay on the <code>compositionRevisionRef</code> Crossplane pinned at creation until you edit it. That is the control over that risk the previous panel promised.</li>
+      <li><strong>Revisions.</strong> Every Composition edit creates an immutable <code>CompositionRevision</code> (<code>kubectl get compositionrevision -l crossplane.io/composition-name=&lt;name&gt;</code>). With <code>compositionUpdatePolicy: Automatic</code> XRs follow the newest revision; with <code>Manual</code> they stay on the <code>compositionRevisionRef</code> Crossplane pinned at creation until you edit it. That is the blast-radius control the previous panel promised.</li>
       <li><strong>Pausing.</strong> The annotation <code>crossplane.io/paused: "true"</code> on an XR or a managed resource stops reconciliation without deleting anything; the lab's "paused XR" fault is exactly this, and the XR's <code>Synced</code> condition says <code>ReconcilePaused</code>.</li>
       <li><strong>Conditions.</strong> <code>Synced</code> means Crossplane could run the Composition and apply the result to the API server; <code>Ready</code> means the composed resources report ready. <code>Synced=False</code> is a recipe or permission problem (read the message: unknown function, invalid patch path, forbidden); <code>Ready=False</code> with <code>Synced=True</code> is a downstream problem (the provider or the external API). Deciding which of the two is false is the first branch of every Crossplane diagnosis.</li>
     </ul>
@@ -807,7 +807,7 @@ podmonitor.monitoring.coreos.com "crossplane-providers" deleted from crossplane-
       <div class="answer"><p>Ownership rules: a namespaced object cannot own a cluster-scoped one, and Crossplane relies on ownerReferences for lifecycle. The workaround the lab uses is a namespaced <code>Object</code> (provider-kubernetes) that <em>contains</em> the cluster-scoped manifest, authenticated with a <code>ClusterProviderConfig</code>.</p></div></details>
 
     <details class="quiz"><summary>You edit a Composition. What happens to the twelve XRs already using it?</summary>
-      <div class="answer"><p>They all reconcile to the new recipe, without anyone touching them: powerful and risky in equal measure. If that matters, pin instances to a composition revision or version the composition and migrate deliberately.</p></div></details>
+      <div class="answer"><p>They all reconcile to the new recipe, without anyone touching them: powerful, and a wide blast radius. If that matters, pin instances to a composition revision or version the composition and migrate deliberately.</p></div></details>
 
     <details class="quiz"><summary>When would you choose kro or a plain operator over Crossplane?</summary>
       <div class="answer"><p>kro when you want the same declarative expansion with far less machinery and can accept a young API (3.6). A plain operator when the value is domain behavior over time (failover, backup, upgrade orchestration) rather than composing existing resources. Crossplane's sweet spot is composing many things, including external cloud APIs, behind one abstraction.</p></div></details>
