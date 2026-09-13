@@ -10,14 +10,14 @@ found worth adding, grouped by section, each with the outcome the captured outpu
 It was worked in two passes: insert each item as an exercise with a **placeholder** output drawer,
 then run it against the lab and replace the placeholder with the real output.
 
-**Outcome: 170 exercises landed, 8 were dropped.** Every drawer on the site now holds real output;
+**Outcome: 169 exercises landed, 9 were dropped.** Every drawer on the site now holds real output;
 none are pending. The output for these 170 was captured on 2026-09-12 against Kubernetes 1.36.1,
-before the lab's `K8S_IMAGE` pin moved to 1.37.0. The eight dropped items are struck through in
+before the lab's `K8S_IMAGE` pin moved to 1.37.0. The nine dropped items are struck through in
 the list below, each with its reason. Four were dropped because they restart the API server and
 crashloop every controller in the cluster for minutes (encryption at rest, the PodSecurity
 `AdmissionConfiguration`, the audit policy, and the VAP audit annotation that depended on it).
-Four more were dropped on the evidence of running them: OLM v1, the Grafana Operator dashboard,
-Falco, and the sigstore policy-controller.
+Five more were dropped on the evidence of running them: OLM v1, the Grafana Operator dashboard,
+Falco, the sigstore policy-controller, and Argo CD notifications.
 
 ## How an item is inserted
 
@@ -154,7 +154,7 @@ lives outside this repository.)
 - [ ] Annotate `argocd.argoproj.io/refresh: hard` on an Application and watch the annotation disappear: shows refresh without the CLI.
 - [ ] Add `Prune=confirm` to an app's syncOptions, remove a manifest from git, sync: expect the operation to stay Syncing with "Confirm Pruning" needed; `argocd app confirm-deletion` (or the deletion-approved annotation) completes it.
 - [ ] `argocd account can-i sync applications 'default/demo-staging'` as a project-role JWT with and without the sync policy line: expect yes/no.
-- [ ] `kubectl -n argocd patch cm argocd-notifications-cm --type merge -p '{"data":{"service.webhook.gitea":"url: http://gitea.lab:3000/...","trigger.on-sync-succeeded":"- send: [app-sync-succeeded]\n  when: app.status.operationState.phase in [\"Succeeded\"]"}}'` plus the subscribe annotation: capture one delivered notification in the notifications-controller log.
+- [x] ~~Deliver one notification~~: **dropped**. The queue assumed the notifications controller was there; this lab's Argo CD chart does not install it, so there is no `argocd-notifications-cm` and no `argocd-notifications-controller` to patch or read. Adding a second controller to the `argocd` namespace for one exercise is the kind of blast radius the rest of this work has been removing. The theory panel keeps the ConfigMap shape and the subscribe annotation.
 
 #### 2.3 Flux: sources, kustomizations, helm releases
 

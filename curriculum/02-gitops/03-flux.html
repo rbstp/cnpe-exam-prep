@@ -661,7 +661,8 @@ apiVersion: notification.toolkit.fluxcd.io/v1
 kind: Receiver
 metadata: { name: gitea-receiver, namespace: flux-system }
 spec:
-  type: gitea
+  # this Flux build has no "gitea" type; Gitea sends GitHub-format webhooks
+  type: github
   events: [push]
   secretRef: { name: receiver-token }
   resources:
@@ -669,38 +670,54 @@ spec:
 EOF
 sleep 10
 kubectl -n flux-system get receiver gitea-receiver -o jsonpath='{.status.webhookPath}{"\n"}'
-kubectl -n flux-system patch svc webhook-receiver -p '{"spec":{"type":"LoadBalancer"}}'
-kubectl -n flux-system get svc webhook-receiver -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}'
-flux events --for GitRepository/platform | tail -5</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ TOKEN=$(head -c 24 /dev/urandom | base64 | tr -d '=+/')</b>
+kubectl -n flux-system patch svc webhook-receiver -p '{"spec":{"type":"NodePort"}}'
+# a LoadBalancer IP needs cloud-provider-kind; the NodePort is always reachable from the host
+NODE_IP=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
+NODE_PORT=$(kubectl -n flux-system get svc webhook-receiver -o jsonpath='{.spec.ports[0].nodePort}')
+HOOK=$(kubectl -n flux-system get receiver gitea-receiver -o jsonpath='{.status.webhookPath}')
+echo "webhook URL for Gitea: http://$NODE_IP:$NODE_PORT$HOOK"
+flux events --for GitRepository/platform | tail -5
+# put the lab back: the Receiver and its token are the only things this exercise needed
+kubectl -n flux-system delete receiver gitea-receiver
+kubectl -n flux-system delete secret receiver-token
+kubectl -n flux-system patch svc webhook-receiver -p '{"spec":{"type":"ClusterIP"}}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ TOKEN=$(head -c 24 /dev/urandom | base64 | tr -d '=+/')</b>
 <b>$ kubectl -n flux-system create secret generic receiver-token --from-literal=token="$TOKEN"</b>
-secret/receiver-token created
+error: failed to create secret secrets "receiver-token" already exists
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: notification.toolkit.fluxcd.io/v1</b>
 <b>kind: Receiver</b>
 <b>metadata: { name: gitea-receiver, namespace: flux-system }</b>
 <b>spec:</b>
-<b>  type: gitea</b>
+<b>  # this Flux build has no "gitea" type; Gitea sends GitHub-format webhooks</b>
+<b>  type: github</b>
 <b>  events: [push]</b>
 <b>  secretRef: { name: receiver-token }</b>
 <b>  resources:</b>
 <b>    - { kind: GitRepository, name: platform }</b>
 <b>EOF</b>
-The Receiver "gitea-receiver" is invalid: 
-* spec.type: Unsupported value: "gitea": supported values: "generic", "generic-hmac", "generic-oidc", "github", "gitlab", "bitbucket", "harbor", "dockerhub", "quay", "gcr", "nexus", "acr", "cdevents"
-* &lt;nil&gt;: Invalid value: null: some validation rules were not checked because the object was invalid; correct the existing errors to complete validation
+receiver.notification.toolkit.fluxcd.io/gitea-receiver unchanged
 <b>$ sleep 10</b>
 <b>$ kubectl -n flux-system get receiver gitea-receiver -o jsonpath='{.status.webhookPath}{"\n"}'</b>
-Error from server (NotFound): receivers.notification.toolkit.fluxcd.io "gitea-receiver" not found
-<b>$ kubectl -n flux-system patch svc webhook-receiver -p '{"spec":{"type":"LoadBalancer"}}'</b>
-service/webhook-receiver patched
-<b>$ kubectl -n flux-system get svc webhook-receiver -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}'</b>
+/hook/7e36c1d5da0d6067d57c16f52b1c689e18854a6423ad176c701cb5c4a217649a
+<b>$ kubectl -n flux-system patch svc webhook-receiver -p '{"spec":{"type":"NodePort"}}'</b>
+service/webhook-receiver patched (no change)
+<b>$ # a LoadBalancer IP needs cloud-provider-kind; the NodePort is always reachable from the host</b>
+<b>$ NODE_IP=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')</b>
+<b>$ NODE_PORT=$(kubectl -n flux-system get svc webhook-receiver -o jsonpath='{.spec.ports[0].nodePort}')</b>
+<b>$ HOOK=$(kubectl -n flux-system get receiver gitea-receiver -o jsonpath='{.status.webhookPath}')</b>
+<b>$ echo "webhook URL for Gitea: http://$NODE_IP:$NODE_PORT$HOOK"</b>
 <b>$ flux events --for GitRepository/platform | tail -5</b>
-LAST SEEN           	TYPE  	REASON                    	OBJECT                	MESSAGE                                                                                                      
-55m                 	Normal	NewArtifact               	GitRepository/platform	stored artifact for commit 'seed lab manifests'                                                             	
-14m (x41 over 54m)  	Normal	GitOperationSucceeded     	GitRepository/platform	no changes since last reconciliation: observed revision 'main@sha1:c9d066255db33d9c2085a7804b3bcd55f5ec6918'	
-9m28s               	Normal	GarbageCollectionSucceeded	GitRepository/platform	garbage collected 1 artifacts                                                                               	
-17s (x10 over 9m27s)	Normal	GitOperationSucceeded     	GitRepository/platform	no changes since last reconciliation: observed revision 'main@sha1:8a8142cc9861fed0e37229617f152f27909a3081'	</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the Receiver reports a webhook path and the Service has an address. Point the Gitea repository's webhook at <code>http://&lt;ip&gt;&lt;webhookPath&gt;</code> with the same token, push, and the reconcile shows up in the events within seconds rather than at the next interval.</div>
+<b>$ # put the lab back: the Receiver and its token are the only things this exercise needed</b>
+<b>$ kubectl -n flux-system delete receiver gitea-receiver</b>
+<b>$ kubectl -n flux-system delete secret receiver-token</b>
+<b>$ kubectl -n flux-system patch svc webhook-receiver -p '{"spec":{"type":"ClusterIP"}}'</b>
+webhook URL for Gitea: http://172.18.0.4:32737/hook/7e36c1d5da0d6067d57c16f52b1c689e18854a6423ad176c701cb5c4a217649a
+LAST SEEN            	TYPE  	REASON               	OBJECT                	MESSAGE                                                                                                      
+4m47s (x70 over 6h6m)	Normal	GitOperationSucceeded	GitRepository/platform	no changes since last reconciliation: observed revision 'main@sha1:83a41e21322e15eff2307bc1e9d5c89e33226d0d'	
+receiver.notification.toolkit.fluxcd.io "gitea-receiver" deleted from flux-system namespace
+secret "receiver-token" deleted from flux-system namespace
+service/webhook-receiver patched</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the Receiver goes Ready and reports a <code>status.webhookPath</code> of the form <code>/hook/&lt;64 hex characters&gt;</code>, and the last line prints the full URL to paste into Gitea, for example <code>http://172.18.0.4:32737/hook/7e36c1d5...</code>. Note the type: this Flux build has no <code>gitea</code> receiver, and asking for one is refused with the list of types it does have. Gitea sends GitHub-format webhooks, so <code>github</code> is the right answer. Point the repository's webhook at that URL with the same token and a push reconciles within seconds instead of at the next interval.</div>
     </div>
 
     <div class="exercise" data-title="Let a tag write a commit">

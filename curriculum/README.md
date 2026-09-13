@@ -33,7 +33,7 @@ GitHub will not render it in place; clone the repo (or use raw + a local browser
 Every command block carries a collapsed **output** drawer underneath: the real result of that
 command, so the sections read self-contained even away from a running cluster. Each drawer is
 dated with the day it was captured against a freshly built lab. The original blocks carry
-**August 26, 2026**; the 170 exercises added in September carry **September 12, 2026** and were
+**August 26, 2026**; the 169 exercises added in September carry **September 12, 2026** and were
 captured on Kubernetes 1.36.1, the `K8S_IMAGE` pin in force at the time, before it moved to
 1.37.0. Expand a drawer only after predicting what it should say; the lab's tool versions
 float, so details may drift from what your lab prints.
@@ -49,7 +49,7 @@ Server Version: v1.36.1
 
 No drawer is a placeholder: every one holds output that a real cluster produced.
 [`docs/curriculum-command-queue.md`](../docs/curriculum-command-queue.md) records the queue that
-produced the September exercises, including the eight items that were dropped and why.
+produced the September exercises, including the nine items that were dropped and why.
 
 Press `/` in any page to jump to a section by name, tool or concept, `g` for a drill session, `q` for the quest,
 `t` to switch dark / light (dark by default) and `?` for the shortcuts.
