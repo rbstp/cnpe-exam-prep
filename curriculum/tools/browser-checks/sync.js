@@ -1213,4 +1213,45 @@ module.exports = async function (h) {
     assert(s.page.errors.length === 0, 'no console errors: ' + s.page.errors.join(' | '));
     await s.ctx.close();
   });
+
+  /* 33. a browser still on the old bundle keeps pushing the keys a prose edit
+         moved; every browser on the new one renames them on arrival */
+  await group('an old-spelling row cannot tick back what this browser un-ticked', async () => {
+    const OLD_EX = '1.2#read-the-behaviour-you-did-not-write';
+    const NEW_EX = '1.2#read-the-behavior-you-did-not-write';
+    const OLD_CARD = '3.1#an-organisation-mandates-the-platform-for-produc';
+    const NEW_CARD = '3.1#an-organization-mandates-the-platform-for-produc';
+    /** @type {*} */
+    let put = null;
+    const s = await site({
+      signedIn: true,
+      // this browser migrated at load, then un-ticked the exercise
+      seed: { ex: { [NEW_EX]: 0 } },
+      // and the base is what it last agreed with the server, under the old name
+      base: { uid: '1', rev: 1, done: [], ex: [OLD_EX], exam: [], exam2: [] },
+      api: ({ method, body }) => {
+        if (method === 'GET') {
+          return { status: 200, json: {
+            user: { login: 'octocat', id: '1' }, rev: 1, updated: 'then',
+            progress: { ex: { [OLD_EX]: 1 }, drill: { [OLD_CARD]: { r: 4, m: 1, ok: true, t: 1 } } },
+          } };
+        }
+        put = JSON.parse(body);
+        return { status: 200, json: { rev: 2, updated: 'now' } };
+      },
+    });
+    await s.go();
+    await s.page.waitForFunction(() => window.CNPE_SYNC.state().rev === 2);
+    const store = await readStore(s.page);
+    assert(store.ex[NEW_EX] === 0 && !(OLD_EX in store.ex),
+      'the un-tick stands against the old key coming back: ' + JSON.stringify(store.ex));
+    assert(store.drill[NEW_CARD] && store.drill[NEW_CARD].r === 4 && !(OLD_CARD in store.drill),
+      'and the card that was answered lands under its new key, score and all: ' + JSON.stringify(store.drill));
+    assert(put && put.progress.ex[NEW_EX] === 0 && !(OLD_EX in put.progress.ex),
+      'the push speaks the new name, so the row stops carrying the old one: ' + JSON.stringify(put && put.progress.ex));
+    const base = await s.page.evaluate(() => JSON.parse(localStorage.getItem('cnpe:sync-base') || 'null'));
+    assert(base && base.ex.indexOf(OLD_EX) < 0, 'and no base is kept under the old name: ' + JSON.stringify(base && base.ex));
+    assert(realErrors(s.page).length === 0, 'no console errors: ' + s.page.errors.join(' | '));
+    await s.ctx.close();
+  });
 };

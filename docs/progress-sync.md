@@ -542,10 +542,11 @@ Worth knowing if you change any of it:
   buckets, the counter maxima, the prototype guards on a payload that arrives over
   the network, the narrowed base one tab holds against another, and the base rules
   above, meaning the rev and account checks, the wire form the exam clock is
-  stripped from, and what counts as having anything to save. Whether this browser
-  may hold a base at all stays in `sync.js`, since that is a question about the
-  disk and the other tabs rather than a rule. Plain `node`, no dependencies, and
-  CI runs it on every PR.
+  stripped from, what counts as having anything to save, and the rename of the
+  keys a prose edit moved, against a store holding the old names, the new ones,
+  both and neither. Whether this browser may hold a base at all stays in
+  `sync.js`, since that is a question about the disk and the other tabs rather
+  than a rule. Plain `node`, no dependencies, and CI runs it on every PR.
 * `sync/test.mjs` drives the Worker directly with a stub D1: forged, tampered,
   expired and wrong-key session cookies, the CORS gate on every credentialed
   route, six open-redirect attempts on `return`, the state and nonce checks on
