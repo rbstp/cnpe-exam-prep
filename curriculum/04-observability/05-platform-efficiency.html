@@ -363,30 +363,31 @@ ID      DATE                           REVISION
 sleep 60
 kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!
 sleep 5
-curl -sG localhost:9090/api/v1/query --data-urlencode 'query=count(gotk_resource_info{customresource_kind="Kustomization", suspended="true"})' | jq '.data.result'
-curl -sG localhost:9090/api/v1/query --data-urlencode 'query=gotk_resource_info{suspended="true"}' | jq '.data.result[] | .metric'
+# gotk_resource_info comes from kube-state-metrics with a CustomResourceState config this lab does not ship
+curl -sG localhost:9090/api/v1/query --data-urlencode 'query=group by (__name__) ({__name__=~"gotk_.+"})' | jq -r '.data.result[].metric.__name__'
+curl -sG localhost:9090/api/v1/query --data-urlencode 'query=count(gotk_suspend_status == 1)' | jq -r '.data.result[0].value[1] // "no gotk_suspend_status series"'
+curl -sG localhost:9090/api/v1/query --data-urlencode 'query=gotk_suspend_status == 1' | jq '.data.result[] | .metric'
+# gotk_resource_info comes from kube-state-metrics with a CustomResourceState config this lab does not ship
+curl -sG localhost:9090/api/v1/query --data-urlencode 'query=group by (__name__) ({__name__=~"gotk_.+"})' | jq -r '.data.result[].metric.__name__'
+curl -sG localhost:9090/api/v1/query --data-urlencode 'query=count(gotk_suspend_status == 1)' | jq -r '.data.result[0].value[1] // "no gotk_suspend_status series"'
+curl -sG localhost:9090/api/v1/query --data-urlencode 'query=gotk_suspend_status == 1' | jq '.data.result[] | .metric'
 kill $PF1
-flux resume kustomization demo-flux</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ flux suspend kustomization demo-flux</b>
-► suspending kustomization demo-flux in flux-system namespace
-✔ kustomization suspended
+flux resume kustomization demo-flux</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ flux suspend kustomization demo-flux</b>
 <b>$ sleep 60</b>
 <b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
-Forwarding from 127.0.0.1:9090 -&gt; 9090
-Forwarding from [::1]:9090 -&gt; 9090
-<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=count(gotk_resource_info{customresource_kind="Kustomization", suspended="true"})' | jq '.data.result'</b>
-Handling connection for 9090
-[]
-<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=gotk_resource_info{suspended="true"}' | jq '.data.result[] | .metric'</b>
-Handling connection for 9090
+<b>$ # gotk_resource_info comes from kube-state-metrics with a CustomResourceState config this lab does not ship</b>
+<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=group by (__name__) ({__name__=~"gotk_.+"})' | jq -r '.data.result[].metric.__name__'</b>
+<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=count(gotk_suspend_status == 1)' | jq -r '.data.result[0].value[1] // "no gotk_suspend_status series"'</b>
+<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=gotk_suspend_status == 1' | jq '.data.result[] | .metric'</b>
+<b>$ # gotk_resource_info comes from kube-state-metrics with a CustomResourceState config this lab does not ship</b>
+<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=group by (__name__) ({__name__=~"gotk_.+"})' | jq -r '.data.result[].metric.__name__'</b>
+<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=count(gotk_suspend_status == 1)' | jq -r '.data.result[0].value[1] // "no gotk_suspend_status series"'</b>
+<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=gotk_suspend_status == 1' | jq '.data.result[] | .metric'</b>
 <b>$ kill $PF1</b>
 <b>$ flux resume kustomization demo-flux</b>
-► resuming kustomization demo-flux in flux-system namespace
-✔ kustomization resumed
-◎ waiting for Kustomization reconciliation
-✔ Kustomization demo-flux reconciliation completed
-✔ applied revision main@sha1:75be58cd7311d1b51ebfdc2779e1e44897cf4bd3</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the count is 1 while the Kustomization is suspended and the series names it. This needs the Flux PodMonitor from 4.1; if the query is empty, that is the reason, not the suspension.</div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the first query lists every <code>gotk_</code> metric this cluster actually has, and <code>gotk_resource_info</code> is not one of them: that metric comes from kube-state-metrics with a CustomResourceState config, which this lab does not ship, so a query against it is empty whatever Flux is doing. If <code>gotk_suspend_status</code> is in the list, the count is 1 while <code>demo-flux</code> is suspended and the last query names it. If it is not, the controllers export no suspension gauge on this Flux version and counting suspended objects means adding the kube-state-metrics config first.</div>
     </div>
 
     <div class="exercise" data-title="Count pipeline runs that worked">

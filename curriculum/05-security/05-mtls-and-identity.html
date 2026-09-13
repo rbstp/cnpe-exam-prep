@@ -398,11 +398,11 @@ spire-spire-test-keys                 46m</code></pre></details></div>
     <div class="exercise" data-title="Put a waypoint in front of the namespace">
       <p>Ambient mode gives you L4 identity for free and L7 policy only where you put a waypoint. Enrolling a namespace and writing a method-scoped rule is the whole shape of an L7 authorization task.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl --context kind-mesh label ns default istio.io/dataplane-mode=ambient --overwrite
-istioctl --context kind-mesh waypoint apply -n default --enroll-namespace --wait
+istioctl --context kind-mesh waypoint apply -n default --enroll-namespace --overwrite --wait
 kubectl --context kind-mesh get gtw waypoint
-kubectl --context kind-mesh -n default create deployment backend --image=ghcr.io/stefanprodan/podinfo:6.7.1
-kubectl --context kind-mesh -n default expose deployment backend --port=80 --target-port=9898
-kubectl --context kind-mesh -n default create deployment client --image=curlimages/curl:8.11.1 -- sleep 86400
+kubectl --context kind-mesh -n default create deployment backend --image=ghcr.io/stefanprodan/podinfo:6.7.1 --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -
+kubectl --context kind-mesh -n default expose deployment backend --port=80 --target-port=9898 --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -
+kubectl --context kind-mesh -n default create deployment client --image=curlimages/curl:8.11.1 --dry-run=client -o yaml -- sleep 86400 | kubectl --context kind-mesh apply -f -
 kubectl --context kind-mesh -n default rollout status deploy/backend --timeout=180s
 kubectl --context kind-mesh -n default rollout status deploy/client --timeout=180s
 kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'
@@ -425,23 +425,14 @@ sleep 20
 CLIENT=$(kubectl --context kind-mesh -n default get pod -l app=client -o jsonpath='{.items[0].metadata.name}')
 kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -o /dev/null -w '%{http_code}\n' http://backend/
 kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -X POST -o /dev/null -w '%{http_code}\n' http://backend/
-kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -X POST http://backend/ | head -2</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl --context kind-mesh label ns default istio.io/dataplane-mode=ambient --overwrite</b>
-namespace/default not labeled
-<b>$ istioctl --context kind-mesh waypoint apply -n default --enroll-namespace --wait</b>
-⚠️ Warning: namespace (default) already has an enrolled Waypoint. Consider adding the `--overwrite` flag to your apply command.
+kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -X POST http://backend/ | head -2</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl --context kind-mesh label ns default istio.io/dataplane-mode=ambient --overwrite</b>
+<b>$ istioctl --context kind-mesh waypoint apply -n default --enroll-namespace --overwrite --wait</b>
 <b>$ kubectl --context kind-mesh get gtw waypoint</b>
-NAME       CLASS            ADDRESS       PROGRAMMED   AGE
-waypoint   istio-waypoint   10.96.16.50   True         7h3m
-<b>$ kubectl --context kind-mesh -n default create deployment backend --image=ghcr.io/stefanprodan/podinfo:6.7.1</b>
-error: failed to create deployment: deployments.apps "backend" already exists
-<b>$ kubectl --context kind-mesh -n default expose deployment backend --port=80 --target-port=9898</b>
-Error from server (AlreadyExists): services "backend" already exists
-<b>$ kubectl --context kind-mesh -n default create deployment client --image=curlimages/curl:8.11.1 -- sleep 86400</b>
-error: failed to create deployment: deployments.apps "client" already exists
+<b>$ kubectl --context kind-mesh -n default create deployment backend --image=ghcr.io/stefanprodan/podinfo:6.7.1 --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -</b>
+<b>$ kubectl --context kind-mesh -n default expose deployment backend --port=80 --target-port=9898 --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -</b>
+<b>$ kubectl --context kind-mesh -n default create deployment client --image=curlimages/curl:8.11.1 --dry-run=client -o yaml -- sleep 86400 | kubectl --context kind-mesh apply -f -</b>
 <b>$ kubectl --context kind-mesh -n default rollout status deploy/backend --timeout=180s</b>
-deployment "backend" successfully rolled out
 <b>$ kubectl --context kind-mesh -n default rollout status deploy/client --timeout=180s</b>
-deployment "client" successfully rolled out
 <b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: security.istio.io/v1</b>
 <b>kind: AuthorizationPolicy</b>
@@ -458,15 +449,12 @@ deployment "client" successfully rolled out
 <b>        - operation:</b>
 <b>            methods: [GET]</b>
 <b>EOF</b>
-authorizationpolicy.security.istio.io/backend-get-only created
 <b>$ sleep 20</b>
 <b>$ CLIENT=$(kubectl --context kind-mesh -n default get pod -l app=client -o jsonpath='{.items[0].metadata.name}')</b>
 <b>$ kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -o /dev/null -w '%{http_code}\n' http://backend/</b>
-200
 <b>$ kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -X POST -o /dev/null -w '%{http_code}\n' http://backend/</b>
-403
 <b>$ kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -X POST http://backend/ | head -2</b>
-RBAC: access denied</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> GET returns 200 and POST returns 403 with <code>RBAC: access denied</code> in the body.</div>
     </div>
 
@@ -837,7 +825,7 @@ skipped: kind-mesh runs Istio ambient, not Linkerd
 to run this, rebuild the mesh cluster with: MESH=linkerd make mesh
 0
 0 policy.linkerd.io CRDs present</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the authorization list is empty before the objects and names your policy after, and the backend's readiness probe fails unless the kubelet's unauthenticated probe is also allowed. That probe failure is the classic Linkerd policy mistake.</div>
+      <div class="verify"><b>verify:</b> the block prints <code>skipped: kind-mesh runs Istio ambient, not Linkerd</code> and counts zero <code>policy.linkerd.io</code> CRDs, which is the right answer on this lab. Read the manifest instead and be able to say what each object does: <code>Server</code> names the port and protocol, <code>MeshTLSAuthentication</code> names the client identities, <code>AuthorizationPolicy</code> binds the two. If you rebuild the mesh cluster with <code>MESH=linkerd make mesh</code>, the authorization list is empty before these objects and names your policy after, and the backend's readiness probe fails until the kubelet's unauthenticated probe is allowed as well, which is the classic Linkerd policy mistake.</div>
     </div>
 
     <div class="exercise" data-title="Fetch an SVID from inside a pod">

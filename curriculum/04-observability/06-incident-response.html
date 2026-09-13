@@ -394,41 +394,57 @@ pod "dnsalive" deleted from default namespace</code></pre></details></div>
 
     <div class="exercise" data-title="A webhook with no backend at all">
       <p>This is the outage that takes a cluster down without touching the API server: an admission webhook that must be called, with nothing to call. Deleting the Deployment is faster than scaling, and the message is the one you must recognise within seconds.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl get validatingwebhookconfiguration -o custom-columns=NAME:.metadata.name,FAILUREPOLICY:.webhooks[*].failurePolicy | grep -i kyverno
-kubectl -n kyverno scale deploy kyverno-admission-controller --replicas=0
-sleep 15
-kubectl -n default run blocked --image=nginx:1.27-alpine --restart=Never
-kubectl -n default create configmap blocked-cm --from-literal=a=1
-kubectl -n kyverno scale deploy kyverno-admission-controller --replicas=1
-kubectl -n kyverno rollout status deploy kyverno-admission-controller --timeout=180s
-kubectl -n default delete pod blocked --ignore-not-found
-kubectl -n default delete configmap blocked-cm --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get validatingwebhookconfiguration -o custom-columns=NAME:.metadata.name,FAILUREPOLICY:.webhooks[*].failurePolicy | grep -i kyverno</b>
-kyverno-cel-exception-validating-webhook-cfg    Fail
-kyverno-cleanup-validating-webhook-cfg          Fail
-kyverno-exception-validating-webhook-cfg        Fail
-kyverno-global-context-validating-webhook-cfg   Fail
-kyverno-policy-validating-webhook-cfg           Fail
-kyverno-resource-validating-webhook-cfg         Fail
-kyverno-ttl-validating-webhook-cfg              Ignore
-<b>$ kubectl -n kyverno scale deploy kyverno-admission-controller --replicas=0</b>
-deployment.apps/kyverno-admission-controller scaled
-<b>$ sleep 15</b>
-<b>$ kubectl -n default run blocked --image=nginx:1.27-alpine --restart=Never</b>
-pod/blocked created
-<b>$ kubectl -n default create configmap blocked-cm --from-literal=a=1</b>
-configmap/blocked-cm created
-<b>$ kubectl -n kyverno scale deploy kyverno-admission-controller --replicas=1</b>
-deployment.apps/kyverno-admission-controller scaled
-<b>$ kubectl -n kyverno rollout status deploy kyverno-admission-controller --timeout=180s</b>
-Waiting for deployment "kyverno-admission-controller" rollout to finish: 0 out of 1 new replicas have been updated...
-Waiting for deployment "kyverno-admission-controller" rollout to finish: 0 out of 1 new replicas have been updated...
-Waiting for deployment "kyverno-admission-controller" rollout to finish: 0 of 1 updated replicas are available...
-deployment "kyverno-admission-controller" successfully rolled out
-<b>$ kubectl -n default delete pod blocked --ignore-not-found</b>
-pod "blocked" deleted from default namespace
-<b>$ kubectl -n default delete configmap blocked-cm --ignore-not-found</b>
-configmap "blocked-cm" deleted from default namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the create fails with a failed-calling-webhook message quoting a context deadline or absent endpoints, and you can name the two fields on the webhook configuration that decide whether this is an outage or a gap. Under a clock, the fix is to delete the webhook configuration and put it back afterwards.</div>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get validatingwebhookconfiguration -o custom-columns=NAME:.metadata.name,POLICY:.webhooks[*].failurePolicy | grep -i kyverno
+# own the webhook rather than scaling a shared component to zero, and scope it to a throwaway namespace
+kubectl create ns wh-drill --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata: { name: no-backend }
+webhooks:
+  - name: no-backend.example.com
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Fail
+    timeoutSeconds: 5
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: wh-drill }
+    clientConfig:
+      service: { name: nope, namespace: wh-drill, path: /validate, port: 443 }
+    rules:
+      - { apiGroups: [""], apiVersions: ["v1"], operations: ["CREATE"], resources: ["configmaps"], scope: Namespaced }
+EOF
+kubectl -n wh-drill create configmap blocked-cm --from-literal=a=1
+kubectl get validatingwebhookconfiguration no-backend -o jsonpath='{.webhooks[0].failurePolicy} {.webhooks[0].timeoutSeconds}{"\n"}'
+kubectl delete validatingwebhookconfiguration no-backend
+kubectl -n wh-drill create configmap blocked-cm --from-literal=a=1
+kubectl delete ns wh-drill</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get validatingwebhookconfiguration -o custom-columns=NAME:.metadata.name,POLICY:.webhooks[*].failurePolicy | grep -i kyverno</b>
+<b>$ # own the webhook rather than scaling a shared component to zero, and scope it to a throwaway namespace</b>
+<b>$ kubectl create ns wh-drill --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: admissionregistration.k8s.io/v1</b>
+<b>kind: ValidatingWebhookConfiguration</b>
+<b>metadata: { name: no-backend }</b>
+<b>webhooks:</b>
+<b>  - name: no-backend.example.com</b>
+<b>    admissionReviewVersions: ["v1"]</b>
+<b>    sideEffects: None</b>
+<b>    failurePolicy: Fail</b>
+<b>    timeoutSeconds: 5</b>
+<b>    namespaceSelector:</b>
+<b>      matchLabels: { kubernetes.io/metadata.name: wh-drill }</b>
+<b>    clientConfig:</b>
+<b>      service: { name: nope, namespace: wh-drill, path: /validate, port: 443 }</b>
+<b>    rules:</b>
+<b>      - { apiGroups: [""], apiVersions: ["v1"], operations: ["CREATE"], resources: ["configmaps"], scope: Namespaced }</b>
+<b>EOF</b>
+<b>$ kubectl -n wh-drill create configmap blocked-cm --from-literal=a=1</b>
+<b>$ kubectl get validatingwebhookconfiguration no-backend -o jsonpath='{.webhooks[0].failurePolicy} {.webhooks[0].timeoutSeconds}{"\n"}'</b>
+<b>$ kubectl delete validatingwebhookconfiguration no-backend</b>
+<b>$ kubectl -n wh-drill create configmap blocked-cm --from-literal=a=1</b>
+<b>$ kubectl delete ns wh-drill</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the first create fails with <code>Internal error occurred: failed calling webhook "no-backend.example.com"</code>, naming the service that does not exist, and the same create succeeds once the webhook configuration is deleted. The two fields that decide whether this is an outage or a gap are <code>failurePolicy</code> and the match scope, here <code>namespaceSelector</code> plus <code>rules</code>. Under a clock the fix is to delete the webhook configuration and put it back afterwards. Scaling Kyverno to zero does not reproduce this: both creates succeed, so a down policy engine is not by itself a cluster outage on this install.</div>
     </div>
 
     <div class="exercise" data-title="Two debug profiles on a node">
@@ -549,7 +565,7 @@ Events:
   Normal   Started          1s (x5 over 87s)   kubelet            spec.containers{podinfo}: Container started
 <b>$ kubectl -n default delete deployment probed</b>
 deployment.apps "probed" deleted from default namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> <code>lastState.terminated</code> shows exit code 143 with reason Error or Completed, the events say the liveness probe failed, and the restart count climbs.</div>
+      <div class="verify"><b>verify:</b> the restart count climbs (4 in 90 seconds here), the events carry <code>Liveness probe failed</code> with connection refused on port 9999 followed by <code>Killing</code> and <code>BackOff</code>, and <code>lastState.terminated</code> records the kill. The exit code is 0 with reason <code>Completed</code>, not 143, because podinfo handles SIGTERM and exits cleanly; 143 is what you see from a process that ignores it. The probe event plus the restart count is the evidence that separates "the app is broken" from "we are killing it", and the exit code alone does not.</div>
     </div>
 
     <div class="exercise" data-title="Ask the API server if it is well">

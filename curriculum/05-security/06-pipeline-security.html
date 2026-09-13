@@ -309,7 +309,8 @@ The following checks were performed on each of these signatures:
     <div class="exercise" data-title="Make Chains sign the build">
       <p>This is the pipeline half of the same idea: Chains watches TaskRuns and produces provenance without the pipeline author doing anything. It needs the Chains install from section 2.4; if that is gone, run that block first.</p>
       <p>The results named <code>IMAGE_URL</code> and <code>IMAGE_DIGEST</code> are the contract. Remove them and the attestation disappears, which is the failure mode to see.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl -n tekton-chains patch cm chains-config --type merge -p '{"data":{"artifacts.taskrun.format":"slsa/v2alpha3","artifacts.taskrun.storage":"oci","artifacts.oci.storage":"oci"}}'
+      <div class="cb" data-lang="bash"><pre><code># OCI storage pushes the attestation to kind-registry:5000, which serves plain HTTP
+kubectl -n tekton-chains patch cm chains-config --type merge -p '{"data":{"artifacts.taskrun.format":"slsa/v2alpha3","artifacts.taskrun.storage":"oci","artifacts.oci.storage":"oci","storage.oci.repository.insecure":"true"}}'
 kubectl -n tekton-chains rollout restart deploy/tekton-chains-controller
 kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=120s
 DIGEST=$(skopeo inspect --tls-verify=false docker://localhost:5001/demo:v1 | jq -r .Digest)
@@ -331,15 +332,11 @@ spec:
 EOF
 sleep 90
 kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.annotations}' | jq 'with_entries(select(.key | startswith("chains")))'
-cosign verify-attestation --type slsaprovenance1 --key k8s://tekton-chains/signing-secrets --allow-insecure-registry localhost:5001/demo:v1 | jq -r .payload | base64 -d | jq '{predicateType, builder: .predicate.runDetails.builder.id}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n tekton-chains patch cm chains-config --type merge -p '{"data":{"artifacts.taskrun.format":"slsa/v2alpha3","artifacts.taskrun.storage":"oci","artifacts.oci.storage":"oci"}}'</b>
-configmap/chains-config patched
+kubectl -n tekton-chains logs deploy/tekton-chains-controller --tail=40 | grep -i -m5 'error\|failed' || true
+cosign verify-attestation --type slsaprovenance1 --key k8s://tekton-chains/signing-secrets --allow-insecure-registry localhost:5001/demo:v1 | jq -r .payload | base64 -d | jq '{predicateType, builder: .predicate.runDetails.builder.id}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ # OCI storage pushes the attestation to kind-registry:5000, which serves plain HTTP</b>
+<b>$ kubectl -n tekton-chains patch cm chains-config --type merge -p '{"data":{"artifacts.taskrun.format":"slsa/v2alpha3","artifacts.taskrun.storage":"oci","artifacts.oci.storage":"oci","storage.oci.repository.insecure":"true"}}'</b>
 <b>$ kubectl -n tekton-chains rollout restart deploy/tekton-chains-controller</b>
-deployment.apps/tekton-chains-controller restarted
 <b>$ kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=120s</b>
-Waiting for deployment "tekton-chains-controller" rollout to finish: 0 out of 1 new replicas have been updated...
-Waiting for deployment "tekton-chains-controller" rollout to finish: 1 old replicas are pending termination...
-Waiting for deployment "tekton-chains-controller" rollout to finish: 1 old replicas are pending termination...
-deployment "tekton-chains-controller" successfully rolled out
 <b>$ DIGEST=$(skopeo inspect --tls-verify=false docker://localhost:5001/demo:v1 | jq -r .Digest)</b>
 <b>$ kubectl create -f - &lt;&lt;EOF</b>
 <b>apiVersion: tekton.dev/v1</b>
@@ -357,22 +354,21 @@ deployment "tekton-chains-controller" successfully rolled out
 <b>          printf 'kind-registry:5000/demo:v1' &gt; \$(results.IMAGE_URL.path)</b>
 <b>          printf '$DIGEST' &gt; \$(results.IMAGE_DIGEST.path)</b>
 <b>EOF</b>
-taskrun.tekton.dev/provenance-lpwcp created
 <b>$ sleep 90</b>
 <b>$ kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.annotations}' | jq 'with_entries(select(.key | startswith("chains")))'</b>
-{
-  "chains.tekton.dev/retries": "3",
-  "chains.tekton.dev/signed": "failed"
-}
+<b>$ kubectl -n tekton-chains logs deploy/tekton-chains-controller --tail=40 | grep -i -m5 'error\|failed' || true</b>
 <b>$ cosign verify-attestation --type slsaprovenance1 --key k8s://tekton-chains/signing-secrets --allow-insecure-registry localhost:5001/demo:v1 | jq -r .payload | base64 -d | jq '{predicateType, builder: .predicate.runDetails.builder.id}'</b>
-Error: no matching attestations: 
-error during command execution: no matching attestations: </code></pre></details></div>
-      <div class="verify"><b>verify:</b> the TaskRun is annotated signed, and the image carries a SLSA provenance attestation naming Tekton as the builder. Remove the two results from the task and rerun: the annotation appears without any OCI attestation, which is the silent failure to recognise.</div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the TaskRun is annotated <code>chains.tekton.dev/signed = "true"</code> and <code>cosign verify-attestation</code> returns a SLSA provenance predicate naming Tekton as the builder. If it still says <code>failed</code>, the controller log line is the answer and it is almost always the push: OCI storage sends the attestation to <code>kind-registry:5000</code>, which serves plain HTTP, so <code>storage.oci.repository.insecure</code> must be set.</div>
     </div>
 
     <div class="exercise" data-title="Demand the attestation at admission">
       <p>Verifying in the pipeline proves the pipeline is honest. Verifying at admission proves the cluster only runs what the pipeline built, which is the property a task is actually asking for.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;EOF
+      <div class="cb" data-lang="bash"><pre><code># this needs the attestation the Chains exercise above pushes
+cosign verify-attestation --type slsaprovenance1 --key k8s://tekton-chains/signing-secrets \
+  --allow-insecure-registry localhost:5001/demo:v1 &gt;/dev/null 2&gt;&amp;1 \
+  &amp;&amp; echo "attestation present" || echo "no attestation: run Make Chains sign the build first"
+kubectl apply -f - &lt;&lt;EOF
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata: { name: require-provenance }
@@ -401,7 +397,11 @@ kubectl -n default run attested --image=kind-registry:5000/demo:v1 --restart=Nev
 skopeo copy --dest-tls-verify=false docker://busybox:1.36 docker://localhost:5001/demo:fake
 kubectl -n default run unattested --image=kind-registry:5000/demo:fake --restart=Never
 kubectl -n default delete pod attested unattested --ignore-not-found
-kubectl delete clusterpolicy require-provenance</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;EOF</b>
+kubectl delete clusterpolicy require-provenance</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ # this needs the attestation the Chains exercise above pushes</b>
+<b>$ cosign verify-attestation --type slsaprovenance1 --key k8s://tekton-chains/signing-secrets \</b>
+<b>    --allow-insecure-registry localhost:5001/demo:v1 &gt;/dev/null 2&gt;&amp;1 \</b>
+<b>    &amp;&amp; echo "attestation present" || echo "no attestation: run Make Chains sign the build first"</b>
+<b>$ kubectl apply -f - &lt;&lt;EOF</b>
 <b>apiVersion: kyverno.io/v1</b>
 <b>kind: ClusterPolicy</b>
 <b>metadata: { name: require-provenance }</b>
@@ -425,33 +425,14 @@ kubectl delete clusterpolicy require-provenance</code></pre><details class="out"
 <b>                        publicKeys: |-</b>
 <b>$(kubectl -n tekton-chains get secret signing-secrets -o jsonpath='{.data.cosign\.pub}' | base64 -d | sed 's/^/                          /')</b>
 <b>EOF</b>
-Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
-clusterpolicy.kyverno.io/require-provenance created
 <b>$ sleep 20</b>
 <b>$ kubectl -n default run attested --image=kind-registry:5000/demo:v1 --restart=Never</b>
-Error from server: admission webhook "mutate.kyverno.svc-fail" denied the request: 
-
-resource Pod/default/attested was blocked due to the following policies 
-
-require-provenance:
-  check-slsa-attestation: 'image attestations verification failed, verifiedCount: 0, requiredCount: 1, error: no matching attestations: '
 <b>$ skopeo copy --dest-tls-verify=false docker://busybox:1.36 docker://localhost:5001/demo:fake</b>
-Getting image source signatures
-Copying blob sha256:034d6572bf287fa79604fee9be062f0683809ae3a3685bc7b0e17bd1c48c50e8
-Copying config sha256:b116e155074440ffd9e449559433feb4cd2341eb3554b1da1c638c976e56451d
-Writing manifest to image destination
 <b>$ kubectl -n default run unattested --image=kind-registry:5000/demo:fake --restart=Never</b>
-Error from server: admission webhook "mutate.kyverno.svc-fail" denied the request: 
-
-resource Pod/default/unattested was blocked due to the following policies 
-
-require-provenance:
-  check-slsa-attestation: 'image attestations verification failed, verifiedCount: 0, requiredCount: 1, error: no matching attestations: '
 <b>$ kubectl -n default delete pod attested unattested --ignore-not-found</b>
 <b>$ kubectl delete clusterpolicy require-provenance</b>
-Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
-clusterpolicy.kyverno.io "require-provenance" deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the image Chains built is admitted and the retagged busybox is refused with a message about the missing attestation.</div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the precheck prints <code>attestation present</code>, then the pod on the image Chains built is admitted and the retagged busybox is refused with <code>image attestations verification failed</code>, <code>verifiedCount: 0, requiredCount: 1</code>. If both are refused with verifiedCount 0, nothing was ever signed and the fix is in the Chains block, not in the policy.</div>
     </div>
 
     <div class="exercise" data-title="Rewrite the tag to a digest">
@@ -545,203 +526,27 @@ clusterpolicy.kyverno.io "pin-digest" deleted</code></pre></details></div>
 
     <div class="exercise" data-title="Three ways to configure the same gate">
       <p>A scanner gate is a policy decision expressed as flags, and each flag changes who gets blocked. Run the same scan three ways and watch the verdict move without the image changing at all.</p>
-      <div class="cb" data-lang="bash"><pre><code>trivy image --exit-code 1 --severity CRITICAL localhost:5001/demo:v1; echo "strict exit: $?"
-trivy image --exit-code 1 --severity CRITICAL --ignore-unfixed localhost:5001/demo:v1; echo "ignore-unfixed exit: $?"
-trivy image --severity CRITICAL --format json localhost:5001/demo:v1 | jq -r '[.Results[].Vulnerabilities // [] | .[].VulnerabilityID] | unique | .[0] // empty' &gt; /tmp/first-cve
-printf '%s exp:2020-01-01\n' "$(cat /tmp/first-cve)" &gt; /tmp/.trivyignore
-cat /tmp/.trivyignore
-trivy image --exit-code 1 --severity CRITICAL --ignorefile /tmp/.trivyignore localhost:5001/demo:v1; echo "expired-ignore exit: $?"
-printf '%s exp:2099-01-01\n' "$(cat /tmp/first-cve)" &gt; /tmp/.trivyignore
-trivy image --exit-code 1 --severity CRITICAL --ignorefile /tmp/.trivyignore localhost:5001/demo:v1; echo "live-ignore exit: $?"</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ trivy image --exit-code 1 --severity CRITICAL localhost:5001/demo:v1; echo "strict exit: $?"</b>
-2026-09-12T16:56:56-04:00	INFO	[vuln] Vulnerability scanning is enabled
-2026-09-12T16:56:56-04:00	INFO	[secret] Secret scanning is enabled
-2026-09-12T16:56:56-04:00	INFO	[secret] If your scanning is slow, please try '--scanners vuln' to disable secret scanning
-2026-09-12T16:56:56-04:00	INFO	[secret] Please see https://trivy.dev/docs/v0.73/guide/scanner/secret#recommendation for faster secret detection
-2026-09-12T16:56:56-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
-2026-09-12T16:56:56-04:00	INFO	[alpine] Detecting vulnerabilities...	os_version="3.20" repository="3.20" pkg_num=27
-2026-09-12T16:56:56-04:00	INFO	Number of language-specific files	num=2
-2026-09-12T16:56:56-04:00	INFO	[gobinary] Detecting vulnerabilities...
-2026-09-12T16:56:56-04:00	WARN	Using severities from other vendors for some vulnerabilities. Read https://trivy.dev/docs/v0.73/guide/scanner/vulnerability#severity-selection for details.
-2026-09-12T16:56:56-04:00	WARN	This OS version is no longer supported by the distribution	family="alpine" version="3.20.3"
-2026-09-12T16:56:56-04:00	WARN	The vulnerability detection may be insufficient because security updates are not provided
-
-Report Summary
-
-┌────────────────────────────────────────┬──────────┬─────────────────┬─────────┐
-│                 Target                 │   Type   │ Vulnerabilities │ Secrets │
-├────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
-│ localhost:5001/demo:v1 (alpine 3.20.3) │  alpine  │        2        │    -    │
-├────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
-│ home/app/podinfo                       │ gobinary │        2        │    -    │
-├────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
-│ usr/local/bin/podcli                   │ gobinary │        2        │    -    │
-└────────────────────────────────────────┴──────────┴─────────────────┴─────────┘
-Legend:
-- '-': Not scanned
-- '0': Clean (no security findings detected)
-
-
-localhost:5001/demo:v1 (alpine 3.20.3)
-======================================
-Total: 2 (CRITICAL: 2)
-
-┌────────────┬────────────────┬──────────┬────────┬───────────────────┬───────────────┬──────────────────────────────────────────────────────────┐
-│  Library   │ Vulnerability  │ Severity │ Status │ Installed Version │ Fixed Version │                          Title                           │
-├────────────┼────────────────┼──────────┼────────┼───────────────────┼───────────────┼──────────────────────────────────────────────────────────┤
-│ libcrypto3 │ CVE-2026-31789 │ CRITICAL │ fixed  │ 3.3.2-r0          │ 3.3.7-r0      │ openssl: OpenSSL: Heap buffer overflow on 32-bit systems │
-│            │                │          │        │                   │               │ from large X.509 certificate...                          │
-│            │                │          │        │                   │               │ https://avd.aquasec.com/nvd/cve-2026-31789               │
-├────────────┤                │          │        │                   │               │                                                          │
-│ libssl3    │                │          │        │                   │               │                                                          │
-<i>... 44 more lines</i>
-<b>$ trivy image --exit-code 1 --severity CRITICAL --ignore-unfixed localhost:5001/demo:v1; echo "ignore-unfixed exit: $?"</b>
-2026-09-12T16:56:56-04:00	INFO	[vuln] Vulnerability scanning is enabled
-2026-09-12T16:56:56-04:00	INFO	[secret] Secret scanning is enabled
-2026-09-12T16:56:56-04:00	INFO	[secret] If your scanning is slow, please try '--scanners vuln' to disable secret scanning
-2026-09-12T16:56:56-04:00	INFO	[secret] Please see https://trivy.dev/docs/v0.73/guide/scanner/secret#recommendation for faster secret detection
-2026-09-12T16:56:57-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
-2026-09-12T16:56:57-04:00	INFO	[alpine] Detecting vulnerabilities...	os_version="3.20" repository="3.20" pkg_num=27
-2026-09-12T16:56:57-04:00	INFO	Number of language-specific files	num=2
-2026-09-12T16:56:57-04:00	INFO	[gobinary] Detecting vulnerabilities...
-2026-09-12T16:56:57-04:00	WARN	Using severities from other vendors for some vulnerabilities. Read https://trivy.dev/docs/v0.73/guide/scanner/vulnerability#severity-selection for details.
-2026-09-12T16:56:57-04:00	WARN	This OS version is no longer supported by the distribution	family="alpine" version="3.20.3"
-2026-09-12T16:56:57-04:00	WARN	The vulnerability detection may be insufficient because security updates are not provided
-
-Report Summary
-
-┌────────────────────────────────────────┬──────────┬─────────────────┬─────────┐
-│                 Target                 │   Type   │ Vulnerabilities │ Secrets │
-├────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
-│ localhost:5001/demo:v1 (alpine 3.20.3) │  alpine  │        2        │    -    │
-├────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
-│ home/app/podinfo                       │ gobinary │        2        │    -    │
-├────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
-│ usr/local/bin/podcli                   │ gobinary │        2        │    -    │
-└────────────────────────────────────────┴──────────┴─────────────────┴─────────┘
-Legend:
-- '-': Not scanned
-- '0': Clean (no security findings detected)
-
-
-localhost:5001/demo:v1 (alpine 3.20.3)
-======================================
-Total: 2 (CRITICAL: 2)
-
-┌────────────┬────────────────┬──────────┬────────┬───────────────────┬───────────────┬──────────────────────────────────────────────────────────┐
-│  Library   │ Vulnerability  │ Severity │ Status │ Installed Version │ Fixed Version │                          Title                           │
-├────────────┼────────────────┼──────────┼────────┼───────────────────┼───────────────┼──────────────────────────────────────────────────────────┤
-│ libcrypto3 │ CVE-2026-31789 │ CRITICAL │ fixed  │ 3.3.2-r0          │ 3.3.7-r0      │ openssl: OpenSSL: Heap buffer overflow on 32-bit systems │
-│            │                │          │        │                   │               │ from large X.509 certificate...                          │
-│            │                │          │        │                   │               │ https://avd.aquasec.com/nvd/cve-2026-31789               │
-├────────────┤                │          │        │                   │               │                                                          │
-│ libssl3    │                │          │        │                   │               │                                                          │
-<i>... 44 more lines</i>
-<b>$ trivy image --severity CRITICAL --format json localhost:5001/demo:v1 | jq -r '[.Results[].Vulnerabilities // [] | .[].VulnerabilityID] | unique | .[0] // empty' &gt; /tmp/first-cve</b>
-2026-09-12T16:56:57-04:00	INFO	[vuln] Vulnerability scanning is enabled
-2026-09-12T16:56:57-04:00	INFO	[secret] Secret scanning is enabled
-2026-09-12T16:56:57-04:00	INFO	[secret] If your scanning is slow, please try '--scanners vuln' to disable secret scanning
-2026-09-12T16:56:57-04:00	INFO	[secret] Please see https://trivy.dev/docs/v0.73/guide/scanner/secret#recommendation for faster secret detection
-2026-09-12T16:56:57-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
-2026-09-12T16:56:57-04:00	INFO	[alpine] Detecting vulnerabilities...	os_version="3.20" repository="3.20" pkg_num=27
-2026-09-12T16:56:57-04:00	INFO	Number of language-specific files	num=2
-2026-09-12T16:56:57-04:00	INFO	[gobinary] Detecting vulnerabilities...
-2026-09-12T16:56:57-04:00	WARN	Using severities from other vendors for some vulnerabilities. Read https://trivy.dev/docs/v0.73/guide/scanner/vulnerability#severity-selection for details.
-2026-09-12T16:56:57-04:00	WARN	This OS version is no longer supported by the distribution	family="alpine" version="3.20.3"
-2026-09-12T16:56:57-04:00	WARN	The vulnerability detection may be insufficient because security updates are not provided
-
-📣 Notices:
-  - Version 0.74.0 of Trivy is now available, current version is 0.73.0
-
-To suppress version checks, run Trivy scans with the --skip-version-check flag
-<b>$ printf '%s exp:2020-01-01\n' "$(cat /tmp/first-cve)" &gt; /tmp/.trivyignore</b>
-<b>$ cat /tmp/.trivyignore</b>
-CVE-2025-68121 exp:2020-01-01
-<b>$ trivy image --exit-code 1 --severity CRITICAL --ignorefile /tmp/.trivyignore localhost:5001/demo:v1; echo "expired-ignore exit: $?"</b>
-2026-09-12T16:56:57-04:00	INFO	[vuln] Vulnerability scanning is enabled
-2026-09-12T16:56:57-04:00	INFO	[secret] Secret scanning is enabled
-2026-09-12T16:56:57-04:00	INFO	[secret] If your scanning is slow, please try '--scanners vuln' to disable secret scanning
-2026-09-12T16:56:57-04:00	INFO	[secret] Please see https://trivy.dev/docs/v0.73/guide/scanner/secret#recommendation for faster secret detection
-2026-09-12T16:56:58-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
-2026-09-12T16:56:58-04:00	INFO	[alpine] Detecting vulnerabilities...	os_version="3.20" repository="3.20" pkg_num=27
-2026-09-12T16:56:58-04:00	INFO	Number of language-specific files	num=2
-2026-09-12T16:56:58-04:00	INFO	[gobinary] Detecting vulnerabilities...
-2026-09-12T16:56:58-04:00	WARN	Using severities from other vendors for some vulnerabilities. Read https://trivy.dev/docs/v0.73/guide/scanner/vulnerability#severity-selection for details.
-2026-09-12T16:56:58-04:00	WARN	This OS version is no longer supported by the distribution	family="alpine" version="3.20.3"
-2026-09-12T16:56:58-04:00	WARN	The vulnerability detection may be insufficient because security updates are not provided
-
-Report Summary
-
-┌────────────────────────────────────────┬──────────┬─────────────────┬─────────┐
-│                 Target                 │   Type   │ Vulnerabilities │ Secrets │
-├────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
-│ localhost:5001/demo:v1 (alpine 3.20.3) │  alpine  │        2        │    -    │
-├────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
-│ home/app/podinfo                       │ gobinary │        2        │    -    │
-├────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
-│ usr/local/bin/podcli                   │ gobinary │        2        │    -    │
-└────────────────────────────────────────┴──────────┴─────────────────┴─────────┘
-Legend:
-- '-': Not scanned
-- '0': Clean (no security findings detected)
-
-
-localhost:5001/demo:v1 (alpine 3.20.3)
-======================================
-Total: 2 (CRITICAL: 2)
-
-┌────────────┬────────────────┬──────────┬────────┬───────────────────┬───────────────┬──────────────────────────────────────────────────────────┐
-│  Library   │ Vulnerability  │ Severity │ Status │ Installed Version │ Fixed Version │                          Title                           │
-├────────────┼────────────────┼──────────┼────────┼───────────────────┼───────────────┼──────────────────────────────────────────────────────────┤
-│ libcrypto3 │ CVE-2026-31789 │ CRITICAL │ fixed  │ 3.3.2-r0          │ 3.3.7-r0      │ openssl: OpenSSL: Heap buffer overflow on 32-bit systems │
-│            │                │          │        │                   │               │ from large X.509 certificate...                          │
-│            │                │          │        │                   │               │ https://avd.aquasec.com/nvd/cve-2026-31789               │
-├────────────┤                │          │        │                   │               │                                                          │
-│ libssl3    │                │          │        │                   │               │                                                          │
-<i>... 44 more lines</i>
-<b>$ printf '%s exp:2099-01-01\n' "$(cat /tmp/first-cve)" &gt; /tmp/.trivyignore</b>
-<b>$ trivy image --exit-code 1 --severity CRITICAL --ignorefile /tmp/.trivyignore localhost:5001/demo:v1; echo "live-ignore exit: $?"</b>
-2026-09-12T16:56:58-04:00	INFO	[vuln] Vulnerability scanning is enabled
-2026-09-12T16:56:58-04:00	INFO	[secret] Secret scanning is enabled
-2026-09-12T16:56:58-04:00	INFO	[secret] If your scanning is slow, please try '--scanners vuln' to disable secret scanning
-2026-09-12T16:56:58-04:00	INFO	[secret] Please see https://trivy.dev/docs/v0.73/guide/scanner/secret#recommendation for faster secret detection
-2026-09-12T16:56:58-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
-2026-09-12T16:56:58-04:00	INFO	[alpine] Detecting vulnerabilities...	os_version="3.20" repository="3.20" pkg_num=27
-2026-09-12T16:56:58-04:00	INFO	Number of language-specific files	num=2
-2026-09-12T16:56:58-04:00	INFO	[gobinary] Detecting vulnerabilities...
-2026-09-12T16:56:58-04:00	WARN	Using severities from other vendors for some vulnerabilities. Read https://trivy.dev/docs/v0.73/guide/scanner/vulnerability#severity-selection for details.
-2026-09-12T16:56:58-04:00	WARN	This OS version is no longer supported by the distribution	family="alpine" version="3.20.3"
-2026-09-12T16:56:58-04:00	WARN	The vulnerability detection may be insufficient because security updates are not provided
-2026-09-12T16:56:58-04:00	INFO	Some vulnerabilities have been ignored/suppressed. Use the "--show-suppressed" flag to display them.
-
-Report Summary
-
-┌────────────────────────────────────────┬──────────┬─────────────────┬─────────┐
-│                 Target                 │   Type   │ Vulnerabilities │ Secrets │
-├────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
-│ localhost:5001/demo:v1 (alpine 3.20.3) │  alpine  │        2        │    -    │
-├────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
-│ home/app/podinfo                       │ gobinary │        1        │    -    │
-├────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
-│ usr/local/bin/podcli                   │ gobinary │        1        │    -    │
-└────────────────────────────────────────┴──────────┴─────────────────┴─────────┘
-Legend:
-- '-': Not scanned
-- '0': Clean (no security findings detected)
-
-
-localhost:5001/demo:v1 (alpine 3.20.3)
-======================================
-Total: 2 (CRITICAL: 2)
-
-┌────────────┬────────────────┬──────────┬────────┬───────────────────┬───────────────┬──────────────────────────────────────────────────────────┐
-│  Library   │ Vulnerability  │ Severity │ Status │ Installed Version │ Fixed Version │                          Title                           │
-├────────────┼────────────────┼──────────┼────────┼───────────────────┼───────────────┼──────────────────────────────────────────────────────────┤
-│ libcrypto3 │ CVE-2026-31789 │ CRITICAL │ fixed  │ 3.3.2-r0          │ 3.3.7-r0      │ openssl: OpenSSL: Heap buffer overflow on 32-bit systems │
-│            │                │          │        │                   │               │ from large X.509 certificate...                          │
-│            │                │          │        │                   │               │ https://avd.aquasec.com/nvd/cve-2026-31789               │
-├────────────┤                │          │        │                   │               │                                                          │
-<i>... 37 more lines</i></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the exit code changes between the runs, and the expired ignore entry no longer suppresses while the future-dated one does.</div>
+      <div class="cb" data-lang="bash"><pre><code>trivy image -q --exit-code 1 --severity CRITICAL localhost:5001/demo:v1 &gt; /tmp/scan-strict.txt 2&gt;&amp;1; echo "strict exit: $?"
+trivy image -q --exit-code 1 --severity CRITICAL --ignore-unfixed localhost:5001/demo:v1 &gt; /tmp/scan-unfixed.txt 2&gt;&amp;1; echo "ignore-unfixed exit: $?"
+# every CRITICAL id, not just the first: suppressing one of three moves no exit code
+trivy image -q --severity CRITICAL --format json localhost:5001/demo:v1 | jq -r '[.Results[].Vulnerabilities // [] | .[].VulnerabilityID] | unique | .[]' &gt; /tmp/cves.txt
+cat /tmp/cves.txt
+sed 's/$/ exp:2020-01-01/' /tmp/cves.txt &gt; /tmp/.trivyignore
+trivy image -q --exit-code 1 --severity CRITICAL --ignorefile /tmp/.trivyignore localhost:5001/demo:v1 &gt; /tmp/scan-expired.txt 2&gt;&amp;1; echo "expired-ignore exit: $?"
+sed 's/$/ exp:2099-01-01/' /tmp/cves.txt &gt; /tmp/.trivyignore
+trivy image -q --exit-code 1 --severity CRITICAL --ignorefile /tmp/.trivyignore localhost:5001/demo:v1 &gt; /tmp/scan-live.txt 2&gt;&amp;1; echo "live-ignore exit: $?"
+tail -5 /tmp/scan-live.txt</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ trivy image -q --exit-code 1 --severity CRITICAL localhost:5001/demo:v1 &gt; /tmp/scan-strict.txt 2&gt;&amp;1; echo "strict exit: $?"</b>
+<b>$ trivy image -q --exit-code 1 --severity CRITICAL --ignore-unfixed localhost:5001/demo:v1 &gt; /tmp/scan-unfixed.txt 2&gt;&amp;1; echo "ignore-unfixed exit: $?"</b>
+<b>$ # every CRITICAL id, not just the first: suppressing one of three moves no exit code</b>
+<b>$ trivy image -q --severity CRITICAL --format json localhost:5001/demo:v1 | jq -r '[.Results[].Vulnerabilities // [] | .[].VulnerabilityID] | unique | .[]' &gt; /tmp/cves.txt</b>
+<b>$ cat /tmp/cves.txt</b>
+<b>$ sed 's/$/ exp:2020-01-01/' /tmp/cves.txt &gt; /tmp/.trivyignore</b>
+<b>$ trivy image -q --exit-code 1 --severity CRITICAL --ignorefile /tmp/.trivyignore localhost:5001/demo:v1 &gt; /tmp/scan-expired.txt 2&gt;&amp;1; echo "expired-ignore exit: $?"</b>
+<b>$ sed 's/$/ exp:2099-01-01/' /tmp/cves.txt &gt; /tmp/.trivyignore</b>
+<b>$ trivy image -q --exit-code 1 --severity CRITICAL --ignorefile /tmp/.trivyignore localhost:5001/demo:v1 &gt; /tmp/scan-live.txt 2&gt;&amp;1; echo "live-ignore exit: $?"</b>
+<b>$ tail -5 /tmp/scan-live.txt</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> four exit lines and nothing else on screen. <code>strict</code> is 1. <code>ignore-unfixed</code> is still 1, because every CRITICAL here has a fixed version and nothing is dropped. The expired ignorefile is 1: an entry dated in the past no longer suppresses. The same file dated 2099 gives 0, and the report notes that vulnerabilities were ignored. Redirecting each report to a file is deliberate: piping a scan into <code>head</code> or <code>tail</code> reports the exit code of the pager, not of trivy, and fifty lines of table hide the one number the gate is made of.</div>
     </div>
 
   </div>

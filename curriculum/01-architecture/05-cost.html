@@ -340,7 +340,7 @@ Handling connection for 9003
 Handling connection for 9003
 0
 <b>$ kill $PF1</b></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the key list is the namespaces plus <code>__idle__</code>, and the idle entry has a real cost. Idle is the cluster capacity no namespace requested: the gap between what you provisioned and what was asked for.</div>
+      <div class="verify"><b>verify:</b> the key list is the namespaces plus <code>__idle__</code>, and on this cluster the <code>__idle__</code> entry's totalCost is 0. Idle is the cluster capacity no namespace requested, priced from node assets; with the custom price sheet this lab runs there is nothing left over to attribute, so the bucket exists and is empty. The shape of the answer is what you are learning, not the number.</div>
     </div>
 
     <div class="exercise" data-title="Aggregate by a label the developers own">
@@ -439,107 +439,64 @@ Handling connection for 9003
   "vpa": 0.01949
 }
 <b>$ kill $PF1</b></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the idle row disappears under <code>shareIdle=true</code> and the other totals rise to absorb it.</div>
+      <div class="verify"><b>verify:</b> the <code>__idle__</code> key is present under <code>shareIdle=false</code> and gone under <code>shareIdle=true</code>, and every other total is the same to the cent. Idle is zero on this cluster, so there is nothing to spread and the only movement is a sub-cent rounding difference on one namespace. On a cluster with real idle the other totals would rise to absorb it, and the flag would be the whole argument.</div>
     </div>
 
     <div class="exercise" data-title="Read the price list you are being billed against">
       <p>On-prem there is no cloud bill, so OpenCost costs from a price sheet and a Prometheus endpoint. Both are configuration, and a wrong one makes every number on the page confidently wrong.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n opencost get deploy opencost -o jsonpath='{.spec.template.spec.containers[0].env}' | jq '[.[] | {name, value}]'
 kubectl -n opencost exec deploy/opencost -- sh -c 'cat /models/default.json 2&gt;/dev/null || ls /models'
-kubectl -n opencost get cm -o name</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n opencost get deploy opencost -o jsonpath='{.spec.template.spec.containers[0].env}' | jq '[.[] | {name, value}]'</b>
-[
-  {
-    "name": "LOG_LEVEL",
-    "value": "info"
-  },
-  {
-    "name": "CUSTOM_COST_ENABLED",
-    "value": "false"
-  },
-  {
-    "name": "INSTALL_NAMESPACE",
-    "value": "opencost"
-  },
-  {
-    "name": "PROMETHEUS_QUERY_RESOLUTION_SECONDS",
-    "value": "300"
-  },
-  {
-    "name": "API_PORT",
-    "value": "9003"
-  },
-  {
-    "name": "PROMETHEUS_SERVER_ENDPOINT",
-    "value": "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
-  },
-  {
-    "name": "INSECURE_SKIP_VERIFY",
-    "value": "false"
-  },
-  {
-    "name": "CLUSTER_ID",
-    "value": "default-cluster"
-  },
-  {
-    "name": "RESOLUTION_1D_RETENTION",
-    "value": "15"
-  },
-  {
-    "name": "RESOLUTION_1H_RETENTION",
-    "value": "49"
-<i>... 38 more lines</i>
+kubectl -n opencost get cm -o name</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n opencost get deploy opencost -o jsonpath='{.spec.template.spec.containers[0].env}' | jq '[.[] | {name, value}]'</b>
 <b>$ kubectl -n opencost exec deploy/opencost -- sh -c 'cat /models/default.json 2&gt;/dev/null || ls /models'</b>
-Defaulted container "opencost" out of: opencost, opencost-ui
-{
-    "provider": "custom",
-    "description": "Default prices based on GCP us-central1",
-    "CPU": "0.031611",
-    "spotCPU": "0.006655",
-    "RAM": "0.004237",
-    "spotRAM": "0.000892",
-    "GPU": "0.95",
-    "storage": "0.00005479452",
-    "zoneNetworkEgress": "0.01",
-    "regionNetworkEgress": "0.01",
-    "internetNetworkEgress": "0.12",
-    "natGatewayEgress": "0.045",
-    "natGatewayIngress": "0.045"
-}
 <b>$ kubectl -n opencost get cm -o name</b>
-configmap/kube-root-ca.crt
-configmap/opencost-ui-nginx-config</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> you can point at the Prometheus endpoint OpenCost queries and the CPU and memory hourly rates it multiplies by. Those two facts explain every figure the other exercises on this page produced.</div>
     </div>
 
     <div class="exercise" data-title="Pair the recommendation with the efficiency">
       <p>VPA says what a workload should request. OpenCost says what the gap is costing. Neither is an argument on its own; together they are the right-sizing case you would take to a team.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl -n team-a get vpa
-kubectl -n team-a get vpa -o jsonpath='{.items[0].status.recommendation.containerRecommendations[0]}' | jq
+      <div class="cb" data-lang="bash"><pre><code># make up installs the VPA components but creates no VerticalPodAutoscaler, so there is nothing to read
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata: { name: staging-demo, namespace: team-a }
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: staging-demo
+  updatePolicy: { updateMode: "Off" }
+EOF
+# the recommender needs a few minutes of history before it will answer
+sleep 300
+kubectl -n team-a get vpa staging-demo
+kubectl -n team-a get vpa staging-demo -o jsonpath='{.status.recommendation.containerRecommendations[0]}' | jq
 kubectl -n opencost port-forward deploy/opencost 9003:9003 &amp; PF1=$!
 sleep 5
 curl -sG localhost:9003/allocation -d window=1d -d aggregate=namespace | jq '.data[0]["team-a"] | {cpuCoreRequestAverage, cpuCoreUsageAverage, ramByteRequestAverage, ramByteUsageAverage, totalCost}'
-kill $PF1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n team-a get vpa</b>
-No resources found in team-a namespace.
-<b>$ kubectl -n team-a get vpa -o jsonpath='{.items[0].status.recommendation.containerRecommendations[0]}' | jq</b>
-error: error executing jsonpath "{.items[0].status.recommendation.containerRecommendations[0]}": Error executing template: array index out of bounds: index 0, length 0. Printing more information for debugging the template:
-	template was:
-		{.items[0].status.recommendation.containerRecommendations[0]}
-	object given to jsonpath engine was:
-		map[string]interface {}{"apiVersion":"v1", "items":[]interface {}{}, "kind":"List", "metadata":map[string]interface {}{"resourceVersion":""}}
+kill $PF1
+kubectl -n team-a delete vpa staging-demo</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ # make up installs the VPA components but creates no VerticalPodAutoscaler, so there is nothing to read</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: autoscaling.k8s.io/v1</b>
+<b>kind: VerticalPodAutoscaler</b>
+<b>metadata: { name: staging-demo, namespace: team-a }</b>
+<b>spec:</b>
+<b>  targetRef:</b>
+<b>    apiVersion: apps/v1</b>
+<b>    kind: Deployment</b>
+<b>    name: staging-demo</b>
+<b>  updatePolicy: { updateMode: "Off" }</b>
+<b>EOF</b>
+<b>$ # the recommender needs a few minutes of history before it will answer</b>
+<b>$ sleep 300</b>
+<b>$ kubectl -n team-a get vpa staging-demo</b>
+<b>$ kubectl -n team-a get vpa staging-demo -o jsonpath='{.status.recommendation.containerRecommendations[0]}' | jq</b>
 <b>$ kubectl -n opencost port-forward deploy/opencost 9003:9003 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
-Forwarding from 127.0.0.1:9003 -&gt; 9003
-Forwarding from [::1]:9003 -&gt; 9003
 <b>$ curl -sG localhost:9003/allocation -d window=1d -d aggregate=namespace | jq '.data[0]["team-a"] | {cpuCoreRequestAverage, cpuCoreUsageAverage, ramByteRequestAverage, ramByteUsageAverage, totalCost}'</b>
-Handling connection for 9003
-{
-  "cpuCoreRequestAverage": 0.00053,
-  "cpuCoreUsageAverage": 0,
-  "ramByteRequestAverage": 760014.49074,
-  "ramByteUsageAverage": 237340.65579,
-  "totalCost": 0.00047
-}
-<b>$ kill $PF1</b></code></pre></details></div>
+<b>$ kill $PF1</b>
+<b>$ kubectl -n team-a delete vpa staging-demo</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the VPA target and the request/usage pair point the same way for the same workload. If VPA recommends more than the request while efficiency looks fine, say which one you would act on first.</div>
     </div>
 

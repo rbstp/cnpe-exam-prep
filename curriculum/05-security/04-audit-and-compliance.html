@@ -322,7 +322,15 @@ tekton-pipelines	replicaset-6985f46fcc	3	15</code></pre></details></div>
       <p>An SBOM is only useful if you can scan it and compare it. Produce one with each tool, feed it back to the scanner, and then suppress a finding with VEX so the exception is a document rather than a flag.</p>
       <div class="cb" data-lang="bash"><pre><code>trivy image --format spdx-json --output /tmp/sbom-trivy.json ghcr.io/stefanprodan/podinfo:6.7.1
 jq '{name: .name, packages: (.packages | length)}' /tmp/sbom-trivy.json
-syft ghcr.io/stefanprodan/podinfo:6.7.1 -o spdx-json=/tmp/sbom-syft.json 2&gt;/dev/null || echo 'syft not installed; trivy sbom below uses the trivy output'
+mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"
+command -v syft &gt;/dev/null || curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$HOME/.local/bin"
+syft version | head -2
+syft ghcr.io/stefanprodan/podinfo:6.7.1 -o spdx-json=/tmp/sbom-syft.json
+jq '{name: .name, packages: (.packages | length)}' /tmp/sbom-syft.json
+jq -r '.packages[].name' /tmp/sbom-trivy.json | sort -u &gt; /tmp/p-trivy.txt
+jq -r '.packages[].name' /tmp/sbom-syft.json | sort -u &gt; /tmp/p-syft.txt
+wc -l /tmp/p-trivy.txt /tmp/p-syft.txt
+comm -3 /tmp/p-trivy.txt /tmp/p-syft.txt | head -10
 trivy sbom /tmp/sbom-trivy.json --severity HIGH,CRITICAL | head -30
 trivy image --severity HIGH,CRITICAL --format json ghcr.io/stefanprodan/podinfo:6.7.1 | jq -r '[.Results[].Vulnerabilities // [] | .[].VulnerabilityID] | unique | .[0:3][]'
 cat &gt; /tmp/vex.json &lt;&lt;'EOF'
@@ -340,85 +348,19 @@ cat &gt; /tmp/vex.json &lt;&lt;'EOF'
   ]
 }
 EOF
-trivy image --vex /tmp/vex.json --severity HIGH,CRITICAL ghcr.io/stefanprodan/podinfo:6.7.1 | head -20</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ trivy image --format spdx-json --output /tmp/sbom-trivy.json ghcr.io/stefanprodan/podinfo:6.7.1</b>
-2026-09-12T16:37:34-04:00	INFO	"--format spdx-json" disables security scanning. Specify "--scanners vuln" explicitly if you want to include vulnerabilities in the "spdx-json" report.
-2026-09-12T16:37:37-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
-2026-09-12T16:37:37-04:00	INFO	Number of language-specific files	num=2
-
-📣 Notices:
-  - Version 0.74.0 of Trivy is now available, current version is 0.73.0
-
-To suppress version checks, run Trivy scans with the --skip-version-check flag
+trivy image --vex /tmp/vex.json --severity HIGH,CRITICAL ghcr.io/stefanprodan/podinfo:6.7.1 | head -20</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ trivy image --format spdx-json --output /tmp/sbom-trivy.json ghcr.io/stefanprodan/podinfo:6.7.1</b>
 <b>$ jq '{name: .name, packages: (.packages | length)}' /tmp/sbom-trivy.json</b>
-{
-  "name": "ghcr.io/stefanprodan/podinfo:6.7.1",
-  "packages": 115
-}
-<b>$ syft ghcr.io/stefanprodan/podinfo:6.7.1 -o spdx-json=/tmp/sbom-syft.json 2&gt;/dev/null || echo 'syft not installed; trivy sbom below uses the trivy output'</b>
-syft not installed; trivy sbom below uses the trivy output
+<b>$ mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"</b>
+<b>$ command -v syft &gt;/dev/null || curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$HOME/.local/bin"</b>
+<b>$ syft version | head -2</b>
+<b>$ syft ghcr.io/stefanprodan/podinfo:6.7.1 -o spdx-json=/tmp/sbom-syft.json</b>
+<b>$ jq '{name: .name, packages: (.packages | length)}' /tmp/sbom-syft.json</b>
+<b>$ jq -r '.packages[].name' /tmp/sbom-trivy.json | sort -u &gt; /tmp/p-trivy.txt</b>
+<b>$ jq -r '.packages[].name' /tmp/sbom-syft.json | sort -u &gt; /tmp/p-syft.txt</b>
+<b>$ wc -l /tmp/p-trivy.txt /tmp/p-syft.txt</b>
+<b>$ comm -3 /tmp/p-trivy.txt /tmp/p-syft.txt | head -10</b>
 <b>$ trivy sbom /tmp/sbom-trivy.json --severity HIGH,CRITICAL | head -30</b>
-2026-09-12T16:37:37-04:00	INFO	[vulndb] Need to update DB
-2026-09-12T16:37:37-04:00	INFO	[vulndb] Downloading vulnerability DB...
-2026-09-12T16:37:37-04:00	INFO	[vulndb] Downloading artifact...	repo="mirror.gcr.io/aquasec/trivy-db:2"
-2.80 MiB / 112.97 MiB [-&gt;____________________________________________________________] 2.48% ? p/s ?12.90 MiB / 112.97 MiB [------&gt;_____________________________________________________] 11.42% ? p/s ?22.24 MiB / 112.97 MiB [-----------&gt;________________________________________________] 19.69% ? p/s ?31.78 MiB / 112.97 MiB [-------------&gt;_________________________________] 28.13% 48.29 MiB p/s ETA 1s40.63 MiB / 112.97 MiB [----------------&gt;______________________________] 35.96% 48.29 MiB p/s ETA 1s48.35 MiB / 112.97 MiB [--------------------&gt;__________________________] 42.80% 48.29 MiB p/s ETA 1s56.40 MiB / 112.97 MiB [-----------------------&gt;_______________________] 49.92% 47.82 MiB p/s ETA 1s67.09 MiB / 112.97 MiB [---------------------------&gt;___________________] 59.38% 47.82 MiB p/s ETA 0s75.53 MiB / 112.97 MiB [-------------------------------&gt;_______________] 66.86% 47.82 MiB p/s ETA 0s84.95 MiB / 112.97 MiB [-----------------------------------&gt;___________] 75.19% 47.81 MiB p/s ETA 0s92.62 MiB / 112.97 MiB [--------------------------------------&gt;________] 81.98% 47.81 MiB p/s ETA 0s102.01 MiB / 112.97 MiB [-----------------------------------------&gt;____] 90.30% 47.81 MiB p/s ETA 0s110.49 MiB / 112.97 MiB [--------------------------------------------&gt;_] 97.80% 47.47 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 47.47 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 47.47 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 44.67 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 44.67 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 44.67 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 41.79 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 41.79 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 41.79 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 39.09 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 39.09 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 39.09 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 36.57 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 36.57 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 36.57 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 34.21 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 34.21 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 34.21 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 32.01 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 32.01 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 32.01 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 29.94 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 29.94 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 29.94 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [--------------------------------------------&gt;] 100.00% 28.01 MiB p/s ETA 0s112.97 MiB / 112.97 MiB [-----------------------------------------------] 100.00% 15.44 MiB p/s 7.5s2026-09-12T16:37:45-04:00	INFO	[vulndb] Artifact successfully downloaded	repo="mirror.gcr.io/aquasec/trivy-db:2"
-2026-09-12T16:37:45-04:00	INFO	[vuln] Vulnerability scanning is enabled
-2026-09-12T16:37:45-04:00	INFO	Detected SBOM format	format="spdx-json"
-2026-09-12T16:37:45-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
-2026-09-12T16:37:45-04:00	INFO	[alpine] Detecting vulnerabilities...	os_version="3.20" repository="" pkg_num=27
-2026-09-12T16:37:45-04:00	INFO	Number of language-specific files	num=2
-2026-09-12T16:37:45-04:00	INFO	[gobinary] Detecting vulnerabilities...
-2026-09-12T16:37:45-04:00	WARN	Using severities from other vendors for some vulnerabilities. Read https://trivy.dev/docs/v0.73/guide/scanner/vulnerability#severity-selection for details.
-2026-09-12T16:37:45-04:00	WARN	This OS version is no longer supported by the distribution	family="alpine" version="3.20.3"
-2026-09-12T16:37:45-04:00	WARN	The vulnerability detection may be insufficient because security updates are not provided
-
-Report Summary
-
-┌──────────────────────────────────────┬──────────┬─────────────────┐
-│                Target                │   Type   │ Vulnerabilities │
-├──────────────────────────────────────┼──────────┼─────────────────┤
-│ /tmp/sbom-trivy.json (alpine 3.20.3) │  alpine  │       21        │
-├──────────────────────────────────────┼──────────┼─────────────────┤
-│ home/app/podinfo                     │ gobinary │       36        │
-├──────────────────────────────────────┼──────────┼─────────────────┤
-│ usr/local/bin/podcli                 │ gobinary │       33        │
-└──────────────────────────────────────┴──────────┴─────────────────┘
-Legend:
-- '-': Not scanned
-- '0': Clean (no security findings detected)
-
-
-/tmp/sbom-trivy.json (alpine 3.20.3)
-====================================
-Total: 21 (HIGH: 19, CRITICAL: 2)
-
-┌────────────┬────────────────┬──────────┬────────┬───────────────────┬───────────────┬──────────────────────────────────────────────────────────────┐
-│  Library   │ Vulnerability  │ Severity │ Status │ Installed Version │ Fixed Version │                            Title                             │
-├────────────┼────────────────┼──────────┼────────┼───────────────────┼───────────────┼──────────────────────────────────────────────────────────────┤
-│ libcrypto3 │ CVE-2026-31789 │ CRITICAL │ fixed  │ 3.3.2-r0          │ 3.3.7-r0      │ openssl: OpenSSL: Heap buffer overflow on 32-bit systems     │
-│            │                │          │        │                   │               │ from large X.509 certificate...                              │
-│            │                │          │        │                   │               │ https://avd.aquasec.com/nvd/cve-2026-31789                   │
-<i>... 3 more lines</i>
 <b>$ trivy image --severity HIGH,CRITICAL --format json ghcr.io/stefanprodan/podinfo:6.7.1 | jq -r '[.Results[].Vulnerabilities // [] | .[].VulnerabilityID] | unique | .[0:3][]'</b>
-2026-09-12T16:37:45-04:00	INFO	[vuln] Vulnerability scanning is enabled
-2026-09-12T16:37:45-04:00	INFO	[secret] Secret scanning is enabled
-2026-09-12T16:37:45-04:00	INFO	[secret] If your scanning is slow, please try '--scanners vuln' to disable secret scanning
-2026-09-12T16:37:45-04:00	INFO	[secret] Please see https://trivy.dev/docs/v0.73/guide/scanner/secret#recommendation for faster secret detection
-2026-09-12T16:37:47-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
-2026-09-12T16:37:47-04:00	INFO	[alpine] Detecting vulnerabilities...	os_version="3.20" repository="3.20" pkg_num=27
-2026-09-12T16:37:47-04:00	INFO	Number of language-specific files	num=2
-2026-09-12T16:37:47-04:00	INFO	[gobinary] Detecting vulnerabilities...
-2026-09-12T16:37:47-04:00	WARN	Using severities from other vendors for some vulnerabilities. Read https://trivy.dev/docs/v0.73/guide/scanner/vulnerability#severity-selection for details.
-2026-09-12T16:37:47-04:00	WARN	This OS version is no longer supported by the distribution	family="alpine" version="3.20.3"
-2026-09-12T16:37:47-04:00	WARN	The vulnerability detection may be insufficient because security updates are not provided
-
-📣 Notices:
-  - Version 0.74.0 of Trivy is now available, current version is 0.73.0
-
-To suppress version checks, run Trivy scans with the --skip-version-check flag
-
-CVE-2024-12797
-CVE-2024-45338
-CVE-2025-15467
 <b>$ cat &gt; /tmp/vex.json &lt;&lt;'EOF'</b>
 <b>{</b>
 <b>  "@context": "https://openvex.dev/ns/v0.2.0",</b>
@@ -435,38 +377,8 @@ CVE-2025-15467
 <b>}</b>
 <b>EOF</b>
 <b>$ trivy image --vex /tmp/vex.json --severity HIGH,CRITICAL ghcr.io/stefanprodan/podinfo:6.7.1 | head -20</b>
-2026-09-12T16:37:48-04:00	INFO	[vuln] Vulnerability scanning is enabled
-2026-09-12T16:37:48-04:00	INFO	[secret] Secret scanning is enabled
-2026-09-12T16:37:48-04:00	INFO	[secret] If your scanning is slow, please try '--scanners vuln' to disable secret scanning
-2026-09-12T16:37:48-04:00	INFO	[secret] Please see https://trivy.dev/docs/v0.73/guide/scanner/secret#recommendation for faster secret detection
-2026-09-12T16:37:48-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
-2026-09-12T16:37:48-04:00	INFO	[alpine] Detecting vulnerabilities...	os_version="3.20" repository="3.20" pkg_num=27
-2026-09-12T16:37:48-04:00	INFO	Number of language-specific files	num=2
-2026-09-12T16:37:48-04:00	INFO	[gobinary] Detecting vulnerabilities...
-2026-09-12T16:37:48-04:00	WARN	Using severities from other vendors for some vulnerabilities. Read https://trivy.dev/docs/v0.73/guide/scanner/vulnerability#severity-selection for details.
-2026-09-12T16:37:48-04:00	WARN	This OS version is no longer supported by the distribution	family="alpine" version="3.20.3"
-2026-09-12T16:37:48-04:00	WARN	The vulnerability detection may be insufficient because security updates are not provided
-
-Report Summary
-
-┌────────────────────────────────────────────────────┬──────────┬─────────────────┬─────────┐
-│                       Target                       │   Type   │ Vulnerabilities │ Secrets │
-├────────────────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
-│ ghcr.io/stefanprodan/podinfo:6.7.1 (alpine 3.20.3) │  alpine  │       21        │    -    │
-├────────────────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
-│ home/app/podinfo                                   │ gobinary │       36        │    -    │
-├────────────────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
-│ usr/local/bin/podcli                               │ gobinary │       33        │    -    │
-└────────────────────────────────────────────────────┴──────────┴─────────────────┴─────────┘
-Legend:
-- '-': Not scanned
-- '0': Clean (no security findings detected)
-
-
-ghcr.io/stefanprodan/podinfo:6.7.1 (alpine 3.20.3)
-==================================================
-Total: 21 (HIGH: 19, CRITICAL: 2)</code></pre></details></div>
-      <div class="verify"><b>verify:</b> both SBOMs list the same package set at roughly the same count, and the scanner accepts the SBOM as input. Put a real CVE id from the third command into the VEX file and the rerun drops it from the table with a note; that is the paper trail an auditor wants.</div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> two SBOM files exist, both list the alpine packages plus the Go module list, and <code>comm</code> shows where the two catalogers disagree. The counts are close but not identical, which is the honest result: each tool decides for itself what counts as a package. <code>trivy sbom</code> accepts either file as input.</div>
     </div>
 
     <div class="exercise" data-title="Force a compliance report to refresh">

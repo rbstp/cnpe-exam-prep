@@ -331,6 +331,7 @@ spec:
   targets:
     staticConfig:
       static:
+        - http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090/-/healthy
         - http://staging-demo.team-a.svc.cluster.local
 EOF
 sleep 60
@@ -338,29 +339,11 @@ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 909
 sleep 5
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=probe_success' | jq '.data.result[] | {instance: .metric.instance, value: .value[1]}'
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=probe_duration_seconds' | jq '.data.result[] | {instance: .metric.instance, value: .value[1]}'
-kill $PF1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ helm repo add prometheus-community https://prometheus-community.github.io/helm-charts</b>
-"prometheus-community" already exists with the same configuration, skipping
+kill $PF1
+kubectl -n monitoring delete probe demo-reachable
+helm -n monitoring uninstall blackbox</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ helm repo add prometheus-community https://prometheus-community.github.io/helm-charts</b>
 <b>$ helm repo update prometheus-community</b>
-Hang tight while we grab the latest from your chart repositories...
-...Successfully got an update from the "prometheus-community" chart repository
-Update Complete. ⎈Happy Helming!⎈
 <b>$ helm upgrade --install blackbox prometheus-community/prometheus-blackbox-exporter -n monitoring --wait</b>
-Release "blackbox" does not exist. Installing it now.
-NAME: blackbox
-LAST DEPLOYED: Sat Sep 12 22:33:05 2026
-NAMESPACE: monitoring
-STATUS: deployed
-REVISION: 1
-DESCRIPTION: Install complete
-TEST SUITE: None
-NOTES:
-See https://github.com/prometheus/blackbox_exporter/ for how to configure Prometheus and the Blackbox Exporter.
-
-1. Get the application URL by running these commands:
-  export POD_NAME=$(kubectl get pods --namespace monitoring -l "app.kubernetes.io/name=prometheus-blackbox-exporter,app.kubernetes.io/instance=blackbox" -o jsonpath="{.items[0].metadata.name}")
-  export CONTAINER_PORT=$(kubectl get pod --namespace monitoring $POD_NAME -o jsonpath="{.spec.containers[0].ports[0].containerPort}")
-  echo "Visit http://127.0.0.1:8080 to use your application"
-  kubectl --namespace monitoring port-forward $POD_NAME 8080:$CONTAINER_PORT
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1</b>
 <b>kind: Probe</b>
@@ -373,33 +356,25 @@ See https://github.com/prometheus/blackbox_exporter/ for how to configure Promet
 <b>  targets:</b>
 <b>    staticConfig:</b>
 <b>      static:</b>
+<b>        - http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090/-/healthy</b>
 <b>        - http://staging-demo.team-a.svc.cluster.local</b>
 <b>EOF</b>
-probe.monitoring.coreos.com/demo-reachable created
 <b>$ sleep 60</b>
 <b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
-Forwarding from 127.0.0.1:9090 -&gt; 9090
-Forwarding from [::1]:9090 -&gt; 9090
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=probe_success' | jq '.data.result[] | {instance: .metric.instance, value: .value[1]}'</b>
-Handling connection for 9090
-{
-  "instance": "http://staging-demo.team-a.svc.cluster.local",
-  "value": "0"
-}
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=probe_duration_seconds' | jq '.data.result[] | {instance: .metric.instance, value: .value[1]}'</b>
-Handling connection for 9090
-{
-  "instance": "http://staging-demo.team-a.svc.cluster.local",
-  "value": "5.003988283"
-}
-<b>$ kill $PF1</b></code></pre></details></div>
-      <div class="verify"><b>verify:</b> <code>probe_success</code> is 1 for the demo Service. Scale the Deployment to zero and it becomes 0 while the pod-level metrics simply vanish; say which of those two signals you would alert on and why.</div>
+<b>$ kill $PF1</b>
+<b>$ kubectl -n monitoring delete probe demo-reachable</b>
+<b>$ helm -n monitoring uninstall blackbox</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> <code>probe_success</code> returns two series. The monitoring target is 1. The team-a target is 0 with <code>probe_duration_seconds</code> at the 5 second module timeout, because team-a's default-deny NetworkPolicy has no rule for ingress from <code>monitoring</code>. A blackbox probe measures reachability from where the prober sits, which is why it disagrees with the target's own metrics.</div>
     </div>
 
     <div class="exercise" data-title="Watch a namespaceSelector decide everything">
       <p>A ServiceMonitor only looks in its own namespace unless you tell it otherwise. That single omission is the most common reason a correct-looking monitor produces no targets and no error.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring delete servicemonitor argocd-metrics --ignore-not-found
+kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata: { name: argocd-metrics, namespace: monitoring, labels: { release: prometheus } }
@@ -407,7 +382,7 @@ spec:
   selector:
     matchLabels: { app.kubernetes.io/name: argocd-metrics }
   endpoints:
-    - port: metrics
+    - port: http-metrics
 EOF
 sleep 60
 kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!
@@ -417,7 +392,8 @@ kubectl -n monitoring patch servicemonitor argocd-metrics --type merge -p '{"spe
 sleep 60
 curl -s localhost:9090/api/v1/targets | jq '[.data.activeTargets[] | select(.scrapePool | contains("argocd-metrics"))] | length'
 kill $PF1
-kubectl -n monitoring delete servicemonitor argocd-metrics</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n monitoring delete servicemonitor argocd-metrics</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring delete servicemonitor argocd-metrics --ignore-not-found</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1</b>
 <b>kind: ServiceMonitor</b>
 <b>metadata: { name: argocd-metrics, namespace: monitoring, labels: { release: prometheus } }</b>
@@ -425,26 +401,18 @@ kubectl -n monitoring delete servicemonitor argocd-metrics</code></pre><details 
 <b>  selector:</b>
 <b>    matchLabels: { app.kubernetes.io/name: argocd-metrics }</b>
 <b>  endpoints:</b>
-<b>    - port: metrics</b>
+<b>    - port: http-metrics</b>
 <b>EOF</b>
-servicemonitor.monitoring.coreos.com/argocd-metrics unchanged
 <b>$ sleep 60</b>
 <b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
-Forwarding from 127.0.0.1:9090 -&gt; 9090
-Forwarding from [::1]:9090 -&gt; 9090
 <b>$ curl -s localhost:9090/api/v1/targets | jq '[.data.activeTargets[] | select(.scrapePool | contains("argocd-metrics"))] | length'</b>
-Handling connection for 9090
-0
 <b>$ kubectl -n monitoring patch servicemonitor argocd-metrics --type merge -p '{"spec":{"namespaceSelector":{"matchNames":["argocd"]}}}'</b>
-servicemonitor.monitoring.coreos.com/argocd-metrics patched
 <b>$ sleep 60</b>
 <b>$ curl -s localhost:9090/api/v1/targets | jq '[.data.activeTargets[] | select(.scrapePool | contains("argocd-metrics"))] | length'</b>
-Handling connection for 9090
-0
 <b>$ kill $PF1</b>
 <b>$ kubectl -n monitoring delete servicemonitor argocd-metrics</b>
-servicemonitor.monitoring.coreos.com "argocd-metrics" deleted from monitoring namespace</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> zero targets before the patch and a non-zero count after it, with nothing else changed. Add <code>namespaceSelector</code> to your mental template for every ServiceMonitor you write in a task.</div>
     </div>
 
@@ -531,33 +499,19 @@ Handling connection for 9090
       <p>Two functions carry more exam weight than their length suggests. One extrapolates a trend into the future, the other alerts on a series that stopped existing, which is the failure a threshold can never catch.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!
 sleep 5
-curl -sG localhost:9090/api/v1/query --data-urlencode 'query=predict_linear(node_filesystem_avail_bytes{mountpoint="/"}[1h], 24*3600)' | jq '.data.result[] | {instance: .metric.instance, predicted: .value[1]}'
+curl -sG localhost:9090/api/v1/query --data-urlencode 'query=count by (mountpoint,fstype) (node_filesystem_avail_bytes)' | jq -r '.data.result[] | "\(.metric.mountpoint) \(.metric.fstype)"'
+curl -sG localhost:9090/api/v1/query --data-urlencode 'query=predict_linear(node_filesystem_avail_bytes[1h], 24*3600)' | jq '[.data.result[] | {instance: .metric.instance, mountpoint: .metric.mountpoint, predicted: .value[1]}] | .[0:3]'
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=absent_over_time(up{job="does-not-exist"}[5m])' | jq '.data.result'
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=absent_over_time(up{job="kubelet"}[5m])' | jq '.data.result'
-kill $PF1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!</b>
+kill $PF1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
-Forwarding from 127.0.0.1:9090 -&gt; 9090
-Forwarding from [::1]:9090 -&gt; 9090
-<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=predict_linear(node_filesystem_avail_bytes{mountpoint="/"}[1h], 24*3600)' | jq '.data.result[] | {instance: .metric.instance, predicted: .value[1]}'</b>
-Handling connection for 9090
+<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=count by (mountpoint,fstype) (node_filesystem_avail_bytes)' | jq -r '.data.result[] | "\(.metric.mountpoint) \(.metric.fstype)"'</b>
+<b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=predict_linear(node_filesystem_avail_bytes[1h], 24*3600)' | jq '[.data.result[] | {instance: .metric.instance, mountpoint: .metric.mountpoint, predicted: .value[1]}] | .[0:3]'</b>
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=absent_over_time(up{job="does-not-exist"}[5m])' | jq '.data.result'</b>
-Handling connection for 9090
-[
-  {
-    "metric": {
-      "job": "does-not-exist"
-    },
-    "value": [
-      1789267022.644,
-      "1"
-    ]
-  }
-]
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=absent_over_time(up{job="kubelet"}[5m])' | jq '.data.result'</b>
-Handling connection for 9090
-[]
-<b>$ kill $PF1</b></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the prediction returns a number per filesystem, and <code>absent_over_time</code> returns a series for the job that does not exist and nothing for the one that does. That inversion is the whole idea: the alert fires when the query has a result.</div>
+<b>$ kill $PF1</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the first query lists the mountpoints node-exporter actually reports on these nodes. <code>/</code> is not among them, because a kind node's root is an overlay mount and node-exporter excludes overlay by filesystem type, so the usual <code>mountpoint="/"</code> selector matches nothing and <code>predict_linear</code> over it returns nothing rather than an error. The second query returns one predicted number per filesystem that does exist, and <code>absent_over_time</code> returns a series for the job that does not exist and nothing for the one that does. That inversion is the whole idea: the alert fires when the query has a result.</div>
     </div>
 
     <div class="exercise" data-title="Read the retention you actually have">

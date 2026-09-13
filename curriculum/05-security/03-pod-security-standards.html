@@ -284,22 +284,19 @@ pod "rootimage" deleted from hardened namespace</code></pre></details></div>
 kubectl -n hardened wait --for=condition=Ready pod/target --timeout=120s
 kubectl -n hardened debug target --image=busybox:1.36 --target=target -- true
 kubectl -n hardened debug target --image=busybox:1.36 --target=target --profile=restricted -- true
-kubectl -n hardened get pod target -o jsonpath='{range .status.ephemeralContainerStatuses[*]}{.name} {.state}{"\n"}{end}'
-kubectl -n hardened delete pod target</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n hardened run target --image=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine --restart=Never --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"target","image":"ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine","securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}'</b>
-pod/target created
+kubectl -n hardened get pod target -o jsonpath='{range .spec.ephemeralContainers[*]}{.name} {.securityContext.allowPrivilegeEscalation} {.securityContext.capabilities.drop}{"\n"}{end}'
+sleep 10
+kubectl -n hardened get pod target -o json | jq -r '.status.ephemeralContainerStatuses[]? | "\(.name) \(.state|keys[0])"'
+kubectl -n hardened delete pod target</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n hardened run target --image=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine --restart=Never --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"target","image":"ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine","securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}'</b>
 <b>$ kubectl -n hardened wait --for=condition=Ready pod/target --timeout=120s</b>
-pod/target condition met
 <b>$ kubectl -n hardened debug target --image=busybox:1.36 --target=target -- true</b>
-Targeting container "target". If you don't see processes from this container it may be because the container runtime doesn't support this feature.
-Defaulting debug container name to debugger-lvzbs.
-Error from server (Forbidden): pods "target" is forbidden: violates PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "debugger-lvzbs" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "debugger-lvzbs" must set securityContext.capabilities.drop=["ALL"]; container "debugger-lvzbs" must not include "SYS_PTRACE" in securityContext.capabilities.add)
 <b>$ kubectl -n hardened debug target --image=busybox:1.36 --target=target --profile=restricted -- true</b>
-Targeting container "target". If you don't see processes from this container it may be because the container runtime doesn't support this feature.
-Defaulting debug container name to debugger-9ms4z.
-<b>$ kubectl -n hardened get pod target -o jsonpath='{range .status.ephemeralContainerStatuses[*]}{.name} {.state}{"\n"}{end}'</b>
+<b>$ kubectl -n hardened get pod target -o jsonpath='{range .spec.ephemeralContainers[*]}{.name} {.securityContext.allowPrivilegeEscalation} {.securityContext.capabilities.drop}{"\n"}{end}'</b>
+<b>$ sleep 10</b>
+<b>$ kubectl -n hardened get pod target -o json | jq -r '.status.ephemeralContainerStatuses[]? | "\(.name) \(.state|keys[0])"'</b>
 <b>$ kubectl -n hardened delete pod target</b>
-pod "target" deleted from hardened namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the first attempt is rejected by Pod Security naming the fields the ephemeral container is missing, and <code>--profile=restricted</code> is accepted. Note that the profile changes the container it builds, not the namespace's policy.</div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the first attempt is rejected by Pod Security naming the fields the ephemeral container is missing, and <code>--profile=restricted</code> is accepted. The spec listing then shows the accepted debug container with <code>allowPrivilegeEscalation false</code> and <code>capabilities drop ["ALL"]</code>, which is what the profile built for you; the status listing shows it running a few seconds later. The profile changes the container it builds, not the namespace's policy.</div>
     </div>
 
     <div class="exercise" data-title="Give a pod its own user namespace">
