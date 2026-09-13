@@ -107,6 +107,11 @@ single-file console a link such as `#2.2/application` names the lesson and the t
 a copied link or one opened in another tab lands in the same place without resetting an
 open lesson's interactive models.
 
+Each page opens with a **needs** chip naming the `make` targets its exercises want, and
+ten of them close with a **free before x.y** chip: the layers the next section does not
+need, and the `make down-<layer>` that removes each one. Both chips copy on click, and
+the ten are only the transitions where something can actually be freed.
+
 **Contents** opens the navigation at narrower widths. **Aa** switches reading copy
 between 18px and 21px and stores the choice in `cnpe:reading-size`, apart from `cnpe:v2`,
 so it is neither exported nor synchronized. **Focus view** (`f`) hides the rail and the

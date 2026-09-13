@@ -201,9 +201,15 @@ make status          Clusters, endpoints, unhealthy pods, host load
 make break           Inject a random fault, then diagnose it under time pressure
 make break-answer    Reveal the last injected fault
 make break-fix       Auto-diagnose and repair whatever 'make break' injected
+make down-gitops     Remove one layer from the running cluster ('make gitops' puts it back)
+make down-cicd       ... and the same for cicd, api, obs, sec, spire and mesh
 make down            Delete both clusters (keeps git history + registry)
 make nuke            Delete everything including Gitea data
 ```
+
+Each section page of the study console ends with the `make down-<layer>` commands for
+whatever the next section does not need, so a laptop only ever runs the layers the
+section in front of you uses. A layer's CRDs stay behind; nothing else does.
 
 ## make validate
 

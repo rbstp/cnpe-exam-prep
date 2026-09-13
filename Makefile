@@ -41,6 +41,21 @@ portal:  ## Scaffold Backstage on the host                      [domain 3]
 core: up gitea gitops              ## Minimum useful lab (~4 GB)
 full: core cicd api obs sec spire  ## Everything on the main cluster (~14 GB)
 
+down-gitops: ## Remove Argo CD/Rollouts/Workflows/Flux from the cluster   [layer teardown]
+	@$(S)/96-down-layer.sh gitops
+down-cicd:   ## Remove Tekton and the Trivy operator                      [layer teardown]
+	@$(S)/96-down-layer.sh cicd
+down-api:    ## Remove Crossplane, CloudNativePG and kro                  [layer teardown]
+	@$(S)/96-down-layer.sh api
+down-obs:    ## Remove Prometheus, Grafana, Loki, Jaeger, OTel, OpenCost  [layer teardown]
+	@$(S)/96-down-layer.sh obs
+down-sec:    ## Remove Kyverno, Gatekeeper, sealed/external secrets       [layer teardown]
+	@$(S)/96-down-layer.sh sec
+down-spire:  ## Remove SPIFFE/SPIRE                                       [layer teardown]
+	@$(S)/96-down-layer.sh spire
+down-mesh:   ## Delete the second cluster (Istio/Linkerd + Flagger)       [layer teardown]
+	@$(S)/96-down-layer.sh mesh
+
 ## ── daily ───────────────────────────────────────────────────────────────
 fix-cp-metrics: ## Expose control-plane metrics on an existing cluster (Prometheus targets)
 	@$(S)/94-fix-cp-metrics.sh
@@ -97,7 +112,7 @@ down:    ## Delete both clusters (keeps git history + registry)
 nuke:    ## Delete everything including Gitea data
 	@$(S)/99-down.sh all
 
-.PHONY: help host tools refresh up gitea gitops cicd api obs sec mesh portal core full spire validate fix-cp-metrics study fonts site browser worker merge sim ts ts-check syntax typecheck urls forward forward-stop status break break-fix down nuke
+.PHONY: help host tools refresh up gitea gitops cicd api obs sec mesh portal core full spire validate fix-cp-metrics study fonts site browser worker merge sim ts ts-check syntax typecheck urls forward forward-stop status break break-fix down nuke down-gitops down-cicd down-api down-obs down-sec down-spire down-mesh
 
 break-answer: ## Reveal the last injected fault
 	@cat /tmp/cnpe-lab/.last-fault 2>/dev/null || echo "none injected yet"
