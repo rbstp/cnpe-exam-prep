@@ -188,6 +188,8 @@ interface CnpeMergeApi {
   merge(store: unknown, src: unknown, base?: CnpeMergeBase): CnpeMergeCounts;
   /** the ticked keys of a store, per bucket */
   ticks(p: unknown): CnpeTickSets;
+  /** rename, in place, the stored keys a prose edit moved; how many moved */
+  migrate(p: unknown): number;
   /** those four lists as the lookup maps the merge reads */
   sets(b: unknown): CnpeMergeBase;
   /** the same, narrowed to the keys another store mentions: what one tab may

@@ -112,4 +112,38 @@ module.exports = async function (h) {
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   });
+
+  /* 5. the keys the American-spelling pass moved, renamed on the way in */
+  await group('a store keyed on the old spellings is renamed on load', async () => {
+    const OLD_EX = '1.2#read-the-behaviour-you-did-not-write';
+    const NEW_EX = '1.2#read-the-behavior-you-did-not-write';
+    const OLD_CARD = '3.1#an-organisation-mandates-the-platform-for-produc';
+    const NEW_CARD = '3.1#an-organization-mandates-the-platform-for-produc';
+    const TITLE = 'Read the behavior you did not write';
+    const { ctx, page } = await fresh({
+      ex: { [OLD_EX]: 1 },
+      drill: { [OLD_CARD]: { r: 3, m: 0, ok: true, t: Date.now() } },
+    });
+    await page.goto(url('01-architecture/02-compute-right-sizing.html'));
+    const s = await store(page);
+    assert(s.ex[NEW_EX] === 1 && !(OLD_EX in s.ex), 'the tick is under the new key and the old one is gone');
+    assert(!!s.drill[NEW_CARD] && s.drill[NEW_CARD].r === 3 && !(OLD_CARD in s.drill),
+      'and so is the drill record, score and all');
+    const tile = await page.evaluate(() => document.querySelector('#stat-ex .val').textContent.replace(/\s+/g, ''));
+    const n = await page.evaluate(() => document.querySelectorAll('.exercise').length);
+    assert(tile === '1/' + n, 'the section counts the exercises on the page, not a stale key beside them: ' + tile);
+    const verified = await page.evaluate(t => {
+      const ex = document.querySelector('.exercise[data-title="' + t + '"]');
+      return !!ex && ex.classList.contains('done');
+    }, TITLE);
+    assert(verified, 'and the exercise that was ticked reads verified rather than unverified');
+    // the rename is a write a load owes, so a reload finds it already done
+    const written = await page.evaluate(() => JSON.parse(localStorage.getItem('cnpe:v2')));
+    assert(written.ex[NEW_EX] === 1 && !(OLD_EX in written.ex), 'the migrated store reached the disk');
+    await page.goto(url('index.html'));
+    const dash = await page.evaluate(() => document.querySelectorAll('.stats .stat .val')[1].textContent.replace(/\s+/g, ''));
+    assert(dash === '1/' + n + 'seen', 'the dashboard total counts each exercise once: ' + dash);
+    assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
+    await ctx.close();
+  });
 };

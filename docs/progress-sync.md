@@ -45,8 +45,10 @@ and it changes nothing about how the site is hosted or deployed.
 
 One row per GitHub user: the numeric user id, the login, a revision counter and
 the `cnpe:v2` store as JSON. Nothing else. A **fully completed** store, meaning all
-29 sections, all 123 exercises, all 148 drill cards, both mock exams, a full
-window of study days and a finished quest, is about 25 KB against a 64 KB ceiling.
+29 sections, all 286 exercises, all 257 drill cards, both mock exams, a full
+window of study days and a finished quest, is about 41 KB against a 64 KB ceiling.
+Two thirds of that is the drill: one record per card, keyed on 48 characters of
+its question.
 
 The quest's bucket (`game`) follows the same rules as the rest. Its counters
 (xp, gold earned and spent, items got and used) are per-browser maps read as
@@ -191,6 +193,39 @@ Four checks, and failing any of them falls back to the union:
 rather than a mass un-tick: declining the second confirm still syncs the saved copy
 back down, exactly as that confirm says.
 
+### Keys cut from prose, and what happens when they move
+
+Two stored identifiers are cut from reader-facing text: an exercise is keyed on
+the slug of its title, a drill card on the first 48 characters of its question.
+Editing either moves the key, and nothing prunes the record left behind under the
+old one, so the section totals count it and the exercise itself reads unverified.
+
+`merge.js` holds the table of keys that have moved, seven of them over two
+edits, and renames them in place on both sides of every merge, plus once per
+load, and once more over another tab's write, for a store that never merges at
+all. Both halves are needed: a load-time pass alone cannot stop a browser still
+on the old bundle from pushing the old keys back up, and a merge-time pass alone
+never reaches a reader who has not signed in and never imports a file. The rename
+is a lookup against a fixed table and never a re-tick, so running it again is a
+no-op, which is what lets it run on every load and every merge with no flag to
+remember.
+
+An exercise ticked under either spelling stays ticked: it is one exercise, and
+the old key is its history. Two records for one drill card are merged the way two
+browsers' copies of that card are, `r` and `m` taking the max and the later answer
+carrying `ok` and `t`, so the card keeps the better ladder rung and the due date
+off it. Adding the counters instead would climb every time an un-migrated browser
+sent the old record up again.
+
+The base moves with them, since it is a list of the same keys. One still naming
+the old key would read a migrated store as having removed the exercise and tick it
+back, or lose an un-tick made since the rename.
+
+A rename this browser makes of another tab's write is a change it owes the disk,
+so it saves, even though no tick moved. Left in memory alone it would leave the
+store and the disk disagreeing for good, which is what `settled()` reads as a tab
+whose write could not be merged, and the base goes with it.
+
 ### Two tabs, one disk
 
 Tabs share the store on the disk and nothing else, so `save()` used to be a
@@ -238,7 +273,10 @@ reload the other tabs first.
 ### What still does not travel
 
 * **A browser running older JavaScript.** Until it loads the new bundle it merges
-  the old way and ticks things back. Every asset reference carries a hash of the
+  the old way, ticks things back, and pushes up the keys a prose edit has since
+  moved; every browser on the new bundle renames those on arrival, so they land
+  nowhere, but that browser keeps reading its own copy under the old names.
+  Every asset reference carries a hash of the
   file, so a page and the scripts it pulls are at least always the same version of
   the console, but the page itself still rides Pages' ten-minute cache, and a tab
   that is already open keeps the code it started with until it is reloaded.
@@ -513,10 +551,11 @@ Worth knowing if you change any of it:
   buckets, the counter maxima, the prototype guards on a payload that arrives over
   the network, the narrowed base one tab holds against another, and the base rules
   above, meaning the rev and account checks, the wire form the exam clock is
-  stripped from, and what counts as having anything to save. Whether this browser
-  may hold a base at all stays in `sync.js`, since that is a question about the
-  disk and the other tabs rather than a rule. Plain `node`, no dependencies, and
-  CI runs it on every PR.
+  stripped from, what counts as having anything to save, and the rename of the
+  keys a prose edit moved, against a store holding the old names, the new ones,
+  both and neither. Whether this browser may hold a base at all stays in
+  `sync.js`, since that is a question about the disk and the other tabs rather
+  than a rule. Plain `node`, no dependencies, and CI runs it on every PR.
 * `sync/test.mjs` drives the Worker directly with a stub D1: forged, tampered,
   expired and wrong-key session cookies, the CORS gate on every credentialed
   route, six open-redirect attempts on `return`, the state and nonce checks on
