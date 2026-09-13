@@ -191,6 +191,33 @@ Four checks, and failing any of them falls back to the union:
 rather than a mass un-tick: declining the second confirm still syncs the saved copy
 back down, exactly as that confirm says.
 
+### Keys cut from prose, and what happens when they move
+
+Two stored identifiers are cut from reader-facing text: an exercise is keyed on
+the slug of its title, a drill card on the first 48 characters of its question.
+Editing either moves the key, and nothing prunes the record left behind under the
+old one, so the section totals count it and the exercise itself reads unverified.
+
+`merge.js` holds the table of keys that have moved, and renames them in place on
+both sides of every merge, plus once per load for a store that never merges at
+all. Both halves are needed: a load-time pass alone cannot stop a browser still
+on the old bundle from pushing the old keys back up, and a merge-time pass alone
+never reaches a reader who has not signed in and never imports a file. The rename
+is a lookup against a fixed table and never a re-tick, so running it again is a
+no-op, which is what lets it run on every load and every merge with no flag to
+remember.
+
+An exercise ticked under either spelling stays ticked: it is one exercise, and
+the old key is its history. Two records for one drill card are merged the way two
+browsers' copies of that card are, `r` and `m` taking the max and the later answer
+carrying `ok` and `t`, so the card keeps the better ladder rung and the due date
+off it. Adding the counters instead would climb every time an un-migrated browser
+sent the old record up again.
+
+The base moves with them, since it is a list of the same keys. One still naming
+the old key would read a migrated store as having removed the exercise and tick it
+back, or lose an un-tick made since the rename.
+
 ### Two tabs, one disk
 
 Tabs share the store on the disk and nothing else, so `save()` used to be a
@@ -238,7 +265,9 @@ reload the other tabs first.
 ### What still does not travel
 
 * **A browser running older JavaScript.** Until it loads the new bundle it merges
-  the old way and ticks things back. Every asset reference carries a hash of the
+  the old way, ticks things back, and pushes up the keys a prose edit has since
+  moved; every browser on the new bundle renames those on arrival, so they land
+  nowhere, but that browser keeps reading its own copy under the old names. Every asset reference carries a hash of the
   file, so a page and the scripts it pulls are at least always the same version of
   the console, but the page itself still rides Pages' ten-minute cache, and a tab
   that is already open keeps the code it started with until it is reloaded.

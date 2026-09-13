@@ -354,6 +354,94 @@
     return out;
   }
 
+  /* ── keys the prose moved ─────────────────────────────────── */
+  /* Two stored identifiers are cut from reader-facing text: an exercise is keyed
+     on the slug of its title, a drill card on the first 48 characters of its
+     question. The American-spelling pass rewrote five of those strings, so five
+     records now sit under a key nothing reads. Nothing prunes such a key, and
+     sectionCounts adds up what the store holds rather than what the page shows,
+     so a reader who had ticked those exercises reads 289 of them where the site
+     has 286, with the stale key counted done and the real one unverified.
+
+     So the keys move, here rather than at load, because a browser still on the
+     old bundle pushes the old ones back on its next sync and an imported file
+     carries whatever it was exported with. Normalized on arrival they cannot
+     land at all, whichever way they arrive. Every step is a rename over a fixed
+     table and never a re-tick, so running it again is a no-op, which is what
+     lets it run on every merge and every load without a flag to remember.
+
+     Anything added here must be a key that genuinely moved: the entry is read
+     as "these two are one record", and two live keys folded together lose one. */
+  var MOVED_EX: Record<string, string> = {
+    "1.2#read-the-behaviour-you-did-not-write": "1.2#read-the-behavior-you-did-not-write",
+    "3.4#parameterise-from-outside": "3.4#parameterize-from-outside",
+    "3.5#change-the-api-s-behaviour-not-the-api": "3.5#change-the-api-s-behavior-not-the-api",
+  };
+  var MOVED_DRILL: Record<string, string> = {
+    "3.1#an-organisation-mandates-the-platform-for-produc": "3.1#an-organization-mandates-the-platform-for-produc",
+    "4.5#the-white-paper-s-organisational-efficiency-grou": "4.5#the-white-paper-s-organizational-efficiency-grou",
+  };
+
+  /* One drill card, two records: both may carry a lifetime score and a schedule,
+     which is the question two browsers ask of the same card, so it takes the same
+     answer. r and m take the max and the later answer carries ok and t, a tie
+     going to the miss. That keeps the better ladder rung and the later due date
+     off it, and it is the only rule that can run twice: adding the counters
+     instead would climb every time an un-migrated browser sent the old record up
+     again. Shared with the merge below, so there is one of it. */
+  /** @return whether anything grew */
+  function takeRec(cur: Record<string, any>, inc: Record<string, any>): boolean {
+    var grew = false;
+    ["r", "m"].forEach(function (f) {
+      var v = +inc[f] || 0;
+      if (v > (+cur[f] || 0)) { cur[f] = v; grew = true; }
+    });
+    var it = +inc.t || 0, ct = +cur.t || 0;
+    if (it > ct || (it === ct && it > 0 && !inc.ok && cur.ok)) {
+      cur.ok = !!inc.ok; cur.t = it; grew = true;
+    }
+    return grew;
+  }
+
+  /* A store, in place. The old key goes rather than being zeroed, because a key
+     that is merely 0 is still a key the section total counts. */
+  /** @return keys moved */
+  function migrate(p: any): number {
+    if (!p || typeof p !== "object") return 0;
+    var n = 0;
+    var ex = obj(p.ex);
+    if (ex) Object.keys(MOVED_EX).forEach(function (from) {
+      if (!own(ex!, from)) return;
+      var to = MOVED_EX[from];
+      // A tick under either key is the same exercise verified, so it survives the
+      // move; 0 under both stays 0, which is an un-tick and not nothing.
+      ex![to] = (ex![from] || (own(ex!, to) && ex![to])) ? 1 : 0;
+      delete ex![from];
+      n++;
+    });
+    var drill = obj(p.drill);
+    if (drill) Object.keys(MOVED_DRILL).forEach(function (from) {
+      if (!own(drill!, from)) return;
+      var rec = obj(drill![from]), to = MOVED_DRILL[from];
+      delete drill![from];
+      n++;
+      if (!rec) return;                            // not a record: the key just goes
+      var cur = obj(drill![to]);
+      if (cur) takeRec(cur, rec); else drill![to] = rec;
+    });
+    return n;
+  }
+  /* The ticked keys of a store carry the same names, so a base carries them too.
+     One still naming the old key would read a migrated store as having removed
+     the exercise and tick it back, or miss an un-tick made since the rename. */
+  function movedEx(list: unknown): string[] {
+    var out = Object.create(null);
+    (Array.isArray(list) ? list : []).forEach(function (k) {
+      out[own(MOVED_EX, k) ? MOVED_EX[k] : k] = 1;
+    });
+    return Object.keys(out).sort();
+  }
+
   /* ── the sync's own decisions ─────────────────────────────── */
   /* Key order in a store means nothing, so comparing two of them means ordering
      the keys first. Used to tell a store that reached the disk from one that did
@@ -376,10 +464,14 @@
     if (b.uid && uid && String(b.uid) !== uid) return null;
     var was = +b.rev || 0;
     if (rev < was) return null;                       // the row was deleted and remade
-    // One rev holds one blob, so a match that disagrees is a different row.
-    var only = { done: b.done || [], ex: b.ex || [], exam: b.exam || [], exam2: b.exam2 || [] };
-    if (rev === was && canon(ticks(progress)) !== canon(only)) return null;
-    return sets(b);
+    // One rev holds one blob, so a match that disagrees is a different row. The
+    // moved keys are renamed on both sides first, so a base and a row that differ
+    // only in the spelling they were written under still read as the one blob.
+    var only = { done: b.done || [], ex: movedEx(b.ex), exam: b.exam || [], exam2: b.exam2 || [] };
+    var t = ticks(progress);
+    t.ex = movedEx(t.ex);
+    if (rev === was && canon(t) !== canon(only)) return null;
+    return sets(only);
   }
 
   /* A store as it goes over the wire. A running exam clock stays on the machine
@@ -422,6 +514,10 @@
      No base makes every base value 0, which is the union Import has always had. */
   function mergeProgress(store: Record<string, any>, src: Record<string, any>, base?: CnpeMergeBase): CnpeMergeCounts {
     var n: CnpeMergeCounts = { done: 0, ex: 0, exam: 0, drill: 0, days: 0, game: 0, last: 0, off: 0 };
+    // Both sides speak the same key names before anything is compared. A rename
+    // is not work done, so neither side's count moves for it.
+    migrate(store);
+    migrate(src);
     function union(into: Record<string, any>, from: unknown, was: Record<string, 1> | undefined, bucket: "done" | "ex" | "exam"): void {
       // A bucket the payload leaves out is not a bucket the server emptied.
       if (!from || typeof from !== "object" || Array.isArray(from)) return;
@@ -457,17 +553,8 @@
         if (!cur || typeof cur !== "object" || Array.isArray(cur)) {
           cur = store.drill[k] = { r: 0, m: 0 };
         }
-        var grew = false;
-        ["r", "m"].forEach(function (f) {
-          var v = +inc[f] || 0;
-          if (v > (+cur[f] || 0)) { cur[f] = v; grew = true; }
-        });
-        var it = +inc.t || 0, ct = +cur.t || 0;
         // On an exact tie the miss wins, so both sides land on the same record.
-        if (it > ct || (it === ct && it > 0 && !inc.ok && cur.ok)) {
-          cur.ok = !!inc.ok; cur.t = it; grew = true;
-        }
-        if (grew) n.drill++;
+        if (takeRec(cur, inc)) n.drill++;
       });
     }
     if (src.drillmeta && typeof src.drillmeta === "object" && !Array.isArray(src.drillmeta)) {
@@ -539,6 +626,7 @@
   root.CNPE_MERGE = {
     merge: mergeProgress, ticks: ticks, sets: sets, shared: shared,
     canon: canon, pickBase: pickBase, wire: wire, hasAnything: hasAnything,
+    migrate: migrate,
     dueIn: dueIn, seedDays: seedDays, streak: streak,
     countOf: countOf, pruneDays: pruneDays, KEEP: KEEP,
     mergeGame: mergeGame, gameHasAnything: gameHasAnything,

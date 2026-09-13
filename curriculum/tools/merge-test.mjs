@@ -596,6 +596,146 @@ group("the counts the callers paint from");
     "one of each, and the tick the base says was removed: " + JSON.stringify(n));
 }
 
+/* ── the keys a prose edit moved ─────────────────────────────────
+   Three exercise ticks and two drill records are keyed on text the
+   American-spelling pass rewrote, so their keys moved and the records were
+   left behind under the old ones. The rename runs on both sides of every
+   merge and again at load, so it has to be idempotent and has to hold
+   against an old key arriving from a browser that has not migrated yet. */
+const OLD_EX = "1.2#read-the-behaviour-you-did-not-write";
+const NEW_EX = "1.2#read-the-behavior-you-did-not-write";
+const OLD_EX2 = "3.4#parameterise-from-outside";
+const NEW_EX2 = "3.4#parameterize-from-outside";
+const OLD_EX3 = "3.5#change-the-api-s-behaviour-not-the-api";
+const NEW_EX3 = "3.5#change-the-api-s-behavior-not-the-api";
+const OLD_CARD = "3.1#an-organisation-mandates-the-platform-for-produc";
+const NEW_CARD = "3.1#an-organization-mandates-the-platform-for-produc";
+const OLD_CARD2 = "4.5#the-white-paper-s-organisational-efficiency-grou";
+const NEW_CARD2 = "4.5#the-white-paper-s-organizational-efficiency-grou";
+const STAMP = Date.now();
+
+group("\na store holding only the old keys");
+{
+  const s = store({
+    ex: { [OLD_EX]: 1, [OLD_EX2]: 1, [OLD_EX3]: 0, "1.1#untouched": 1 },
+    drill: {
+      [OLD_CARD]: { r: 3, m: 1, ok: true, t: STAMP },
+      [OLD_CARD2]: { r: 1, m: 0, ok: false, t: STAMP },
+      "1.1#untouched": { r: 1, m: 0, ok: true, t: STAMP },
+    },
+  });
+  const moved = M.migrate(s);
+  ok(moved === 5, "all five keys moved: " + moved);
+  ok(s.ex[NEW_EX] === 1 && s.ex[NEW_EX2] === 1, "a ticked exercise keeps its tick under the new key");
+  ok(s.ex[NEW_EX3] === 0, "and an un-ticked one stays an un-tick, which is not the same as nothing");
+  ok(!(OLD_EX in s.ex) && !(OLD_EX2 in s.ex) && !(OLD_EX3 in s.ex),
+    "the old keys are gone, not zeroed: a key at 0 is still a key the section total counts");
+  ok(Object.keys(s.ex).length === 4, "so the section totals count four exercises, not seven");
+  ok(eq(s.drill[NEW_CARD], { r: 3, m: 1, ok: true, t: STAMP }), "a drill record moves whole");
+  ok(eq(s.drill[NEW_CARD2], { r: 1, m: 0, ok: false, t: STAMP }), "both of them do");
+  ok(!(OLD_CARD in s.drill) && !(OLD_CARD2 in s.drill),
+    "and the old records go, so the deck is not one card longer than it is");
+  ok(s.ex["1.1#untouched"] === 1 && s.drill["1.1#untouched"].r === 1, "nothing else is touched");
+  ok(M.migrate(s) === 0, "and running it again moves nothing");
+}
+
+group("a store holding only the new keys");
+{
+  const s = store({ ex: { [NEW_EX]: 1 }, drill: { [NEW_CARD]: { r: 2, m: 1, ok: true, t: STAMP } } });
+  const before = M.canon(s);
+  ok(M.migrate(s) === 0, "there is nothing to move");
+  ok(M.canon(s) === before, "and the store is left exactly as it was");
+}
+
+group("a store holding both at once");
+{
+  const s = store({
+    ex: { [OLD_EX]: 1, [NEW_EX]: 0 },
+    drill: {
+      [OLD_CARD]: { r: 5, m: 0, ok: true, t: STAMP - 1000 },
+      [NEW_CARD]: { r: 2, m: 3, ok: false, t: STAMP },
+    },
+  });
+  ok(M.migrate(s) === 2, "the old key of each pair moves");
+  ok(s.ex[NEW_EX] === 1 && Object.keys(s.ex).length === 1,
+    "the tick survives the fold: it is one exercise, verified before the rename");
+  // the rule two browsers get for one card, because it is the same question
+  ok(s.drill[NEW_CARD].r === 5 && s.drill[NEW_CARD].m === 3,
+    "r and m each take the higher, so the ladder rung is the better of the two");
+  ok(s.drill[NEW_CARD].ok === false && s.drill[NEW_CARD].t === STAMP,
+    "and the later answer carries ok and t, which is the due date off that rung");
+  ok(Object.keys(s.drill).length === 1, "one card, one record");
+}
+
+group("both at once, the other way round");
+{
+  const s = store({ ex: { [OLD_EX]: 0, [NEW_EX]: 1 }, drill: { [OLD_CARD]: { r: 1, m: 0, ok: false, t: STAMP }, [NEW_CARD]: { r: 1, m: 0, ok: true, t: STAMP } } });
+  M.migrate(s);
+  ok(s.ex[NEW_EX] === 1, "a tick under either key is the exercise verified");
+  ok(s.drill[NEW_CARD].ok === false, "and on an exact tie the miss wins, as it does in the merge");
+}
+
+group("a store holding neither, or nothing at all");
+{
+  const s = store({ ex: { "1.1#a": 1 }, drill: { "1.1#a": { r: 1, m: 0 } } });
+  const before = M.canon(s);
+  ok(M.migrate(s) === 0 && M.canon(s) === before, "an ordinary store is untouched");
+  ok(M.migrate(store()) === 0, "so is an empty one");
+  [["null", null], ["nothing at all", undefined], ["a string", "a string"], ["a number", 42], ["an array", []]]
+    .forEach(function (pair) {
+      ok(M.migrate(pair[1]) === 0, "and " + pair[0] + " is refused rather than thrown at");
+    });
+  const j = { ex: "junk", drill: [] };
+  ok(M.migrate(j) === 0, "buckets that are not objects are skipped");
+  const half = { ex: { [OLD_EX]: 1 } };
+  ok(M.migrate(half) === 1 && half.ex[NEW_EX] === 1, "and a store with only the one bucket still migrates");
+}
+
+group("an old key arriving from a browser that has not migrated");
+{
+  // the local store migrated at load; the payload is what the old bundle pushes
+  const s = store({ ex: { [NEW_EX]: 1 }, drill: { [NEW_CARD]: { r: 2, m: 0, ok: true, t: STAMP } } });
+  const remote = { ex: { [OLD_EX]: 1 }, drill: { [OLD_CARD]: { r: 3, m: 1, ok: false, t: STAMP - 1000 } } };
+  const n = M.merge(s, remote);
+  ok(!(OLD_EX in s.ex) && s.ex[NEW_EX] === 1, "the old tick lands under the new key, so the total does not inflate");
+  ok(Object.keys(s.ex).length === 1 && Object.keys(s.drill).length === 1, "one key per exercise, one record per card");
+  ok(s.drill[NEW_CARD].r === 3 && s.drill[NEW_CARD].ok === true,
+    "the old record merges into the new one by the same rule: " + JSON.stringify(s.drill[NEW_CARD]));
+  ok(n.ex === 0, "a rename is not a tick added");
+  const twice = M.merge(s, remote);
+  ok(twice.ex === 0 && twice.drill === 0 && Object.keys(s.ex).length === 1,
+    "and the same payload arriving again is a no-op, however many times it comes back");
+}
+
+group("an un-tick made since the rename is not resurrected by the old key");
+{
+  // this browser ticked the exercise, the rename moved it, then it un-ticked it;
+  // the base is what it last agreed with the server, written under the old name
+  const base = M.pickBase({ uid: "42", rev: 4, done: [], ex: [OLD_EX], exam: [], exam2: [] },
+    { ex: { [OLD_EX]: 1 } }, 4, "42");
+  ok(!!base && base.ex[NEW_EX] === 1, "the base speaks the new name, or it cannot speak for that key at all");
+  const s = store({ ex: { [NEW_EX]: 0 } });
+  M.merge(s, { ex: { [OLD_EX]: 1 } }, base);
+  ok(s.ex[NEW_EX] === 0 && !(OLD_EX in s.ex), "so the un-tick stands against the old key coming back");
+  // and with no base it is the union it has always been: nothing is un-ticked
+  const u = store({ ex: { [NEW_EX]: 0 } });
+  M.merge(u, { ex: { [OLD_EX]: 1 } });
+  ok(u.ex[NEW_EX] === 1, "with no base the tick wins, which is what a union does");
+}
+
+group("the base a rename moved keys under still matches its row");
+{
+  const oldBase = { uid: "42", rev: 4, done: [], ex: [OLD_EX], exam: [], exam2: [] };
+  ok(M.pickBase(oldBase, { ex: { [NEW_EX]: 1 } }, 4, "42") !== null,
+    "a row written since the rename is the row the base came from, not a remade one");
+  ok(M.pickBase(oldBase, { ex: { [OLD_EX]: 1 } }, 4, "42") !== null, "and so is one written before it");
+  const both = { uid: "42", rev: 4, done: [], ex: [OLD_EX, NEW_EX], exam: [], exam2: [] };
+  ok(M.pickBase(both, { ex: { [NEW_EX]: 1 } }, 4, "42") !== null,
+    "a base naming both spellings folds to the one key rather than reading as a second tick");
+  ok(M.pickBase(oldBase, { ex: { "9.9#other": 1 } }, 4, "42") === null,
+    "a genuinely different blob at the same rev is still a different row");
+}
+
 /* ── the quest ───────────────────────────────────────────────── */
 group("\nthe quest's counters add up across browsers");
 {

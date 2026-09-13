@@ -104,5 +104,13 @@ ticked:
 - exercise completion is keyed on `slug(data-title)` of a `.exercise`
 - drill cards are keyed on the first 48 characters of the question text
 
-Changing either is allowed, but say so in the PR body. `drill-index.js` coming
-back byte-identical from the regenerator is the proof that no card id moved.
+Changing either is allowed, but say so in the PR body, and add the old key and the
+new one to `MOVED_EX` or `MOVED_DRILL` in `curriculum/src/console/merge.ts`. That
+table is the rename: it runs on both sides of every merge and once per load, so a
+reader keeps the tick and the card keeps its score. Without it the old key stays
+in the store forever, counted in the section totals while the exercise itself
+reads unverified. Only ever add a key that genuinely moved; an entry says "these
+two are one record", and folding two live keys together loses one of them.
+
+`drill-index.js` coming back byte-identical from the regenerator is the proof that
+no card id moved.

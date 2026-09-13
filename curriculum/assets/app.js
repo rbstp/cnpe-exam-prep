@@ -33,7 +33,7 @@
   // Name what this file needs, not just the object: a cache can hold an older
   // merge.js as easily as none, and a missing member throws mid-boot instead.
   var M = window.CNPE_MERGE;
-  if (!M || !M.pruneDays) return;
+  if (!M || !M.pruneDays || !M.migrate) return;
   var dayKey = M.dayKey, dayActs = M.dayActs;
   var seedDays = M.seedDays;
 
@@ -75,7 +75,8 @@
 
   /* ── storage ─────────────────────────────────────────────── */
   // Seeding a pre-days store is a migration, not a repaint: boot saves it once.
-  var seeded = false;
+  // The key rename below is the same kind of write, and saves the same way.
+  var seeded = false, renamed = false;
   var store = (function () {
     var s = /** @type {CnpeStore} */ (/** @type {unknown} */ ({ ex: {}, done: {}, exam: {}, last: null }));
     try { var raw = localStorage.getItem(KEY); if (raw) s = Object.assign(s, JSON.parse(raw)); } catch (e) {}
@@ -84,6 +85,11 @@
       if (!s[k] || typeof s[k] !== "object") s[k] = {};
     });
     if (typeof s.last !== "string") s.last = null;
+    // Five stored keys were cut from prose an edit later rewrote. The merge moves
+    // them on arrival, which a store that never syncs and never imports never
+    // sees, so a load moves them too; it is a rename over a fixed table, so
+    // running it on every load costs a few lookups on a store already migrated.
+    renamed = M.migrate(s) > 0;
     if (!hadDays) {
       seedDays(s);
       seeded = Object.keys(s.days).length > 0;
@@ -172,6 +178,10 @@
   function reconcile() {
     var disk = onDisk();
     if (!disk) return;
+    // Before the base is narrowed against it: a tab still on the old bundle
+    // writes the old keys, and shared() would otherwise drop the ones it holds
+    // under the new name from the base and take the union of both spellings.
+    M.migrate(disk);
     // Taking their write, a tick that is missing from it rather than sitting in
     // it as 0 is one that store never had, so the base speaks only for the keys
     // it mentions and a tab that saved an older copy of everything reads as the
@@ -1503,5 +1513,6 @@
   }
   window.CNPE_BOOT = boot;
   boot();
-  if (seeded) { seeded = false; save(); }   // the only write a page load owes
+  // The only writes a page load owes.
+  if (seeded || renamed) { seeded = renamed = false; save(); }
 })();
