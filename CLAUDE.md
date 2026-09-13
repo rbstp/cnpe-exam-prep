@@ -21,8 +21,10 @@ test descriptions, commit messages and PR bodies.
   verb). Keep the British form only where it is part of a name that has to match
   something real: the `aria-labelledby` attribute, Tekton's `CancelledRunFinally`
   and friends, Flagger's `Finalising` canary phase, the `cost-centre` label this
-  lab's Kyverno policy writes, and the quest's NPC names, which are stored keys
-  (`Harbourmaster Selda` stays as it is).
+  lab's Kyverno policy writes, the `unlabelled` Deployment 5.2's policy exercise
+  creates, the two shell comments in 4.3 and 5.5 whose drawers echo them, and the
+  quest's NPC names, which are stored keys (`Harbourmaster Selda` stays as she
+  is).
 - **Say what a thing does**, not what it resembles. A metaphor that needs
   unpacking costs more than the sentence it saved.
 
