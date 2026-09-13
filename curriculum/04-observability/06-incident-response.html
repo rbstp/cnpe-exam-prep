@@ -418,9 +418,17 @@ kubectl -n wh-drill create configmap blocked-cm --from-literal=a=1
 kubectl get validatingwebhookconfiguration no-backend -o jsonpath='{.webhooks[0].failurePolicy} {.webhooks[0].timeoutSeconds}{"\n"}'
 kubectl delete validatingwebhookconfiguration no-backend
 kubectl -n wh-drill create configmap blocked-cm --from-literal=a=1
-kubectl delete ns wh-drill</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get validatingwebhookconfiguration -o custom-columns=NAME:.metadata.name,POLICY:.webhooks[*].failurePolicy | grep -i kyverno</b>
+kubectl delete ns wh-drill</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get validatingwebhookconfiguration -o custom-columns=NAME:.metadata.name,POLICY:.webhooks[*].failurePolicy | grep -i kyverno</b>
+kyverno-cel-exception-validating-webhook-cfg    Fail
+kyverno-cleanup-validating-webhook-cfg          Fail
+kyverno-exception-validating-webhook-cfg        Fail
+kyverno-global-context-validating-webhook-cfg   Fail
+kyverno-policy-validating-webhook-cfg           Fail
+kyverno-resource-validating-webhook-cfg         Fail
+kyverno-ttl-validating-webhook-cfg              Ignore
 <b>$ # own the webhook rather than scaling a shared component to zero, and scope it to a throwaway namespace</b>
 <b>$ kubectl create ns wh-drill --dry-run=client -o yaml | kubectl apply -f -</b>
+namespace/wh-drill created
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: admissionregistration.k8s.io/v1</b>
 <b>kind: ValidatingWebhookConfiguration</b>
@@ -438,12 +446,17 @@ kubectl delete ns wh-drill</code></pre><details class="out pending"><summary>out
 <b>    rules:</b>
 <b>      - { apiGroups: [""], apiVersions: ["v1"], operations: ["CREATE"], resources: ["configmaps"], scope: Namespaced }</b>
 <b>EOF</b>
+validatingwebhookconfiguration.admissionregistration.k8s.io/no-backend created
 <b>$ kubectl -n wh-drill create configmap blocked-cm --from-literal=a=1</b>
+error: failed to create configmap: Internal error occurred: failed calling webhook "no-backend.example.com": failed to call webhook: Post "https://nope.wh-drill.svc:443/validate?timeout=5s": service "nope" not found
 <b>$ kubectl get validatingwebhookconfiguration no-backend -o jsonpath='{.webhooks[0].failurePolicy} {.webhooks[0].timeoutSeconds}{"\n"}'</b>
+Fail 5
 <b>$ kubectl delete validatingwebhookconfiguration no-backend</b>
+validatingwebhookconfiguration.admissionregistration.k8s.io "no-backend" deleted
 <b>$ kubectl -n wh-drill create configmap blocked-cm --from-literal=a=1</b>
+configmap/blocked-cm created
 <b>$ kubectl delete ns wh-drill</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+namespace "wh-drill" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> the first create fails with <code>Internal error occurred: failed calling webhook "no-backend.example.com"</code>, naming the service that does not exist, and the same create succeeds once the webhook configuration is deleted. The two fields that decide whether this is an outage or a gap are <code>failurePolicy</code> and the match scope, here <code>namespaceSelector</code> plus <code>rules</code>. Under a clock the fix is to delete the webhook configuration and put it back afterwards. Scaling Kyverno to zero does not reproduce this: both creates succeed, so a down policy engine is not by itself a cluster outage on this install.</div>
     </div>
 

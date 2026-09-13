@@ -306,135 +306,6 @@ The following checks were performed on each of these signatures:
       <div class="verify"><b>verify:</b> the tree shows an attestation alongside the image, and the verified payload's <code>predicateType</code> is the CycloneDX one with the component list intact.</div>
     </div>
 
-    <div class="exercise" data-title="Make Chains sign the build">
-      <p>This is the pipeline half of the same idea: Chains watches TaskRuns and produces provenance without the pipeline author doing anything. It needs the Chains install from section 2.4; if that is gone, run that block first.</p>
-      <p>The results named <code>IMAGE_URL</code> and <code>IMAGE_DIGEST</code> are the contract. Remove them and the attestation disappears, which is the failure mode to see.</p>
-      <div class="cb" data-lang="bash"><pre><code># OCI storage pushes the attestation to kind-registry:5000, which serves plain HTTP
-kubectl -n tekton-chains patch cm chains-config --type merge -p '{"data":{"artifacts.taskrun.format":"slsa/v2alpha3","artifacts.taskrun.storage":"oci","artifacts.oci.storage":"oci","storage.oci.repository.insecure":"true"}}'
-kubectl -n tekton-chains rollout restart deploy/tekton-chains-controller
-kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=120s
-DIGEST=$(skopeo inspect --tls-verify=false docker://localhost:5001/demo:v1 | jq -r .Digest)
-kubectl create -f - &lt;&lt;EOF
-apiVersion: tekton.dev/v1
-kind: TaskRun
-metadata: { generateName: provenance-, namespace: default }
-spec:
-  taskSpec:
-    results:
-      - name: IMAGE_URL
-      - name: IMAGE_DIGEST
-    steps:
-      - name: record
-        image: busybox:1.36
-        script: |
-          printf 'kind-registry:5000/demo:v1' &gt; \$(results.IMAGE_URL.path)
-          printf '$DIGEST' &gt; \$(results.IMAGE_DIGEST.path)
-EOF
-sleep 90
-kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.annotations}' | jq 'with_entries(select(.key | startswith("chains")))'
-kubectl -n tekton-chains logs deploy/tekton-chains-controller --tail=40 | grep -i -m5 'error\|failed' || true
-cosign verify-attestation --type slsaprovenance1 --key k8s://tekton-chains/signing-secrets --allow-insecure-registry localhost:5001/demo:v1 | jq -r .payload | base64 -d | jq '{predicateType, builder: .predicate.runDetails.builder.id}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ # OCI storage pushes the attestation to kind-registry:5000, which serves plain HTTP</b>
-<b>$ kubectl -n tekton-chains patch cm chains-config --type merge -p '{"data":{"artifacts.taskrun.format":"slsa/v2alpha3","artifacts.taskrun.storage":"oci","artifacts.oci.storage":"oci","storage.oci.repository.insecure":"true"}}'</b>
-<b>$ kubectl -n tekton-chains rollout restart deploy/tekton-chains-controller</b>
-<b>$ kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=120s</b>
-<b>$ DIGEST=$(skopeo inspect --tls-verify=false docker://localhost:5001/demo:v1 | jq -r .Digest)</b>
-<b>$ kubectl create -f - &lt;&lt;EOF</b>
-<b>apiVersion: tekton.dev/v1</b>
-<b>kind: TaskRun</b>
-<b>metadata: { generateName: provenance-, namespace: default }</b>
-<b>spec:</b>
-<b>  taskSpec:</b>
-<b>    results:</b>
-<b>      - name: IMAGE_URL</b>
-<b>      - name: IMAGE_DIGEST</b>
-<b>    steps:</b>
-<b>      - name: record</b>
-<b>        image: busybox:1.36</b>
-<b>        script: |</b>
-<b>          printf 'kind-registry:5000/demo:v1' &gt; \$(results.IMAGE_URL.path)</b>
-<b>          printf '$DIGEST' &gt; \$(results.IMAGE_DIGEST.path)</b>
-<b>EOF</b>
-<b>$ sleep 90</b>
-<b>$ kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.annotations}' | jq 'with_entries(select(.key | startswith("chains")))'</b>
-<b>$ kubectl -n tekton-chains logs deploy/tekton-chains-controller --tail=40 | grep -i -m5 'error\|failed' || true</b>
-<b>$ cosign verify-attestation --type slsaprovenance1 --key k8s://tekton-chains/signing-secrets --allow-insecure-registry localhost:5001/demo:v1 | jq -r .payload | base64 -d | jq '{predicateType, builder: .predicate.runDetails.builder.id}'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the TaskRun is annotated <code>chains.tekton.dev/signed = "true"</code> and <code>cosign verify-attestation</code> returns a SLSA provenance predicate naming Tekton as the builder. If it still says <code>failed</code>, the controller log line is the answer and it is almost always the push: OCI storage sends the attestation to <code>kind-registry:5000</code>, which serves plain HTTP, so <code>storage.oci.repository.insecure</code> must be set.</div>
-    </div>
-
-    <div class="exercise" data-title="Demand the attestation at admission">
-      <p>Verifying in the pipeline proves the pipeline is honest. Verifying at admission proves the cluster only runs what the pipeline built, which is the property a task is actually asking for.</p>
-      <div class="cb" data-lang="bash"><pre><code># this needs the attestation the Chains exercise above pushes
-cosign verify-attestation --type slsaprovenance1 --key k8s://tekton-chains/signing-secrets \
-  --allow-insecure-registry localhost:5001/demo:v1 &gt;/dev/null 2&gt;&amp;1 \
-  &amp;&amp; echo "attestation present" || echo "no attestation: run Make Chains sign the build first"
-kubectl apply -f - &lt;&lt;EOF
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
-metadata: { name: require-provenance }
-spec:
-  validationFailureAction: Enforce
-  webhookTimeoutSeconds: 30
-  rules:
-    - name: check-slsa-attestation
-      match:
-        any:
-          - resources:
-              kinds: [Pod]
-              namespaces: [default]
-      verifyImages:
-        - imageReferences: ["kind-registry:5000/demo*"]
-          attestations:
-            - type: https://slsa.dev/provenance/v1
-              attestors:
-                - entries:
-                    - keys:
-                        publicKeys: |-
-$(kubectl -n tekton-chains get secret signing-secrets -o jsonpath='{.data.cosign\.pub}' | base64 -d | sed 's/^/                          /')
-EOF
-sleep 20
-kubectl -n default run attested --image=kind-registry:5000/demo:v1 --restart=Never
-skopeo copy --dest-tls-verify=false docker://busybox:1.36 docker://localhost:5001/demo:fake
-kubectl -n default run unattested --image=kind-registry:5000/demo:fake --restart=Never
-kubectl -n default delete pod attested unattested --ignore-not-found
-kubectl delete clusterpolicy require-provenance</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ # this needs the attestation the Chains exercise above pushes</b>
-<b>$ cosign verify-attestation --type slsaprovenance1 --key k8s://tekton-chains/signing-secrets \</b>
-<b>    --allow-insecure-registry localhost:5001/demo:v1 &gt;/dev/null 2&gt;&amp;1 \</b>
-<b>    &amp;&amp; echo "attestation present" || echo "no attestation: run Make Chains sign the build first"</b>
-<b>$ kubectl apply -f - &lt;&lt;EOF</b>
-<b>apiVersion: kyverno.io/v1</b>
-<b>kind: ClusterPolicy</b>
-<b>metadata: { name: require-provenance }</b>
-<b>spec:</b>
-<b>  validationFailureAction: Enforce</b>
-<b>  webhookTimeoutSeconds: 30</b>
-<b>  rules:</b>
-<b>    - name: check-slsa-attestation</b>
-<b>      match:</b>
-<b>        any:</b>
-<b>          - resources:</b>
-<b>              kinds: [Pod]</b>
-<b>              namespaces: [default]</b>
-<b>      verifyImages:</b>
-<b>        - imageReferences: ["kind-registry:5000/demo*"]</b>
-<b>          attestations:</b>
-<b>            - type: https://slsa.dev/provenance/v1</b>
-<b>              attestors:</b>
-<b>                - entries:</b>
-<b>                    - keys:</b>
-<b>                        publicKeys: |-</b>
-<b>$(kubectl -n tekton-chains get secret signing-secrets -o jsonpath='{.data.cosign\.pub}' | base64 -d | sed 's/^/                          /')</b>
-<b>EOF</b>
-<b>$ sleep 20</b>
-<b>$ kubectl -n default run attested --image=kind-registry:5000/demo:v1 --restart=Never</b>
-<b>$ skopeo copy --dest-tls-verify=false docker://busybox:1.36 docker://localhost:5001/demo:fake</b>
-<b>$ kubectl -n default run unattested --image=kind-registry:5000/demo:fake --restart=Never</b>
-<b>$ kubectl -n default delete pod attested unattested --ignore-not-found</b>
-<b>$ kubectl delete clusterpolicy require-provenance</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the precheck prints <code>attestation present</code>, then the pod on the image Chains built is admitted and the retagged busybox is refused with <code>image attestations verification failed</code>, <code>verifiedCount: 0, requiredCount: 1</code>. If both are refused with verifiedCount 0, nothing was ever signed and the fix is in the Chains block, not in the policy.</div>
-    </div>
-
     <div class="exercise" data-title="Rewrite the tag to a digest">
       <p>A tag is a mutable pointer, so verifying a tag and then running it is a race. <code>mutateDigest</code> makes the policy rewrite the pod spec to the digest it verified, which closes the gap in the object itself.</p>
       <div class="cb" data-lang="bash"><pre><code>[ -f /tmp/cosign.pub ] || COSIGN_PASSWORD='' cosign generate-key-pair --output-key-prefix /tmp/cosign
@@ -535,17 +406,27 @@ sed 's/$/ exp:2020-01-01/' /tmp/cves.txt &gt; /tmp/.trivyignore
 trivy image -q --exit-code 1 --severity CRITICAL --ignorefile /tmp/.trivyignore localhost:5001/demo:v1 &gt; /tmp/scan-expired.txt 2&gt;&amp;1; echo "expired-ignore exit: $?"
 sed 's/$/ exp:2099-01-01/' /tmp/cves.txt &gt; /tmp/.trivyignore
 trivy image -q --exit-code 1 --severity CRITICAL --ignorefile /tmp/.trivyignore localhost:5001/demo:v1 &gt; /tmp/scan-live.txt 2&gt;&amp;1; echo "live-ignore exit: $?"
-tail -5 /tmp/scan-live.txt</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ trivy image -q --exit-code 1 --severity CRITICAL localhost:5001/demo:v1 &gt; /tmp/scan-strict.txt 2&gt;&amp;1; echo "strict exit: $?"</b>
+tail -5 /tmp/scan-live.txt</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ trivy image -q --exit-code 1 --severity CRITICAL localhost:5001/demo:v1 &gt; /tmp/scan-strict.txt 2&gt;&amp;1; echo "strict exit: $?"</b>
+strict exit: 1
 <b>$ trivy image -q --exit-code 1 --severity CRITICAL --ignore-unfixed localhost:5001/demo:v1 &gt; /tmp/scan-unfixed.txt 2&gt;&amp;1; echo "ignore-unfixed exit: $?"</b>
+ignore-unfixed exit: 1
 <b>$ # every CRITICAL id, not just the first: suppressing one of three moves no exit code</b>
 <b>$ trivy image -q --severity CRITICAL --format json localhost:5001/demo:v1 | jq -r '[.Results[].Vulnerabilities // [] | .[].VulnerabilityID] | unique | .[]' &gt; /tmp/cves.txt</b>
 <b>$ cat /tmp/cves.txt</b>
+CVE-2025-68121
+CVE-2026-31789
+CVE-2026-33186
 <b>$ sed 's/$/ exp:2020-01-01/' /tmp/cves.txt &gt; /tmp/.trivyignore</b>
 <b>$ trivy image -q --exit-code 1 --severity CRITICAL --ignorefile /tmp/.trivyignore localhost:5001/demo:v1 &gt; /tmp/scan-expired.txt 2&gt;&amp;1; echo "expired-ignore exit: $?"</b>
+expired-ignore exit: 1
 <b>$ sed 's/$/ exp:2099-01-01/' /tmp/cves.txt &gt; /tmp/.trivyignore</b>
 <b>$ trivy image -q --exit-code 1 --severity CRITICAL --ignorefile /tmp/.trivyignore localhost:5001/demo:v1 &gt; /tmp/scan-live.txt 2&gt;&amp;1; echo "live-ignore exit: $?"</b>
+live-ignore exit: 0
 <b>$ tail -5 /tmp/scan-live.txt</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+└────────────────────────────────────────┴──────────┴─────────────────┴─────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)</code></pre></details></div>
       <div class="verify"><b>verify:</b> four exit lines and nothing else on screen. <code>strict</code> is 1. <code>ignore-unfixed</code> is still 1, because every CRITICAL here has a fixed version and nothing is dropped. The expired ignorefile is 1: an entry dated in the past no longer suppresses. The same file dated 2099 gives 0, and the report notes that vulnerabilities were ignored. Redirecting each report to a file is deliberate: piping a scan into <code>head</code> or <code>tail</code> reports the exit code of the pager, not of trivy, and fifty lines of table hide the one number the gate is made of.</div>
     </div>
 

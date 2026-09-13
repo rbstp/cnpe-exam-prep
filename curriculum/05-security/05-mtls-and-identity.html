@@ -425,14 +425,28 @@ sleep 20
 CLIENT=$(kubectl --context kind-mesh -n default get pod -l app=client -o jsonpath='{.items[0].metadata.name}')
 kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -o /dev/null -w '%{http_code}\n' http://backend/
 kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -X POST -o /dev/null -w '%{http_code}\n' http://backend/
-kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -X POST http://backend/ | head -2</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl --context kind-mesh label ns default istio.io/dataplane-mode=ambient --overwrite</b>
+kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -X POST http://backend/ | head -2</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl --context kind-mesh label ns default istio.io/dataplane-mode=ambient --overwrite</b>
+namespace/default not labeled
 <b>$ istioctl --context kind-mesh waypoint apply -n default --enroll-namespace --overwrite --wait</b>
+✅ waypoint default/waypoint applied
+✅ waypoint default/waypoint is ready!
+✅ namespace default labeled with "istio.io/use-waypoint: waypoint"
 <b>$ kubectl --context kind-mesh get gtw waypoint</b>
+NAME       CLASS            ADDRESS         PROGRAMMED   AGE
+waypoint   istio-waypoint   10.96.191.232   True         11h
 <b>$ kubectl --context kind-mesh -n default create deployment backend --image=ghcr.io/stefanprodan/podinfo:6.7.1 --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -</b>
+Warning: resource deployments/backend is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
+deployment.apps/backend configured
 <b>$ kubectl --context kind-mesh -n default expose deployment backend --port=80 --target-port=9898 --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -</b>
+Warning: resource services/backend is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
+service/backend configured
 <b>$ kubectl --context kind-mesh -n default create deployment client --image=curlimages/curl:8.11.1 --dry-run=client -o yaml -- sleep 86400 | kubectl --context kind-mesh apply -f -</b>
+Warning: resource deployments/client is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
+deployment.apps/client configured
 <b>$ kubectl --context kind-mesh -n default rollout status deploy/backend --timeout=180s</b>
+deployment "backend" successfully rolled out
 <b>$ kubectl --context kind-mesh -n default rollout status deploy/client --timeout=180s</b>
+deployment "client" successfully rolled out
 <b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: security.istio.io/v1</b>
 <b>kind: AuthorizationPolicy</b>
@@ -449,12 +463,15 @@ kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -X POST http://
 <b>        - operation:</b>
 <b>            methods: [GET]</b>
 <b>EOF</b>
+authorizationpolicy.security.istio.io/backend-get-only created
 <b>$ sleep 20</b>
 <b>$ CLIENT=$(kubectl --context kind-mesh -n default get pod -l app=client -o jsonpath='{.items[0].metadata.name}')</b>
 <b>$ kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -o /dev/null -w '%{http_code}\n' http://backend/</b>
+200
 <b>$ kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -X POST -o /dev/null -w '%{http_code}\n' http://backend/</b>
+403
 <b>$ kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -X POST http://backend/ | head -2</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+RBAC: access denied</code></pre></details></div>
       <div class="verify"><b>verify:</b> GET returns 200 and POST returns 403 with <code>RBAC: access denied</code> in the body.</div>
     </div>
 

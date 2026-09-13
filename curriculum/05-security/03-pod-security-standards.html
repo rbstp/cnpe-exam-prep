@@ -287,15 +287,24 @@ kubectl -n hardened debug target --image=busybox:1.36 --target=target --profile=
 kubectl -n hardened get pod target -o jsonpath='{range .spec.ephemeralContainers[*]}{.name} {.securityContext.allowPrivilegeEscalation} {.securityContext.capabilities.drop}{"\n"}{end}'
 sleep 10
 kubectl -n hardened get pod target -o json | jq -r '.status.ephemeralContainerStatuses[]? | "\(.name) \(.state|keys[0])"'
-kubectl -n hardened delete pod target</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n hardened run target --image=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine --restart=Never --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"target","image":"ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine","securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}'</b>
+kubectl -n hardened delete pod target</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n hardened run target --image=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine --restart=Never --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"target","image":"ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine","securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}'</b>
+pod/target created
 <b>$ kubectl -n hardened wait --for=condition=Ready pod/target --timeout=120s</b>
+pod/target condition met
 <b>$ kubectl -n hardened debug target --image=busybox:1.36 --target=target -- true</b>
+Targeting container "target". If you don't see processes from this container it may be because the container runtime doesn't support this feature.
+Defaulting debug container name to debugger-s56nq.
+Error from server (Forbidden): pods "target" is forbidden: violates PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "debugger-s56nq" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "debugger-s56nq" must set securityContext.capabilities.drop=["ALL"]; container "debugger-s56nq" must not include "SYS_PTRACE" in securityContext.capabilities.add)
 <b>$ kubectl -n hardened debug target --image=busybox:1.36 --target=target --profile=restricted -- true</b>
+Targeting container "target". If you don't see processes from this container it may be because the container runtime doesn't support this feature.
+Defaulting debug container name to debugger-67shh.
 <b>$ kubectl -n hardened get pod target -o jsonpath='{range .spec.ephemeralContainers[*]}{.name} {.securityContext.allowPrivilegeEscalation} {.securityContext.capabilities.drop}{"\n"}{end}'</b>
+debugger-67shh false ["ALL"]
 <b>$ sleep 10</b>
 <b>$ kubectl -n hardened get pod target -o json | jq -r '.status.ephemeralContainerStatuses[]? | "\(.name) \(.state|keys[0])"'</b>
+debugger-67shh waiting
 <b>$ kubectl -n hardened delete pod target</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+pod "target" deleted from hardened namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the first attempt is rejected by Pod Security naming the fields the ephemeral container is missing, and <code>--profile=restricted</code> is accepted. The spec listing then shows the accepted debug container with <code>allowPrivilegeEscalation false</code> and <code>capabilities drop ["ALL"]</code>, which is what the profile built for you; the status listing shows it running a few seconds later. The profile changes the container it builds, not the namespace's policy.</div>
     </div>
 
@@ -340,7 +349,7 @@ error: unable to upgrade connection: container not found ("c")
 error: unable to upgrade connection: container not found ("c")
 <b>$ kubectl -n default delete pod userns</b>
 pod "userns" deleted from default namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the pod never leaves <code>ContainerCreating</code>, and the event is <code>FailedCreatePodSandBox ... error mounting "sysfs" to rootfs at "/sys": operation not permitted</code>. That is the runtime, not the API, refusing: admission accepted <code>hostUsers: false</code> quite happily. On a cluster where it does work, <code>cat /proc/self/uid_map</code> inside the pod shows container uid 0 mapped to a high host uid rather than to 0, which is the check worth remembering.</div>
+      <div class="verify"><b>verify:</b> the pod stays <code>Pending</code> with <code>containers with unready status: [c]</code>, and the event is <code>FailedCreatePodSandBox ... error mounting "sysfs" to rootfs at "/sys": ... operation not permitted</code>. That is the runtime, not the API, refusing: admission accepted <code>hostUsers: false</code> quite happily, so the exec that follows fails with <code>container not found</code> rather than with anything about user namespaces. On a cluster where it does work, <code>cat /proc/self/uid_map</code> inside the pod shows container uid 0 mapped to a high host uid rather than to 0, which is the check worth remembering.</div>
     </div>
 
     <div class="exercise" data-title="Preview a tightening without breaking anyone">

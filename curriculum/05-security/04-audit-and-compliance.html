@@ -348,19 +348,109 @@ cat &gt; /tmp/vex.json &lt;&lt;'EOF'
   ]
 }
 EOF
-trivy image --vex /tmp/vex.json --severity HIGH,CRITICAL ghcr.io/stefanprodan/podinfo:6.7.1 | head -20</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ trivy image --format spdx-json --output /tmp/sbom-trivy.json ghcr.io/stefanprodan/podinfo:6.7.1</b>
+trivy image --vex /tmp/vex.json --severity HIGH,CRITICAL ghcr.io/stefanprodan/podinfo:6.7.1 | head -20</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ trivy image --format spdx-json --output /tmp/sbom-trivy.json ghcr.io/stefanprodan/podinfo:6.7.1</b>
+2026-09-13T11:09:17-04:00	INFO	"--format spdx-json" disables security scanning. Specify "--scanners vuln" explicitly if you want to include vulnerabilities in the "spdx-json" report.
+2026-09-13T11:09:19-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
+2026-09-13T11:09:19-04:00	INFO	Number of language-specific files	num=2
+
+📣 Notices:
+  - Version 0.74.0 of Trivy is now available, current version is 0.73.0
+
+To suppress version checks, run Trivy scans with the --skip-version-check flag
 <b>$ jq '{name: .name, packages: (.packages | length)}' /tmp/sbom-trivy.json</b>
+{
+  "name": "ghcr.io/stefanprodan/podinfo:6.7.1",
+  "packages": 115
+}
 <b>$ mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"</b>
 <b>$ command -v syft &gt;/dev/null || curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$HOME/.local/bin"</b>
+[info] checking github for the current release tag 
+[info] fetching release script for tag='v1.51.1' 
+[info] checking github for the current release tag 
+[info] using release tag='v1.51.1' version='1.51.1' os='linux' arch='amd64' 
+[info] installed /home/rbstp/.local/bin/syft 
 <b>$ syft version | head -2</b>
+Application:   syft
+Version:       1.51.1
 <b>$ syft ghcr.io/stefanprodan/podinfo:6.7.1 -o spdx-json=/tmp/sbom-syft.json</b>
 <b>$ jq '{name: .name, packages: (.packages | length)}' /tmp/sbom-syft.json</b>
+{
+  "name": "ghcr.io/stefanprodan/podinfo",
+  "packages": 112
+}
 <b>$ jq -r '.packages[].name' /tmp/sbom-trivy.json | sort -u &gt; /tmp/p-trivy.txt</b>
 <b>$ jq -r '.packages[].name' /tmp/sbom-syft.json | sort -u &gt; /tmp/p-syft.txt</b>
 <b>$ wc -l /tmp/p-trivy.txt /tmp/p-syft.txt</b>
+ 103 /tmp/p-trivy.txt
+ 100 /tmp/p-syft.txt
+ 203 total
 <b>$ comm -3 /tmp/p-trivy.txt /tmp/p-syft.txt | head -10</b>
+alpine
+	ghcr.io/stefanprodan/podinfo
+ghcr.io/stefanprodan/podinfo:6.7.1
+home/app/podinfo
+usr/local/bin/podcli
 <b>$ trivy sbom /tmp/sbom-trivy.json --severity HIGH,CRITICAL | head -30</b>
+2026-09-13T11:09:52-04:00	INFO	[vuln] Vulnerability scanning is enabled
+2026-09-13T11:09:52-04:00	INFO	Detected SBOM format	format="spdx-json"
+2026-09-13T11:09:52-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
+2026-09-13T11:09:52-04:00	INFO	[alpine] Detecting vulnerabilities...	os_version="3.20" repository="" pkg_num=27
+2026-09-13T11:09:52-04:00	INFO	Number of language-specific files	num=2
+2026-09-13T11:09:52-04:00	INFO	[gobinary] Detecting vulnerabilities...
+2026-09-13T11:09:53-04:00	WARN	Using severities from other vendors for some vulnerabilities. Read https://trivy.dev/docs/v0.73/guide/scanner/vulnerability#severity-selection for details.
+2026-09-13T11:09:53-04:00	WARN	This OS version is no longer supported by the distribution	family="alpine" version="3.20.3"
+2026-09-13T11:09:53-04:00	WARN	The vulnerability detection may be insufficient because security updates are not provided
+
+Report Summary
+
+┌──────────────────────────────────────┬──────────┬─────────────────┐
+│                Target                │   Type   │ Vulnerabilities │
+├──────────────────────────────────────┼──────────┼─────────────────┤
+│ /tmp/sbom-trivy.json (alpine 3.20.3) │  alpine  │       21        │
+├──────────────────────────────────────┼──────────┼─────────────────┤
+│ home/app/podinfo                     │ gobinary │       36        │
+├──────────────────────────────────────┼──────────┼─────────────────┤
+│ usr/local/bin/podcli                 │ gobinary │       33        │
+└──────────────────────────────────────┴──────────┴─────────────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+
+
+/tmp/sbom-trivy.json (alpine 3.20.3)
+====================================
+Total: 21 (HIGH: 19, CRITICAL: 2)
+
+┌────────────┬────────────────┬──────────┬────────┬───────────────────┬───────────────┬──────────────────────────────────────────────────────────────┐
+│  Library   │ Vulnerability  │ Severity │ Status │ Installed Version │ Fixed Version │                            Title                             │
+├────────────┼────────────────┼──────────┼────────┼───────────────────┼───────────────┼──────────────────────────────────────────────────────────────┤
+│ libcrypto3 │ CVE-2026-31789 │ CRITICAL │ fixed  │ 3.3.2-r0          │ 3.3.7-r0      │ openssl: OpenSSL: Heap buffer overflow on 32-bit systems     │
+│            │                │          │        │                   │               │ from large X.509 certificate...                              │
+│            │                │          │        │                   │               │ https://avd.aquasec.com/nvd/cve-2026-31789                   │
+│            ├────────────────┼──────────┤        │                   ├───────────────┼──────────────────────────────────────────────────────────────┤
+│            │ CVE-2024-12797 │ HIGH     │        │                   │ 3.3.3-r0      │ openssl: RFC7250 handshakes with unauthenticated servers     │
+│            │                │          │        │                   │               │ don't abort as expected                                      │
 <b>$ trivy image --severity HIGH,CRITICAL --format json ghcr.io/stefanprodan/podinfo:6.7.1 | jq -r '[.Results[].Vulnerabilities // [] | .[].VulnerabilityID] | unique | .[0:3][]'</b>
+2026-09-13T11:09:53-04:00	INFO	[vuln] Vulnerability scanning is enabled
+2026-09-13T11:09:53-04:00	INFO	[secret] Secret scanning is enabled
+2026-09-13T11:09:53-04:00	INFO	[secret] If your scanning is slow, please try '--scanners vuln' to disable secret scanning
+2026-09-13T11:09:53-04:00	INFO	[secret] Please see https://trivy.dev/docs/v0.73/guide/scanner/secret#recommendation for faster secret detection
+2026-09-13T11:09:53-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
+2026-09-13T11:09:53-04:00	INFO	[alpine] Detecting vulnerabilities...	os_version="3.20" repository="3.20" pkg_num=27
+2026-09-13T11:09:53-04:00	INFO	Number of language-specific files	num=2
+2026-09-13T11:09:53-04:00	INFO	[gobinary] Detecting vulnerabilities...
+2026-09-13T11:09:53-04:00	WARN	Using severities from other vendors for some vulnerabilities. Read https://trivy.dev/docs/v0.73/guide/scanner/vulnerability#severity-selection for details.
+2026-09-13T11:09:53-04:00	WARN	This OS version is no longer supported by the distribution	family="alpine" version="3.20.3"
+2026-09-13T11:09:53-04:00	WARN	The vulnerability detection may be insufficient because security updates are not provided
+
+📣 Notices:
+  - Version 0.74.0 of Trivy is now available, current version is 0.73.0
+
+To suppress version checks, run Trivy scans with the --skip-version-check flag
+
+CVE-2024-12797
+CVE-2024-45338
+CVE-2025-15467
 <b>$ cat &gt; /tmp/vex.json &lt;&lt;'EOF'</b>
 <b>{</b>
 <b>  "@context": "https://openvex.dev/ns/v0.2.0",</b>
@@ -377,7 +467,37 @@ trivy image --vex /tmp/vex.json --severity HIGH,CRITICAL ghcr.io/stefanprodan/po
 <b>}</b>
 <b>EOF</b>
 <b>$ trivy image --vex /tmp/vex.json --severity HIGH,CRITICAL ghcr.io/stefanprodan/podinfo:6.7.1 | head -20</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+2026-09-13T11:09:53-04:00	INFO	[vuln] Vulnerability scanning is enabled
+2026-09-13T11:09:53-04:00	INFO	[secret] Secret scanning is enabled
+2026-09-13T11:09:53-04:00	INFO	[secret] If your scanning is slow, please try '--scanners vuln' to disable secret scanning
+2026-09-13T11:09:53-04:00	INFO	[secret] Please see https://trivy.dev/docs/v0.73/guide/scanner/secret#recommendation for faster secret detection
+2026-09-13T11:09:53-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
+2026-09-13T11:09:53-04:00	INFO	[alpine] Detecting vulnerabilities...	os_version="3.20" repository="3.20" pkg_num=27
+2026-09-13T11:09:53-04:00	INFO	Number of language-specific files	num=2
+2026-09-13T11:09:53-04:00	INFO	[gobinary] Detecting vulnerabilities...
+2026-09-13T11:09:53-04:00	WARN	Using severities from other vendors for some vulnerabilities. Read https://trivy.dev/docs/v0.73/guide/scanner/vulnerability#severity-selection for details.
+2026-09-13T11:09:54-04:00	WARN	This OS version is no longer supported by the distribution	family="alpine" version="3.20.3"
+2026-09-13T11:09:54-04:00	WARN	The vulnerability detection may be insufficient because security updates are not provided
+
+Report Summary
+
+┌────────────────────────────────────────────────────┬──────────┬─────────────────┬─────────┐
+│                       Target                       │   Type   │ Vulnerabilities │ Secrets │
+├────────────────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
+│ ghcr.io/stefanprodan/podinfo:6.7.1 (alpine 3.20.3) │  alpine  │       21        │    -    │
+├────────────────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
+│ home/app/podinfo                                   │ gobinary │       36        │    -    │
+├────────────────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
+│ usr/local/bin/podcli                               │ gobinary │       33        │    -    │
+└────────────────────────────────────────────────────┴──────────┴─────────────────┴─────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+
+
+ghcr.io/stefanprodan/podinfo:6.7.1 (alpine 3.20.3)
+==================================================
+Total: 21 (HIGH: 19, CRITICAL: 2)</code></pre></details></div>
       <div class="verify"><b>verify:</b> two SBOM files exist, both list the alpine packages plus the Go module list, and <code>comm</code> shows where the two catalogers disagree. The counts are close but not identical, which is the honest result: each tool decides for itself what counts as a package. <code>trivy sbom</code> accepts either file as input.</div>
     </div>
 
