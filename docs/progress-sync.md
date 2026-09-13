@@ -496,7 +496,7 @@ Worth knowing if you change any of it:
 * `PUT` and `DELETE` require an allowed `Origin` header outright, not merely the
   absence of a disallowed one. `GET` tolerates a missing one so `curl` still works.
 * Bodies are capped at 64 KB, three times a completed store, before and after the
-  JSON round trip. Every query is parameterised through `bind()`.
+  JSON round trip. Every query is parameterized through `bind()`.
 * `CNPE_PROGRESS.merge` skips every `Object.prototype` name, not just `__proto__`,
   `constructor` and `prototype`. The base lookup reads through `hasOwnProperty`,
   which costs the accident that used to leave a key like `toString` inert. That

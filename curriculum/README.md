@@ -64,7 +64,7 @@ and RBAC scope), each wired to the concept it explains.
 ## Quest presentation
 
 The quest is drawn with its own 16-bit pixel art (no third-party characters, music or
-assets) inside bevelled game windows that take the console's charcoal-and-gold palette
+assets) inside beveled game windows that take the console's charcoal-and-gold palette
 from the page; `game.css` gives the scenery its natural terrain accents on `.gm`. The
 engine reads the palette from the game host, so standalone and bundled play look alike,
 and the dark/light switch repaints the art with the windows. Town scenes are 480 by 304
@@ -122,7 +122,7 @@ the remaining viewport height; a phone uses a four-column progress strip.
 
 The 13 interactive models keep their controls, with 44px touch targets and readable
 labels in both themes. The Argo CD model also lets you change the desired image and apply
-it to the modelled live state; reapplying a missing image stays degraded. Models never
+it to the modeled live state; reapplying a missing image stays degraded. Models never
 connect to a cluster or mark an exercise verified. The counter chart scrolls on its own
 on narrow screens rather than shrinking its labels. `tools/browser-checks/reading.js`
 checks the reading controls, the authored copy, bundle navigation and all 13 models'

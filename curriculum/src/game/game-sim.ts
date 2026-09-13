@@ -384,7 +384,7 @@
     if (r.yaml) lines.push(r.yaml);
     return lines.join("\n");
   }
-  /** the Kind a plural resource name stands for, where it is not just the singular capitalised */
+  /** the Kind a plural resource name stands for, where it is not just the singular capitalized */
   var KIND_NAMES: Record<string, string> = {
     pod: "Pod", deployment: "Deployment", replicaset: "ReplicaSet", service: "Service", namespace: "Namespace", configmap: "ConfigMap",
     secret: "Secret", persistentvolumeclaim: "PersistentVolumeClaim", storageclass: "StorageClass",

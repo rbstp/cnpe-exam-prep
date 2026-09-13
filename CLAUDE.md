@@ -20,7 +20,9 @@ test descriptions, commit messages and PR bodies.
   behavior, defense, color, center, labeled, canceled, gray, practice (noun and
   verb). Keep the British form only where it is part of a name that has to match
   something real: the `aria-labelledby` attribute, Tekton's `CancelledRunFinally`
-  and friends, the `cost-centre` label this lab's Kyverno policy writes.
+  and friends, Flagger's `Finalising` canary phase, the `cost-centre` label this
+  lab's Kyverno policy writes, and the quest's NPC names, which are stored keys
+  (`Harbourmaster Selda` stays as it is).
 - **Say what a thing does**, not what it resembles. A metaphor that needs
   unpacking costs more than the sentence it saved.
 

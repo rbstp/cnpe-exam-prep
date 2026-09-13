@@ -312,7 +312,7 @@
        "....TTTTTTTTT...", "....STTTTTTTT...", "....S.TTTTTT....", ".....tttttt.....", "......BBBB......", "......BBBB......", "......BBBB......", "....xxxxxxxx...."]
     ]
   };
-  /* Auburn hair, a gold clasp and a violet travelling mantle over teal cloth.
+  /* Auburn hair, a gold clasp and a violet traveling mantle over teal cloth.
      Material shading is baked into the grids once, not into walking frames. */
   Object.keys(HERO).forEach(function (face) {
     HERO[face] = HERO[face].map(function (g, frame) {
@@ -446,7 +446,7 @@
     ]
   };
   /* Directional facets and family-specific materials on the original silhouettes:
-     scales, wood grain, spectral folds and engraved armour, rather than flat fill. */
+     scales, wood grain, spectral folds and engraved armor, rather than flat fill. */
   Object.keys(ENEMIES).forEach(function (family) {
     var g = ENEMIES[family];
     ENEMIES[family] = g.map(function (row, y) {
