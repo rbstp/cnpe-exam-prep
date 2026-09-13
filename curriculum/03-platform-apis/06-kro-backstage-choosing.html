@@ -334,7 +334,7 @@ spec:
           other: ${first.metadata.name}
 EOF
 kubectl get rgd cyclic -o jsonpath='{.status.state}{"\n"}'; kubectl get rgd cyclic -o jsonpath='{.status.conditions}' 2&gt;/dev/null | jq '.[] | {type, status, message}'
-kubectl delete rgd cyclic --ignore-not-found</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ # the RGD is applied by hand earlier on this page; make the block stand on its own</b>
+kubectl delete rgd cyclic --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # the RGD is applied by hand earlier on this page; make the block stand on its own</b>
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kro.run/v1alpha1</b>
 <b>kind: ResourceGraphDefinition</b>
@@ -366,9 +366,35 @@ kubectl delete rgd cyclic --ignore-not-found</code></pre><details class="out pen
 <b>          hard:</b>
 <b>            requests.cpu: ${schema.spec.cpu}</b>
 <b>EOF</b>
+resourcegraphdefinition.kro.run/tenantspace unchanged
 <b>$ sleep 20</b>
 <b>$ kubectl get rgd tenantspace -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+{
+  "type": "ResourceGraphAccepted",
+  "status": "True",
+  "reason": "Valid",
+  "message": "resource graph and schema are valid"
+}
+{
+  "type": "KindReady",
+  "status": "True",
+  "reason": "Ready",
+  "message": "kind TenantSpace has been accepted and ready"
+}
+{
+  "type": "ControllerReady",
+  "status": "True",
+  "reason": "Running",
+  "message": "controller is running"
+}
+{
+  "type": "Ready",
+  "status": "True",
+  "reason": "Ready",
+  "message": ""
+}
 <b>$ kubectl get rgd tenantspace -o jsonpath='{.status.topologicalOrder}{"\n"}'</b>
+["ns","quota"]
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kro.run/v1alpha1</b>
 <b>kind: ResourceGraphDefinition</b>
@@ -399,9 +425,31 @@ kubectl delete rgd cyclic --ignore-not-found</code></pre><details class="out pen
 <b>        data:</b>
 <b>          other: ${first.metadata.name}</b>
 <b>EOF</b>
+resourcegraphdefinition.kro.run/cyclic created
 <b>$ kubectl get rgd cyclic -o jsonpath='{.status.state}{"\n"}'; kubectl get rgd cyclic -o jsonpath='{.status.conditions}' 2&gt;/dev/null | jq '.[] | {type, status, message}'</b>
+Inactive
+{
+  "type": "KindReady",
+  "status": "Unknown",
+  "message": "condition \"KindReady\" is awaiting reconciliation"
+}
+{
+  "type": "ControllerReady",
+  "status": "Unknown",
+  "message": "condition \"ControllerReady\" is awaiting reconciliation"
+}
+{
+  "type": "ResourceGraphAccepted",
+  "status": "False",
+  "message": "failed to build dependency graph: graph contains a cycle: first -&gt; second -&gt; first"
+}
+{
+  "type": "Ready",
+  "status": "False",
+  "message": "failed to build dependency graph: graph contains a cycle: first -&gt; second -&gt; first"
+}
 <b>$ kubectl delete rgd cyclic --ignore-not-found</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+resourcegraphdefinition.kro.run "cyclic" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> <code>tenantspace</code> is Active with a <code>topologicalOrder</code> of <code>["ns","quota"]</code>, the namespace before the quota that lives in it. The cyclic one is not refused at admission: kro accepts the object and then leaves it out of Active with a condition naming the cycle, so read <code>status.state</code> and the conditions after a reconcile rather than expecting the apply to fail.</div>
     </div>
 
@@ -462,7 +510,7 @@ kubectl -n team-j get configmap tier-note || echo 'omitted by includeWhen'
 kubectl get tieredspace team-j -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'
 kubectl delete tieredspace team-j
 kubectl delete rgd tieredspace
-kubectl delete ns team-j --ignore-not-found</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl delete ns team-j --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kro.run/v1alpha1</b>
 <b>kind: ResourceGraphDefinition</b>
 <b>metadata: { name: tieredspace }</b>
@@ -504,63 +552,101 @@ kubectl delete ns team-j --ignore-not-found</code></pre><details class="out pend
 <b>        data:</b>
 <b>          note: included because cpu was not zero</b>
 <b>EOF</b>
+resourcegraphdefinition.kro.run/tieredspace created
 <b>$ sleep 20</b>
 <b>$ kubectl get rgd tieredspace -o jsonpath='{.status.state} {.status.topologicalOrder}{"\n"}'</b>
+Active ["ns","quota","extra"]
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kro.run/v1alpha1</b>
 <b>kind: TieredSpace</b>
 <b>metadata: { name: team-j, namespace: default }</b>
 <b>spec: { team: team-j, cpu: "0" }</b>
 <b>EOF</b>
+tieredspace.kro.run/team-j created
 <b>$ sleep 30</b>
 <b>$ kubectl -n team-j get configmap tier-note || echo 'omitted by includeWhen'</b>
+Error from server (NotFound): configmaps "tier-note" not found
+omitted by includeWhen
 <b>$ kubectl get tieredspace team-j -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
+{
+  "type": "InstanceSynced",
+  "status": "True",
+  "reason": "ReconciliationSucceeded"
+}
 <b>$ kubectl delete tieredspace team-j</b>
+tieredspace.kro.run "team-j" deleted from default namespace
 <b>$ kubectl delete rgd tieredspace</b>
-<b>$ kubectl delete ns team-j --ignore-not-found</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+resourcegraphdefinition.kro.run "tieredspace" deleted
+<b>$ kubectl delete ns team-j --ignore-not-found</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> the ConfigMap is absent for the instance whose cpu is zero, and the instance still reports ready because the quota satisfied its own <code>readyWhen</code>.</div>
     </div>
 
     <div class="exercise" data-title="Suspend an instance and break it">
       <p>The suspend annotation stops kro reconciling one instance. Delete something it owns while it is suspended and nothing comes back, which is both the escape hatch and the demonstration that the controller is what keeps the graph true.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl get rgd tenantspace -o jsonpath='{.status.state}{"\n"}'
-# without the RGD there is no controller for TenantSpace, and the instance keeps reporting its last good reconcile
 kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: kro.run/v1alpha1
 kind: TenantSpace
 metadata: { name: team-h, namespace: default }
 spec: { team: team-h, cpu: "2" }
 EOF
+# kro reconciles an instance when the instance changes, so bump the spec to be sure of a fresh one
+kubectl patch tenantspace team-h --type merge -p '{"spec":{"cpu":"2"}}'
 sleep 45
 kubectl -n team-h get resourcequota tenant-quota
 kubectl annotate tenantspace team-h kro.run/reconcile=suspended --overwrite
 kubectl -n team-h delete resourcequota tenant-quota
-sleep 45
-kubectl -n team-h get resourcequota || echo 'still gone: reconciliation is suspended'
+sleep 30
+kubectl -n team-h get resourcequota || echo 'still gone: the instance is suspended'
 kubectl annotate tenantspace team-h kro.run/reconcile-
 sleep 45
+kubectl -n team-h get resourcequota || echo 'still gone: unsuspending alone does not trigger a reconcile'
+# the trigger is a change to the instance, not drift in what it composed
+kubectl patch tenantspace team-h --type merge -p '{"spec":{"cpu":"3"}}'
+sleep 45
 kubectl -n team-h get resourcequota tenant-quota
-kubectl get tenantspace team-h -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get rgd tenantspace -o jsonpath='{.status.state}{"\n"}'</b>
-<b>$ # without the RGD there is no controller for TenantSpace, and the instance keeps reporting its last good reconcile</b>
+kubectl get tenantspace team-h -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get rgd tenantspace -o jsonpath='{.status.state}{"\n"}'</b>
+Active
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kro.run/v1alpha1</b>
 <b>kind: TenantSpace</b>
 <b>metadata: { name: team-h, namespace: default }</b>
 <b>spec: { team: team-h, cpu: "2" }</b>
 <b>EOF</b>
+tenantspace.kro.run/team-h configured
+<b>$ # kro reconciles an instance when the instance changes, so bump the spec to be sure of a fresh one</b>
+<b>$ kubectl patch tenantspace team-h --type merge -p '{"spec":{"cpu":"2"}}'</b>
+tenantspace.kro.run/team-h patched (no change)
 <b>$ sleep 45</b>
 <b>$ kubectl -n team-h get resourcequota tenant-quota</b>
+NAME           REQUEST             LIMIT   AGE
+tenant-quota   requests.cpu: 0/2           45s
 <b>$ kubectl annotate tenantspace team-h kro.run/reconcile=suspended --overwrite</b>
+tenantspace.kro.run/team-h annotated
 <b>$ kubectl -n team-h delete resourcequota tenant-quota</b>
-<b>$ sleep 45</b>
-<b>$ kubectl -n team-h get resourcequota || echo 'still gone: reconciliation is suspended'</b>
+resourcequota "tenant-quota" deleted from team-h namespace
+<b>$ sleep 30</b>
+<b>$ kubectl -n team-h get resourcequota || echo 'still gone: the instance is suspended'</b>
+No resources found in team-h namespace.
 <b>$ kubectl annotate tenantspace team-h kro.run/reconcile-</b>
+tenantspace.kro.run/team-h annotated
+<b>$ sleep 45</b>
+<b>$ kubectl -n team-h get resourcequota || echo 'still gone: unsuspending alone does not trigger a reconcile'</b>
+No resources found in team-h namespace.
+<b>$ # the trigger is a change to the instance, not drift in what it composed</b>
+<b>$ kubectl patch tenantspace team-h --type merge -p '{"spec":{"cpu":"3"}}'</b>
+tenantspace.kro.run/team-h patched
 <b>$ sleep 45</b>
 <b>$ kubectl -n team-h get resourcequota tenant-quota</b>
+NAME           REQUEST             LIMIT   AGE
+tenant-quota   requests.cpu: 0/3           45s
 <b>$ kubectl get tenantspace team-h -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the quota stays deleted while <code>kro.run/reconcile=suspended</code> is on the instance and comes back within one reconcile of removing it. Check the RGD is Active first: with <code>tenantspace</code> gone there is no controller for TenantSpace at all, the quota never returns, and the instance keeps reporting <code>InstanceSynced True</code> from its last real reconcile, which reads exactly like a reconcile that worked.</div>
+{
+  "type": "InstanceSynced",
+  "status": "True",
+  "reason": "ReconciliationSucceeded"
+}</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the quota exists, then stays deleted while <code>kro.run/reconcile=suspended</code> is on the instance. Removing the annotation does <em>not</em> bring it back: kro reconciles an instance when the instance changes, not when something it composed drifts, so the quota only returns after the <code>cpu</code> patch. Note that <code>InstanceSynced</code> reads <code>True / ReconciliationSucceeded</code> the whole way through, including while the quota is missing, which is exactly the status you must not trust on its own.</div>
     </div>
 
     <div class="exercise" data-title="Give kro permission to create what you asked for">
@@ -603,7 +689,8 @@ kubectl get needsmore team-k -o jsonpath='{.status.conditions}' | jq '.[] | {typ
 kubectl get pdb tenant-pdb -n default || echo 'not created'
 kubectl delete needsmore team-k
 kubectl delete rgd needsmore
-kubectl delete pdb tenant-pdb -n default --ignore-not-found</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get clusterrole -o name | grep -i kro</b>
+kubectl delete pdb tenant-pdb -n default --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get clusterrole -o name | grep -i kro</b>
+clusterrole.rbac.authorization.k8s.io/kro-cluster-role
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kro.run/v1alpha1</b>
 <b>kind: ResourceGraphDefinition</b>
@@ -628,6 +715,7 @@ kubectl delete pdb tenant-pdb -n default --ignore-not-found</code></pre><details
 <b>            matchLabels:</b>
 <b>              team: ${schema.spec.team}</b>
 <b>EOF</b>
+resourcegraphdefinition.kro.run/needsmore created
 <b>$ sleep 20</b>
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kro.run/v1alpha1</b>
@@ -635,13 +723,23 @@ kubectl delete pdb tenant-pdb -n default --ignore-not-found</code></pre><details
 <b>metadata: { name: team-k, namespace: default }</b>
 <b>spec: { team: team-k }</b>
 <b>EOF</b>
+needsmore.kro.run/team-k created
 <b>$ sleep 45</b>
 <b>$ kubectl get needsmore team-k -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+{
+  "type": "InstanceSynced",
+  "status": "True",
+  "reason": "ReconciliationSucceeded",
+  "message": "Instance reconciled successfully"
+}
 <b>$ kubectl get pdb tenant-pdb -n default || echo 'not created'</b>
+NAME         MIN AVAILABLE   MAX UNAVAILABLE   ALLOWED DISRUPTIONS   AGE
+tenant-pdb   1               N/A               0                     46s
 <b>$ kubectl delete needsmore team-k</b>
+needsmore.kro.run "team-k" deleted from default namespace
 <b>$ kubectl delete rgd needsmore</b>
-<b>$ kubectl delete pdb tenant-pdb -n default --ignore-not-found</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+resourcegraphdefinition.kro.run "needsmore" deleted
+<b>$ kubectl delete pdb tenant-pdb -n default --ignore-not-found</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> either the PodDisruptionBudget appears, in which case the controller already had the permission and you can say which ClusterRole granted it, or the instance condition carries a forbidden message naming the verb. Both are the answer; the point is knowing which object to read.</div>
     </div>
 

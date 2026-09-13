@@ -268,7 +268,7 @@ sleep 5
 curl -s -u admin:admin 127.0.0.1:3300/api/datasources | jq '[.[] | {name, uid, type}]'
 curl -s -u admin:admin 127.0.0.1:3300/api/datasources/uid/loki-lab | jq '.jsonData'
 kill $PF1
-kubectl -n monitoring delete cm jaeger-datasource</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ # port 3000 on this host is Backstage, not Grafana: a curl there returns HTML and jq says 'Invalid numeric literal'</b>
+kubectl -n monitoring delete cm jaeger-datasource</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # port 3000 on this host is Backstage, not Grafana: a curl there returns HTML and jq says 'Invalid numeric literal'</b>
 <b>$ # and the derived field needs a Jaeger datasource with the uid it points at</b>
 <b>$ kubectl -n monitoring delete cm loki-datasource --ignore-not-found</b>
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
@@ -288,7 +288,11 @@ kubectl -n monitoring delete cm jaeger-datasource</code></pre><details class="ou
 <b>        access: proxy</b>
 <b>        url: http://jaeger.tracing.svc:16686</b>
 <b>EOF</b>
+configmap/jaeger-datasource created
 <b>$ kubectl -n monitoring get cm -l grafana_datasource=1 -o name</b>
+configmap/jaeger-datasource
+configmap/loki-datasource-linked
+configmap/prometheus-kube-prometheus-grafana-datasource
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: v1</b>
 <b>kind: ConfigMap</b>
@@ -313,16 +317,53 @@ kubectl -n monitoring delete cm jaeger-datasource</code></pre><details class="ou
 <b>              url: "$${__value.raw}"</b>
 <b>              datasourceUid: jaeger-lab</b>
 <b>EOF</b>
+configmap/loki-datasource-linked unchanged
 <b>$ kubectl -n monitoring wait --for=condition=available deploy/prometheus-grafana --timeout=180s</b>
+deployment.apps/prometheus-grafana condition met
 <b>$ sleep 45</b>
 <b>$ GF_PW=$(kubectl -n monitoring get secret prometheus-grafana -o jsonpath='{.data.admin-password}' | base64 -d)</b>
 <b>$ kubectl -n monitoring port-forward --address 127.0.0.1 svc/prometheus-grafana 3300:80 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
+Forwarding from 127.0.0.1:3300 -&gt; 3000
 <b>$ curl -s -u admin:admin 127.0.0.1:3300/api/datasources | jq '[.[] | {name, uid, type}]'</b>
+Handling connection for 3300
+[
+  {
+    "name": "Alertmanager",
+    "uid": "alertmanager",
+    "type": "alertmanager"
+  },
+  {
+    "name": "Jaeger",
+    "uid": "jaeger-lab",
+    "type": "jaeger"
+  },
+  {
+    "name": "Loki",
+    "uid": "loki-lab",
+    "type": "loki"
+  },
+  {
+    "name": "Prometheus",
+    "uid": "prometheus",
+    "type": "prometheus"
+  }
+]
 <b>$ curl -s -u admin:admin 127.0.0.1:3300/api/datasources/uid/loki-lab | jq '.jsonData'</b>
+Handling connection for 3300
+{
+  "derivedFields": [
+    {
+      "datasourceUid": "jaeger-lab",
+      "matcherRegex": "trace_id=(\\w+)",
+      "name": "TraceID",
+      "url": "${__value.raw}"
+    }
+  ]
+}
 <b>$ kill $PF1</b>
 <b>$ kubectl -n monitoring delete cm jaeger-datasource</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+configmap "jaeger-datasource" deleted from monitoring namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the datasource exists with the uid you chose and its <code>jsonData</code> carries the derived field. Open a log line in Explore and the TraceID appears as a link; if the link is dead, the target uid is wrong, not the regex.</div>
     </div>
 
@@ -354,8 +395,10 @@ GF_PW=$(kubectl -n monitoring get secret prometheus-grafana -o jsonpath='{.data.
 kubectl -n monitoring port-forward --address 127.0.0.1 svc/prometheus-grafana 3300:80 &amp; PF1=$!
 sleep 5
 curl -s -u admin:admin 127.0.0.1:3300/api/search?query=Platform%20overview | jq '.[] | {title, folderTitle, uid}'
+# the sidecar only honours the annotation when it is told which one to read
+kubectl -n monitoring get deploy prometheus-grafana -o jsonpath='{range .spec.template.spec.containers[?(@.name=="grafana-sc-dashboard")].env[*]}{.name}={.value}{"\n"}{end}' | grep -i -E 'folder|provider'
 kill $PF1
-kubectl -n monitoring delete cm platform-overview</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n monitoring delete cm platform-overview</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: v1</b>
 <b>kind: ConfigMap</b>
 <b>metadata:</b>
@@ -375,16 +418,27 @@ kubectl -n monitoring delete cm platform-overview</code></pre><details class="ou
 <b>      ]</b>
 <b>    }</b>
 <b>EOF</b>
+configmap/platform-overview created
 <b>$ sleep 60</b>
 <b>$ # port 3000 here is Backstage; Grafana answers on 3300</b>
 <b>$ GF_PW=$(kubectl -n monitoring get secret prometheus-grafana -o jsonpath='{.data.admin-password}' | base64 -d)</b>
 <b>$ kubectl -n monitoring port-forward --address 127.0.0.1 svc/prometheus-grafana 3300:80 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
+Forwarding from 127.0.0.1:3300 -&gt; 3000
 <b>$ curl -s -u admin:admin 127.0.0.1:3300/api/search?query=Platform%20overview | jq '.[] | {title, folderTitle, uid}'</b>
+Handling connection for 3300
+{
+  "title": "Platform overview",
+  "folderTitle": null,
+  "uid": "platform-overview"
+}
+<b>$ # the sidecar only honours the annotation when it is told which one to read</b>
+<b>$ kubectl -n monitoring get deploy prometheus-grafana -o jsonpath='{range .spec.template.spec.containers[?(@.name=="grafana-sc-dashboard")].env[*]}{.name}={.value}{"\n"}{end}' | grep -i -E 'folder|provider'</b>
+FOLDER=/tmp/dashboards
 <b>$ kill $PF1</b>
 <b>$ kubectl -n monitoring delete cm platform-overview</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the dashboard is listed with <code>folderTitle</code> set to Platform.</div>
+configmap "platform-overview" deleted from monitoring namespace</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the dashboard is imported and <code>/api/search</code> finds it by title, but <code>folderTitle</code> is <code>null</code>: it landed at the top level, not in Platform. The annotation is not wrong, it is unread. The sidecar's environment carries only <code>FOLDER=/tmp/dashboards</code> and no <code>FOLDER_ANNOTATION</code>, so no annotation on any ConfigMap can place a dashboard in a folder on this install. Set <code>sidecar.dashboards.folderAnnotation</code> and <code>sidecar.dashboards.provider.foldersFromFilesStructure</code> in the chart values and the same ConfigMap lands in Platform. A convention that depends on a setting nobody enabled is the most common way dashboards end up in one flat list.</div>
     </div>
 
     <div class="exercise" data-title="Four LogQL shapes on real logs">
@@ -395,14 +449,115 @@ curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query={namespa
 curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query=quantile_over_time(0.95, {namespace="team-a"} | pattern `&lt;_&gt; &lt;_&gt; &lt;_&gt; &lt;_&gt; "&lt;_&gt; &lt;_&gt; &lt;_&gt;" &lt;status&gt; &lt;size&gt; ` | unwrap size [5m]) by (status)' | jq '.data.result'
 curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query=absent_over_time({namespace="default", pod="does-not-exist"}[5m])' | jq '.data.result'
 curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query={namespace="team-a"} | logfmt --strict | __error__ != ""' --data-urlencode 'limit=5' | jq '.data.result[0].stream'
-kill $PF1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring port-forward svc/loki 3100:3100 &amp; PF1=$!</b>
+kill $PF1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring port-forward svc/loki 3100:3100 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
+Forwarding from 127.0.0.1:3100 -&gt; 3100
+Forwarding from [::1]:3100 -&gt; 3100
 <b>$ curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query={namespace="team-a"} | pattern `&lt;ip&gt; - - &lt;_&gt; "&lt;method&gt; &lt;uri&gt; &lt;_&gt;" &lt;status&gt; &lt;size&gt;`' --data-urlencode 'limit=5' | jq '.data.result[0].values[0]'</b>
+Handling connection for 3100
+[
+  "1789307349067886028",
+  "10.244.2.200 - - [13/Sep/2026:13:49:09 +0000] \"GET / HTTP/1.1\" 200 615 \"-\" \"kube-probe/1.36\" \"-\"\n"
+]
 <b>$ curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query=quantile_over_time(0.95, {namespace="team-a"} | pattern `&lt;_&gt; &lt;_&gt; &lt;_&gt; &lt;_&gt; "&lt;_&gt; &lt;_&gt; &lt;_&gt;" &lt;status&gt; &lt;size&gt; ` | unwrap size [5m]) by (status)' | jq '.data.result'</b>
+Handling connection for 3100
+[
+  {
+    "metric": {
+      "status": "200"
+    },
+    "values": [
+      [
+        1789303754,
+        "615"
+      ],
+      [
+        1789303768,
+        "615"
+      ],
+      [
+        1789303782,
+        "615"
+      ],
+      [
+        1789303796,
+        "615"
+      ],
+      [
+        1789303810,
+        "615"
+      ],
+      [
+        1789303824,
+        "615"
+      ],
+      [
+        1789303838,
+        "615"
+      ],
+      [
+        1789303852,
+        "615"
+      ],
+      [
+<i>... 1002 more lines</i>
 <b>$ curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query=absent_over_time({namespace="default", pod="does-not-exist"}[5m])' | jq '.data.result'</b>
+Handling connection for 3100
+[
+  {
+    "metric": {
+      "namespace": "default",
+      "pod": "does-not-exist"
+    },
+    "values": [
+      [
+        1789303754,
+        "1"
+      ],
+      [
+        1789303768,
+        "1"
+      ],
+      [
+        1789303782,
+        "1"
+      ],
+      [
+        1789303796,
+        "1"
+      ],
+      [
+        1789303810,
+        "1"
+      ],
+      [
+        1789303824,
+        "1"
+      ],
+      [
+        1789303838,
+        "1"
+      ],
+      [
+        1789303852,
+        "1"
+      ],
+<i>... 1003 more lines</i>
 <b>$ curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query={namespace="team-a"} | logfmt --strict | __error__ != ""' --data-urlencode 'limit=5' | jq '.data.result[0].stream'</b>
-<b>$ kill $PF1</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Handling connection for 3100
+{
+  "__error__": "LogfmtParserErr",
+  "__error_details__": "logfmt syntax error at pos 47 : unexpected '\"'",
+  "app": "demo",
+  "container": "web",
+  "detected_level": "unknown",
+  "instance": "team-a/staging-demo-66955f8974-l48bx:web",
+  "job": "loki.source.kubernetes.pods",
+  "namespace": "team-a",
+  "pod": "staging-demo-66955f8974-l48bx",
+  "service_name": "demo"
+}
+<b>$ kill $PF1</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> the pattern parser produces labelled fields, <code>unwrap</code> turns size into a number you can take a quantile of, <code>absent_over_time</code> returns a series for the pod that does not exist, and <code>logfmt --strict</code> plus <code>__error__ != ""</code> returns the nginx access lines, which are not logfmt at all. The <code>--strict</code> flag is the point: plain <code>logfmt</code> in Loki 3 skips what it cannot parse and sets no <code>__error__</code>, so the same query without it comes back empty and you conclude, wrongly, that every line parsed.</div>
     </div>
 
@@ -423,7 +578,7 @@ scrape_configs:
 EOF
 POD=$(kubectl -n monitoring get pod -l app.kubernetes.io/name=alloy -o jsonpath='{.items[0].metadata.name}')
 kubectl -n monitoring cp /tmp/promtail.yaml "$POD":/tmp/promtail.yaml
-kubectl -n monitoring exec "$POD" -- alloy convert --source-format=promtail /tmp/promtail.yaml</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ cat &gt; /tmp/promtail.yaml &lt;&lt;'EOF'</b>
+kubectl -n monitoring exec "$POD" -- alloy convert --source-format=promtail /tmp/promtail.yaml</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ cat &gt; /tmp/promtail.yaml &lt;&lt;'EOF'</b>
 <b>server:</b>
 <b>  http_listen_port: 9080</b>
 <b>clients:</b>
@@ -439,7 +594,40 @@ kubectl -n monitoring exec "$POD" -- alloy convert --source-format=promtail /tmp
 <b>$ POD=$(kubectl -n monitoring get pod -l app.kubernetes.io/name=alloy -o jsonpath='{.items[0].metadata.name}')</b>
 <b>$ kubectl -n monitoring cp /tmp/promtail.yaml "$POD":/tmp/promtail.yaml</b>
 <b>$ kubectl -n monitoring exec "$POD" -- alloy convert --source-format=promtail /tmp/promtail.yaml</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+discovery.kubernetes "kubernetes_pods" {
+	role = "pod"
+
+	selectors {
+		role  = "pod"
+		field = "spec.nodeName=" + coalesce(sys.env("HOSTNAME"), constants.hostname)
+	}
+}
+
+discovery.relabel "kubernetes_pods" {
+	targets = discovery.kubernetes.kubernetes_pods.targets
+
+	rule {
+		source_labels = ["__meta_kubernetes_namespace"]
+		target_label  = "namespace"
+	}
+}
+
+loki.source.file "kubernetes_pods" {
+	targets    = discovery.relabel.kubernetes_pods.output
+	forward_to = [loki.write.default.receiver]
+
+	file_match {
+		enabled = true
+	}
+	legacy_positions_file = "/var/log/positions.yaml"
+}
+
+loki.write "default" {
+	endpoint {
+		url = "http://loki.monitoring.svc:3100/loki/api/v1/push"
+	}
+	external_labels = {}
+}</code></pre></details></div>
       <div class="verify"><b>verify:</b> the converter prints Alloy components: a discovery block, a relabel block, a source block and a write block, wired by references.</div>
     </div>
 

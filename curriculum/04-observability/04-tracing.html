@@ -225,7 +225,7 @@ kubectl -n default wait --for=condition=Ready pod/sidecar-demo --timeout=120s
 kubectl -n default get pod sidecar-demo -o json | jq -r '[.spec.initContainers[]?, .spec.containers[]?] | .[] | "\(.name) \(.image)"'
 kubectl -n default get opentelemetrycollector -o custom-columns=NAME:.metadata.name,MODE:.spec.mode
 kubectl -n default delete pod sidecar-demo
-kubectl -n default delete opentelemetrycollector side</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n default delete opentelemetrycollector side</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: opentelemetry.io/v1beta1</b>
 <b>kind: OpenTelemetryCollector</b>
 <b>metadata: { name: side, namespace: default }</b>
@@ -247,21 +247,29 @@ kubectl -n default delete opentelemetrycollector side</code></pre><details class
 <b>      pipelines:</b>
 <b>        traces: { receivers: [otlp], processors: [batch], exporters: [otlp] }</b>
 <b>EOF</b>
+opentelemetrycollector.opentelemetry.io/side created
 <b>$ sleep 15</b>
 <b>$ kubectl -n default run sidecar-demo --image=ghcr.io/stefanprodan/podinfo:6.7.1 --annotations="sidecar.opentelemetry.io/inject=true"</b>
+pod/sidecar-demo created
 <b>$ kubectl -n default wait --for=condition=Ready pod/sidecar-demo --timeout=120s</b>
+pod/sidecar-demo condition met
 <b>$ kubectl -n default get pod sidecar-demo -o json | jq -r '[.spec.initContainers[]?, .spec.containers[]?] | .[] | "\(.name) \(.image)"'</b>
+otc-container otel/opentelemetry-collector-contrib:0.158.0
+sidecar-demo ghcr.io/stefanprodan/podinfo:6.7.1
 <b>$ kubectl -n default get opentelemetrycollector -o custom-columns=NAME:.metadata.name,MODE:.spec.mode</b>
+NAME   MODE
+side   sidecar
 <b>$ kubectl -n default delete pod sidecar-demo</b>
+pod "sidecar-demo" deleted from default namespace
 <b>$ kubectl -n default delete opentelemetrycollector side</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+opentelemetrycollector.opentelemetry.io "side" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the listing names two containers, your podinfo container and <code>otc-container</code>, the collector the operator injected from the annotation. It may appear under <code>initContainers</code> rather than <code>containers</code>, which is the operator's native-sidecar form and still the injected collector. If only your container is listed, the operator found no sidecar-mode collector in the namespace, and the collector listing says so.</div>
     </div>
 
     <div class="exercise" data-title="Sample on the tail, not the head">
       <p>Head sampling throws away traces before anything is known about them. Tail sampling waits for the whole trace and then keeps the errors and the slow ones, paid for by buffering every span until the decision is made.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n tracing get opentelemetrycollector otel -o jsonpath='{.spec.config.service.pipelines.traces}' | jq
-kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"processors":{"tail_sampling":{"decision_wait":"10s","policies":[{"name":"errors","type":"status_code","status_code":{"status_codes":["ERROR"]}},{"name":"slow","type":"latency","latency":{"threshold_ms":500}}]}},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","tail_sampling","batch"],"exporters":["otlp/jaeger"]}}}}}}'
+kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"processors":{"tail_sampling":{"decision_wait":"10s","policies":[{"name":"errors","type":"status_code","status_code":{"status_codes":["ERROR"]}},{"name":"slow","type":"latency","latency":{"threshold_ms":500}}]}},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","tail_sampling","batch"],"exporters":["otlp/jaeger","spanmetrics"]}}}}}}'
 kubectl -n tracing rollout status deploy otel-collector --timeout=180s
 kubectl -n tracing run gen-ok --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service ok-service --traces 5
 kubectl -n tracing run gen-err --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service err-service --status-code Error --traces 5
@@ -273,30 +281,156 @@ curl -s 'http://localhost:16686/api/traces?service=err-service&amp;limit=10' | j
 curl -s 'http://localhost:16686/api/traces?service=ok-service&amp;limit=10' | jq '.data | length'
 kill $PF1
 # put the shared pipeline back: left in place, this drops every ordinary trace for the rest of the page
-kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"processors":{"tail_sampling":null},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","batch"],"exporters":["otlp/jaeger"]}}}}}}'
-kubectl -n tracing rollout status deploy otel-collector --timeout=180s</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n tracing get opentelemetrycollector otel -o jsonpath='{.spec.config.service.pipelines.traces}' | jq</b>
-<b>$ kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"processors":{"tail_sampling":{"decision_wait":"10s","policies":[{"name":"errors","type":"status_code","status_code":{"status_codes":["ERROR"]}},{"name":"slow","type":"latency","latency":{"threshold_ms":500}}]}},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","tail_sampling","batch"],"exporters":["otlp/jaeger"]}}}}}}'</b>
+kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"processors":{"tail_sampling":null},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","batch"],"exporters":["otlp/jaeger","spanmetrics"]}}}}}}'
+kubectl -n tracing rollout status deploy otel-collector --timeout=180s</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n tracing get opentelemetrycollector otel -o jsonpath='{.spec.config.service.pipelines.traces}' | jq</b>
+{
+  "exporters": [
+    "otlp/jaeger",
+    "spanmetrics"
+  ],
+  "processors": [
+    "k8sattributes",
+    "batch"
+  ],
+  "receivers": [
+    "otlp"
+  ]
+}
+<b>$ kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"processors":{"tail_sampling":{"decision_wait":"10s","policies":[{"name":"errors","type":"status_code","status_code":{"status_codes":["ERROR"]}},{"name":"slow","type":"latency","latency":{"threshold_ms":500}}]}},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","tail_sampling","batch"],"exporters":["otlp/jaeger","spanmetrics"]}}}}}}'</b>
+opentelemetrycollector.opentelemetry.io/otel patched
 <b>$ kubectl -n tracing rollout status deploy otel-collector --timeout=180s</b>
+Waiting for deployment spec update to be observed...
+Waiting for deployment spec update to be observed...
+Waiting for deployment "otel-collector" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "otel-collector" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "otel-collector" rollout to finish: 1 old replicas are pending termination...
+deployment "otel-collector" successfully rolled out
 <b>$ kubectl -n tracing run gen-ok --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service ok-service --traces 5</b>
+2026-09-13T14:12:19.711Z	INFO	traces/traces.go:53	starting gRPC exporter
+2026-09-13T14:12:19.711Z	INFO	grpclog/component.go:69	[core] original dial target is: "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T14:12:19.711Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel created for target "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T14:12:19.711Z	INFO	channelz/trace.go:200	[core] [Channel #1] parsed dial target is: resolver.Target{URL:url.URL{Scheme:"dns", Opaque:"", User:(*url.Userinfo)(nil), Host:"", Path:"/otel-collector.tracing.svc:4317", Fragment:"", RawQuery:"", RawPath:"", RawFragment:"", ForceQuery:false, OmitHost:false}}	{"grpc_log": true}
+2026-09-13T14:12:19.711Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel authority set to "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T14:12:19.711Z	INFO	traces/traces.go:125	generation of traces is limited	{"per-second": 1}
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+2026-09-13T14:12:21.712Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel Connectivity change to CONNECTING	{"grpc_log": true}
+2026-09-13T14:12:21.712Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel exiting idle mode	{"grpc_log": true}
+2026-09-13T14:12:21.715Z	INFO	channelz/trace.go:200	[core] [Channel #1] Resolver state updated: {
+  "Addresses": [
+    {
+      "Addr": "10.96.126.64:4317",
+      "ServerName": "",
+      "Attributes": null,
+      "BalancerAttributes": null,
+      "Metadata": null
+    }
+  ],
+  "Endpoints": [
+    {
+      "Addresses": [
+        {
+          "Addr": "10.96.126.64:4317",
+          "ServerName": "",
+          "Attributes": null,
+          "BalancerAttributes": null,
+          "Metadata": null
+        }
+      ],
+      "Attributes": null
+    }
+  ],
+  "ServiceConfig": null,
+  "Attributes": null
+} (resolver returned new addresses)	{"grpc_log": true}
+2026-09-13T14:12:21.715Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel switches to new LB policy "pick_first"	{"grpc_log": true}
+2026-09-13T14:12:21.715Z	INFO	grpclog/prefix_logger.go:42	[pick-first-leaf-lb] [pick-first-leaf-lb 0x6f66b663710] Received new config {
+  "shuffleAddressList": false
+<i>... 45 more lines</i>
 <b>$ kubectl -n tracing run gen-err --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service err-service --status-code Error --traces 5</b>
+2026-09-13T14:12:35.956Z	INFO	traces/traces.go:53	starting gRPC exporter
+2026-09-13T14:12:35.956Z	INFO	grpclog/component.go:69	[core] original dial target is: "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T14:12:35.956Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel created for target "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T14:12:35.956Z	INFO	channelz/trace.go:200	[core] [Channel #1] parsed dial target is: resolver.Target{URL:url.URL{Scheme:"dns", Opaque:"", User:(*url.Userinfo)(nil), Host:"", Path:"/otel-collector.tracing.svc:4317", Fragment:"", RawQuery:"", RawPath:"", RawFragment:"", ForceQuery:false, OmitHost:false}}	{"grpc_log": true}
+2026-09-13T14:12:35.957Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel authority set to "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T14:12:35.957Z	INFO	traces/traces.go:125	generation of traces is limited	{"per-second": 1}
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+2026-09-13T14:12:37.958Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel Connectivity change to CONNECTING	{"grpc_log": true}
+2026-09-13T14:12:37.958Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel exiting idle mode	{"grpc_log": true}
+2026-09-13T14:12:37.962Z	INFO	channelz/trace.go:200	[core] [Channel #1] Resolver state updated: {
+  "Addresses": [
+    {
+      "Addr": "10.96.126.64:4317",
+      "ServerName": "",
+      "Attributes": null,
+      "BalancerAttributes": null,
+      "Metadata": null
+    }
+  ],
+  "Endpoints": [
+    {
+      "Addresses": [
+        {
+          "Addr": "10.96.126.64:4317",
+          "ServerName": "",
+          "Attributes": null,
+          "BalancerAttributes": null,
+          "Metadata": null
+        }
+      ],
+      "Attributes": null
+    }
+  ],
+  "ServiceConfig": null,
+  "Attributes": null
+} (resolver returned new addresses)	{"grpc_log": true}
+2026-09-13T14:12:37.962Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel switches to new LB policy "pick_first"	{"grpc_log": true}
+2026-09-13T14:12:37.962Z	INFO	grpclog/prefix_logger.go:42	[pick-first-leaf-lb] [pick-first-leaf-lb 0xc8833d00000] Received new config {
+  "shuffleAddressList": false
+<i>... 45 more lines</i>
 <b>$ sleep 30</b>
 <b>$ kubectl -n tracing port-forward svc/jaeger 16686:16686 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
+Forwarding from 127.0.0.1:16686 -&gt; 16686
+Forwarding from [::1]:16686 -&gt; 16686
 <b>$ curl -s 'http://localhost:16686/api/services' | jq</b>
+Handling connection for 16686
+{
+  "data": [
+    "err-service",
+    "jaeger",
+    "metered"
+  ],
+  "total": 3,
+  "limit": 0,
+  "offset": 0,
+  "errors": null
+}
 <b>$ curl -s 'http://localhost:16686/api/traces?service=err-service&amp;limit=10' | jq '.data | length'</b>
+Handling connection for 16686
+10
 <b>$ curl -s 'http://localhost:16686/api/traces?service=ok-service&amp;limit=10' | jq '.data | length'</b>
+Handling connection for 16686
+0
 <b>$ kill $PF1</b>
 <b>$ # put the shared pipeline back: left in place, this drops every ordinary trace for the rest of the page</b>
-<b>$ kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"processors":{"tail_sampling":null},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","batch"],"exporters":["otlp/jaeger"]}}}}}}'</b>
+<b>$ kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"processors":{"tail_sampling":null},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","batch"],"exporters":["otlp/jaeger","spanmetrics"]}}}}}}'</b>
+opentelemetrycollector.opentelemetry.io/otel patched
 <b>$ kubectl -n tracing rollout status deploy otel-collector --timeout=180s</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Waiting for deployment spec update to be observed...
+Waiting for deployment spec update to be observed...
+Waiting for deployment "otel-collector" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "otel-collector" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "otel-collector" rollout to finish: 1 old replicas are pending termination...
+deployment "otel-collector" successfully rolled out</code></pre></details></div>
       <div class="verify"><b>verify:</b> the error service's traces are in Jaeger and the clean ones are thinner or absent, depending on whether they tripped the latency policy. Say what <code>decision_wait</code> costs you and why a load balancer in front of two collectors breaks tail sampling.</div>
     </div>
 
     <div class="exercise" data-title="Take the enrichment away">
       <p>The <code>k8sattributes</code> processor is what turns a span into something you can join against a pod. It needs RBAC to do that, and without it the spans still arrive, just anonymous.</p>
       <div class="cb" data-lang="bash"><pre><code># the tail-sampling exercise above leaves the shared pipeline dropping ordinary traces
-kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"processors":{"tail_sampling":null},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","batch"],"exporters":["otlp/jaeger"]}}}}}}'
+kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"processors":{"tail_sampling":null},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","batch"],"exporters":["otlp/jaeger","spanmetrics"]}}}}}}'
 # there is no ClusterRoleBinding to back up here: create the RBAC so there is something to take away
 kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: rbac.authorization.k8s.io/v1
@@ -319,12 +453,16 @@ kubectl -n tracing run gen-before --rm -i --restart=Never --image=ghcr.io/open-t
 sleep 20
 kubectl -n tracing port-forward svc/jaeger 16686:16686 &amp; PF1=$!
 sleep 5
+# the collector batches for 5s and Jaeger indexes after that
+sleep 30
 curl -s 'http://localhost:16686/api/traces?service=enriched&amp;limit=1' | jq -r '[.data[]?.processes[]?.tags[]? | select(.key|startswith("k8s")) | .key] | unique'
 kubectl delete clusterrolebinding otel-k8sattributes
 kubectl -n tracing rollout restart deploy otel-collector
 kubectl -n tracing rollout status deploy otel-collector --timeout=120s
 kubectl -n tracing run gen-after --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service unenriched --traces 3
 sleep 20
+# the collector batches for 5s and Jaeger indexes after that
+sleep 30
 curl -s 'http://localhost:16686/api/traces?service=unenriched&amp;limit=1' | jq -r '[.data[]?.processes[]?.tags[]? | select(.key|startswith("k8s")) | .key] | unique'
 kubectl -n tracing logs deploy/otel-collector --tail=30 | grep -i -m3 forbidden
 kubectl apply -f - &lt;&lt;'EOF'
@@ -336,8 +474,10 @@ subjects:
   - { kind: ServiceAccount, name: otel-collector, namespace: tracing }
 EOF
 kubectl -n tracing rollout restart deploy otel-collector
-kill $PF1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ # the tail-sampling exercise above leaves the shared pipeline dropping ordinary traces</b>
-<b>$ kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"processors":{"tail_sampling":null},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","batch"],"exporters":["otlp/jaeger"]}}}}}}'</b>
+kubectl -n tracing rollout status deploy otel-collector --timeout=180s
+kill $PF1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # the tail-sampling exercise above leaves the shared pipeline dropping ordinary traces</b>
+<b>$ kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"processors":{"tail_sampling":null},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","batch"],"exporters":["otlp/jaeger","spanmetrics"]}}}}}}'</b>
+opentelemetrycollector.opentelemetry.io/otel patched (no change)
 <b>$ # there is no ClusterRoleBinding to back up here: create the RBAC so there is something to take away</b>
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: rbac.authorization.k8s.io/v1</b>
@@ -354,20 +494,136 @@ kill $PF1</code></pre><details class="out pending"><summary>output<span class="w
 <b>subjects:</b>
 <b>  - { kind: ServiceAccount, name: otel-collector, namespace: tracing }</b>
 <b>EOF</b>
+clusterrole.rbac.authorization.k8s.io/otel-k8sattributes unchanged
+clusterrolebinding.rbac.authorization.k8s.io/otel-k8sattributes unchanged
 <b>$ kubectl -n tracing rollout restart deploy otel-collector</b>
+deployment.apps/otel-collector restarted
 <b>$ kubectl -n tracing rollout status deploy otel-collector --timeout=180s</b>
+Waiting for deployment spec update to be observed...
+Waiting for deployment "otel-collector" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "otel-collector" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "otel-collector" rollout to finish: 1 old replicas are pending termination...
+deployment "otel-collector" successfully rolled out
 <b>$ kubectl -n tracing run gen-before --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service enriched --traces 3</b>
+2026-09-13T14:31:47.568Z	INFO	traces/traces.go:53	starting gRPC exporter
+2026-09-13T14:31:47.568Z	INFO	grpclog/component.go:69	[core] original dial target is: "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T14:31:47.568Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel created for target "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T14:31:47.568Z	INFO	channelz/trace.go:200	[core] [Channel #1] parsed dial target is: resolver.Target{URL:url.URL{Scheme:"dns", Opaque:"", User:(*url.Userinfo)(nil), Host:"", Path:"/otel-collector.tracing.svc:4317", Fragment:"", RawQuery:"", RawPath:"", RawFragment:"", ForceQuery:false, OmitHost:false}}	{"grpc_log": true}
+2026-09-13T14:31:47.568Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel authority set to "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T14:31:47.568Z	INFO	traces/traces.go:125	generation of traces is limited	{"per-second": 1}
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+2026-09-13T14:31:49.570Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel Connectivity change to CONNECTING	{"grpc_log": true}
+2026-09-13T14:31:49.570Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel exiting idle mode	{"grpc_log": true}
+2026-09-13T14:31:49.573Z	INFO	channelz/trace.go:200	[core] [Channel #1] Resolver state updated: {
+  "Addresses": [
+    {
+      "Addr": "10.96.126.64:4317",
+      "ServerName": "",
+      "Attributes": null,
+      "BalancerAttributes": null,
+      "Metadata": null
+    }
+  ],
+  "Endpoints": [
+    {
+      "Addresses": [
+        {
+          "Addr": "10.96.126.64:4317",
+          "ServerName": "",
+          "Attributes": null,
+          "BalancerAttributes": null,
+          "Metadata": null
+        }
+      ],
+      "Attributes": null
+    }
+  ],
+  "ServiceConfig": null,
+  "Attributes": null
+} (resolver returned new addresses)	{"grpc_log": true}
+2026-09-13T14:31:49.573Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel switches to new LB policy "pick_first"	{"grpc_log": true}
+2026-09-13T14:31:49.573Z	INFO	grpclog/prefix_logger.go:42	[pick-first-leaf-lb] [pick-first-leaf-lb 0x351f223e8000] Received new config {
+  "shuffleAddressList": false
+<i>... 45 more lines</i>
 <b>$ sleep 20</b>
 <b>$ kubectl -n tracing port-forward svc/jaeger 16686:16686 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
+Forwarding from 127.0.0.1:16686 -&gt; 16686
+Forwarding from [::1]:16686 -&gt; 16686
+<b>$ # the collector batches for 5s and Jaeger indexes after that</b>
+<b>$ sleep 30</b>
 <b>$ curl -s 'http://localhost:16686/api/traces?service=enriched&amp;limit=1' | jq -r '[.data[]?.processes[]?.tags[]? | select(.key|startswith("k8s")) | .key] | unique'</b>
+Handling connection for 16686
+[
+  "k8s.namespace.name",
+  "k8s.node.name",
+  "k8s.pod.name",
+  "k8s.pod.start_time",
+  "k8s.pod.uid"
+]
 <b>$ kubectl delete clusterrolebinding otel-k8sattributes</b>
+clusterrolebinding.rbac.authorization.k8s.io "otel-k8sattributes" deleted
 <b>$ kubectl -n tracing rollout restart deploy otel-collector</b>
+deployment.apps/otel-collector restarted
 <b>$ kubectl -n tracing rollout status deploy otel-collector --timeout=120s</b>
+Waiting for deployment spec update to be observed...
+Waiting for deployment "otel-collector" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "otel-collector" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "otel-collector" rollout to finish: 1 old replicas are pending termination...
+deployment "otel-collector" successfully rolled out
 <b>$ kubectl -n tracing run gen-after --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service unenriched --traces 3</b>
+2026-09-13T14:32:59.131Z	INFO	traces/traces.go:53	starting gRPC exporter
+2026-09-13T14:32:59.131Z	INFO	grpclog/component.go:69	[core] original dial target is: "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T14:32:59.131Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel created for target "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T14:32:59.131Z	INFO	channelz/trace.go:200	[core] [Channel #1] parsed dial target is: resolver.Target{URL:url.URL{Scheme:"dns", Opaque:"", User:(*url.Userinfo)(nil), Host:"", Path:"/otel-collector.tracing.svc:4317", Fragment:"", RawQuery:"", RawPath:"", RawFragment:"", ForceQuery:false, OmitHost:false}}	{"grpc_log": true}
+2026-09-13T14:32:59.131Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel authority set to "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T14:32:59.131Z	INFO	traces/traces.go:125	generation of traces is limited	{"per-second": 1}
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+2026-09-13T14:33:01.133Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel Connectivity change to CONNECTING	{"grpc_log": true}
+2026-09-13T14:33:01.133Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel exiting idle mode	{"grpc_log": true}
+2026-09-13T14:33:01.136Z	INFO	channelz/trace.go:200	[core] [Channel #1] Resolver state updated: {
+  "Addresses": [
+    {
+      "Addr": "10.96.126.64:4317",
+      "ServerName": "",
+      "Attributes": null,
+      "BalancerAttributes": null,
+      "Metadata": null
+    }
+  ],
+  "Endpoints": [
+    {
+      "Addresses": [
+        {
+          "Addr": "10.96.126.64:4317",
+          "ServerName": "",
+          "Attributes": null,
+          "BalancerAttributes": null,
+          "Metadata": null
+        }
+      ],
+      "Attributes": null
+    }
+  ],
+  "ServiceConfig": null,
+  "Attributes": null
+} (resolver returned new addresses)	{"grpc_log": true}
+2026-09-13T14:33:01.136Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel switches to new LB policy "pick_first"	{"grpc_log": true}
+2026-09-13T14:33:01.136Z	INFO	grpclog/prefix_logger.go:42	[pick-first-leaf-lb] [pick-first-leaf-lb 0x27988ddd6000] Received new config {
+  "shuffleAddressList": false
+<i>... 45 more lines</i>
 <b>$ sleep 20</b>
+<b>$ # the collector batches for 5s and Jaeger indexes after that</b>
+<b>$ sleep 30</b>
 <b>$ curl -s 'http://localhost:16686/api/traces?service=unenriched&amp;limit=1' | jq -r '[.data[]?.processes[]?.tags[]? | select(.key|startswith("k8s")) | .key] | unique'</b>
+Handling connection for 16686
+[]
 <b>$ kubectl -n tracing logs deploy/otel-collector --tail=30 | grep -i -m3 forbidden</b>
+E0913 14:32:53.207760       1 reflector.go:204] "Failed to watch" err="failed to list *v1.Pod: pods is forbidden: User \"system:serviceaccount:tracing:otel-collector\" cannot list resource \"pods\" in API group \"\" at the cluster scope" logger="UnhandledError" reflector="k8s.io/client-go@v0.35.4/tools/cache/reflector.go:289" type="*v1.Pod"
+E0913 14:32:54.618610       1 reflector.go:204] "Failed to watch" err="failed to list *v1.Pod: pods is forbidden: User \"system:serviceaccount:tracing:otel-collector\" cannot list resource \"pods\" in API group \"\" at the cluster scope" logger="UnhandledError" reflector="k8s.io/client-go@v0.35.4/tools/cache/reflector.go:289" type="*v1.Pod"
+E0913 14:32:57.318475       1 reflector.go:204] "Failed to watch" err="failed to list *v1.Pod: pods is forbidden: User \"system:serviceaccount:tracing:otel-collector\" cannot list resource \"pods\" in API group \"\" at the cluster scope" logger="UnhandledError" reflector="k8s.io/client-go@v0.35.4/tools/cache/reflector.go:289" type="*v1.Pod"
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: rbac.authorization.k8s.io/v1</b>
 <b>kind: ClusterRoleBinding</b>
@@ -376,9 +632,16 @@ kill $PF1</code></pre><details class="out pending"><summary>output<span class="w
 <b>subjects:</b>
 <b>  - { kind: ServiceAccount, name: otel-collector, namespace: tracing }</b>
 <b>EOF</b>
+clusterrolebinding.rbac.authorization.k8s.io/otel-k8sattributes created
 <b>$ kubectl -n tracing rollout restart deploy otel-collector</b>
-<b>$ kill $PF1</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+deployment.apps/otel-collector restarted
+<b>$ kubectl -n tracing rollout status deploy otel-collector --timeout=180s</b>
+Waiting for deployment spec update to be observed...
+Waiting for deployment "otel-collector" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "otel-collector" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "otel-collector" rollout to finish: 1 old replicas are pending termination...
+deployment "otel-collector" successfully rolled out
+<b>$ kill $PF1</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> the enriched spans carry <code>k8s.pod.name</code> and friends, the unenriched ones do not, and the collector log has a Forbidden line explaining why. Nothing fails; you just lose the ability to ask "which pod".</div>
     </div>
 

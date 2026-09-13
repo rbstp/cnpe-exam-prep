@@ -261,7 +261,7 @@ EOF
 sleep 45
 kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | sed -n '/mute_time_intervals/,/^[a-z]/p'
 kubectl -n monitoring exec sts/alertmanager-prometheus-kube-prometheus-alertmanager -c alertmanager -- sh -c 'amtool config routes test --config.file=/etc/alertmanager/config_out/alertmanager.env.yaml alertname=TooManyExamplePods severity=warning namespace=default'
-kubectl -n default delete alertmanagerconfig quiet-hours</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n default delete alertmanagerconfig quiet-hours</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1alpha1</b>
 <b>kind: AlertmanagerConfig</b>
 <b>metadata: { name: quiet-hours, namespace: default, labels: { release: prometheus } }</b>
@@ -278,11 +278,29 @@ kubectl -n default delete alertmanagerconfig quiet-hours</code></pre><details cl
 <b>        - times:</b>
 <b>            - { startTime: "00:00", endTime: "24:00" }</b>
 <b>EOF</b>
+alertmanagerconfig.monitoring.coreos.com/quiet-hours created
 <b>$ sleep 45</b>
 <b>$ kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | sed -n '/mute_time_intervals/,/^[a-z]/p'</b>
+    mute_time_intervals:
+    - default/quiet-hours/always-now
+  - receiver: "null"
+    matchers:
+    - alertname = "Watchdog"
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+inhibit_rules:
+mute_time_intervals:
+- name: default/quiet-hours/always-now
+  time_intervals:
+  - times:
+    - start_time: "00:00"
+      end_time: "24:00"
+templates:
 <b>$ kubectl -n monitoring exec sts/alertmanager-prometheus-kube-prometheus-alertmanager -c alertmanager -- sh -c 'amtool config routes test --config.file=/etc/alertmanager/config_out/alertmanager.env.yaml alertname=TooManyExamplePods severity=warning namespace=default'</b>
+default/quiet-hours/blackhole
 <b>$ kubectl -n default delete alertmanagerconfig quiet-hours</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+alertmanagerconfig.monitoring.coreos.com "quiet-hours" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the rendered config contains your interval and the route that references it, and <code>amtool config routes test</code> names the receiver a matching alert would land on.</div>
     </div>
 
@@ -305,17 +323,17 @@ spec:
         - { name: severity, value: warning }
       equal: [namespace]
 EOF
-sleep 45
-kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | sed -n '/inhibit_rules/,/^[a-z]/p'
+sleep 120
+kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | grep -B4 -A4 DrillOutage
 kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-alertmanager 9093:9093 &amp; PF1=$!
 sleep 5
 # Watchdog and the drill alert carry no namespace label, and the CRD adds namespace to both matchers,
 # so nothing cluster-generated can ever match: inject a pair that can
 curl -s -XPOST localhost:9093/api/v2/alerts -H 'Content-Type: application/json' -d '[{"labels":{"alertname":"DrillOutage","severity":"critical","namespace":"default"}},{"labels":{"alertname":"DrillNoise","severity":"warning","namespace":"default"}}]'
-sleep 15
+sleep 45
 curl -s localhost:9093/api/v2/alerts | jq '[.[] | select(.labels.alertname|startswith("Drill")) | {alertname: .labels.alertname, state: .status.state, inhibitedBy: .status.inhibitedBy}]'
 kill $PF1
-kubectl -n default delete alertmanagerconfig inhibit-demo</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n default delete alertmanagerconfig inhibit-demo</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1alpha1</b>
 <b>kind: AlertmanagerConfig</b>
 <b>metadata: { name: inhibit-demo, namespace: default, labels: { release: prometheus } }</b>
@@ -332,18 +350,46 @@ kubectl -n default delete alertmanagerconfig inhibit-demo</code></pre><details c
 <b>        - { name: severity, value: warning }</b>
 <b>      equal: [namespace]</b>
 <b>EOF</b>
-<b>$ sleep 45</b>
-<b>$ kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | sed -n '/inhibit_rules/,/^[a-z]/p'</b>
+alertmanagerconfig.monitoring.coreos.com/inhibit-demo created
+<b>$ sleep 120</b>
+<b>$ kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | grep -B4 -A4 DrillOutage</b>
+- target_matchers:
+  - severity="warning"
+  - namespace="default"
+  source_matchers:
+  - alertname="DrillOutage"
+  - namespace="default"
+  equal:
+  - namespace
+receivers:
 <b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-alertmanager 9093:9093 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
+Forwarding from 127.0.0.1:9093 -&gt; 9093
+Forwarding from [::1]:9093 -&gt; 9093
 <b>$ # Watchdog and the drill alert carry no namespace label, and the CRD adds namespace to both matchers,</b>
 <b>$ # so nothing cluster-generated can ever match: inject a pair that can</b>
 <b>$ curl -s -XPOST localhost:9093/api/v2/alerts -H 'Content-Type: application/json' -d '[{"labels":{"alertname":"DrillOutage","severity":"critical","namespace":"default"}},{"labels":{"alertname":"DrillNoise","severity":"warning","namespace":"default"}}]'</b>
-<b>$ sleep 15</b>
+Handling connection for 9093
+<b>$ sleep 45</b>
 <b>$ curl -s localhost:9093/api/v2/alerts | jq '[.[] | select(.labels.alertname|startswith("Drill")) | {alertname: .labels.alertname, state: .status.state, inhibitedBy: .status.inhibitedBy}]'</b>
+Handling connection for 9093
+[
+  {
+    "alertname": "DrillNoise",
+    "state": "suppressed",
+    "inhibitedBy": [
+      "f3637fb5c13520d0"
+    ]
+  },
+  {
+    "alertname": "DrillOutage",
+    "state": "active",
+    "inhibitedBy": []
+  }
+]
 <b>$ kill $PF1</b>
 <b>$ kubectl -n default delete alertmanagerconfig inhibit-demo</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+alertmanagerconfig.monitoring.coreos.com "inhibit-demo" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the rendered config carries your rule with <code>namespace="default"</code> added to both matchers by the CRD, and <code>DrillNoise</code> comes back with <code>inhibitedBy</code> naming <code>DrillOutage</code>'s fingerprint while <code>DrillOutage</code> itself has an empty list. Both injected alerts carry a namespace label on purpose: the stock <code>Watchdog</code> alert has none, so a rule that equals on namespace can never match it.</div>
     </div>
 
@@ -400,7 +446,7 @@ kubectl -n monitoring run promtool-check --rm -i --restart=Never --image="$IMG" 
 kubectl -n monitoring run promtool-unit --rm -i --restart=Never --image="$IMG" --overrides="{\"spec\":{\"containers\":[{\"name\":\"promtool-unit\",\"image\":\"$IMG\",\"workingDir\":\"/t\",\"command\":[\"promtool\",\"test\",\"rules\",\"test.yml\"],\"volumeMounts\":[{\"name\":\"t\",\"mountPath\":\"/t\"}]}],\"volumes\":[{\"name\":\"t\",\"configMap\":{\"name\":\"promtool-test\"}}]}}"
 kubectl -n monitoring delete configmap promtool-test
 # otherwise TooManyExamplePods fires on this cluster forever
-kubectl -n monitoring delete prometheusrule curriculum-drill</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n monitoring delete prometheusrule curriculum-drill</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1</b>
 <b>kind: PrometheusRule</b>
 <b>metadata:</b>
@@ -419,9 +465,22 @@ kubectl -n monitoring delete prometheusrule curriculum-drill</code></pre><detail
 <b>            summary: "{{ $value }} pods in default"</b>
 <b>            description: "Drill alert; fires whenever default has any pods."</b>
 <b>EOF</b>
+prometheusrule.monitoring.coreos.com/curriculum-drill unchanged
 <b>$ kubectl -n monitoring get prometheusrule curriculum-drill -o jsonpath='{.spec}' | jq '{groups: .groups}' &gt; /tmp/rules.json</b>
 <b>$ python3 -c "import json,yaml; print(yaml.safe_dump(json.load(open('/tmp/rules.json'))))" &gt; /tmp/rules.yml</b>
 <b>$ cat /tmp/rules.yml</b>
+groups:
+- name: drill
+  rules:
+  - alert: TooManyExamplePods
+    annotations:
+      description: Drill alert; fires whenever default has any pods.
+      summary: '{{ $value }} pods in default'
+    expr: count(kube_pod_info{namespace="default"}) &gt; 0
+    for: 1m
+    labels:
+      severity: warning
+      team: platform
 <b>$ cat &gt; /tmp/test.yml &lt;&lt;'EOF'</b>
 <b>rule_files:</b>
 <b>  - rules.yml</b>
@@ -446,13 +505,25 @@ kubectl -n monitoring delete prometheusrule curriculum-drill</code></pre><detail
 <b>              description: "Drill alert; fires whenever default has any pods."</b>
 <b>EOF</b>
 <b>$ kubectl -n monitoring create configmap promtool-test --from-file=rules.yml=/tmp/rules.yml --from-file=test.yml=/tmp/test.yml --dry-run=client -o yaml | kubectl apply -f -</b>
+configmap/promtool-test unchanged
 <b>$ IMG=$(kubectl -n monitoring get sts prometheus-prometheus-kube-prometheus-prometheus -o jsonpath='{.spec.template.spec.containers[?(@.name=="prometheus")].image}'); echo "$IMG"</b>
+quay.io/prometheus/prometheus:v3.14.0-distroless
 <b>$ kubectl -n monitoring run promtool-check --rm -i --restart=Never --image="$IMG" --overrides="{\"spec\":{\"containers\":[{\"name\":\"promtool-check\",\"image\":\"$IMG\",\"workingDir\":\"/t\",\"command\":[\"promtool\",\"check\",\"rules\",\"rules.yml\"],\"volumeMounts\":[{\"name\":\"t\",\"mountPath\":\"/t\"}]}],\"volumes\":[{\"name\":\"t\",\"configMap\":{\"name\":\"promtool-test\"}}]}}"</b>
+Error from server (AlreadyExists): pods "promtool-check" already exists
 <b>$ kubectl -n monitoring run promtool-unit --rm -i --restart=Never --image="$IMG" --overrides="{\"spec\":{\"containers\":[{\"name\":\"promtool-unit\",\"image\":\"$IMG\",\"workingDir\":\"/t\",\"command\":[\"promtool\",\"test\",\"rules\",\"test.yml\"],\"volumeMounts\":[{\"name\":\"t\",\"mountPath\":\"/t\"}]}],\"volumes\":[{\"name\":\"t\",\"configMap\":{\"name\":\"promtool-test\"}}]}}"</b>
+  SUCCESS
+
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+warning: couldn't attach to pod/promtool-unit, falling back to streaming logs: unable to upgrade connection: container promtool-unit not found in pod promtool-unit_monitoring
+  SUCCESS
+
+pod "promtool-unit" deleted from monitoring namespace
 <b>$ kubectl -n monitoring delete configmap promtool-test</b>
+configmap "promtool-test" deleted from monitoring namespace
 <b>$ # otherwise TooManyExamplePods fires on this cluster forever</b>
 <b>$ kubectl -n monitoring delete prometheusrule curriculum-drill</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+prometheusrule.monitoring.coreos.com "curriculum-drill" deleted from monitoring namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> <code>check rules</code> passes and <code>test rules</code> reports SUCCESS, including the case at 30 seconds where the <code>for</code> clause has not elapsed. Change the <code>for</code> to 10m and watch the same test fail; that is the assertion earning its keep.</div>
     </div>
 

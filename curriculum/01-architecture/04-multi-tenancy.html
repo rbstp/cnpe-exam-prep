@@ -260,7 +260,7 @@ kubectl -n team-a run critical --image=nginx:1.27-alpine --restart=Never --overr
 kubectl -n team-a run ordinary --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"containers":[{"name":"ordinary","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"50m","memory":"64Mi"},"limits":{"cpu":"100m","memory":"128Mi"}}}]}}'
 kubectl -n team-a get pods ordinary
 kubectl -n team-a delete pod ordinary --ignore-not-found
-kubectl -n team-a delete resourcequota no-critical</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n team-a delete resourcequota no-critical</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: v1</b>
 <b>kind: ResourceQuota</b>
 <b>metadata: { name: no-critical, namespace: team-a }</b>
@@ -272,34 +272,61 @@ kubectl -n team-a delete resourcequota no-critical</code></pre><details class="o
 <b>        operator: In</b>
 <b>        values: [system-cluster-critical]</b>
 <b>EOF</b>
+resourcequota/no-critical created
 <b>$ kubectl -n team-a run critical --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"priorityClassName":"system-cluster-critical","containers":[{"name":"critical","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"50m","memory":"64Mi"},"limits":{"cpu":"100m","memory":"128Mi"}}}]}}'</b>
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "critical" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "critical" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "critical" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "critical" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+Error from server (Forbidden): pods "critical" is forbidden: exceeded quota: no-critical, requested: pods=1, used: pods=0, limited: pods=0
 <b>$ kubectl -n team-a run ordinary --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"containers":[{"name":"ordinary","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"50m","memory":"64Mi"},"limits":{"cpu":"100m","memory":"128Mi"}}}]}}'</b>
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "ordinary" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "ordinary" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "ordinary" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "ordinary" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+pod/ordinary created
 <b>$ kubectl -n team-a get pods ordinary</b>
+NAME       READY   STATUS    RESTARTS   AGE
+ordinary   0/1     Pending   0          0s
 <b>$ kubectl -n team-a delete pod ordinary --ignore-not-found</b>
+pod "ordinary" deleted from team-a namespace
 <b>$ kubectl -n team-a delete resourcequota no-critical</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+resourcequota "no-critical" deleted from team-a namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the critical pod is refused with an "exceeded quota" message naming <code>no-critical</code>, and the ordinary pod is admitted under the tenant's existing quota. One namespace, two answers, decided by a scope.</div>
     </div>
 
     <div class="exercise" data-title="Count objects, not just cores">
       <p>Quota is not only cpu and memory. <code>count/&lt;resource&gt;.&lt;group&gt;</code> caps any kind the API server knows about, including the CRDs your platform ships, which is the cheapest guardrail against a tenant looping on create.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl create quota objs -n team-a --hard=count/configmaps=2,count/analysistemplates.argoproj.io=1
+      <div class="cb" data-lang="bash"><pre><code>kubectl create quota objs -n team-a --hard=count/configmaps=3,count/analysistemplates.argoproj.io=1
 kubectl -n team-a get quota objs -o jsonpath='{.status}' | jq
 kubectl -n team-a create configmap one --from-literal=a=1
 kubectl -n team-a create configmap two --from-literal=a=1
 kubectl -n team-a create configmap three --from-literal=a=1
 kubectl -n team-a get quota objs -o jsonpath='{.status.used}' | jq
 kubectl -n team-a delete configmap one two three --ignore-not-found
-kubectl -n team-a delete quota objs</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create quota objs -n team-a --hard=count/configmaps=2,count/analysistemplates.argoproj.io=1</b>
+kubectl -n team-a delete quota objs</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create quota objs -n team-a --hard=count/configmaps=3,count/analysistemplates.argoproj.io=1</b>
+resourcequota/objs created
 <b>$ kubectl -n team-a get quota objs -o jsonpath='{.status}' | jq</b>
+{
+  "hard": {
+    "count/analysistemplates.argoproj.io": "1",
+    "count/configmaps": "3"
+  },
+  "used": {
+    "count/analysistemplates.argoproj.io": "1",
+    "count/configmaps": "2"
+  }
+}
 <b>$ kubectl -n team-a create configmap one --from-literal=a=1</b>
+configmap/one created
 <b>$ kubectl -n team-a create configmap two --from-literal=a=1</b>
+error: failed to create configmap: configmaps "two" is forbidden: exceeded quota: objs, requested: count/configmaps=1, used: count/configmaps=3, limited: count/configmaps=3
 <b>$ kubectl -n team-a create configmap three --from-literal=a=1</b>
+error: failed to create configmap: configmaps "three" is forbidden: exceeded quota: objs, requested: count/configmaps=1, used: count/configmaps=3, limited: count/configmaps=3
 <b>$ kubectl -n team-a get quota objs -o jsonpath='{.status.used}' | jq</b>
+{
+  "count/analysistemplates.argoproj.io": "1",
+  "count/configmaps": "3"
+}
 <b>$ kubectl -n team-a delete configmap one two three --ignore-not-found</b>
+configmap "one" deleted from team-a namespace
 <b>$ kubectl -n team-a delete quota objs</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
-      <div class="verify"><b>verify:</b> <code>status.used</code> tracks both keys, <code>count/configmaps</code> at 1 before you create anything because <code>kube-root-ca.crt</code> already occupies a slot, and <code>count/analysistemplates.argoproj.io</code> at 1 for the <code>success-rate</code> template team-a carries. Because the built-in ConfigMap counts against you, the second ConfigMap you create is the one refused, not the third, and the message names <code>objs</code> and both numbers. A key for a kind this cluster does not serve is accepted into <code>spec.hard</code> and never appears in <code>status.used</code> at all.</div>
+resourcequota "objs" deleted from team-a namespace</code></pre></details></div>
+      <div class="verify"><b>verify:</b> <code>status.used</code> tracks both keys the moment the quota is created: <code>count/configmaps</code> at 2, because team-a already holds <code>kube-root-ca.crt</code> and one more before you create anything, and <code>count/analysistemplates.argoproj.io</code> at 1 for the <code>success-rate</code> template. So the limit of 3 leaves room for exactly one, <code>one</code> is created and <code>two</code> is refused with a message naming <code>objs</code> and both numbers. Count quotas are charged against what is already there, not against what you add. A key for a kind this cluster does not serve is accepted into <code>spec.hard</code> and never appears in <code>status.used</code> at all.</div>
     </div>
 
     <div class="exercise" data-title="Hierarchical namespaces, installed on purpose">
@@ -319,22 +346,66 @@ kubectl get hierarchyconfiguration -n dev -o jsonpath='{.items[0].status}' | jq
 kubectl get rolebinding -n dev --show-labels
 kubectl delete subnamespaceanchor dev -n team-a
 kubectl -n team-a delete rolebinding tenant-view
-kubectl delete -f https://github.com/kubernetes-sigs/hierarchical-namespaces/releases/download/v1.1.0/default.yaml</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f https://github.com/kubernetes-sigs/hierarchical-namespaces/releases/download/v1.1.0/default.yaml</b>
+kubectl delete -f https://github.com/kubernetes-sigs/hierarchical-namespaces/releases/download/v1.1.0/default.yaml</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f https://github.com/kubernetes-sigs/hierarchical-namespaces/releases/download/v1.1.0/default.yaml</b>
+namespace/hnc-system created
+customresourcedefinition.apiextensions.k8s.io/hierarchicalresourcequotas.hnc.x-k8s.io created
+customresourcedefinition.apiextensions.k8s.io/hierarchyconfigurations.hnc.x-k8s.io created
+customresourcedefinition.apiextensions.k8s.io/hncconfigurations.hnc.x-k8s.io created
+customresourcedefinition.apiextensions.k8s.io/subnamespaceanchors.hnc.x-k8s.io created
+role.rbac.authorization.k8s.io/hnc-leader-election-role created
+clusterrole.rbac.authorization.k8s.io/hnc-admin-role created
+clusterrole.rbac.authorization.k8s.io/hnc-manager-role created
+rolebinding.rbac.authorization.k8s.io/hnc-leader-election-rolebinding created
+clusterrolebinding.rbac.authorization.k8s.io/hnc-manager-rolebinding created
+secret/hnc-webhook-server-cert created
+service/hnc-controller-manager-metrics-service created
+service/hnc-webhook-service created
+deployment.apps/hnc-controller-manager created
+mutatingwebhookconfiguration.admissionregistration.k8s.io/hnc-mutating-webhook-configuration created
+validatingwebhookconfiguration.admissionregistration.k8s.io/hnc-validating-webhook-configuration created
 <b>$ kubectl -n hnc-system rollout status deploy/hnc-controller-manager --timeout=180s</b>
+Waiting for deployment "hnc-controller-manager" rollout to finish: 0 of 1 updated replicas are available...
+deployment "hnc-controller-manager" successfully rolled out
 <b>$ kubectl -n team-a create rolebinding tenant-view --clusterrole=view --user=dev-a</b>
+rolebinding.rbac.authorization.k8s.io/tenant-view created
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: hnc.x-k8s.io/v1alpha2</b>
 <b>kind: SubnamespaceAnchor</b>
 <b>metadata: { name: dev, namespace: team-a }</b>
 <b>EOF</b>
+subnamespaceanchor.hnc.x-k8s.io/dev created
 <b>$ sleep 20</b>
 <b>$ kubectl get ns dev</b>
+NAME   STATUS   AGE
+dev    Active   20s
 <b>$ kubectl get hierarchyconfiguration -n dev -o jsonpath='{.items[0].status}' | jq</b>
+{}
 <b>$ kubectl get rolebinding -n dev --show-labels</b>
+NAME          ROLE               AGE   LABELS
+developer     Role/developer     1s    app.kubernetes.io/managed-by=hnc.x-k8s.io,hnc.x-k8s.io/inherited-from=team-a
+pg            Role/pg            1s    app.kubernetes.io/managed-by=hnc.x-k8s.io,cnpg.io/cluster=pg,hnc.x-k8s.io/inherited-from=team-a
+tenant-view   ClusterRole/view   1s    app.kubernetes.io/managed-by=hnc.x-k8s.io,hnc.x-k8s.io/inherited-from=team-a
 <b>$ kubectl delete subnamespaceanchor dev -n team-a</b>
+subnamespaceanchor.hnc.x-k8s.io "dev" deleted from team-a namespace
 <b>$ kubectl -n team-a delete rolebinding tenant-view</b>
+rolebinding.rbac.authorization.k8s.io "tenant-view" deleted from team-a namespace
 <b>$ kubectl delete -f https://github.com/kubernetes-sigs/hierarchical-namespaces/releases/download/v1.1.0/default.yaml</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+namespace "hnc-system" deleted
+customresourcedefinition.apiextensions.k8s.io "hierarchicalresourcequotas.hnc.x-k8s.io" deleted
+customresourcedefinition.apiextensions.k8s.io "hierarchyconfigurations.hnc.x-k8s.io" deleted
+customresourcedefinition.apiextensions.k8s.io "hncconfigurations.hnc.x-k8s.io" deleted
+customresourcedefinition.apiextensions.k8s.io "subnamespaceanchors.hnc.x-k8s.io" deleted
+role.rbac.authorization.k8s.io "hnc-leader-election-role" deleted from hnc-system namespace
+clusterrole.rbac.authorization.k8s.io "hnc-admin-role" deleted
+clusterrole.rbac.authorization.k8s.io "hnc-manager-role" deleted
+rolebinding.rbac.authorization.k8s.io "hnc-leader-election-rolebinding" deleted from hnc-system namespace
+clusterrolebinding.rbac.authorization.k8s.io "hnc-manager-rolebinding" deleted
+secret "hnc-webhook-server-cert" deleted from hnc-system namespace
+service "hnc-controller-manager-metrics-service" deleted from hnc-system namespace
+service "hnc-webhook-service" deleted from hnc-system namespace
+deployment.apps "hnc-controller-manager" deleted from hnc-system namespace
+mutatingwebhookconfiguration.admissionregistration.k8s.io "hnc-mutating-webhook-configuration" deleted
+validatingwebhookconfiguration.admissionregistration.k8s.io "hnc-validating-webhook-configuration" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> the <code>dev</code> namespace appears without anyone creating it, and the RoleBinding you made in team-a is copied into it carrying an <code>hnc.x-k8s.io/inherited-from</code> label. That label is the whole argument for and against the model: propagation you did not ask for, visible in the object.</div>
     </div>
 

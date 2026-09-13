@@ -524,10 +524,14 @@ spec:
   to: [{ group: "", kind: Service }]
 EOF
 sleep 10
-kubectl --context kind-mesh -n team-a get httproute demo -o jsonpath='{.status.parents[*].conditions}' | jq '.[] | {type, status, reason}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl --context kind-mesh create ns team-a --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -</b>
+kubectl --context kind-mesh -n team-a get httproute demo -o jsonpath='{.status.parents[*].conditions}' | jq '.[] | {type, status, reason}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl --context kind-mesh create ns team-a --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -</b>
+namespace/team-a created
 <b>$ kubectl --context kind-mesh create ns team-b --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -</b>
+namespace/team-b created
 <b>$ kubectl --context kind-mesh -n team-b create deployment web --image=nginx:1.27-alpine</b>
+deployment.apps/web created
 <b>$ kubectl --context kind-mesh -n team-b expose deployment web --port=80</b>
+service/web exposed
 <b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: gateway.networking.k8s.io/v1</b>
 <b>kind: Gateway</b>
@@ -548,8 +552,25 @@ kubectl --context kind-mesh -n team-a get httproute demo -o jsonpath='{.status.p
 <b>  rules:</b>
 <b>    - backendRefs: [{ name: web, namespace: team-b, port: 80 }]</b>
 <b>EOF</b>
+gateway.gateway.networking.k8s.io/web created
+httproute.gateway.networking.k8s.io/demo created
 <b>$ sleep 10</b>
 <b>$ kubectl --context kind-mesh -n team-a get httproute demo -o jsonpath='{.status.parents[*].conditions}' | jq '.[] | {type, status, reason}'</b>
+{
+  "type": "Accepted",
+  "status": "True",
+  "reason": "Accepted"
+}
+{
+  "type": "ResolvedRefs",
+  "status": "False",
+  "reason": "RefNotPermitted"
+}
+{
+  "type": "ResolvedWaypoints",
+  "status": "True",
+  "reason": "ResolvedWaypoints"
+}
 <b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: gateway.networking.k8s.io/v1beta1</b>
 <b>kind: ReferenceGrant</b>
@@ -558,9 +579,24 @@ kubectl --context kind-mesh -n team-a get httproute demo -o jsonpath='{.status.p
 <b>  from: [{ group: gateway.networking.k8s.io, kind: HTTPRoute, namespace: team-a }]</b>
 <b>  to: [{ group: "", kind: Service }]</b>
 <b>EOF</b>
+referencegrant.gateway.networking.k8s.io/from-team-a created
 <b>$ sleep 10</b>
 <b>$ kubectl --context kind-mesh -n team-a get httproute demo -o jsonpath='{.status.parents[*].conditions}' | jq '.[] | {type, status, reason}'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+{
+  "type": "Accepted",
+  "status": "True",
+  "reason": "Accepted"
+}
+{
+  "type": "ResolvedRefs",
+  "status": "True",
+  "reason": "ResolvedRefs"
+}
+{
+  "type": "ResolvedWaypoints",
+  "status": "True",
+  "reason": "ResolvedWaypoints"
+}</code></pre></details></div>
       <div class="verify"><b>verify:</b> <code>ResolvedRefs</code> is False with reason <code>RefNotPermitted</code> before the grant and True after it, with nothing about the route itself changed. The grant lives with the backend, not with the route.</div>
     </div>
 
@@ -571,13 +607,53 @@ printf '%s\nconsul.local:53 {\n    errors\n    cache 30\n    forward . 10.150.0.
 kubectl -n kube-system create configmap coredns --from-file=Corefile=/tmp/Corefile.new --dry-run=client -o yaml | kubectl -n kube-system apply -f -
 sleep 120
 kubectl -n kube-system logs deploy/coredns --tail=10
-kubectl -n kube-system create configmap coredns --from-file=Corefile=/tmp/Corefile.orig --dry-run=client -o yaml | kubectl -n kube-system apply -f -</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n kube-system get cm coredns -o jsonpath='{.data.Corefile}' | tee /tmp/Corefile.orig</b>
+kubectl -n kube-system create configmap coredns --from-file=Corefile=/tmp/Corefile.orig --dry-run=client -o yaml | kubectl -n kube-system apply -f -</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n kube-system get cm coredns -o jsonpath='{.data.Corefile}' | tee /tmp/Corefile.orig</b>
+.:53 {
+    errors
+    health {
+       lameduck 5s
+    }
+    ready
+    hosts {
+        172.18.0.6 gitea.lab
+        172.18.0.2 kind-registry
+        fallthrough
+    }
+    kubernetes cluster.local in-addr.arpa ip6.arpa {
+       pods insecure
+       fallthrough in-addr.arpa ip6.arpa
+       ttl 30
+    }
+    prometheus :9153
+    forward . /etc/resolv.conf {
+       max_concurrent 1000
+    }
+    cache 30 {
+       disable success cluster.local
+       disable denial cluster.local
+    }
+    loop
+    reload
+    loadbalance
+}
 <b>$ printf '%s\nconsul.local:53 {\n    errors\n    cache 30\n    forward . 10.150.0.1\n}\n' "$(cat /tmp/Corefile.orig)" &gt; /tmp/Corefile.new</b>
 <b>$ kubectl -n kube-system create configmap coredns --from-file=Corefile=/tmp/Corefile.new --dry-run=client -o yaml | kubectl -n kube-system apply -f -</b>
+configmap/coredns configured
 <b>$ sleep 120</b>
 <b>$ kubectl -n kube-system logs deploy/coredns --tail=10</b>
+Found 2 pods, using pod/coredns-754f9cbf9f-9kjvm
+[INFO] plugin/reload: Running configuration SHA512 = 21ac5a0b49ecc87479896d161ce04e13d5464755235ff622730e3dfae4608be276f4a5f8b10043b699e176d468200893ab00c7ce401fe4e331b9c0e19f77eb6d
+CoreDNS-1.14.2
+linux/amd64, go1.26.1, dd1df4f
+[ERROR] plugin/errors: 2 _grpclb._tcp.argocd-repo-server. SRV: read udp 10.244.2.138:45773-&gt;172.18.0.1:53: i/o timeout
+[ERROR] plugin/errors: 2 _grpclb._tcp.spire-server.spire. SRV: read udp 10.244.2.138:41440-&gt;172.18.0.1:53: i/o timeout
+[ERROR] plugin/errors: 2 _grpclb._tcp.spire-server.spire. SRV: read udp 10.244.2.138:45718-&gt;172.18.0.1:53: i/o timeout
+[ERROR] plugin/errors: 2 _grpclb._tcp.spire-server.spire. SRV: read udp 10.244.2.138:60045-&gt;172.18.0.1:53: i/o timeout
+[INFO] Reloading
+[INFO] plugin/reload: Running configuration SHA512 = fa9459fcfd404334de10bf2f59ce4f79c08316d97dff8ba20f46ce959b71a49c67999e92a94381f4cab42431a2af64dcc71ec6d1681cd790c23927cc3c07ac13
+[INFO] Reloading complete
 <b>$ kubectl -n kube-system create configmap coredns --from-file=Corefile=/tmp/Corefile.orig --dry-run=client -o yaml | kubectl -n kube-system apply -f -</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+configmap/coredns configured</code></pre></details></div>
       <div class="verify"><b>verify:</b> the log shows a reload line naming the new plugin set, and resolution of everything else is unaffected. Break the block on purpose (drop a brace) and the same log line becomes a parse error with the offending line number; that error is the one you will be shown in a task.</div>
     </div>
 
@@ -615,10 +691,15 @@ pod "hn2" deleted from default namespace</code></pre></details></div>
       <p>Cilium may or may not be doing kube-proxy's job, and the answer changes what you look at when a Service stops working. Ask the agent rather than guessing from the pod list.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status | grep -i -A2 'KubeProxyReplacement'
 kubectl -n kube-system get cm cilium-config -o jsonpath='{.data.kube-proxy-replacement}{"\n"}'
-kubectl -n kube-system get ds -l k8s-app=kube-proxy</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status | grep -i -A2 'KubeProxyReplacement'</b>
+kubectl -n kube-system get ds -l k8s-app=kube-proxy</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status | grep -i -A2 'KubeProxyReplacement'</b>
+KubeProxyReplacement:    False   
+Host firewall:           Disabled
+SRv6:                    Disabled
 <b>$ kubectl -n kube-system get cm cilium-config -o jsonpath='{.data.kube-proxy-replacement}{"\n"}'</b>
+false
 <b>$ kubectl -n kube-system get ds -l k8s-app=kube-proxy</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+NAME         DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR            AGE
+kube-proxy   3         3         3       3            3           kubernetes.io/os=linux   16h</code></pre></details></div>
       <div class="verify"><b>verify:</b> the agent's own report and the ConfigMap key agree, and you can say whether iptables or eBPF is programming Service VIPs on this cluster.</div>
     </div>
 
@@ -638,22 +719,78 @@ kubectl get endpointslices -l kubernetes.io/service-name=demo -o yaml | grep -B2
 kubectl delete svc demo --ignore-not-found
 kubectl delete deployment demo --ignore-not-found
 kubectl label node cnpe-worker topology.kubernetes.io/zone-
-kubectl label node cnpe-worker2 topology.kubernetes.io/zone-</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create deployment demo --image=nginx:1.27-alpine --replicas=4</b>
+kubectl label node cnpe-worker2 topology.kubernetes.io/zone-</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create deployment demo --image=nginx:1.27-alpine --replicas=4</b>
+deployment.apps/demo created
 <b>$ kubectl expose deployment demo --port=80</b>
+service/demo exposed
 <b>$ kubectl patch svc demo -p '{"spec":{"trafficDistribution":"PreferSameZone"}}'</b>
+service/demo patched
 <b>$ kubectl get svc demo -o jsonpath='{.spec.trafficDistribution}{"\n"}'</b>
+PreferSameZone
 <b>$ kubectl get endpointslices -l kubernetes.io/service-name=demo -o yaml | grep -B2 -A3 hints</b>
 <b>$ kubectl label node cnpe-worker topology.kubernetes.io/zone=a --overwrite</b>
+node/cnpe-worker labeled
 <b>$ kubectl label node cnpe-worker2 topology.kubernetes.io/zone=b --overwrite</b>
+node/cnpe-worker2 labeled
 <b>$ kubectl rollout restart deployment demo</b>
+deployment.apps/demo restarted
 <b>$ kubectl rollout status deployment demo</b>
+Waiting for deployment spec update to be observed...
+Waiting for deployment "demo" rollout to finish: 1 out of 4 new replicas have been updated...
+Waiting for deployment "demo" rollout to finish: 1 out of 4 new replicas have been updated...
+Waiting for deployment "demo" rollout to finish: 2 out of 4 new replicas have been updated...
+Waiting for deployment "demo" rollout to finish: 2 out of 4 new replicas have been updated...
+Waiting for deployment "demo" rollout to finish: 2 out of 4 new replicas have been updated...
+Waiting for deployment "demo" rollout to finish: 2 out of 4 new replicas have been updated...
+Waiting for deployment "demo" rollout to finish: 2 out of 4 new replicas have been updated...
+Waiting for deployment "demo" rollout to finish: 2 out of 4 new replicas have been updated...
+Waiting for deployment "demo" rollout to finish: 2 out of 4 new replicas have been updated...
+Waiting for deployment "demo" rollout to finish: 2 out of 4 new replicas have been updated...
+Waiting for deployment "demo" rollout to finish: 3 out of 4 new replicas have been updated...
+Waiting for deployment "demo" rollout to finish: 3 out of 4 new replicas have been updated...
+Waiting for deployment "demo" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "demo" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "demo" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "demo" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "demo" rollout to finish: 3 of 4 updated replicas are available...
+deployment "demo" successfully rolled out
 <b>$ kubectl get endpointslices -l kubernetes.io/service-name=demo -o yaml | grep -B2 -A3 hints</b>
+      serving: true
+      terminating: false
+    hints:
+      forZones:
+      - name: a
+    nodeName: cnpe-worker
+--
+      serving: true
+      terminating: false
+    hints:
+      forZones:
+      - name: b
+    nodeName: cnpe-worker2
+--
+      serving: true
+      terminating: false
+    hints:
+      forZones:
+      - name: a
+    nodeName: cnpe-worker
+--
+      serving: true
+      terminating: false
+    hints:
+      forZones:
+      - name: b
+    nodeName: cnpe-worker2
 <b>$ # the scheduling exercises on this page assume unzoned nodes</b>
 <b>$ kubectl delete svc demo --ignore-not-found</b>
+service "demo" deleted from default namespace
 <b>$ kubectl delete deployment demo --ignore-not-found</b>
+deployment.apps "demo" deleted from default namespace
 <b>$ kubectl label node cnpe-worker topology.kubernetes.io/zone-</b>
+node/cnpe-worker unlabeled
 <b>$ kubectl label node cnpe-worker2 topology.kubernetes.io/zone-</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+node/cnpe-worker2 unlabeled</code></pre></details></div>
       <div class="verify"><b>verify:</b> hints appear only once the nodes carry <code>topology.kubernetes.io/zone</code>, and each endpoint's hint names its own zone. Clean up the labels afterwards so the scheduling exercises still behave.</div>
     </div>
 

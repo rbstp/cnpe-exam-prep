@@ -489,7 +489,11 @@ kubectl patch pdb crasher --type merge -p '{"spec":{"unhealthyPodEvictionPolicy"
 kubectl drain cnpe-worker2 --pod-selector app=crasher --ignore-daemonsets --delete-emptydir-data --timeout=60s
 kubectl uncordon cnpe-worker2
 kubectl delete deployment crasher
-kubectl delete pdb crasher</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get pdb -A -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,ALLOWED:.status.disruptionsAllowed</b>
+kubectl delete pdb crasher</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get pdb -A -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,ALLOWED:.status.disruptionsAllowed</b>
+NS                  NAME                            ALLOWED
+gatekeeper-system   gatekeeper-controller-manager   0
+team-a              pg-primary                      0
+tracing             otel-collector                  1
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: apps/v1</b>
 <b>kind: Deployment</b>
@@ -513,16 +517,69 @@ kubectl delete pdb crasher</code></pre><details class="out pending"><summary>out
 <b>  minAvailable: 100%</b>
 <b>  selector: { matchLabels: { app: crasher } }</b>
 <b>EOF</b>
+deployment.apps/crasher created
+poddisruptionbudget.policy/crasher created
 <b>$ sleep 30</b>
 <b>$ # --pod-selector keeps the drain to this exercise's pods; without it you evict the lab off this node</b>
 <b>$ kubectl get pdb crasher -o jsonpath='{.status.disruptionsAllowed}{"\n"}'</b>
+0
 <b>$ kubectl drain cnpe-worker2 --pod-selector app=crasher --ignore-daemonsets --delete-emptydir-data --timeout=60s</b>
+node/cnpe-worker2 cordoned
+evicting pod default/crasher-7857b795db-hbpzj
+evicting pod default/crasher-7857b795db-854th
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+error when evicting pods/"crasher-7857b795db-854th" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-hbpzj
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-854th
+error when evicting pods/"crasher-7857b795db-854th" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-hbpzj
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-854th
+error when evicting pods/"crasher-7857b795db-854th" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-hbpzj
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-854th
+error when evicting pods/"crasher-7857b795db-854th" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-hbpzj
+evicting pod default/crasher-7857b795db-854th
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+error when evicting pods/"crasher-7857b795db-854th" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-hbpzj
+evicting pod default/crasher-7857b795db-854th
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+error when evicting pods/"crasher-7857b795db-854th" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-hbpzj
+evicting pod default/crasher-7857b795db-854th
+error when evicting pods/"crasher-7857b795db-854th" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-854th
+evicting pod default/crasher-7857b795db-hbpzj
+error when evicting pods/"crasher-7857b795db-854th" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-854th
+evicting pod default/crasher-7857b795db-hbpzj
+error when evicting pods/"crasher-7857b795db-854th" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-854th
+evicting pod default/crasher-7857b795db-hbpzj
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+<i>... 19 more lines</i>
 <b>$ kubectl patch pdb crasher --type merge -p '{"spec":{"unhealthyPodEvictionPolicy":"AlwaysAllow"}}'</b>
+poddisruptionbudget.policy/crasher patched
 <b>$ kubectl drain cnpe-worker2 --pod-selector app=crasher --ignore-daemonsets --delete-emptydir-data --timeout=60s</b>
+node/cnpe-worker2 already cordoned
+evicting pod default/crasher-7857b795db-hbpzj
+evicting pod default/crasher-7857b795db-854th
+pod/crasher-7857b795db-854th evicted
+pod/crasher-7857b795db-hbpzj evicted
+node/cnpe-worker2 drained
 <b>$ kubectl uncordon cnpe-worker2</b>
+node/cnpe-worker2 uncordoned
 <b>$ kubectl delete deployment crasher</b>
+deployment.apps "crasher" deleted from default namespace
 <b>$ kubectl delete pdb crasher</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+poddisruptionbudget.policy "crasher" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> <code>disruptionsAllowed</code> is 0, and the first drain refuses both pods with <code>Cannot evict pod as it would violate the pod's disruption budget</code> until it times out. After <code>unhealthyPodEvictionPolicy: AlwaysAllow</code> the same command evicts both and prints <code>node/cnpe-worker2 drained</code>. Note the <code>--pod-selector</code>: without it this drain empties the node, and half the lab is on it.</div>
     </div>
 
@@ -530,10 +587,30 @@ kubectl delete pdb crasher</code></pre><details class="out pending"><summary>out
       <p>Allocatable is capacity minus what the kubelet reserved, and the reservation is a kubelet flag rather than anything in the API. Read both halves on the same node so the subtraction is yours, not a slide's.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl get node cnpe-worker -o jsonpath='{"capacity:    cpu "}{.status.capacity.cpu}{", memory "}{.status.capacity.memory}{"\n"}{"allocatable: cpu "}{.status.allocatable.cpu}{", memory "}{.status.allocatable.memory}{"\n"}'
 kubectl get --raw /api/v1/nodes/cnpe-worker/proxy/configz | jq '.kubeletconfig | {kubeReserved, systemReserved, evictionHard}'
-kubectl describe node cnpe-worker | sed -n '/Allocated resources/,/Events/p'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get node cnpe-worker -o jsonpath='{"capacity:    cpu "}{.status.capacity.cpu}{", memory "}{.status.capacity.memory}{"\n"}{"allocatable: cpu "}{.status.allocatable.cpu}{", memory "}{.status.allocatable.memory}{"\n"}'</b>
+kubectl describe node cnpe-worker | sed -n '/Allocated resources/,/Events/p'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get node cnpe-worker -o jsonpath='{"capacity:    cpu "}{.status.capacity.cpu}{", memory "}{.status.capacity.memory}{"\n"}{"allocatable: cpu "}{.status.allocatable.cpu}{", memory "}{.status.allocatable.memory}{"\n"}'</b>
+capacity:    cpu 16, memory 32747836Ki
+allocatable: cpu 16, memory 32747836Ki
 <b>$ kubectl get --raw /api/v1/nodes/cnpe-worker/proxy/configz | jq '.kubeletconfig | {kubeReserved, systemReserved, evictionHard}'</b>
+{
+  "kubeReserved": null,
+  "systemReserved": null,
+  "evictionHard": {
+    "imagefs.available": "0%",
+    "nodefs.available": "0%",
+    "nodefs.inodesFree": "0%"
+  }
+}
 <b>$ kubectl describe node cnpe-worker | sed -n '/Allocated resources/,/Events/p'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Allocated resources:
+  (Total limits may be over 100 percent, i.e., overcommitted.)
+  Resource           Requests      Limits
+  --------           --------      ------
+  cpu                1811m (11%)   9450m (59%)
+  memory             3714Mi (11%)  12800Mi (40%)
+  ephemeral-storage  0 (0%)        0 (0%)
+  hugepages-1Gi      0 (0%)        0 (0%)
+  hugepages-2Mi      0 (0%)        0 (0%)
+Events:</code></pre></details></div>
       <div class="verify"><b>verify:</b> Capacity and Allocatable are identical on this node. The kubelet reserves nothing here, <code>kubeReserved</code> and <code>systemReserved</code> both read null and <code>evictionHard</code> is 0% on every signal, so there is no gap to subtract. The scheduler adds pod requests up against Allocatable, which is the number the <code>Allocated resources</code> block takes its percentages from.</div>
     </div>
 
