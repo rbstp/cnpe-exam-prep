@@ -1,11 +1,23 @@
 # Curriculum command queue
 
+**This queue is finished.** It is kept as the record of what was added and why, and as the
+procedure to follow if more exercises are ever queued the same way.
+
 The September 2026 curriculum expansion added theory panels to every section but no command
 blocks, because every block on the site was executed against the lab and its output captured, and
-none of these had been. This file is the queue of 178 commands and exercises the research
+none of these had been. This file was the queue of 178 commands and exercises the research
 found worth adding, grouped by section, each with the outcome the captured output should show.
-Work it in two passes: first insert each item as an exercise with a **placeholder** output drawer,
+It was worked in two passes: insert each item as an exercise with a **placeholder** output drawer,
 then run it against the lab and replace the placeholder with the real output.
+
+**Outcome: 170 exercises landed, 8 were dropped.** Every drawer on the site now holds real output;
+none are pending. The output for these 170 was captured on 2026-09-12 against Kubernetes 1.36.1,
+before the lab's `K8S_IMAGE` pin moved to 1.37.0. The eight dropped items are struck through in
+the list below, each with its reason. Four were dropped because they restart the API server and
+crashloop every controller in the cluster for minutes (encryption at rest, the PodSecurity
+`AdmissionConfiguration`, the audit policy, and the VAP audit annotation that depended on it).
+Four more were dropped on the evidence of running them: OLM v1, the Grafana Operator dashboard,
+Falco, and the sigstore policy-controller.
 
 ## How an item is inserted
 
@@ -77,8 +89,10 @@ Read the layer script under `scripts/` for anything not listed; names there are 
 
 ## The queue
 
-The tracker page published alongside this work has a checkbox per item; tick one once its drawer
-holds real output.
+Every unchecked box below landed and its drawer holds real lab output; the eight struck-through
+entries are the ones that did not. The boxes are left unticked because the list is a record now,
+not a worklist. (A tracker page with a checkbox per item was published alongside the work; it
+lives outside this repository.)
 
 ### Domain 1: Platform architecture and infrastructure (lab layers: make up (+sec, obs))
 

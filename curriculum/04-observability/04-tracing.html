@@ -258,11 +258,11 @@ sidecar-demo ghcr.io/stefanprodan/podinfo:6.7.1
 pod "sidecar-demo" deleted from default namespace
 <b>$ kubectl -n default delete opentelemetrycollector side</b>
 opentelemetrycollector.opentelemetry.io "side" deleted from default namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the pod has two containers and you only asked for one. Say what the sidecar buys over pointing the app straight at the gateway collector, and what it costs you per pod.</div>
+      <div class="verify"><b>verify:</b> the pod has two containers and you only asked for one.</div>
     </div>
 
     <div class="exercise" data-title="Sample on the tail, not the head">
-      <p>Head sampling throws away traces before anything is known about them. Tail sampling waits for the whole trace and keeps the errors and the slow ones, which is the only policy that survives contact with an incident.</p>
+      <p>Head sampling throws away traces before anything is known about them. Tail sampling waits for the whole trace and then keeps the errors and the slow ones, paid for by buffering every span until the decision is made.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n tracing get opentelemetrycollector otel -o jsonpath='{.spec.config.service.pipelines.traces}' | jq
 kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"processors":{"tail_sampling":{"decision_wait":"10s","policies":[{"name":"errors","type":"status_code","status_code":{"status_codes":["ERROR"]}},{"name":"slow","type":"latency","latency":{"threshold_ms":500}}]}},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","tail_sampling","batch"],"exporters":["otlp/jaeger"]}}}}}}'
 kubectl -n tracing rollout status deploy otel-collector --timeout=180s
@@ -564,7 +564,7 @@ Defaulted container "pytraced" out of: pytraced, opentelemetry-auto-instrumentat
 instrumentation.opentelemetry.io/auto patched
 <b>$ kubectl -n default delete pod pytraced</b>
 pod "pytraced" deleted from default namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the pod log carries a connection or protocol error from the OTLP exporter naming the endpoint. Say which port speaks gRPC and which speaks HTTP, and which one the Python agent defaults to.</div>
+      <div class="verify"><b>verify:</b> the pod log carries a connection or protocol error from the OTLP exporter naming the endpoint.</div>
     </div>
 
     <div class="exercise" data-title="Turn spans into metrics">
@@ -649,7 +649,7 @@ traces_span_metrics_duration_milliseconds_count{collector_instance_id="e12e23aa-
 traces_span_metrics_duration_milliseconds_bucket{collector_instance_id="e12e23aa-5f16-4d41-a030-ad9950fa106a",job="metered",otel_scope_name="spanmetricsconnector",otel_scope_schema_url="",otel_scope_version="",service_name="metered",span_kind="SPAN_KIND_SERVER",span_name="okey-dokey-0",status_code="STATUS_CODE_UNSET",le="100"} 20
 traces_span_metrics_duration_milliseconds_bucket{collector_instance_id="e12e23aa-5f16-4d41-a030-ad9950fa106a",job="metered",otel_scope_name="spanmetricsconnector",otel_scope_schema_url="",otel_scope_version="",service_name="metered",span_kind="SPAN_KIND_SERVER",span_name="okey-dokey-0",status_code="STATUS_CODE_UNSET",le="500"} 20
 <b>$ kill $PF1</b></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the collector's own metrics endpoint serves call counts and duration buckets labelled by service and span name. Say what you would have to add for Prometheus to scrape that endpoint, and why a ServiceMonitor is the answer rather than a ScrapeConfig.</div>
+      <div class="verify"><b>verify:</b> the collector's own metrics endpoint serves call counts and duration buckets labelled by service and span name.</div>
     </div>
 
     <div class="exercise" data-title="Ask Jaeger what it is made of">

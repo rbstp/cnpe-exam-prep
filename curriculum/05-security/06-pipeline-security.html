@@ -208,19 +208,39 @@ Error from server: admission webhook "ivpol.validate.kyverno.svc-fail" denied th
     </div>
 
     <div class="exercise" data-title="Verify a keyless signature properly">
-      <p>Keyless verification without identity flags is not verification: it asks "was this signed by anyone", which is a question with a useless answer. cosign refuses to do it, and the refusal is the lesson.</p>
-      <div class="cb" data-lang="bash"><pre><code>cosign verify ghcr.io/kyverno/kyverno:v1.13.2 2&gt;&amp;1 | head -10
-cosign verify ghcr.io/kyverno/kyverno:v1.13.2 \
-  --certificate-identity-regexp='^https://github.com/kyverno/kyverno/.*' \
-  --certificate-oidc-issuer=https://token.actions.githubusercontent.com 2&gt;&amp;1 | head -20</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ cosign verify ghcr.io/kyverno/kyverno:v1.13.2 2&gt;&amp;1 | head -10</b>
+      <p>Keyless verification without identity flags is not verification: it asks "was this signed by anyone", which is a question with a useless answer. cosign refuses to do it. The second and third commands are the pair worth knowing: a wrong identity fails with the identity that is actually on the certificate printed in the error, which is how you find the right flags for an image you did not build.</p>
+      <div class="cb" data-lang="bash"><pre><code># no identity at all: cosign will not answer the question
+cosign verify ghcr.io/sigstore/cosign/cosign:v2.4.1 2&gt;&amp;1 | head -3
+# an identity that does not match: the error names the one that is actually on the certificate
+cosign verify ghcr.io/sigstore/cosign/cosign:v2.4.1 \
+  --certificate-identity-regexp='^https://github.com/sigstore/cosign/.*' \
+  --certificate-oidc-issuer=https://token.actions.githubusercontent.com 2&gt;&amp;1 | head -4
+# the identity the certificate really carries
+cosign verify ghcr.io/sigstore/cosign/cosign:v2.4.1 \
+  --certificate-identity=keyless@projectsigstore.iam.gserviceaccount.com \
+  --certificate-oidc-issuer=https://accounts.google.com 2&gt;&amp;1 | head -6</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # no identity at all: cosign will not answer the question</b>
+<b>$ cosign verify ghcr.io/sigstore/cosign/cosign:v2.4.1 2&gt;&amp;1 | head -3</b>
 Error: --certificate-identity or --certificate-identity-regexp is required for verification in keyless mode
 error during command execution: --certificate-identity or --certificate-identity-regexp is required for verification in keyless mode
-<b>$ cosign verify ghcr.io/kyverno/kyverno:v1.13.2 \</b>
-<b>    --certificate-identity-regexp='^https://github.com/kyverno/kyverno/.*' \</b>
-<b>    --certificate-oidc-issuer=https://token.actions.githubusercontent.com 2&gt;&amp;1 | head -20</b>
-Error: no signatures found
-error during command execution: no signatures found</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the first command refuses, saying an identity must be specified, and the second either verifies or fails on a mismatch you can read. Say what the two flags are actually asserting, and why a signature without them proves nothing about provenance.</div>
+<b>$ # an identity that does not match: the error names the one that is actually on the certificate</b>
+<b>$ cosign verify ghcr.io/sigstore/cosign/cosign:v2.4.1 \</b>
+<b>    --certificate-identity-regexp='^https://github.com/sigstore/cosign/.*' \</b>
+<b>    --certificate-oidc-issuer=https://token.actions.githubusercontent.com 2&gt;&amp;1 | head -4</b>
+Error: no matching signatures: error verifying bundle: empty key
+ none of the expected identities matched what was in the certificate, got subjects [keyless@projectsigstore.iam.gserviceaccount.com] with issuer https://accounts.google.com
+error during command execution: no matching signatures: error verifying bundle: empty key
+ none of the expected identities matched what was in the certificate, got subjects [keyless@projectsigstore.iam.gserviceaccount.com] with issuer https://accounts.google.com
+<b>$ # the identity the certificate really carries</b>
+<b>$ cosign verify ghcr.io/sigstore/cosign/cosign:v2.4.1 \</b>
+<b>    --certificate-identity=keyless@projectsigstore.iam.gserviceaccount.com \</b>
+<b>    --certificate-oidc-issuer=https://accounts.google.com 2&gt;&amp;1 | head -6</b>
+
+Verification for ghcr.io/sigstore/cosign/cosign:v2.4.1 --
+The following checks were performed on each of these signatures:
+  - The cosign claims were validated
+  - Existence of the claims in the transparency log was verified offline
+  - The code-signing certificate was verified using trusted certificate authority certificates</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the first command refuses with <code>--certificate-identity or --certificate-identity-regexp is required for verification in keyless mode</code>. The second fails with <code>none of the expected identities matched what was in the certificate, got subjects [keyless@projectsigstore.iam.gserviceaccount.com] with issuer https://accounts.google.com</code>, which hands you the answer. The third, using exactly that subject and issuer, prints <code>Verification for ...</code> and the list of checks performed. Note that this release is signed by a Google service account rather than a GitHub Actions workflow, which is why guessing the GitHub identity fails.</div>
     </div>
 
     <div class="exercise" data-title="Attest an SBOM and read it back">
@@ -283,7 +303,7 @@ The following checks were performed on each of these signatures:
   "predicateType": "https://cyclonedx.org/bom",
   "components": 114
 }</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the tree shows an attestation alongside the image, and the verified payload's <code>predicateType</code> is the CycloneDX one with the component list intact. Say where that attestation is stored, and what happens to it if someone retags the image.</div>
+      <div class="verify"><b>verify:</b> the tree shows an attestation alongside the image, and the verified payload's <code>predicateType</code> is the CycloneDX one with the component list intact.</div>
     </div>
 
     <div class="exercise" data-title="Make Chains sign the build">
@@ -431,7 +451,7 @@ require-provenance:
 <b>$ kubectl delete clusterpolicy require-provenance</b>
 Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
 clusterpolicy.kyverno.io "require-provenance" deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the image Chains built is admitted and the retagged busybox is refused with a message about the missing attestation. Say what an attacker who can push to the registry but not sign can and cannot do under this policy.</div>
+      <div class="verify"><b>verify:</b> the image Chains built is admitted and the retagged busybox is refused with a message about the missing attestation.</div>
     </div>
 
     <div class="exercise" data-title="Rewrite the tag to a digest">
@@ -520,7 +540,7 @@ pod "pinned" deleted from default namespace
 <b>$ kubectl delete clusterpolicy pin-digest</b>
 Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
 clusterpolicy.kyverno.io "pin-digest" deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the running pod's image is <code>...@sha256:...</code> even though you asked for a tag. Say what this protects against that verification alone does not, and what it costs a team that relies on moving tags.</div>
+      <div class="verify"><b>verify:</b> the running pod's image is <code>...@sha256:...</code> even though you asked for a tag.</div>
     </div>
 
     <div class="exercise" data-title="Three ways to configure the same gate">
@@ -721,7 +741,7 @@ Total: 2 (CRITICAL: 2)
 │            │                │          │        │                   │               │ https://avd.aquasec.com/nvd/cve-2026-31789               │
 ├────────────┤                │          │        │                   │               │                                                          │
 <i>... 37 more lines</i></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the exit code changes between the runs, and the expired ignore entry no longer suppresses while the future-dated one does. Say which of these three you would put in a pipeline and what you would do about the findings the flag hides.</div>
+      <div class="verify"><b>verify:</b> the exit code changes between the runs, and the expired ignore entry no longer suppresses while the future-dated one does.</div>
     </div>
 
   </div>

@@ -216,7 +216,7 @@ sneaky   0/1     0            0           11s
     </div>
 
     <div class="exercise" data-title="runAsNonRoot meets a root image">
-      <p>Pod Security admits this pod happily: the spec is compliant. The kubelet then refuses to start it, because the image's user is root and the spec said not root. Two different layers, two different error surfaces, one confusing ticket.</p>
+      <p>Pod Security admits this pod happily: the spec is compliant. The kubelet then refuses to start it, because the image's user is root and the spec said not root. The refusal therefore lands in the container status, not at admission, which is why the pod is created and never runs.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl create ns hardened --dry-run=client -o yaml | kubectl apply -f -
 kubectl label ns hardened pod-security.kubernetes.io/enforce=restricted --overwrite
 kubectl -n hardened apply -f - &lt;&lt;'EOF'
@@ -275,7 +275,7 @@ Events:
   Warning  Failed           7s (x3 over 19s)  kubelet            spec.containers{c}: Error: container has runAsNonRoot and image will run as root (pod: "rootimage_hardened(b1353a96-63bb-4895-b6f2-838249d72469)", container: c)
 <b>$ kubectl -n hardened delete pod rootimage</b>
 pod "rootimage" deleted from hardened namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> admission accepts the pod and the container status is <code>CreateContainerConfigError</code> with an event saying the container has runAsNonRoot and the image will run as root. Say which of the two layers you would fix and what the fix is in the image.</div>
+      <div class="verify"><b>verify:</b> admission accepts the pod and the container status is <code>CreateContainerConfigError</code> with an event saying the container has runAsNonRoot and the image will run as root.</div>
     </div>
 
     <div class="exercise" data-title="Debug into a restricted namespace">
@@ -303,7 +303,7 @@ pod "target" deleted from hardened namespace</code></pre></details></div>
     </div>
 
     <div class="exercise" data-title="Give a pod its own user namespace">
-      <p><code>hostUsers: false</code> maps the container's root to an unprivileged uid on the host, which defangs a whole class of escapes. Whether it works depends on the kernel and the runtime, so the check is worth as much as the feature.</p>
+      <p><code>hostUsers: false</code> maps the container's root to an unprivileged uid on the host, which defangs a whole class of escapes. Whether it works depends on the kernel and the runtime, and in this lab it does not: a kind node is itself a container, and the runtime will not give a nested user namespace the mounts it needs. The refusal is the exercise, because it is the same message you will read on any cluster where the feature is unavailable.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n default apply -f - &lt;&lt;'EOF'
 apiVersion: v1
 kind: Pod
@@ -315,8 +315,9 @@ spec:
       image: busybox:1.36
       command: ["sh", "-c", "sleep 600"]
 EOF
-sleep 20
+sleep 30
 kubectl -n default get pod userns -o jsonpath='{.status.phase} {.status.conditions[*].message}{"\n"}'
+kubectl -n default get events --field-selector involvedObject.name=userns -o jsonpath='{range .items[*]}{.reason}: {.message}{"\n"}{end}' | tail -1
 kubectl -n default exec userns -- cat /proc/self/uid_map
 kubectl -n default exec userns -- id
 kubectl -n default delete pod userns</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n default apply -f - &lt;&lt;'EOF'</b>
@@ -331,16 +332,18 @@ kubectl -n default delete pod userns</code></pre><details class="out"><summary>o
 <b>      command: ["sh", "-c", "sleep 600"]</b>
 <b>EOF</b>
 pod/userns created
-<b>$ sleep 20</b>
+<b>$ sleep 30</b>
 <b>$ kubectl -n default get pod userns -o jsonpath='{.status.phase} {.status.conditions[*].message}{"\n"}'</b>
 Pending containers with unready status: [c] containers with unready status: [c]
+<b>$ kubectl -n default get events --field-selector involvedObject.name=userns -o jsonpath='{range .items[*]}{.reason}: {.message}{"\n"}{end}' | tail -1</b>
+FailedCreatePodSandBox: Failed to create pod sandbox: rpc error: code = Unknown desc = failed to start sandbox "8f8262b522a1e5b8f11a084559e731dd00390acf1c8d8f4ebddd62f0452dc38d": failed to create containerd task: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: error mounting "sysfs" to rootfs at "/sys": mount src=sysfs, dst=/sys, dstFd=/proc/thread-self/fd/11, flags=MS_RDONLY|MS_NOSUID|MS_NODEV|MS_NOEXEC: operation not permitted
 <b>$ kubectl -n default exec userns -- cat /proc/self/uid_map</b>
 error: unable to upgrade connection: container not found ("c")
 <b>$ kubectl -n default exec userns -- id</b>
 error: unable to upgrade connection: container not found ("c")
 <b>$ kubectl -n default delete pod userns</b>
 pod "userns" deleted from default namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the uid map shows container uid 0 mapped to a high host uid rather than to 0. If the pod will not start, read the event: the message names the kernel or runtime requirement, and that message is the answer to the same task on an older cluster.</div>
+      <div class="verify"><b>verify:</b> the pod never leaves <code>ContainerCreating</code>, and the event is <code>FailedCreatePodSandBox ... error mounting "sysfs" to rootfs at "/sys": operation not permitted</code>. That is the runtime, not the API, refusing: admission accepted <code>hostUsers: false</code> quite happily. On a cluster where it does work, <code>cat /proc/self/uid_map</code> inside the pod shows container uid 0 mapped to a high host uid rather than to 0, which is the check worth remembering.</div>
     </div>
 
     <div class="exercise" data-title="Preview a tightening without breaking anyone">

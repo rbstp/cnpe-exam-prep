@@ -301,11 +301,19 @@ spec:
               owner: "?*"
 EOF
 sleep 10
+# an unchanged resource is never sent to admission, so each engine has to create one
+kubectl -n team-a delete deploy staging-demo --ignore-not-found
+kubectl -n flux-demo delete deploy demo --ignore-not-found
+# this app syncs automatically, so wait out the controller's own operation first
+argocd app wait demo-staging --operation --timeout 180 || true
 argocd app sync demo-staging --timeout 60 || true
+argocd app wait demo-staging --operation --timeout 180 || true
 kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{.status.operationState.message}{"\n"}'
 flux reconcile kustomization demo-flux --with-source || true
 kubectl -n flux-system get kustomization demo-flux -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
 kubectl delete clusterpolicy require-owner
+# this app syncs automatically, so wait out the controller's own operation first
+argocd app wait demo-staging --operation --timeout 180 || true
 argocd app sync demo-staging --timeout 120</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there</b>
 <b>$ ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')</b>
 <b>$ argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web</b>
@@ -334,12 +342,12 @@ Context '172.18.0.4:32015' updated
 Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
 clusterpolicy.kyverno.io/require-owner created
 <b>$ sleep 10</b>
-<b>$ argocd app sync demo-staging --timeout 60 || true</b>
-TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
-2026-09-13T01:00:56-04:00            Service      team-a          staging-demo    Synced  Healthy              
-2026-09-13T01:00:56-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
-2026-09-13T01:00:58-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              deployment.apps/staging-demo unchanged
-2026-09-13T01:00:58-04:00            Service      team-a          staging-demo    Synced  Healthy              service/staging-demo unchanged
+<b>$ # an unchanged resource is never sent to admission, so each engine has to create one</b>
+<b>$ kubectl -n team-a delete deploy staging-demo --ignore-not-found</b>
+<b>$ kubectl -n flux-demo delete deploy demo --ignore-not-found</b>
+deployment.apps "demo" deleted from flux-demo namespace
+<b>$ # this app syncs automatically, so wait out the controller's own operation first</b>
+<b>$ argocd app wait demo-staging --operation --timeout 180 || true</b>
 
 Name:               argocd/demo-staging
 Project:            default
@@ -352,23 +360,107 @@ Source:
   Path:             demo-app/overlays/staging
 SyncWindow:         Sync Allowed
 Sync Policy:        Automated (Prune)
-Sync Status:        Synced to main (83a41e2)
+Sync Status:        OutOfSync from main (83a41e2)
 Health Status:      Healthy
 
 Operation:          Sync
 Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
-Phase:              Succeeded
-Start:              2026-09-13 01:00:56 -0400 EDT
-Finished:           2026-09-13 01:00:57 -0400 EDT
-Duration:           1s
-Message:            successfully synced (all tasks run)
+Phase:              Failed
+Start:              2026-09-13 01:28:53 -0400 EDT
+Finished:           2026-09-13 01:34:21 -0400 EDT
+Duration:           5m28s
+Message:            one or more objects failed to apply, reason: Internal error occurred: failed calling webhook "mpol.validate.kyverno.svc-fail": failed to call webhook: Post "https://kyverno-svc.kyverno.svc:443/mpol/add-cost-centre-label?timeout=10s": dial tcp 10.96.38.245:443: connect: connection refused (retried 5 times).
 
-GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
-       Service     team-a     staging-demo  Synced  Healthy        service/staging-demo unchanged
-apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged
+GROUP  KIND        NAMESPACE  NAME          STATUS     HEALTH   HOOK  MESSAGE
+apps   Deployment  team-a     staging-demo  OutOfSync  Missing        Internal error occurred: failed calling webhook "mpol.validate.kyverno.svc-fail": failed to call webhook: Post "https://kyverno-svc.kyverno.svc:443/mpol/add-cost-centre-label?timeout=10s": dial tcp 10.96.38.245:443: connect: connection refused
+       Service     team-a     staging-demo  Synced     Healthy        
+<b>$ argocd app sync demo-staging --timeout 60 || true</b>
+TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS    HEALTH        HOOK  MESSAGE
+2026-09-13T01:34:57-04:00            Service      team-a          staging-demo    Synced   Healthy              
+2026-09-13T01:34:57-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Missing              
+2026-09-13T01:35:03-04:00            Service      team-a          staging-demo    Synced   Healthy              service/staging-demo unchanged
+2026-09-13T01:35:03-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Missing              admission webhook "validate.kyverno.svc-fail" denied the request: 
+
+resource Deployment/team-a/staging-demo was blocked due to the following policies 
+
+require-owner:
+  require-owner-label: 'validation error: every Deployment needs an owner label. rule require-owner-label failed at path /metadata/labels/owner/'
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        OutOfSync from main (83a41e2)
+Health Status:      Healthy
+
+Operation:          Sync
+Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Phase:              Failed
+Start:              2026-09-13 01:34:57 -0400 EDT
+Finished:           2026-09-13 01:35:03 -0400 EDT
+Duration:           6s
+Message:            one or more synchronization tasks completed unsuccessfully, reason: admission webhook "validate.kyverno.svc-fail" denied the request: 
+
+resource Deployment/team-a/staging-demo was blocked due to the following policies 
+
+require-owner:
+  require-owner-label: 'validation error: every Deployment needs an owner label. rule require-owner-label failed at path /metadata/labels/owner/'
+
+GROUP  KIND        NAMESPACE  NAME          STATUS     HEALTH   HOOK  MESSAGE
+       Service     team-a     staging-demo  Synced     Healthy        service/staging-demo unchanged
+<i>... 7 more lines</i>
+<b>$ argocd app wait demo-staging --operation --timeout 180 || true</b>
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        OutOfSync from main (83a41e2)
+Health Status:      Healthy
+
+Operation:          Sync
+Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Phase:              Failed
+Start:              2026-09-13 01:34:57 -0400 EDT
+Finished:           2026-09-13 01:35:03 -0400 EDT
+Duration:           6s
+Message:            one or more synchronization tasks completed unsuccessfully, reason: admission webhook "validate.kyverno.svc-fail" denied the request: 
+
+resource Deployment/team-a/staging-demo was blocked due to the following policies 
+
+require-owner:
+  require-owner-label: 'validation error: every Deployment needs an owner label. rule require-owner-label failed at path /metadata/labels/owner/'
+
+GROUP  KIND        NAMESPACE  NAME          STATUS     HEALTH   HOOK  MESSAGE
+       Service     team-a     staging-demo  Synced     Healthy        service/staging-demo unchanged
+apps   Deployment  team-a     staging-demo  OutOfSync  Missing        admission webhook "validate.kyverno.svc-fail" denied the request: 
+
+resource Deployment/team-a/staging-demo was blocked due to the following policies 
+
+require-owner:
+  require-owner-label: 'validation error: every Deployment needs an owner label. rule require-owner-label failed at path /metadata/labels/owner/'
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{.status.operationState.message}{"\n"}'</b>
-Succeeded
-successfully synced (all tasks run)
+Failed
+one or more synchronization tasks completed unsuccessfully, reason: admission webhook "validate.kyverno.svc-fail" denied the request: 
+
+resource Deployment/team-a/staging-demo was blocked due to the following policies 
+
+require-owner:
+  require-owner-label: 'validation error: every Deployment needs an owner label. rule require-owner-label failed at path /metadata/labels/owner/'
 <b>$ flux reconcile kustomization demo-flux --with-source || true</b>
 ► annotating GitRepository platform in flux-system namespace
 ✔ GitRepository annotated
@@ -377,23 +469,68 @@ successfully synced (all tasks run)
 ► annotating Kustomization demo-flux in flux-system namespace
 ✔ Kustomization annotated
 ◎ waiting for Kustomization reconciliation
-✔ applied revision main@sha1:83a41e21322e15eff2307bc1e9d5c89e33226d0d
+✗ context deadline exceeded
 <b>$ kubectl -n flux-system get kustomization demo-flux -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
 {
-  "type": "Ready",
+  "type": "Reconciling",
   "status": "True",
-  "reason": "ReconciliationSucceeded",
-  "message": "Applied revision: main@sha1:83a41e21322e15eff2307bc1e9d5c89e33226d0d"
+  "reason": "ProgressingWithRetry",
+  "message": "Detecting drift for revision main@sha1:83a41e21322e15eff2307bc1e9d5c89e33226d0d with a timeout of 30s"
+}
+{
+  "type": "Ready",
+  "status": "False",
+  "reason": "ReconciliationFailed",
+  "message": "Deployment/flux-demo/demo dry-run failed: admission webhook \"validate.kyverno.svc-fail\" denied the request: \n\nresource Deployment/flux-demo/demo was blocked due to the following policies \n\nrequire-owner:\n  require-owner-label: 'validation error: every Deployment needs an owner label. rule require-owner-label failed at path /metadata/labels/owner/'\n\n"
 }
 <b>$ kubectl delete clusterpolicy require-owner</b>
 Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
 clusterpolicy.kyverno.io "require-owner" deleted
+<b>$ # this app syncs automatically, so wait out the controller's own operation first</b>
+<b>$ argocd app wait demo-staging --operation --timeout 180 || true</b>
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        OutOfSync from main (83a41e2)
+Health Status:      Healthy
+
+Operation:          Sync
+Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Phase:              Failed
+Start:              2026-09-13 01:34:57 -0400 EDT
+Finished:           2026-09-13 01:35:03 -0400 EDT
+Duration:           6s
+Message:            one or more synchronization tasks completed unsuccessfully, reason: admission webhook "validate.kyverno.svc-fail" denied the request: 
+
+resource Deployment/team-a/staging-demo was blocked due to the following policies 
+
+require-owner:
+  require-owner-label: 'validation error: every Deployment needs an owner label. rule require-owner-label failed at path /metadata/labels/owner/'
+
+GROUP  KIND        NAMESPACE  NAME          STATUS     HEALTH   HOOK  MESSAGE
+       Service     team-a     staging-demo  Synced     Healthy        service/staging-demo unchanged
+apps   Deployment  team-a     staging-demo  OutOfSync  Missing        admission webhook "validate.kyverno.svc-fail" denied the request: 
+
+resource Deployment/team-a/staging-demo was blocked due to the following policies 
+
+require-owner:
+  require-owner-label: 'validation error: every Deployment needs an owner label. rule require-owner-label failed at path /metadata/labels/owner/'
 <b>$ argocd app sync demo-staging --timeout 120</b>
-TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
-2026-09-13T01:01:04-04:00            Service      team-a          staging-demo    Synced  Healthy              
-2026-09-13T01:01:04-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
-2026-09-13T01:01:06-04:00            Service      team-a          staging-demo    Synced  Healthy              service/staging-demo unchanged
-2026-09-13T01:01:06-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              deployment.apps/staging-demo unchanged
+TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS    HEALTH        HOOK  MESSAGE
+2026-09-13T01:40:10-04:00            Service      team-a          staging-demo    Synced   Healthy              
+2026-09-13T01:40:10-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Missing              
+2026-09-13T01:40:11-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Progressing              deployment.apps/staging-demo created
+2026-09-13T01:40:11-04:00            Service      team-a          staging-demo    Synced   Healthy                  service/staging-demo unchanged
+2026-09-13T01:40:12-04:00   apps  Deployment      team-a          staging-demo    Synced  Progressing              deployment.apps/staging-demo created
 
 Name:               argocd/demo-staging
 Project:            default
@@ -407,19 +544,19 @@ Source:
 SyncWindow:         Sync Allowed
 Sync Policy:        Automated (Prune)
 Sync Status:        Synced to main (83a41e2)
-Health Status:      Healthy
+Health Status:      Progressing
 
 Operation:          Sync
 Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
 Phase:              Succeeded
-Start:              2026-09-13 01:01:04 -0400 EDT
-Finished:           2026-09-13 01:01:06 -0400 EDT
-Duration:           2s
+Start:              2026-09-13 01:40:10 -0400 EDT
+Finished:           2026-09-13 01:40:11 -0400 EDT
+Duration:           1s
 Message:            successfully synced (all tasks run)
 
-GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
-       Service     team-a     staging-demo  Synced  Healthy        service/staging-demo unchanged
-apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged</code></pre></details></div>
+GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH       HOOK  MESSAGE
+       Service     team-a     staging-demo  Synced  Healthy            service/staging-demo unchanged
+apps   Deployment  team-a     staging-demo  Synced  Progressing        deployment.apps/staging-demo created</code></pre></details></div>
       <div class="verify"><b>verify:</b> Argo CD reports the operation <code>Failed</code> quoting the admission webhook by name, and Flux reports Ready False with a reconciliation failure quoting the same webhook. Same cause, two vocabularies; be able to translate either into "a policy refused the manifest".</div>
     </div>
 
@@ -531,7 +668,7 @@ Message:            successfully synced (all tasks run)
 GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
        Service     team-a     staging-demo  Synced  Healthy        service/staging-demo unchanged
 apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the message is about failing to call the webhook with no endpoints available, and it appears for plain kubectl writes as well as for the sync. Say which single field would have turned this outage into a gap in policy coverage instead.</div>
+      <div class="verify"><b>verify:</b> the message is about failing to call the webhook with no endpoints available, and it appears for plain kubectl writes as well as for the sync.</div>
     </div>
 
     <div class="exercise" data-title="The webhook that refuses dry run">

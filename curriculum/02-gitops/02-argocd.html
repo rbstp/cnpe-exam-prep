@@ -628,7 +628,7 @@ Message:            successfully synced (all tasks run)
 GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
        Service     team-a     staging-demo  Synced  Healthy        service/staging-demo unchanged
 apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the clean run ends <code>Succeeded</code> with every resource Synced. After the selector is broken, <code>operationState</code> carries <code>Deployment/staging-demo SyncFailed error when patching ...: spec.selector: Invalid value ...: field is immutable</code>, which is the sentence you would paste into an incident channel. The manual sync in the middle may also come back <code>another operation is already in progress</code>: this app syncs automatically, so the controller was already doing the same work. Say which of the two you would trust when they disagree.</div>
+      <div class="verify"><b>verify:</b> the clean run ends <code>Succeeded</code> with every resource Synced. After the selector is broken, <code>operationState</code> carries <code>Deployment/staging-demo SyncFailed error when patching ...: spec.selector: Invalid value ...: field is immutable</code>, which is the sentence you would paste into an incident channel. The manual sync in the middle may also come back <code>another operation is already in progress</code>: this app syncs automatically, so the controller was already doing the same work.</div>
     </div>
 
     <div class="exercise" data-title="Ask for a repo the project forbids">
@@ -697,20 +697,26 @@ applicationset.argoproj.io/demo-envs unchanged
 <b>$ sleep 20</b>
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status} {.status.health.status}{"\n"}'</b>
 Synced Healthy</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the Deployment keeps serving with the Application gone, and re-applying the ApplicationSet adopts it back without recreating it. Name the field that would have taken the workload down with the app.</div>
+      <div class="verify"><b>verify:</b> the Deployment keeps serving with the Application gone, and re-applying the ApplicationSet adopts it back without recreating it.</div>
     </div>
 
     <div class="exercise" data-title="Refresh without the CLI">
       <p><code>argocd app get --refresh</code> is a convenience over an annotation. Knowing the annotation means you can force a refresh from any machine that can reach the API server, including one with no Argo CD CLI on it.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd annotate app demo-staging argocd.argoproj.io/refresh=hard --overwrite
+      <div class="cb" data-lang="bash"><pre><code>BEFORE=$(kubectl -n argocd get app demo-staging -o jsonpath='{.status.reconciledAt}'); echo "before: $BEFORE"
+kubectl -n argocd annotate app demo-staging argocd.argoproj.io/refresh=hard --overwrite
 sleep 10
 kubectl -n argocd get app demo-staging -o jsonpath='{.metadata.annotations}' | jq
-kubectl -n argocd get app demo-staging -o jsonpath='{.status.reconciledAt}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n argocd annotate app demo-staging argocd.argoproj.io/refresh=hard --overwrite</b>
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.reconciledAt}{"\n"}' | sed 's/^/after:  /'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ BEFORE=$(kubectl -n argocd get app demo-staging -o jsonpath='{.status.reconciledAt}'); echo "before: $BEFORE"</b>
+before: 2026-09-13T10:45:51Z
+<b>$ kubectl -n argocd annotate app demo-staging argocd.argoproj.io/refresh=hard --overwrite</b>
 application.argoproj.io/demo-staging annotated
 <b>$ sleep 10</b>
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.metadata.annotations}' | jq</b>
-<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.reconciledAt}{"\n"}'</b>
-2026-09-13T02:02:43Z</code></pre></details></div>
+{
+  "argocd.argoproj.io/hydrate": "normal"
+}
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.reconciledAt}{"\n"}' | sed 's/^/after:  /'</b>
+after:  2026-09-13T10:49:16Z</code></pre></details></div>
       <div class="verify"><b>verify:</b> the annotation is gone by the time you read it back and <code>reconciledAt</code> has moved. The controller consumes the annotation as its signal, which is why you never see it in a healthy application.</div>
     </div>
 
@@ -886,7 +892,7 @@ Server:             https://kubernetes.default.svc
 apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged
 <b>$ argocd proj role delete default deployer</b>
 Role 'deployer' deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> with only the <code>get</code> policy the token reads the app but the sync is refused with <code>permission denied: applications, sync, default/demo-staging, sub: proj:default:deployer</code>, and after the sync policy is added the same command syncs. The denial names the action, the object and the subject, which is three of the four things you need to fix it. Say what the fourth is.</div>
+      <div class="verify"><b>verify:</b> with only the <code>get</code> policy the token reads the app but the sync is refused with <code>permission denied: applications, sync, default/demo-staging, sub: proj:default:deployer</code>, and after the sync policy is added the same command syncs. The denial names the action, the object and the subject, which is three of the four things you need to fix it.</div>
     </div>
 
     <div class="exercise" data-title="Deliver one notification">

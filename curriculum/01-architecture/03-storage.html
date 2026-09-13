@@ -358,12 +358,14 @@ kubectl run grower --image=busybox:1.36 --restart=Never --overrides='{"spec":{"c
 kubectl wait --for=condition=Ready pod/grower --timeout=120s
 kubectl patch pvc grow -p '{"spec":{"resources":{"requests":{"storage":"128Mi"}}}}'
 sleep 20
-kubectl get pvc grow -o jsonpath='{.status.conditions}' | jq
+kubectl get pvc grow -o jsonpath='spec: {.spec.resources.requests.storage}  status: {.status.capacity.storage}{"\n"}'
+echo "conditions: $(kubectl get pvc grow -o jsonpath='{.status.conditions}')"
+kubectl get pvc grow -o jsonpath='{.status.allocatedResourceStatuses}{"\n"}'
 kubectl describe pvc grow | tail -8
 kubectl delete pod grower
 kubectl delete pvc grow</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get storageclass</b>
 NAME                 PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
-standard (default)   rancher.io/local-path   Delete          WaitForFirstConsumer   false                  43m
+standard (default)   rancher.io/local-path   Delete          WaitForFirstConsumer   false                  15h
 <b>$ kubectl patch storageclass standard -p '{"allowVolumeExpansion":true}'</b>
 storageclass.storage.k8s.io/standard patched
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
@@ -382,21 +384,25 @@ pod/grower condition met
 <b>$ kubectl patch pvc grow -p '{"spec":{"resources":{"requests":{"storage":"128Mi"}}}}'</b>
 persistentvolumeclaim/grow patched
 <b>$ sleep 20</b>
-<b>$ kubectl get pvc grow -o jsonpath='{.status.conditions}' | jq</b>
+<b>$ kubectl get pvc grow -o jsonpath='spec: {.spec.resources.requests.storage}  status: {.status.capacity.storage}{"\n"}'</b>
+spec: 128Mi  status: 64Mi
+<b>$ echo "conditions: $(kubectl get pvc grow -o jsonpath='{.status.conditions}')"</b>
+conditions: 
+<b>$ kubectl get pvc grow -o jsonpath='{.status.allocatedResourceStatuses}{"\n"}'</b>
 <b>$ kubectl describe pvc grow | tail -8</b>
 Events:
   Type    Reason                 Age                From                                                                                                Message
   ----    ------                 ----               ----                                                                                                -------
-  Normal  WaitForFirstConsumer   33s                persistentvolume-controller                                                                         waiting for first consumer to be created before binding
-  Normal  ExternalProvisioning   32s (x2 over 32s)  persistentvolume-controller                                                                         Waiting for a volume to be created either by the external provisioner 'rancher.io/local-path' or manually by the system administrator. If volume creation is delayed, please verify that the provisioner is running and correctly registered.
-  Normal  Provisioning           32s                rancher.io/local-path_local-path-provisioner-855c7b7774-85tt4_e907b925-5259-49d8-86a6-05133b379fc9  External provisioner is provisioning volume for claim "default/grow"
-  Normal  ProvisioningSucceeded  26s                rancher.io/local-path_local-path-provisioner-855c7b7774-85tt4_e907b925-5259-49d8-86a6-05133b379fc9  Successfully provisioned volume pvc-efb5572a-1ac4-4257-b3ed-bf917d863860
+  Normal  WaitForFirstConsumer   38s                persistentvolume-controller                                                                         waiting for first consumer to be created before binding
+  Normal  ExternalProvisioning   38s (x2 over 38s)  persistentvolume-controller                                                                         Waiting for a volume to be created either by the external provisioner 'rancher.io/local-path' or manually by the system administrator. If volume creation is delayed, please verify that the provisioner is running and correctly registered.
+  Normal  Provisioning           38s                rancher.io/local-path_local-path-provisioner-855c7b7774-xsqw2_944b3c00-03a8-486a-896a-567844028b41  External provisioner is provisioning volume for claim "default/grow"
+  Normal  ProvisioningSucceeded  29s                rancher.io/local-path_local-path-provisioner-855c7b7774-xsqw2_944b3c00-03a8-486a-896a-567844028b41  Successfully provisioned volume pvc-8af522fd-df3b-4341-adb8-a71856f4a73e
   Normal  ExternalExpanding      21s                volume_expand                                                                                       waiting for an external controller to expand this PVC
 <b>$ kubectl delete pod grower</b>
 pod "grower" deleted from default namespace
 <b>$ kubectl delete pvc grow</b>
 persistentvolumeclaim "grow" deleted from default namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> either the API refuses the edit outright or the claim parks on a resize condition that never completes, and in both cases you can name the driver as the reason. "The class says it is allowed" is not an answer.</div>
+      <div class="verify"><b>verify:</b> the class accepts <code>allowVolumeExpansion: true</code> and the claim accepts the larger request, so <code>spec</code> reads 128Mi while <code>status.capacity</code> stays at 64Mi. Then nothing happens at all: <code>status.conditions</code> is empty and the claim has no events. This is the failure mode worth recognising, because there is no error anywhere to find. local-path has no resize support, so no controller ever picks the request up, and a claim whose spec and status disagree forever is the only evidence you get.</div>
     </div>
 
     <div class="exercise" data-title="A claim that lives and dies with its pod">
@@ -464,7 +470,7 @@ pod "eph" deleted from default namespace
 <b>$ sleep 15</b>
 <b>$ kubectl get pvc eph-scratch</b>
 Error from server (NotFound): persistentvolumeclaims "eph-scratch" not found</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the claim is named <code>&lt;pod&gt;-&lt;volume&gt;</code>, owned by the pod, and gone once the pod is. Say which of emptyDir, this, and a hand-written PVC you would reach for when a task says "scratch space on the same class as the database".</div>
+      <div class="verify"><b>verify:</b> the claim is named <code>&lt;pod&gt;-&lt;volume&gt;</code>, owned by the pod, and gone once the pod is.</div>
     </div>
 
     <div class="exercise" data-title="Check what the snapshot API needs">

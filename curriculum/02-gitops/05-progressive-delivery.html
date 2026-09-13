@@ -472,17 +472,13 @@ spec:
     - name: undecided
       interval: 15s
       count: 1
+      # no successCondition and no failureCondition: nothing can decide, so the
+      # measurement is Inconclusive. A job provider could not show this: its
+      # verdict is the job's exit code, which is always a pass or a fail.
       provider:
-        job:
-          spec:
-            template:
-              spec:
-                restartPolicy: Never
-                containers:
-                  - name: check
-                    image: busybox:1.36
-                    command: ["sh", "-c", "echo no verdict here"]
-            backoffLimit: 0
+        prometheus:
+          address: http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090
+          query: vector(1)
 EOF
 kubectl -n team-a patch rollout demo --type merge -p '{"spec":{"strategy":{"canary":{"analysis":{"templates":[{"templateName":"undecided"}],"startingStep":0,"args":null}}}}}'
 kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.26-alpine -n team-a
@@ -503,26 +499,23 @@ kubectl -n team-a apply -f examples/rollouts/canary.yaml</code></pre><details cl
 <b>    - name: undecided</b>
 <b>      interval: 15s</b>
 <b>      count: 1</b>
+<b>      # no successCondition and no failureCondition: nothing can decide, so the</b>
+<b>      # measurement is Inconclusive. A job provider could not show this: its</b>
+<b>      # verdict is the job's exit code, which is always a pass or a fail.</b>
 <b>      provider:</b>
-<b>        job:</b>
-<b>          spec:</b>
-<b>            template:</b>
-<b>              spec:</b>
-<b>                restartPolicy: Never</b>
-<b>                containers:</b>
-<b>                  - name: check</b>
-<b>                    image: busybox:1.36</b>
-<b>                    command: ["sh", "-c", "echo no verdict here"]</b>
-<b>            backoffLimit: 0</b>
+<b>        prometheus:</b>
+<b>          address: http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090</b>
+<b>          query: vector(1)</b>
 <b>EOF</b>
-analysistemplate.argoproj.io/undecided unchanged
+analysistemplate.argoproj.io/undecided created
 <b>$ kubectl -n team-a patch rollout demo --type merge -p '{"spec":{"strategy":{"canary":{"analysis":{"templates":[{"templateName":"undecided"}],"startingStep":0,"args":null}}}}}'</b>
-rollout.argoproj.io/demo patched (no change)
+rollout.argoproj.io/demo patched
 <b>$ kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.26-alpine -n team-a</b>
 rollout "demo" image updated
 <b>$ sleep 90</b>
 <b>$ kubectl -n team-a get analysisrun -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{"\n"}{end}'</b>
-demo-5cfc49f565-7 Error
+demo-5cfc49f565-13 Inconclusive
+demo-5cfc49f565-13.1 Error
 <b>$ kubectl argo rollouts status demo -n team-a --timeout 10s || true</b>
 Healthy
 <b>$ kubectl argo rollouts get rollout demo -n team-a --no-color | head -20</b>
@@ -541,23 +534,24 @@ Replicas:
   Ready:         4
   Available:     4
 
-NAME                             KIND         STATUS        AGE  INFO
-⟳ demo                           Rollout      ✔ Healthy     68m  
-├──# revision:8                                                  
-│  └──⧉ demo-dff9796f6           ReplicaSet   ✔ Healthy     52m  stable
-│     ├──□ demo-dff9796f6-x8b2r  Pod          ✔ Running     52m  ready:1/1
+NAME                                                            KIND         STATUS          AGE    INFO
+⟳ demo                                                          Rollout      ✔ Healthy       3h17m  
+├──# revision:14                                                                                    
+│  └──⧉ demo-dff9796f6                                          ReplicaSet   ✔ Healthy       3h1m   stable
+│     ├──□ demo-dff9796f6-x8b2r                                 Pod          ✔ Running       3h1m   ready:1/1
 <b>$ kubectl argo rollouts promote demo -n team-a</b>
 rollout 'demo' promoted
 <b>$ kubectl argo rollouts status demo -n team-a --timeout 120s</b>
 Healthy
 <b>$ kubectl -n team-a delete analysisrun --all</b>
-analysisrun.argoproj.io "demo-5cfc49f565-7" deleted from team-a namespace
+analysisrun.argoproj.io "demo-5cfc49f565-13" deleted from team-a namespace
+analysisrun.argoproj.io "demo-5cfc49f565-13.1" deleted from team-a namespace
 <b>$ kubectl -n team-a delete analysistemplate undecided</b>
 analysistemplate.argoproj.io "undecided" deleted from team-a namespace
 <b>$ kubectl -n team-a apply -f examples/rollouts/canary.yaml</b>
 analysistemplate.argoproj.io/success-rate unchanged
 rollout.argoproj.io/demo configured</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the AnalysisRun ends <code>Inconclusive</code>, the Rollout is paused rather than aborted, and a promote is what moves it. Restore the original analysis from <code>examples/rollouts/canary.yaml</code> before the next exercise.</div>
+      <div class="verify"><b>verify:</b> the AnalysisRun ends <code>Inconclusive</code>, which is neither of the two outcomes people expect: not <code>Successful</code>, not <code>Failed</code>. That is the whole point of the exercise. Note the second run in the list ending <code>Error</code>: that is the ordinary <code>success-rate</code> template coming back when the original analysis is restored, and it errors because nothing is serving the metric it queries. Restore the original analysis from <code>examples/rollouts/canary.yaml</code> before the next exercise.</div>
     </div>
 
     <div class="exercise" data-title="Count the failures before the abort">
@@ -1000,11 +994,15 @@ virtualservice.networking.istio.io "hdr" deleted from default namespace</code></
     <div class="exercise" data-title="A/B iterations instead of weights">
       <p>Flagger can run the same analysis without shifting any weight: match a header, run a fixed number of iterations, then promote. The events are the difference, and with <code>provider: kubernetes</code> it needs no mesh at all.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.spec.analysis}' | jq
-kubectl --context kind-mesh -n test patch canary podinfo --type merge -p '{"spec":{"analysis":{"interval":"15s","iterations":3,"threshold":2,"match":[{"headers":{"x-canary":{"regex":"^insider$"}}}]}}}'
+# a merge patch leaves maxWeight and stepWeight in place beside iterations, and the schema's oneOf
+# then matches two alternatives and rejects the object: replace the whole analysis instead
+kubectl --context kind-mesh -n test patch canary podinfo --type json -p '[{"op":"replace","path":"/spec/analysis","value":{"interval":"15s","iterations":3,"threshold":2,"match":[{"headers":{"x-canary":{"regex":"^insider$"}}}]}}]'
+kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.spec.analysis}' | jq
 kubectl --context kind-mesh -n test set image deploy/podinfo podinfod=ghcr.io/stefanprodan/podinfo:6.7.0
 sleep 180
-kubectl --context kind-mesh -n test describe canary podinfo | sed -n '/Events/,$p'
-kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.status.phase} {.status.failedChecks}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.spec.analysis}' | jq</b>
+kubectl --context kind-mesh -n test describe canary podinfo | sed -n '/Events/,$p' | tail -12
+kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.status.phase} {.status.failedChecks}{"\n"}'
+kubectl --context kind-mesh -n test patch canary podinfo --type json -p '[{"op":"replace","path":"/spec/analysis","value":{"interval":"15s","maxWeight":50,"stepWeight":10,"threshold":5,"metrics":[{"name":"request-success-rate","interval":"1m","thresholdRange":{"min":99}}]}}]'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.spec.analysis}' | jq</b>
 {
   "interval": "15s",
   "maxWeight": 50,
@@ -1020,28 +1018,46 @@ kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.status.pha
   "stepWeight": 10,
   "threshold": 5
 }
-<b>$ kubectl --context kind-mesh -n test patch canary podinfo --type merge -p '{"spec":{"analysis":{"interval":"15s","iterations":3,"threshold":2,"match":[{"headers":{"x-canary":{"regex":"^insider$"}}}]}}}'</b>
-The Canary "podinfo" is invalid: &lt;nil&gt;: Invalid value: "": "spec.analysis" must validate one and only one schema (oneOf). Found 2 valid alternatives
+<b>$ # a merge patch leaves maxWeight and stepWeight in place beside iterations, and the schema's oneOf</b>
+<b>$ # then matches two alternatives and rejects the object: replace the whole analysis instead</b>
+<b>$ kubectl --context kind-mesh -n test patch canary podinfo --type json -p '[{"op":"replace","path":"/spec/analysis","value":{"interval":"15s","iterations":3,"threshold":2,"match":[{"headers":{"x-canary":{"regex":"^insider$"}}}]}}]'</b>
+canary.flagger.app/podinfo patched
+<b>$ kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.spec.analysis}' | jq</b>
+{
+  "interval": "15s",
+  "iterations": 3,
+  "match": [
+    {
+      "headers": {
+        "x-canary": {
+          "regex": "^insider$"
+        }
+      }
+    }
+  ],
+  "threshold": 2
+}
 <b>$ kubectl --context kind-mesh -n test set image deploy/podinfo podinfod=ghcr.io/stefanprodan/podinfo:6.7.0</b>
+deployment.apps/podinfo image updated
 <b>$ sleep 180</b>
-<b>$ kubectl --context kind-mesh -n test describe canary podinfo | sed -n '/Events/,$p'</b>
-Events:
-  Type     Reason  Age                  From     Message
-  ----     ------  ----                 ----     -------
-  Warning  Synced  22m                  flagger  podinfo-primary.test not ready: waiting for rollout to finish: observed deployment generation less than desired generation
-  Warning  Synced  22m                  flagger  podinfo-primary.test not ready: waiting for rollout to finish: 0 of 2 (readyThreshold 100%) updated replicas are available
-  Warning  Synced  22m (x3 over 22m)    flagger  Error checking metric providers: prometheus not avaiable: running query failed: request failed: Get "http://prometheus:9090/api/v1/query?query=vector%281%29": dial tcp: lookup prometheus on 10.96.0.10:53: server misbehaving
-  Normal   Synced  22m                  flagger  Initialization done! podinfo.test
-  Normal   Synced  3m53s                flagger  New revision detected! Scaling up podinfo.test
-  Warning  Synced  3m38s                flagger  canary deployment podinfo.test not ready: waiting for rollout to finish: 0 of 2 (readyThreshold 100%) updated replicas are available
-  Normal   Synced  3m23s                flagger  Starting canary analysis for podinfo.test
-  Normal   Synced  3m23s                flagger  Advance podinfo.test canary weight 10
-  Warning  Synced  2m8s (x5 over 3m8s)  flagger  Prometheus query failed: running query failed: request failed: Get "http://prometheus:9090/api/v1/query?query=+sum%28+rate%28+istio_requests_total%7B+reporter%3D%22destination%22%2C+destination_workload_namespace%3D%22test%22%2C+destination_workload%3D~%22podinfo%22%2C+response_code%21~%225.%2A%22+%7D%5B1m%5D+%29+%29+%2F+sum%28+rate%28+istio_requests_total%7B+reporter%3D%22destination%22%2C+destination_workload_namespace%3D%22test%22%2C+destination_workload%3D~%22podinfo%22+%7D%5B1m%5D+%29+%29+%2A+100": dial tcp: lookup prometheus on 10.96.0.10:53: server misbehaving
-  Warning  Synced  113s                 flagger  Rolling back podinfo.test failed checks threshold reached 5
-  Warning  Synced  113s                 flagger  Canary failed! Scaling down podinfo.test
+<b>$ kubectl --context kind-mesh -n test describe canary podinfo | sed -n '/Events/,$p' | tail -12</b>
+  Warning  Synced  3m15s (x3 over 3m45s)  flagger  Error checking metric providers: prometheus not avaiable: running query failed: request failed: Get "http://prometheus:9090/api/v1/query?query=vector%281%29": dial tcp: lookup prometheus on 10.96.0.10:53: server misbehaving
+  Normal   Synced  3m14s                  flagger  Initialization done! podinfo.test
+  Normal   Synced  2m45s                  flagger  New revision detected! Scaling up podinfo.test
+  Warning  Synced  2m30s                  flagger  canary deployment podinfo.test not ready: waiting for rollout to finish: 0 of 2 (readyThreshold 100%) updated replicas are available
+  Normal   Synced  2m15s                  flagger  Starting canary analysis for podinfo.test
+  Normal   Synced  2m15s                  flagger  Advance podinfo.test canary iteration 1/3
+  Normal   Synced  2m                     flagger  Advance podinfo.test canary iteration 2/3
+  Normal   Synced  105s                   flagger  Advance podinfo.test canary iteration 3/3
+  Normal   Synced  90s                    flagger  Copying podinfo.test template spec to podinfo-primary.test
+  Warning  Synced  75s                    flagger  podinfo-primary.test not ready: waiting for rollout to finish: 1 old replicas are pending termination
+  Normal   Synced  60s                    flagger  Routing all traffic to primary
+  Normal   Synced  45s                    flagger  Promotion completed! Scaling down podinfo.test
 <b>$ kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.status.phase} {.status.failedChecks}{"\n"}'</b>
-Failed 0</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the events walk <code>Advance podinfo.test canary iteration 1/3</code> rather than a weight ladder, then promote. Say which of the two shapes you would pick for a change that cannot be judged by error rate, such as a new checkout page.</div>
+Succeeded 0
+<b>$ kubectl --context kind-mesh -n test patch canary podinfo --type json -p '[{"op":"replace","path":"/spec/analysis","value":{"interval":"15s","maxWeight":50,"stepWeight":10,"threshold":5,"metrics":[{"name":"request-success-rate","interval":"1m","thresholdRange":{"min":99}}]}}]'</b>
+canary.flagger.app/podinfo patched</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the events walk <code>Advance podinfo.test canary iteration 1/3</code> rather than a weight ladder, then promote.</div>
     </div>
 
     <div class="exercise" data-title="Let a Deployment give up">

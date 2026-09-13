@@ -339,7 +339,7 @@ resourcegraphdefinition.kro.run/cyclic created
 <b>$ kubectl get rgd cyclic -o jsonpath='{.status.conditions}' 2&gt;/dev/null | jq '.[] | {type, status, message}'</b>
 <b>$ kubectl delete rgd cyclic --ignore-not-found</b>
 resourcegraphdefinition.kro.run "cyclic" deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the working RGD is Active with an order that puts the namespace before the quota, and the cyclic one is refused with a message naming the cycle. Say how you would break that cycle without losing the value one resource needed from the other.</div>
+      <div class="verify"><b>verify:</b> the working RGD is Active with an order that puts the namespace before the quota, and the cyclic one is refused with a message naming the cycle.</div>
     </div>
 
     <div class="exercise" data-title="Wait for one resource, skip another">
@@ -467,7 +467,7 @@ tieredspace.kro.run "team-j" deleted from default namespace
 <b>$ kubectl delete rgd tieredspace</b>
 resourcegraphdefinition.kro.run "tieredspace" deleted
 <b>$ kubectl delete ns team-j --ignore-not-found</b></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the ConfigMap is absent for the instance whose cpu is zero, and the instance still reports ready because the quota satisfied its own <code>readyWhen</code>. Say what would happen to the instance if that condition never became true.</div>
+      <div class="verify"><b>verify:</b> the ConfigMap is absent for the instance whose cpu is zero, and the instance still reports ready because the quota satisfied its own <code>readyWhen</code>.</div>
     </div>
 
     <div class="exercise" data-title="Suspend an instance and break it">
@@ -497,7 +497,7 @@ Error from server (NotFound): resourcequotas "tenant-quota" not found
   "status": "True",
   "reason": "ReconciliationSucceeded"
 }</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the quota stays deleted while the annotation is on and returns within one reconcile of removing it. Say when you would reach for this rather than deleting the instance, and what you would write in the ticket.</div>
+      <div class="verify"><b>verify:</b> the quota stays deleted while the annotation is on and returns within one reconcile of removing it.</div>
     </div>
 
     <div class="exercise" data-title="Give kro permission to create what you asked for">
@@ -594,8 +594,8 @@ resourcegraphdefinition.kro.run "needsmore" deleted
       <div class="verify"><b>verify:</b> either the PodDisruptionBudget appears, in which case the controller already had the permission and you can say which ClusterRole granted it, or the instance condition carries a forbidden message naming the verb. Both are the answer; the point is knowing which object to read.</div>
     </div>
 
-    <div class="exercise" data-title="Break a scaffolder template on purpose">
-      <p>A golden path fails in two places: the form, before anything is created, and the publish step, after the user has already committed to it. Produce both, because the second one leaves half a repo behind.</p>
+    <div class="exercise" data-title="Find the two places a scaffolder template can fail">
+      <p>A golden path fails in two places: the form, before anything is created, and the publish step, after the user has already committed to it. This block does not break anything; it reads the template through the Backstage API so you can see both places before you go near them. The form is the <code>allowedHosts</code> list on the RepoUrlPicker, and the publish step is <code>publish:gitea</code>.</p>
       <p>Backstage runs on the host from <code>make portal</code>, which is not part of <code>make full</code>; start it with <code>cd portal &amp;&amp; yarn start</code>. Its API wants a token even for reads, so the first line trades the guest provider for one. These commands read the API rather than clicking through the UI.</p>
       <div class="cb" data-lang="bash"><pre><code>TOKEN=$(curl -s http://localhost:7007/api/auth/guest/refresh | jq -r .backstageIdentity.token)
 curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=template' | jq '.[] | {name: .metadata.name, steps: [.spec.steps[].action]}'
@@ -636,7 +636,7 @@ null
   "first": null
 }
 <b>$ curl -s -H "Authorization: Bearer $TOKEN" http://localhost:7007/api/scaffolder/v2/templates | jq 'keys' 2&gt;/dev/null || echo 'no template listing on this version'</b></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the golden path template's steps end in <code>publish:gitea</code> and its RepoUrlPicker allows exactly one host, the lab's Gitea. The task list is empty until somebody runs the template, which is the point of the two failures to produce next: remove that host from <code>allowedHosts</code> and the form refuses before any task exists, so the list stays empty; break the Gitea token instead and a task appears and dies at <code>publish:gitea</code> with a message you can quote.</div>
+      <div class="verify"><b>verify:</b> <code>golden-path-service</code> lists steps <code>fetch:template</code>, <code>publish:gitea</code>, <code>catalog:register</code>, and its RepoUrlPicker allows exactly one host, <code>gitea.lab:3000</code>. The task list is empty because nobody has run the template yet, which is what an untouched scaffolder looks like. To see either failure for yourself, drop that host from <code>allowedHosts</code> and the form refuses before a task is ever created; break the Gitea token instead and a task appears and then dies at <code>publish:gitea</code>.</div>
     </div>
 
     <div class="exercise" data-title="Ask the catalog what it knows">

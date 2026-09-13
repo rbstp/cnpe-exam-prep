@@ -352,7 +352,7 @@ spec:
     </div>
 
     <div class="exercise" data-title="Resize a pod in place">
-      <p>In-place resize changed what "change the resources" means: a CPU request can move without the container restarting. The subresource is <code>resize</code>, not a normal patch, and the evidence lives in <code>status.containerStatuses[].allocatedResources</code>.</p>
+      <p>In-place resize changed what "change the resources" means: a CPU request can move without the container restarting. The subresource is <code>resize</code>, not a normal patch, and the evidence lives in <code>status.containerStatuses[].allocatedResources</code>. The second half of this exercise asks for more CPU than the node has, to find out where a resize you cannot have gets refused.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl run burst --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"containers":[{"name":"burst","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"100m","memory":"64Mi"},"limits":{"cpu":"200m","memory":"128Mi"}}}]}}'
 kubectl wait --for=condition=Ready pod/burst --timeout=90s
 kubectl get pod burst -o jsonpath='{.status.qosClass}{"\n"}'
@@ -433,7 +433,7 @@ Error from server (Forbidden): pods "burst" is forbidden: node didn't have enoug
 }
 <b>$ kubectl delete pod burst</b>
 pod "burst" deleted from default namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the reachable resize lands with <code>restartCount</code> still 0 and <code>allocatedResources</code> updated, and the impossible one parks the pod on <code>PodResizePending</code> with reason <code>Infeasible</code> instead of failing the patch. The API accepts a request the node cannot satisfy; the condition is where the refusal shows up.</div>
+      <div class="verify"><b>verify:</b> the reachable resize lands with <code>allocatedResources</code> at <code>{"cpu":"200m","memory":"64Mi"}</code> and <code>restartCount</code> still 0. The impossible one does not park anywhere: the API refuses the patch outright with <code>Error from server (Forbidden): pods "burst" is forbidden: node didn't have enough allocatable resources: cpu, requested: 64000, allocatable: 16000</code>, and the pod's conditions are unchanged, with no <code>PodResizePending</code> among them.</div>
     </div>
 
     <div class="exercise" data-title="Resize across the QoS line">
@@ -452,7 +452,7 @@ Guaranteed
 The Pod "guar" is invalid: spec: Invalid value: "Guaranteed": Pod QOS Class may not change as a result of resizing
 <b>$ kubectl delete pod guar</b>
 pod "guar" deleted from default namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the patch is refused with a message naming the QoS class, and the pod is untouched. Say out loud which of the three classes you would have to recreate the pod to reach.</div>
+      <div class="verify"><b>verify:</b> the patch is refused with a message naming the QoS class, and the pod is untouched.</div>
     </div>
 
     <div class="exercise" data-title="A budget that blocks a drain">
@@ -695,7 +695,7 @@ pod "urgentpod" deleted from default namespace
 <b>$ kubectl delete priorityclass batch urgent</b>
 priorityclass.scheduling.k8s.io "batch" deleted
 priorityclass.scheduling.k8s.io "urgent" deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> <code>batchpod</code> stays Pending with an Insufficient cpu event and nothing is evicted, while <code>urgentpod</code> at the same value takes the room by pushing <code>filler</code> out. Same number, opposite blast radius.</div>
+      <div class="verify"><b>verify:</b> <code>batchpod</code> stays Pending with an Insufficient cpu event and nothing is evicted, while <code>urgentpod</code> at the same value takes the room by pushing <code>filler</code> out. The two classes carry the same value; only <code>preemptionPolicy</code> differs.</div>
     </div>
 
     <div class="exercise" data-title="Read the behaviour you did not write">

@@ -30,15 +30,26 @@ GitHub will not render it in place; clone the repo (or use raw + a local browser
 - `src/`: the console's TypeScript, two directories each with its own strict `tsconfig.json` (target ES2017, plain scripts rather than modules, so each file compiles to the one global-assigning script the pages load): `src/game/` is the quest, `src/console/` is `merge.js` and `syntax.js`, the two DOM-free modules whose tests run in bare node. `make typecheck` checks them alongside the JS, `make ts` writes the compiled files, and `make ts-check` (CI) fails when a committed file drifts from its source
 - `assets/cnpe.d.ts` + `jsconfig.json` (+ `tools/browser-checks/tsconfig.json`): JSDoc-based type checking for all of the above JS via `tsc --noEmit` (`make typecheck` from the repo root); the compiled quest files are excluded there, being checked at their TypeScript source; the `.d.ts` documents the shapes the scripts share — the section manifest, the drill bank, the `cnpe:v2` progress store and the `CNPE_*` window globals — and CI runs the check on every PR. It is a check only: the browser still loads the plain `.js` files and nothing is compiled
 
-Most command blocks carry a collapsed **output** drawer underneath: the real result of that
-command, so the sections read self-contained even away from a running cluster. Every command block
-in the curriculum was run, and its output captured, against a freshly built lab on
-**August 26, 2026** (the date each drawer carries). Expand a drawer only after predicting what
-it should say; the lab's tool versions float, so details may drift from what your lab prints.
-A drawer marked **not yet captured** (class `out pending`, a red "placeholder" tag) belongs to a
-command that has not been run against the lab yet; its body is a placeholder, and
-[`docs/curriculum-command-queue.md`](../docs/curriculum-command-queue.md) is the list of those
-commands with the outcome each should show and the procedure for replacing the placeholder.
+Every command block carries a collapsed **output** drawer underneath: the real result of that
+command, so the sections read self-contained even away from a running cluster. Each drawer is
+dated with the day it was captured against a freshly built lab. The original blocks carry
+**August 26, 2026**; the 170 exercises added in September carry **September 12, 2026** and were
+captured on Kubernetes 1.36.1, the `K8S_IMAGE` pin in force at the time, before it moved to
+1.37.0. Expand a drawer only after predicting what it should say; the lab's tool versions
+float, so details may drift from what your lab prints.
+
+The cluster those September drawers were captured against reported:
+
+```
+$ kubectl version
+Client Version: v1.36.4
+Kustomize Version: v5.8.1
+Server Version: v1.36.1
+```
+
+No drawer is a placeholder: every one holds output that a real cluster produced.
+[`docs/curriculum-command-queue.md`](../docs/curriculum-command-queue.md) records the queue that
+produced the September exercises, including the eight items that were dropped and why.
 
 Press `/` in any page to jump to a section by name, tool or concept, `g` for a drill session, `q` for the quest,
 `t` to switch dark / light (dark by default) and `?` for the shortcuts.
