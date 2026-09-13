@@ -54,6 +54,12 @@ Two nuances:
   tile shapes in the quest renderer. Captured terminal output is never edited for
   style.
 
+A `<details class="out">` drawer opens by echoing the command that produced it,
+as `<b>$ …</b>`. That echo has to stay identical to the line in the command block
+above it, comments included. So a word in a command block is only editable if you
+edit it in the drawer too, and the drawer is frozen: leave both alone. Two shell
+comments were caught this way during the American-spelling pass.
+
 ## Working in this repo
 
 ### Generated files are committed, so regenerate them
