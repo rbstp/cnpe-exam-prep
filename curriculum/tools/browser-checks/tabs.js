@@ -345,4 +345,35 @@ module.exports = async function (h) {
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   });
+
+  /* 13. a tab still on the old bundle writes the keys a prose edit moved. This
+         tab renames them in memory, and owes the disk that rename: left there,
+         memory and the disk disagree for good and the sync drops its base. */
+  await group('a tab writing the old spellings has its write renamed, disk included', async () => {
+    const OLD_EX = '1.2#read-the-behaviour-you-did-not-write';
+    const NEW_EX = '1.2#read-the-behavior-you-did-not-write';
+    const { ctx, page } = await fresh({ ex: { [NEW_EX]: 0 } });
+    await page.goto(url('index.html'));
+    const two = await tab(ctx, 'index.html');
+    // the old bundle's write, made the only way a new-bundle tab can make it
+    await two.evaluate(k => localStorage.setItem('cnpe:v2', JSON.stringify({ ex: { [k]: 1 } })), OLD_EX);
+    assert(await within(page, () => {
+      const s = window.CNPE_PROGRESS;
+      const saved = /** @type {CnpeStore} */ (s.saved());
+      return s.get().ex['1.2#read-the-behavior-you-did-not-write'] === 1 &&
+        !!saved && saved.ex['1.2#read-the-behavior-you-did-not-write'] === 1;
+    }), 'the tick arrives under the new key, in memory and on the disk');
+    const out = await page.evaluate(() => ({
+      memory: Object.keys(window.CNPE_PROGRESS.get().ex),
+      disk: Object.keys(/** @type {CnpeStore} */ (window.CNPE_PROGRESS.saved()).ex),
+    }));
+    assert(out.memory.indexOf(OLD_EX) < 0 && out.disk.indexOf(OLD_EX) < 0,
+      'and the old key is on neither side: ' + JSON.stringify(out));
+    // which is what settled() asks: a disk left disagreeing costs the sync its base
+    assert(JSON.stringify(out.memory) === JSON.stringify(out.disk),
+      'so the disk and this tab hold the same store');
+    const errs = page.errors.concat(two.errors);
+    assert(errs.length === 0, 'no console errors: ' + errs.join(' | '));
+    await ctx.close();
+  });
 };

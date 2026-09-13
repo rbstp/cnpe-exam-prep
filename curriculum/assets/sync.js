@@ -140,11 +140,16 @@
       var added = null;
       if (!body.progress) clearBase();          // no row, so nothing to be an ancestor of
       if (body.progress && window.CNPE_PROGRESS) {
+        // The bytes the row holds, read before the merge, which renames the keys
+        // a prose edit moved in the payload it was handed. S.sent is what the
+        // server has and not what we made of it, or a row still carrying an old
+        // key would read as already sent and never be written back.
+        var held = canon(body.progress);
         // Merge against the base in effect, then move it on. The other order
         // makes base and remote agree on every key, and the pull a no-op.
         added = window.CNPE_PROGRESS.merge(body.progress, baseFor(body.progress, S.rev, S.uid));
         muted(function () { window.CNPE_PROGRESS.save(); });
-        S.sent = canon(body.progress);
+        S.sent = held;
         keepBase(body.progress, S.rev);
       }
       S.busy = false;

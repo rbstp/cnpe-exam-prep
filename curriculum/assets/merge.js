@@ -431,8 +431,16 @@
        lets it run on every merge and every load without a flag to remember.
   
        Anything added here must be a key that genuinely moved: the entry is read
-       as "these two are one record", and two live keys folded together lose one. */
+       as "these two are one record", and two live keys folded together lose one.
+       Each key is looked up once, never followed on into a second entry, so a
+       title that moves twice means editing the entry it already has rather than
+       adding another. Two edits have moved keys, and between them this is all of
+       them: no earlier one touched an exercise title or a question at all. */
     var MOVED_EX = {
+        // the AI-tell vocabulary pass
+        "4.3#four-logql-shapes-on-real-logs": "4.3#four-logql-queries-on-real-logs",
+        "5.5#the-linkerd-shape-of-the-same-rule": "5.5#the-linkerd-version-of-the-same-rule",
+        // and the American-spelling pass after it
         "1.2#read-the-behaviour-you-did-not-write": "1.2#read-the-behavior-you-did-not-write",
         "3.4#parameterise-from-outside": "3.4#parameterize-from-outside",
         "3.5#change-the-api-s-behaviour-not-the-api": "3.5#change-the-api-s-behavior-not-the-api",
@@ -495,11 +503,12 @@
                 n++;
                 if (!rec)
                     return; // not a record: the key just goes
+                // Folded in rather than moved across, so a record off a file or the wire
+                // is coerced on the way in exactly as the merge coerces one.
                 var cur = obj(drill[to]);
-                if (cur)
-                    takeRec(cur, rec);
-                else
-                    drill[to] = rec;
+                if (!cur)
+                    cur = drill[to] = { r: 0, m: 0 };
+                takeRec(cur, rec);
             });
         return n;
     }

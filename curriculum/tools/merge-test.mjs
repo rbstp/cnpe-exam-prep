@@ -695,16 +695,38 @@ group("an old key arriving from a browser that has not migrated");
 {
   // the local store migrated at load; the payload is what the old bundle pushes
   const s = store({ ex: { [NEW_EX]: 1 }, drill: { [NEW_CARD]: { r: 2, m: 0, ok: true, t: STAMP } } });
-  const remote = { ex: { [OLD_EX]: 1 }, drill: { [OLD_CARD]: { r: 3, m: 1, ok: false, t: STAMP - 1000 } } };
-  const n = M.merge(s, remote);
+  // a fresh payload each time: the merge renames the one it is handed, in place,
+  // so a shared object would make the second delivery a new-key delivery
+  const remote = () => ({ ex: { [OLD_EX]: 1 }, drill: { [OLD_CARD]: { r: 3, m: 1, ok: false, t: STAMP - 1000 } } });
+  const n = M.merge(s, remote());
   ok(!(OLD_EX in s.ex) && s.ex[NEW_EX] === 1, "the old tick lands under the new key, so the total does not inflate");
   ok(Object.keys(s.ex).length === 1 && Object.keys(s.drill).length === 1, "one key per exercise, one record per card");
   ok(s.drill[NEW_CARD].r === 3 && s.drill[NEW_CARD].ok === true,
     "the old record merges into the new one by the same rule: " + JSON.stringify(s.drill[NEW_CARD]));
   ok(n.ex === 0, "a rename is not a tick added");
-  const twice = M.merge(s, remote);
+  const twice = M.merge(s, remote());
   ok(twice.ex === 0 && twice.drill === 0 && Object.keys(s.ex).length === 1,
     "and the same payload arriving again is a no-op, however many times it comes back");
+}
+
+group("an imported file written before the rename");
+{
+  // Import merges with no base, so this is the union path, and the file is
+  // somebody else's history: nothing it carries may un-tick anything here.
+  const s = store({ ex: { [NEW_EX]: 0 }, drill: { [NEW_CARD]: { r: 1, m: 2, ok: false, t: STAMP } } });
+  const n = M.merge(s, { ex: { [OLD_EX]: 1 }, drill: { [OLD_CARD]: { r: 4, m: 0, ok: true, t: STAMP + 1000 } } });
+  ok(s.ex[NEW_EX] === 1 && Object.keys(s.ex).length === 1, "the file's tick lands under the new key");
+  ok(n.ex === 1, "and counts as one exercise added, not two");
+  ok(s.drill[NEW_CARD].r === 4 && s.drill[NEW_CARD].m === 2 && s.drill[NEW_CARD].ok === true,
+    "the card keeps the higher counters and the later answer: " + JSON.stringify(s.drill[NEW_CARD]));
+}
+
+group("a record that moves is coerced the way the merge coerces one");
+{
+  const s = { drill: { [OLD_CARD]: { r: "3", m: null, ok: 1, t: "5", junk: { deep: 1 } } } };
+  M.migrate(s);
+  ok(eq(s.drill[NEW_CARD], { r: 3, m: 0, ok: true, t: 5 }),
+    "numbers are numbers, ok is a boolean, and nothing else comes along: " + JSON.stringify(s.drill[NEW_CARD]));
 }
 
 group("an un-tick made since the rename is not resurrected by the old key");

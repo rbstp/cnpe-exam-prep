@@ -181,7 +181,12 @@
     // Before the base is narrowed against it: a tab still on the old bundle
     // writes the old keys, and shared() would otherwise drop the ones it holds
     // under the new name from the base and take the union of both spellings.
-    M.migrate(disk);
+    // A rename is a change this tab holds and those bytes do not, and no merge
+    // count reports one, so it is asked for separately below. Left unwritten it
+    // would leave the disk and this tab's memory disagreeing for good, which is
+    // what the sync reads as a tab it could not follow, and it answers that by
+    // dropping its base for the rest of this page's life.
+    var stale = M.migrate(disk) > 0;
     // Taking their write, a tick that is missing from it rather than sitting in
     // it as 0 is one that store never had, so the base speaks only for the keys
     // it mentions and a tab that saved an older copy of everything reads as the
@@ -194,7 +199,7 @@
     // The second merge needs a copy, and lastRaw is the disk's own bytes as of
     // the read above, so parse those rather than re-serializing what they made.
     var ours = M.merge(JSON.parse(lastRaw), store, M.sets(seen));
-    if (moved(ours)) save();               // which moves seen on to what it wrote
+    if (moved(ours) || stale) save();      // which moves seen on to what it wrote
     else seen = M.ticks(disk);             // otherwise the disk is what we agree on
     // Panels paint from the store at load, so a merge that moved something needs
     // a repaint; boot() is re-runnable, but not out from under an open overlay.

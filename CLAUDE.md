@@ -24,7 +24,10 @@ test descriptions, commit messages and PR bodies.
   lab's Kyverno policy writes, the `unlabelled` Deployment 5.2's policy exercise
   creates, the two shell comments in 4.3 and 5.5 whose drawers echo them, and the
   quest's NPC names, which are stored keys (`Harbourmaster Selda` stays as she
-  is).
+  is), and the left-hand side of every entry in `MOVED_EX` and `MOVED_DRILL` in
+  `curriculum/src/console/merge.ts`, which are the keys a reader's progress is
+  still stored under and only match if they keep the spelling they were written
+  with.
 - **Say what a thing does**, not what it resembles. A metaphor that needs
   unpacking costs more than the sentence it saved.
 
@@ -107,7 +110,9 @@ ticked:
 Changing either is allowed, but say so in the PR body, and add the old key and the
 new one to `MOVED_EX` or `MOVED_DRILL` in `curriculum/src/console/merge.ts`. That
 table is the rename: it runs on both sides of every merge and once per load, so a
-reader keeps the tick and the card keeps its score. Without it the old key stays
+reader keeps the tick and the card keeps its score. A key is looked up once and
+never followed into a second entry, so a title that moves twice means editing the
+entry it already has. Without it the old key stays
 in the store forever, counted in the section totals while the exercise itself
 reads unverified. Only ever add a key that genuinely moved; an entry says "these
 two are one record", and folding two live keys together loses one of them.
