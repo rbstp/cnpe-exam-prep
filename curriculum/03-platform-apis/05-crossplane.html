@@ -340,15 +340,21 @@ kubectl get appenvironment team-c-dev -o jsonpath='{.spec.crossplane.composition
 kubectl patch composition appenvironment-kubernetes --type merge -p '{"metadata":{"labels":{"edited":"twice"}}}'
 sleep 20
 kubectl get appenvironment team-f-dev -o jsonpath='{.spec.crossplane.compositionRevisionRef}{"\n"}'
-kubectl get appenvironment team-c-dev -o jsonpath='{.spec.crossplane.compositionRevisionRef}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl get compositionrevisions</b>
+kubectl get appenvironment team-c-dev -o jsonpath='{.spec.crossplane.compositionRevisionRef}{"\n"}'
+# team-f is this exercise's, not the lab's
+kubectl delete appenvironment team-f-dev --ignore-not-found
+kubectl delete ns team-f --ignore-not-found --wait=false</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get compositionrevisions</b>
 NAME                                REVISION   XR-KIND          XR-APIVERSION                 AGE
-appenvironment-kubernetes-670ddf1   1          AppEnvironment   platform.lab.local/v1alpha1   16h
+appenvironment-kubernetes-2cfe70e   3          AppEnvironment   platform.lab.local/v1alpha1   5h18m
+appenvironment-kubernetes-670ddf1   1          AppEnvironment   platform.lab.local/v1alpha1   21h
+appenvironment-kubernetes-69b60a2   2          AppEnvironment   platform.lab.local/v1alpha1   5h19m
 <b>$ kubectl patch composition appenvironment-kubernetes --type merge -p '{"metadata":{"labels":{"edited":"once"}}}'</b>
 composition.apiextensions.crossplane.io/appenvironment-kubernetes patched
 <b>$ kubectl get compositionrevisions -l crossplane.io/composition-name=appenvironment-kubernetes</b>
 NAME                                REVISION   XR-KIND          XR-APIVERSION                 AGE
-appenvironment-kubernetes-670ddf1   1          AppEnvironment   platform.lab.local/v1alpha1   16h
-appenvironment-kubernetes-69b60a2   2          AppEnvironment   platform.lab.local/v1alpha1   0s
+appenvironment-kubernetes-2cfe70e   3          AppEnvironment   platform.lab.local/v1alpha1   5h18m
+appenvironment-kubernetes-670ddf1   1          AppEnvironment   platform.lab.local/v1alpha1   21h
+appenvironment-kubernetes-69b60a2   4          AppEnvironment   platform.lab.local/v1alpha1   5h19m
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: platform.lab.local/v1alpha1</b>
 <b>kind: AppEnvironment</b>
@@ -360,7 +366,7 @@ appenvironment-kubernetes-69b60a2   2          AppEnvironment   platform.lab.loc
 <b>  crossplane:</b>
 <b>    compositionUpdatePolicy: Manual</b>
 <b>EOF</b>
-appenvironment.platform.lab.local/team-f-dev created
+appenvironment.platform.lab.local/team-f-dev unchanged
 <b>$ sleep 20</b>
 <b>$ kubectl get appenvironment team-f-dev -o jsonpath='{.spec.crossplane.compositionRevisionRef}{"\n"}'</b>
 {"name":"appenvironment-kubernetes-69b60a2"}
@@ -372,7 +378,12 @@ composition.apiextensions.crossplane.io/appenvironment-kubernetes patched
 <b>$ kubectl get appenvironment team-f-dev -o jsonpath='{.spec.crossplane.compositionRevisionRef}{"\n"}'</b>
 {"name":"appenvironment-kubernetes-69b60a2"}
 <b>$ kubectl get appenvironment team-c-dev -o jsonpath='{.spec.crossplane.compositionRevisionRef}{"\n"}'</b>
-{"name":"appenvironment-kubernetes-2cfe70e"}</code></pre></details></div>
+{"name":"appenvironment-kubernetes-2cfe70e"}
+<b>$ # team-f is this exercise's, not the lab's</b>
+<b>$ kubectl delete appenvironment team-f-dev --ignore-not-found</b>
+appenvironment.platform.lab.local "team-f-dev" deleted from default namespace
+<b>$ kubectl delete ns team-f --ignore-not-found --wait=false</b>
+namespace "team-f" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> the Manual XR stays on the revision it was created against while the Automatic one moves to the newest.</div>
     </div>
 
@@ -739,10 +750,11 @@ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 909
 sleep 5
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=up{job=~".*provider.*"}' | jq '.data.result[] | {metric: .metric.pod, value: .value[1]}'
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=crossplane_managed_resource_ready' | jq '.data.result | length'
-kill $PF1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n crossplane-system get pods -l pkg.crossplane.io/provider -o wide</b>
-NAME                                                READY   STATUS    RESTARTS   AGE     IP            NODE           NOMINATED NODE   READINESS GATES
-provider-helm-fdbfef781539-755f57bf99-jvrrp         1/1     Running   0          7h15m   10.244.2.2    cnpe-worker2   &lt;none&gt;           &lt;none&gt;
-provider-kubernetes-17261e579786-54cfdf7bf8-ffp75   1/1     Running   0          7h15m   10.244.2.37   cnpe-worker2   &lt;none&gt;           &lt;none&gt;
+kill $PF1
+kubectl -n crossplane-system delete podmonitor crossplane-providers --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n crossplane-system get pods -l pkg.crossplane.io/provider -o wide</b>
+NAME                                                READY   STATUS    RESTARTS   AGE   IP            NODE           NOMINATED NODE   READINESS GATES
+provider-helm-fdbfef781539-755f57bf99-jvrrp         1/1     Running   0          21h   10.244.2.2    cnpe-worker2   &lt;none&gt;           &lt;none&gt;
+provider-kubernetes-17261e579786-54cfdf7bf8-ffp75   1/1     Running   0          21h   10.244.2.37   cnpe-worker2   &lt;none&gt;           &lt;none&gt;
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1</b>
 <b>kind: PodMonitor</b>
@@ -754,7 +766,7 @@ provider-kubernetes-17261e579786-54cfdf7bf8-ffp75   1/1     Running   0         
 <b>  podMetricsEndpoints:</b>
 <b>    - port: metrics</b>
 <b>EOF</b>
-podmonitor.monitoring.coreos.com/crossplane-providers created
+podmonitor.monitoring.coreos.com/crossplane-providers unchanged
 <b>$ sleep 60</b>
 <b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
@@ -773,7 +785,9 @@ Handling connection for 9090
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=crossplane_managed_resource_ready' | jq '.data.result | length'</b>
 Handling connection for 9090
 4
-<b>$ kill $PF1</b></code></pre></details></div>
+<b>$ kill $PF1</b>
+<b>$ kubectl -n crossplane-system delete podmonitor crossplane-providers --ignore-not-found</b>
+podmonitor.monitoring.coreos.com "crossplane-providers" deleted from crossplane-system namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the provider pods appear as up targets and the readiness gauge returns series. If the port name in the PodMonitor does not match the container's port name, you get zero targets and no error anywhere; check the pod spec before you doubt Prometheus.</div>
     </div>
 
