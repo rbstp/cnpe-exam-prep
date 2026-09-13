@@ -464,9 +464,10 @@ podinfo   5m56s   True    Helm install succeeded for release flux-demo/podinfo.v
 
     <div class="exercise" data-title="Find the tracking id">
       <p>Argo CD has to recognise its own objects on a cluster full of other people's. Since 3.x it does that with an annotation rather than a label, which matters the moment you copy a manifest between applications and it starts fighting for ownership.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.application\.resourceTrackingMethod}{"\n"}'
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.application\.resourceTrackingMethod}' | grep . || echo 'unset, so the 3.x default is in force'
 kubectl -n team-a get deploy staging-demo -o jsonpath='{.metadata.annotations}' | jq 'with_entries(select(.key | startswith("argocd")))'
-kubectl -n team-a get deploy staging-demo -o jsonpath='{.metadata.labels}' | jq</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.application\.resourceTrackingMethod}{"\n"}'</b>
+kubectl -n team-a get deploy staging-demo -o jsonpath='{.metadata.labels}' | jq</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.application\.resourceTrackingMethod}' | grep . || echo 'unset, so the 3.x default is in force'</b>
+unset, so the 3.x default is in force
 <b>$ kubectl -n team-a get deploy staging-demo -o jsonpath='{.metadata.annotations}' | jq 'with_entries(select(.key | startswith("argocd")))'</b>
 {
   "argocd.argoproj.io/tracking-id": "demo-staging:apps/Deployment:team-a/staging-demo"
@@ -477,7 +478,7 @@ kubectl -n team-a get deploy staging-demo -o jsonpath='{.metadata.labels}' | jq<
   "app.kubernetes.io/part-of": "demo-app",
   "cost-centre": "team-a"
 }</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the annotation names the application, the group/kind and the destination namespace in one string.</div>
+      <div class="verify"><b>verify:</b> <code>argocd-cm</code> has no <code>application.resourceTrackingMethod</code> key at all, which is the 3.x default of <code>annotation</code>, and the annotation on the deployment names the application, the group/kind and the destination namespace in one string.</div>
     </div>
 
   </div>

@@ -250,7 +250,7 @@ spire        spire-data-spire-server-0   standard   ReadWriteOnce   1Gi</code></
     </div>
 
     <div class="exercise" data-title="Retain on delete, delete on scale">
-      <p>A StatefulSet's claims outlive it by default, which is either the safety you wanted or the leak you get billed for. The retention policy splits the two cases apart, and the ownerReference on each PVC is how you check which one is in force before you scale anything.</p>
+      <p>A StatefulSet's claims outlive it by default, which is either the safety you wanted or the leak you get billed for. The retention policy splits the two cases apart, and the ownerReference the controller writes on each claim is how the deletion half is carried out.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: apps/v1
 kind: StatefulSet
@@ -276,15 +276,17 @@ spec:
 EOF
 kubectl rollout status statefulset/keep --timeout=180s
 kubectl get pvc -l app=keep
-kubectl get pvc data-keep-2 -o jsonpath='{.metadata.ownerReferences}' | jq
+kubectl get pvc data-keep-2 -o jsonpath='{.metadata.ownerReferences}' | jq   # nothing owns it yet
 kubectl scale statefulset keep --replicas=1
-sleep 90
+sleep 15
+kubectl get pvc data-keep-2 -o jsonpath='{.metadata.ownerReferences}' | jq   # now the condemned pod does
+sleep 75
 kubectl get pvc -l app=keep
 kubectl delete statefulset keep
 sleep 15
 kubectl get pvc -l app=keep
 kubectl delete pvc data-keep-0
-kubectl delete pvc -l app=keep --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl delete pvc -l app=keep --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: apps/v1</b>
 <b>kind: StatefulSet</b>
 <b>metadata: { name: keep, namespace: default }</b>
@@ -319,27 +321,39 @@ Waiting for 1 pods to be ready...
 partitioned roll out complete: 3 new pods have been updated...
 <b>$ kubectl get pvc -l app=keep</b>
 NAME          STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
-data-keep-0   Bound    pvc-4b613b93-ebb1-4d7f-a4dc-2dffec2f5b69   64Mi       RWO            standard       &lt;unset&gt;                 32s
-data-keep-1   Bound    pvc-e8c3bb76-2663-4e92-8fd7-bc34a1da2df9   64Mi       RWO            standard       &lt;unset&gt;                 23s
-data-keep-2   Bound    pvc-911db73a-3162-44bf-b806-697b4d48658f   64Mi       RWO            standard       &lt;unset&gt;                 11s
-<b>$ kubectl get pvc data-keep-2 -o jsonpath='{.metadata.ownerReferences}' | jq</b>
+data-keep-0   Bound    pvc-5d487b38-6213-435f-89fa-e84c958cc0f6   64Mi       RWO            standard       &lt;unset&gt;                 24s
+data-keep-1   Bound    pvc-7e38cb51-e9b5-4d16-9f05-27bc88315451   64Mi       RWO            standard       &lt;unset&gt;                 17s
+data-keep-2   Bound    pvc-cde3b56b-bd6d-4cfb-8233-ad4868f74623   64Mi       RWO            standard       &lt;unset&gt;                 9s
+<b>$ kubectl get pvc data-keep-2 -o jsonpath='{.metadata.ownerReferences}' | jq   # nothing owns it yet</b>
 <b>$ kubectl scale statefulset keep --replicas=1</b>
 statefulset.apps/keep scaled
-<b>$ sleep 90</b>
+<b>$ sleep 15</b>
+<b>$ kubectl get pvc data-keep-2 -o jsonpath='{.metadata.ownerReferences}' | jq   # now the condemned pod does</b>
+[
+  {
+    "apiVersion": "v1",
+    "blockOwnerDeletion": true,
+    "controller": true,
+    "kind": "Pod",
+    "name": "keep-2",
+    "uid": "a92afd0d-1914-4e04-8ba2-85d6a507a65a"
+  }
+]
+<b>$ sleep 75</b>
 <b>$ kubectl get pvc -l app=keep</b>
 NAME          STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
-data-keep-0   Bound    pvc-4b613b93-ebb1-4d7f-a4dc-2dffec2f5b69   64Mi       RWO            standard       &lt;unset&gt;                 2m3s
+data-keep-0   Bound    pvc-5d487b38-6213-435f-89fa-e84c958cc0f6   64Mi       RWO            standard       &lt;unset&gt;                 114s
 <b>$ kubectl delete statefulset keep</b>
 statefulset.apps "keep" deleted from default namespace
 <b>$ sleep 15</b>
 <b>$ kubectl get pvc -l app=keep</b>
 NAME          STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
-data-keep-0   Bound    pvc-4b613b93-ebb1-4d7f-a4dc-2dffec2f5b69   64Mi       RWO            standard       &lt;unset&gt;                 2m18s
+data-keep-0   Bound    pvc-5d487b38-6213-435f-89fa-e84c958cc0f6   64Mi       RWO            standard       &lt;unset&gt;                 2m10s
 <b>$ kubectl delete pvc data-keep-0</b>
 persistentvolumeclaim "data-keep-0" deleted from default namespace
 <b>$ kubectl delete pvc -l app=keep --ignore-not-found</b>
 No resources found</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the two higher-ordinal claims disappear on scale-down, carrying an ownerReference to the StatefulSet, and the last one survives deletion of the set itself. Two halves of one field, opposite outcomes.</div>
+      <div class="verify"><b>verify:</b> while all three replicas are up the claims carry no ownerReferences at all, because <code>whenDeleted: Retain</code> means the set never owns them. Scale down and the two condemned claims each gain an ownerReference to their own pod, which is what deletes them once that pod is gone; the last claim then survives deletion of the set itself. Two halves of one field, opposite outcomes.</div>
     </div>
 
     <div class="exercise" data-title="Ask local-path to grow">
@@ -497,7 +511,7 @@ rancher.io/local-path</code></pre></details></div>
 
     <div class="exercise" data-title="Lose the default class, then get it back">
       <p>A PVC with no <code>storageClassName</code> is not bound to "the default forever": it records whatever default existed when admission saw it, and since retroactive default assignment it can be filled in later. Watch both halves.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl get storageclass -o custom-columns=NAME:.metadata.name,DEFAULT:.metadata.annotations.storageclass\.kubernetes\.io/is-default-class
+      <div class="cb" data-lang="bash"><pre><code>kubectl get storageclass -o custom-columns='NAME:.metadata.name,DEFAULT:.metadata.annotations.storageclass\.kubernetes\.io/is-default-class'
 kubectl annotate storageclass standard storageclass.kubernetes.io/is-default-class-
 kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: v1
@@ -511,9 +525,9 @@ kubectl get pvc noclass -o jsonpath='class=[{.spec.storageClassName}] phase={.st
 kubectl annotate storageclass standard storageclass.kubernetes.io/is-default-class=true
 sleep 20
 kubectl get pvc noclass -o jsonpath='class=[{.spec.storageClassName}] phase={.status.phase}{"\n"}'
-kubectl delete pvc noclass</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl get storageclass -o custom-columns=NAME:.metadata.name,DEFAULT:.metadata.annotations.storageclass\.kubernetes\.io/is-default-class</b>
+kubectl delete pvc noclass</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl get storageclass -o custom-columns='NAME:.metadata.name,DEFAULT:.metadata.annotations.storageclass\.kubernetes\.io/is-default-class'</b>
 NAME       DEFAULT
-standard   &lt;none&gt;
+standard   true
 <b>$ kubectl annotate storageclass standard storageclass.kubernetes.io/is-default-class-</b>
 storageclass.storage.k8s.io/standard annotated
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>

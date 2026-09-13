@@ -33,7 +33,7 @@ GitHub will not render it in place; clone the repo (or use raw + a local browser
 Most command blocks carry a collapsed **output** drawer underneath: the real result of that
 command, so the sections read self-contained even away from a running cluster. Each drawer is
 dated with the day it was captured against the lab. The original blocks carry
-**August 26, 2026**; the 163 exercises added in September carry **September 12** or
+**August 26, 2026**, bar one on the 27th; the 163 exercises added in September carry **September 12** or
 **September 13, 2026**, and were captured on Kubernetes 1.36.1, the `K8S_IMAGE` pin in force at
 the time, before it moved to 1.37.0. Expand a drawer only after predicting what it should say; the lab's tool versions
 float, so details may drift from what your lab prints.

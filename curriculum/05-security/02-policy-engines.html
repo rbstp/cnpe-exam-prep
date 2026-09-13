@@ -401,7 +401,7 @@ clusterpolicy.kyverno.io "legacy-shape" deleted</code></pre></details></div>
     <div class="exercise" data-title="Deny at the Deployment, not the ReplicaSet">
       <p>A pod-level policy catches the pod, which is created by a ReplicaSet, which means the developer's <code>kubectl apply</code> succeeds and the failure lands in an event nobody reads. Autogen moves the denial to where the human is.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
-apiVersion: policies.kyverno.io/v1alpha1
+apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
 metadata: { name: require-team-label }
 spec:
@@ -432,7 +432,7 @@ kubectl -n default create deployment unlabelled --image=nginx:1.27-alpine
 kubectl -n default delete deployment unlabelled --ignore-not-found
 kubectl delete validatingpolicy require-team-label
 kubectl get validatingpolicy require-team-label -o jsonpath='{.spec.autogen}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
-<b>apiVersion: policies.kyverno.io/v1alpha1</b>
+<b>apiVersion: policies.kyverno.io/v1</b>
 <b>kind: ValidatingPolicy</b>
 <b>metadata: { name: require-team-label }</b>
 <b>spec:</b>
@@ -451,7 +451,6 @@ kubectl get validatingpolicy require-team-label -o jsonpath='{.spec.autogen}{"\n
 <b>    - expression: "has(object.metadata.labels) &amp;&amp; has(object.metadata.labels.team)"</b>
 <b>      message: "every pod must carry a team label"</b>
 <b>EOF</b>
-Warning: policies.kyverno.io/v1alpha1 ValidatingPolicy is deprecated; use policies.kyverno.io/v1 ValidatingPolicy
 validatingpolicy.policies.kyverno.io/require-team-label created
 <b>$ sleep 15</b>
 <b>$ kubectl -n default create deployment unlabelled --image=nginx:1.27-alpine</b>
@@ -478,7 +477,7 @@ deployment.apps/unlabelled created
 }
 <b>$ kubectl -n default get events --field-selector reason=FailedCreate | tail -3</b>
 LAST SEEN   TYPE      REASON         OBJECT                             MESSAGE
-9s          Warning   FailedCreate   replicaset/unlabelled-6896b8687b   Error creating: admission webhook "vpol.validate.kyverno.svc-fail" denied the request: Policy require-team-label failed: every pod must carry a team label
+10s         Warning   FailedCreate   replicaset/unlabelled-6896b8687b   Error creating: admission webhook "vpol.validate.kyverno.svc-fail" denied the request: Policy require-team-label failed: every pod must carry a team label
 <b>$ kubectl -n default delete deployment unlabelled</b>
 deployment.apps "unlabelled" deleted from default namespace
 <b>$ kubectl patch validatingpolicy require-team-label --type merge -p '{"spec":{"autogen":{"podControllers":{"controllers":["deployments"]}}}}'</b>
@@ -565,7 +564,7 @@ validatingpolicy.policies.kyverno.io "no-latest" deleted</code></pre></details><
       <div class="cb" data-lang="bash"><pre><code>kubectl -n kyverno get deploy kyverno-admission-controller -o jsonpath='{.spec.template.spec.containers[0].args}' | jq
 kubectl create ns policy-exception --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f - &lt;&lt;'EOF'
-apiVersion: policies.kyverno.io/v1alpha1
+apiVersion: policies.kyverno.io/v1
 kind: PolicyException
 metadata: { name: legacy-job, namespace: policy-exception }
 spec:
@@ -577,12 +576,13 @@ spec:
       expression: "object.metadata.name == 'legacy'"
 EOF
 kubectl -n default run legacy --image=nginx:1.27-alpine --restart=Never
-sleep 30
-kubectl get policyreports -A | head
+# the reports controller runs behind admission, so wait for the report rather than guessing a sleep
+for i in $(seq 18); do kubectl -n default get policyreport -o json | jq -e '[.items[]|select(.scope.name=="legacy")]|length&gt;0' &gt;/dev/null &amp;&amp; break; sleep 5; done; echo "report after ~$((i*5))s"
+kubectl -n default get policyreport
 kubectl -n default get policyreport -o json | jq -r '.items[] | select(.scope.name=="legacy") | .results[] | "\(.policy) \(.result)"'
 kubectl -n default delete pod legacy --ignore-not-found
 kubectl -n policy-exception delete policyexceptions.policies.kyverno.io legacy-job
-kubectl delete ns policy-exception</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n kyverno get deploy kyverno-admission-controller -o jsonpath='{.spec.template.spec.containers[0].args}' | jq</b>
+kubectl delete ns policy-exception</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl -n kyverno get deploy kyverno-admission-controller -o jsonpath='{.spec.template.spec.containers[0].args}' | jq</b>
 [
   "--caSecretName=kyverno-svc.kyverno.svc.kyverno-tls-ca",
   "--tlsSecretName=kyverno-svc.kyverno.svc.kyverno-tls-pair",
@@ -623,7 +623,7 @@ kubectl delete ns policy-exception</code></pre><details class="out"><summary>out
 <b>$ kubectl create ns policy-exception --dry-run=client -o yaml | kubectl apply -f -</b>
 namespace/policy-exception created
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
-<b>apiVersion: policies.kyverno.io/v1alpha1</b>
+<b>apiVersion: policies.kyverno.io/v1</b>
 <b>kind: PolicyException</b>
 <b>metadata: { name: legacy-job, namespace: policy-exception }</b>
 <b>spec:</b>
@@ -634,30 +634,24 @@ namespace/policy-exception created
 <b>    - name: only-the-legacy-pod</b>
 <b>      expression: "object.metadata.name == 'legacy'"</b>
 <b>EOF</b>
-Warning: policies.kyverno.io/v1alpha1 PolicyException is deprecated; use policies.kyverno.io/v1 PolicyException
 policyexception.policies.kyverno.io/legacy-job created
 <b>$ kubectl -n default run legacy --image=nginx:1.27-alpine --restart=Never</b>
 pod/legacy created
-<b>$ sleep 30</b>
-<b>$ kubectl get policyreports -A | head</b>
-NAMESPACE                       NAME                                   KIND          NAME                                                         PASS   FAIL   WARN   ERROR   SKIP   AGE
-argo-rollouts                   10922f54-dceb-40a3-9cc6-ffe96ebe06ea   Pod           argo-rollouts-dashboard-769cf7b9d4-6g72h                     0      1      0      0       0      19h
-argo-rollouts                   1764d448-b981-410e-b055-a778e8b4fbef   ReplicaSet    argo-rollouts-7f8f6559c9                                     0      1      0      0       0      19h
-argo-rollouts                   1bfd07a5-66de-4564-8e96-50cfebc13bcb   Deployment    argo-rollouts                                                0      2      0      0       0      19h
-argo-rollouts                   a3829fe7-dcbf-43f1-921a-48a9f7482002   Pod           argo-rollouts-7f8f6559c9-jg695                               0      1      0      0       0      18h
-argo-rollouts                   c6077b91-ee0d-43a5-805b-00c1fd9d955e   Pod           argo-rollouts-7f8f6559c9-trwxv                               0      1      0      0       0      18h
-argo-rollouts                   fd50ef2f-73ee-44e3-b6ec-4c2482a137d6   Deployment    argo-rollouts-dashboard                                      0      2      0      0       0      19h
-argo-rollouts                   fdc19c02-a61f-44ff-8fdd-2e8e41fc5732   ReplicaSet    argo-rollouts-dashboard-769cf7b9d4                           0      1      0      0       0      19h
-argo                            2cdf9d8d-1148-4d0b-babf-399ae19f0309   ReplicaSet    argo-workflows-workflow-controller-5d6bdc7dd8                0      1      0      0       0      11h
-argo                            3f8922ac-ffcd-4cd5-9a32-f30de4e0cfff   ReplicaSet    argo-workflows-server-5d466c6cbf                             0      1      0      0       0      19h
+<b>$ # the reports controller runs behind admission, so wait for the report rather than guessing a sleep</b>
+<b>$ for i in $(seq 18); do kubectl -n default get policyreport -o json | jq -e '[.items[]|select(.scope.name=="legacy")]|length&gt;0' &gt;/dev/null &amp;&amp; break; sleep 5; done; echo "report after ~$((i*5))s"</b>
+report after ~25s
+<b>$ kubectl -n default get policyreport</b>
+NAME                                   KIND   NAME     PASS   FAIL   WARN   ERROR   SKIP   AGE
+7a647270-939c-44f6-a2cf-126b21a8210d   Pod    legacy   0      0      0      0       1      1s
 <b>$ kubectl -n default get policyreport -o json | jq -r '.items[] | select(.scope.name=="legacy") | .results[] | "\(.policy) \(.result)"'</b>
+require-resource-requests skip
 <b>$ kubectl -n default delete pod legacy --ignore-not-found</b>
 pod "legacy" deleted from default namespace
 <b>$ kubectl -n policy-exception delete policyexceptions.policies.kyverno.io legacy-job</b>
 policyexception.policies.kyverno.io "legacy-job" deleted from policy-exception namespace
 <b>$ kubectl delete ns policy-exception</b>
 namespace "policy-exception" deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the report carries a <code>skip</code> result for the excepted resource rather than a pass or a fail, and the admission controller's flags say which namespaces may hold exceptions. If exceptions are disabled on this install, the flags are the evidence and that is the finding.</div>
+      <div class="verify"><b>verify:</b> the report row for the pod counts one SKIP and nothing else, and the result line reads <code>require-resource-requests skip</code>: the exception is on the record rather than making the resource disappear from the report. The flags are the other half of the answer, since <code>--enablePolicyException=true</code> is what makes an exception legal at all.</div>
     </div>
 
     <div class="exercise" data-title="Test policies without a cluster">
@@ -918,7 +912,7 @@ constrainttemplate.templates.gatekeeper.sh "k8srequiredlabels" deleted</code></p
     </div>
 
     <div class="exercise" data-title="Mutate with a condition">
-      <p>Gatekeeper's <code>Assign</code> changes objects on the way in, and <code>pathTests</code> is what stops it clobbering a value someone set deliberately. Mutation without a condition is how a platform team breaks a team's deployment quietly.</p>
+      <p>Gatekeeper mutates objects on the way in, and what keeps it from clobbering a value someone set deliberately is the kind you reach for: <code>AssignMetadata</code> fills a label in only when it is absent, where <code>Assign</code> needs a <code>pathTests</code> condition to hold it back. Mutation with neither is how a platform team breaks a team's deployment quietly.</p>
       <div class="cb" data-lang="bash"><pre><code># Assign refuses to touch metadata; labels and annotations are AssignMetadata's job,
 # and it only ever fills in a value that is absent, so no pathTests condition is needed
 kubectl apply -f - &lt;&lt;'EOF'
