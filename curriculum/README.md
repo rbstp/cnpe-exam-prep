@@ -47,9 +47,8 @@ Kustomize Version: v5.8.1
 Server Version: v1.36.1
 ```
 
-No drawer is a placeholder: every one holds output that a real cluster produced. (Manifest fragments in the theory panels are shown without a drawer; there is nothing to run.)
-[`docs/curriculum-command-queue.md`](../docs/curriculum-command-queue.md) records the queue that
-produced the September exercises, including the nine items that were dropped and why.
+No drawer is a placeholder: every one holds output that a real cluster produced. (Manifest
+fragments in the theory panels are shown without a drawer; there is nothing to run.)
 
 Press `/` in any page to jump to a section by name, tool or concept, `g` for a drill session, `q` for the quest,
 `t` to switch dark / light (dark by default) and `?` for the shortcuts.
