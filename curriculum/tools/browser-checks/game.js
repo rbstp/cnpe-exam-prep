@@ -89,7 +89,7 @@ module.exports = async function (h) {
   /** @param {import('playwright').Page} page */
   const term = page => page.evaluate(() => document.querySelector('.gm-term pre').textContent);
   /** the camera as draw() clamps it, so a map tile can be found on the canvas: the
-      viewport is 30 by 19 tiles, the player centred unless the map's edge is nearer
+      viewport is 30 by 19 tiles, the player centered unless the map's edge is nearer
       @param {import('playwright').Page} page */
   const view = page => page.evaluate(() => {
     const d = window.CNPE_GAME.debug(), m = window.CNPE_GAME_DATA.map, W = m[0].length, H = m.length;
@@ -638,7 +638,7 @@ module.exports = async function (h) {
     await skipIntro(page);
     await page.waitForFunction(() => window.CNPE_GAME.debug().terrainPending === 0, null, { timeout: 5000 });
     // the switch and the frame it is for, in one task, so the sweep cannot have run: that frame paints the
-    // camera's tiles and no more, and the map — not the ground colour under it — is what it shows
+    // camera's tiles and no more, and the map — not the ground color under it — is what it shows
     const first = await page.evaluate(() => {
       const g = () => window.CNPE_GAME.debug();
       const hex = getComputedStyle(document.getElementById('game-app')).getPropertyValue('--ink-sunk').trim().replace('#', '');
@@ -695,7 +695,7 @@ module.exports = async function (h) {
     await page.goto(url('game.html'));
     await page.waitForSelector('.gm-stage canvas');
     const rgb = (/** @type {string} */ hex) => { const h = hex.replace('#', ''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)).join(','); };
-    const colours = await page.evaluate(() => { const cs = getComputedStyle(document.getElementById('game-app')); const v = (/** @type {string} */ n) => cs.getPropertyValue(n).trim(); return { warn: v('--warn'), ink: v('--ink'), paper: v('--paper') }; });
+    const colors = await page.evaluate(() => { const cs = getComputedStyle(document.getElementById('game-app')); const v = (/** @type {string} */ n) => cs.getPropertyValue(n).trim(); return { warn: v('--warn'), ink: v('--ink'), paper: v('--paper') }; });
     // no frame() and no sweep() here: the sweep runs on its own animation frames,
     // and under reduced motion there is no beat to come round and repaint after it
     await page.waitForFunction(() => window.CNPE_GAME.debug().terrainPending === 0 && window.CNPE_GAME.debug().minimapBuilds > 0, null, { timeout: 5000 });
@@ -704,12 +704,12 @@ module.exports = async function (h) {
       const d = window.CNPE_GAME.debug(), s = d.minimap.scale;
       const at = (/** @type {number} */ x, /** @type {number} */ y) => { const p = k.getImageData(x * s, y * s, 1, 1).data; return p[0] + ',' + p[1] + ',' + p[2]; };
       return { at: [d.x, d.y], builds: d.minimapBuilds, frames: d.frames, pending: d.terrainPending,
-        centre: at(d.x, d.y), rim: at(d.x - 1, d.y - 1), corner: at(45, 31), inside: at(46, 40) };
+        center: at(d.x, d.y), rim: at(d.x - 1, d.y - 1), corner: at(45, 31), inside: at(46, 40) };
     });
     assert(built.at.join() === '60,40' && built.builds === 1, 'the sweep built the minimap once, from (60, 40): ' + JSON.stringify(built));
-    assert(built.centre === rgb(colours.warn) && built.rim === rgb(colours.ink),
-      'the player is on it, a warn centre in an ink rim, with no frame painted after the build: ' + JSON.stringify(built));
-    assert(built.corner === rgb(colours.paper) && built.inside !== rgb(colours.paper),
+    assert(built.center === rgb(colors.warn) && built.rim === rgb(colors.ink),
+      'the player is on it, a warn center in an ink rim, with no frame painted after the build: ' + JSON.stringify(built));
+    assert(built.corner === rgb(colors.paper) && built.inside !== rgb(colors.paper),
       'and the viewport frame is back around the tiles the map shows: ' + JSON.stringify(built));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
@@ -904,7 +904,7 @@ module.exports = async function (h) {
     assert(frames.transparent > 0 && frames.transparent < 40, 'an overlay paints a few pixels over a transparent tile: ' + frames.transparent);
     const d0 = await page.evaluate(() => { const d = window.CNPE_GAME.debug(); return { water: d.waterInView, ambient: d.ambientInView, anim: d.anim }; });
     assert(d0.ambient > 0 && d0.anim, 'from the road by Portmouth, animated tiles are in view (the town, its open door, flowers): ' + JSON.stringify(d0));
-    // the door's torches: over the beat, the flame colour shows on the open door's post. The beat is
+    // the door's torches: over the beat, the flame color shows on the open door's post. The beat is
     // driven by hand, three ticks and three paints in one task, so the ticker cannot slip a frame in between
     const v = await view(page);
     /** @type {{ warn: string, seen: string[], before: number, after: number }} */
@@ -922,7 +922,7 @@ module.exports = async function (h) {
       }
       return { warn: warn[0] + ',' + warn[1] + ',' + warn[2], seen, before, after: window.CNPE_GAME.debug().waterFrame };
     }, { v, door: DOOR });
-    assert(torch.seen.some(x => x.indexOf(torch.warn + ':') === 0), 'the torch flame is painted over the open door in the flame colour: ' + JSON.stringify(torch));
+    assert(torch.seen.some(x => x.indexOf(torch.warn + ':') === 0), 'the torch flame is painted over the open door in the flame color: ' + JSON.stringify(torch));
     assert(new Set(torch.seen.map(x => x.split(':')[1])).size === 3 && torch.after === torch.before, 'across the three frames of the beat, three ticks coming back round: ' + JSON.stringify(torch.seen));
     assert((await page.evaluate(() => window.CNPE_GAME.debug().anim)) === true, 'and tick() left the ticker running');
     // only what is in view is counted: the same count as a walk over the map's rows inside the viewport, here and by the Exam gate
@@ -1045,18 +1045,18 @@ module.exports = async function (h) {
     const prop = await page.evaluate(() => getComputedStyle(document.querySelector('.gm-mini')).getPropertyValue('--gm-mini-w').trim());
     assert(prop === m0.box.w + 'px' && parseFloat(prop) === map.w && m0.box.h === map.h, 'the box is --gm-mini-w wide and the map\'s aspect tall, a pixel a tile of the ' + map.w + 'x' + map.h + ' map: ' + JSON.stringify({ prop, box: m0.box }));
     assert(m0.builds === 1 && m0.frames > 1, 'built once with the terrain, while frames keep coming: ' + JSON.stringify(m0));
-    // a minimap pixel is a tile: read the tile's top-left device pixel, and check the whole block is one colour
+    // a minimap pixel is a tile: read the tile's top-left device pixel, and check the whole block is one color
     const px = (/** @type {number} */ x, /** @type {number} */ y) => page.evaluate(({ x, y }) => {
       const c = /** @type {HTMLCanvasElement} */ (document.querySelector('.gm-mini canvas')), s = window.CNPE_GAME.debug().minimap.scale;
       const d = c.getContext('2d').getImageData(x * s, y * s, s, s).data, first = d[0] + ',' + d[1] + ',' + d[2];
       for (let i = 4; i < d.length; i += 4) if (d[i] + ',' + d[i + 1] + ',' + d[i + 2] !== first) return 'mixed:' + first;
       return first;
     }, { x, y });
-    const colours = await page.evaluate(() => { const cs = getComputedStyle(document.getElementById('game-app')); const v = (/** @type {string} */ n) => cs.getPropertyValue(n).trim(); return { ok: v('--ok'), paper: v('--paper'), warn: v('--warn'), ink: v('--ink'), accent: v('--accent') }; });
+    const colors = await page.evaluate(() => { const cs = getComputedStyle(document.getElementById('game-app')); const v = (/** @type {string} */ n) => cs.getPropertyValue(n).trim(); return { ok: v('--ok'), paper: v('--paper'), warn: v('--warn'), ink: v('--ink'), accent: v('--accent') }; });
     const rgb = (/** @type {string} */ hex) => { const h = hex.replace('#', ''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)).join(','); };
-    assert((await px(8, 6)) === rgb(colours.ok), 'Portmouth, cleared, is a green pixel, whole at the backing scale: ' + (await px(8, 6)) + ' for ' + colours.ok);
+    assert((await px(8, 6)) === rgb(colors.ok), 'Portmouth, cleared, is a green pixel, whole at the backing scale: ' + (await px(8, 6)) + ' for ' + colors.ok);
     const mill = await page.evaluate(() => window.CNPE_GAME_DATA.towns[1]);
-    assert((await px(mill.x, mill.y)) === rgb(colours.paper), mill.name + ', not cleared, is a paper pixel: ' + (await px(mill.x, mill.y)));
+    assert((await px(mill.x, mill.y)) === rgb(colors.paper), mill.name + ', not cleared, is a paper pixel: ' + (await px(mill.x, mill.y)));
     assert((await px(1, 1)) !== (await px(60, 40)) && !/mixed/.test(await px(1, 1)), 'the sea and the land differ: ' + (await px(1, 1)) + ' vs ' + (await px(60, 40)));
     const tints = await page.evaluate(() => {
       const c = /** @type {HTMLCanvasElement} */ (document.querySelector('.gm-mini canvas')), k = c.getContext('2d'), s = window.CNPE_GAME.debug().minimap.scale;
@@ -1072,17 +1072,17 @@ module.exports = async function (h) {
     await page.evaluate(() => window.CNPE_GAME.debug().frame());
     const v0 = await view(page);
     const frame0 = { focus: await focused(), tl: await px(v0.cx, v0.cy), tr: await px(v0.cx + 29, v0.cy), bl: await px(v0.cx, v0.cy + 18), br: await px(v0.cx + 29, v0.cy + 18), top: await px(v0.cx + 15, v0.cy), left: await px(v0.cx, v0.cy + 9), inside: await px(v0.cx + 1, v0.cy + 1) };
-    assert(v0.cx === 0 && v0.cy === 0 && frame0.focus && [frame0.tl, frame0.tr, frame0.bl, frame0.br, frame0.top, frame0.left].every(c => c === rgb(colours.accent)) && frame0.inside !== rgb(colours.accent),
+    assert(v0.cx === 0 && v0.cy === 0 && frame0.focus && [frame0.tl, frame0.tr, frame0.bl, frame0.br, frame0.top, frame0.left].every(c => c === rgb(colors.accent)) && frame0.inside !== rgb(colors.accent),
       'a one-pixel frame marks the 30 by 19 tiles in view, hollow inside, in the accent while the stage has focus: ' + JSON.stringify(frame0));
     // the frame follows the stage's border out of the accent and back: paper without focus, as the windows' rules are
     await page.evaluate(() => /** @type {HTMLElement} */ (document.activeElement).blur());
     await page.evaluate(() => window.CNPE_GAME.debug().frame());
     const blurred = { focus: await focused(), tl: await px(v0.cx, v0.cy), br: await px(v0.cx + 29, v0.cy + 18), left: await px(v0.cx, v0.cy + 9) };
-    assert(!blurred.focus && [blurred.tl, blurred.br, blurred.left].every(c => c === rgb(colours.paper)), 'blurred, the frame is the windows\' paper: ' + JSON.stringify(blurred));
+    assert(!blurred.focus && [blurred.tl, blurred.br, blurred.left].every(c => c === rgb(colors.paper)), 'blurred, the frame is the windows\' paper: ' + JSON.stringify(blurred));
     await page.focus('.gm-stage');
     await page.evaluate(() => window.CNPE_GAME.debug().frame());
     const refocused = { focus: await focused(), tl: await px(v0.cx, v0.cy), br: await px(v0.cx + 29, v0.cy + 18) };
-    assert(refocused.focus && refocused.tl === rgb(colours.accent) && refocused.br === rgb(colours.accent), 'focused again, the accent again: ' + JSON.stringify(refocused));
+    assert(refocused.focus && refocused.tl === rgb(colors.accent) && refocused.br === rgb(colors.accent), 'focused again, the accent again: ' + JSON.stringify(refocused));
     // the dot blinks on the beat, without rebuilding the map under it: three beats by hand, in one task
     const dot = await page.evaluate(() => {
       const c = /** @type {HTMLCanvasElement} */ (document.querySelector('.gm-mini canvas')), k = c.getContext('2d'), s = window.CNPE_GAME.debug().minimap.scale;
@@ -1094,7 +1094,7 @@ module.exports = async function (h) {
       return { seen, builds: window.CNPE_GAME.debug().minimapBuilds };
     });
     const onFrames = Object.keys(dot.seen).filter(f => (+f & 1) === 0), offFrames = Object.keys(dot.seen).filter(f => (+f & 1) === 1);
-    assert(Object.keys(dot.seen).length === 3 && onFrames.every(f => dot.seen[f] === rgb(colours.warn)) && offFrames.every(f => dot.seen[f] !== rgb(colours.warn)),
+    assert(Object.keys(dot.seen).length === 3 && onFrames.every(f => dot.seen[f] === rgb(colors.warn)) && offFrames.every(f => dot.seen[f] !== rgb(colors.warn)),
       'the dot blinks: warn on the beat\'s even frames, the ground on its odd one: ' + JSON.stringify(dot.seen));
     assert(dot.builds === 1, 'and blinking did not rebuild the minimap: ' + dot.builds);
     // a step moves the dot: the rim's pixel at (11, 6) is lifted and the ground under it shows again, and the dot is at (9, 6)
@@ -1106,27 +1106,27 @@ module.exports = async function (h) {
       // paint now and read in the same task, so the blink's phase is known: the dot is on when the beat's frame is even
       window.CNPE_GAME.debug().frame();
       const d = window.CNPE_GAME.debug();
-      return { x: d.x, builds: d.minimapBuilds, on: (d.waterFrame & 1) === 0, left: at(11, 6), ground: at(12, 6), centre: at(9, 6), rim: at(10, 6) };
+      return { x: d.x, builds: d.minimapBuilds, on: (d.waterFrame & 1) === 0, left: at(11, 6), ground: at(12, 6), center: at(9, 6), rim: at(10, 6) };
     });
     assert(moved.x === 9 && moved.builds === 1, 'a step moves the dot without a rebuild: ' + JSON.stringify(moved));
-    assert(moved.left !== rgb(colours.ink) && moved.left !== rgb(colours.warn), 'the tile the rim left shows the ground again: ' + JSON.stringify(moved));
-    if (moved.on) assert(moved.centre === rgb(colours.warn) && moved.rim === rgb(colours.ink), 'the dot stands on the new tile, a warn centre in an ink rim: ' + JSON.stringify(moved));
-    else assert(moved.centre !== rgb(colours.warn) && moved.rim !== rgb(colours.ink), 'the dot is between blinks, so the ground shows there too: ' + JSON.stringify(moved));
+    assert(moved.left !== rgb(colors.ink) && moved.left !== rgb(colors.warn), 'the tile the rim left shows the ground again: ' + JSON.stringify(moved));
+    if (moved.on) assert(moved.center === rgb(colors.warn) && moved.rim === rgb(colors.ink), 'the dot stands on the new tile, a warn center in an ink rim: ' + JSON.stringify(moved));
+    else assert(moved.center !== rgb(colors.warn) && moved.rim !== rgb(colors.ink), 'the dot is between blinks, so the ground shows there too: ' + JSON.stringify(moved));
     // the frame moves with the camera, and the ground comes back where it was: from (60, 40) the camera is unclamped,
-    // and a step east slides the frame one tile; the ground colours are read first, from here, where no frame covers them
+    // and a step east slides the frame one tile; the ground colors are read first, from here, where no frame covers them
     const ground = { corner: await px(45, 31), edge: await px(45, 40) };
     await standAt(page, 60, 40);
     await page.evaluate(() => window.CNPE_GAME.debug().frame());   // the focus skipIntro gave the stage has its frame painted
     const v1 = await view(page);
     const frame1 = { at: [v1.cx, v1.cy], focus: await focused(), corner: await px(45, 31), edge: await px(45, 40), right: await px(74, 40), inside: await px(46, 40) };
-    assert(v1.cx === 45 && v1.cy === 31 && frame1.focus && frame1.corner === rgb(colours.accent) && frame1.edge === rgb(colours.accent) && frame1.right === rgb(colours.accent) && frame1.inside !== rgb(colours.accent),
+    assert(v1.cx === 45 && v1.cy === 31 && frame1.focus && frame1.corner === rgb(colors.accent) && frame1.edge === rgb(colors.accent) && frame1.right === rgb(colors.accent) && frame1.inside !== rgb(colors.accent),
       'from (60, 40) the frame stands at tiles 45..74 by 31..49: ' + JSON.stringify(frame1));
     await page.keyboard.press('ArrowRight');
     await page.waitForFunction(() => !window.CNPE_GAME.debug().walking, null, { timeout: 2000 }).catch(() => {});
     await page.evaluate(() => window.CNPE_GAME.debug().frame());
     const v2 = await view(page);
     const frame2 = { at: [v2.cx, v2.cy], corner: await px(46, 31), edge: await px(46, 40), right: await px(75, 40), wasCorner: await px(45, 31), wasEdge: await px(45, 40), builds: await page.evaluate(() => window.CNPE_GAME.debug().minimapBuilds) };
-    assert(v2.cx === 46 && frame2.corner === rgb(colours.accent) && frame2.edge === rgb(colours.accent) && frame2.right === rgb(colours.accent), 'a step east moves the frame one tile: ' + JSON.stringify(frame2));
+    assert(v2.cx === 46 && frame2.corner === rgb(colors.accent) && frame2.edge === rgb(colors.accent) && frame2.right === rgb(colors.accent), 'a step east moves the frame one tile: ' + JSON.stringify(frame2));
     assert(frame2.wasCorner === ground.corner && frame2.wasEdge === ground.edge && frame2.builds === 1, 'and the column it left shows the ground again, with no rebuild: ' + JSON.stringify({ frame2, ground }));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
@@ -1143,7 +1143,7 @@ module.exports = async function (h) {
       window.CNPE_GAME.debug().tick(); window.CNPE_GAME.debug().frame(); seen.add(at());
       return { seen: Array.from(seen), waterFrame: window.CNPE_GAME.debug().waterFrame };
     });
-    assert(steady.seen.length === 1 && steady.seen[0] === rgb(colours.warn) && steady.waterFrame === 0, 'reduced motion: the dot is on, and tick() moves nothing: ' + JSON.stringify(steady) + ' for ' + colours.warn);
+    assert(steady.seen.length === 1 && steady.seen[0] === rgb(colors.warn) && steady.waterFrame === 0, 'reduced motion: the dot is on, and tick() moves nothing: ' + JSON.stringify(steady) + ' for ' + colors.warn);
     assert(still.page.errors.length === 0, 'no console errors: ' + still.page.errors.join(' | '));
     await still.ctx.close();
     // the engine reads the width from the stylesheet, not from a constant of its own: on a phone-wide viewport the
@@ -1174,7 +1174,7 @@ module.exports = async function (h) {
     const ring = (page, x, y, beats) => page.evaluate(({ x, y, beats }) => {
       const c = /** @type {HTMLCanvasElement} */ (document.querySelector('.gm-mini canvas')), k = c.getContext('2d'), s = window.CNPE_GAME.debug().minimap.scale;
       const at = (/** @type {number} */ px, /** @type {number} */ py) => { const p = k.getImageData(px * s, py * s, 1, 1).data; return p[0] + ',' + p[1] + ',' + p[2]; };
-      const read = () => { window.CNPE_GAME.debug().frame(); return { tl: at(x - 2, y - 2), br: at(x + 2, y + 2), left: at(x - 2, y), top: at(x, y - 2), inner: at(x - 1, y), centre: at(x, y), below: at(x, y + 2), odd: (window.CNPE_GAME.debug().waterFrame & 1) === 1 }; };
+      const read = () => { window.CNPE_GAME.debug().frame(); return { tl: at(x - 2, y - 2), br: at(x + 2, y + 2), left: at(x - 2, y), top: at(x, y - 2), inner: at(x - 1, y), center: at(x, y), below: at(x, y + 2), odd: (window.CNPE_GAME.debug().waterFrame & 1) === 1 }; };
       /** @type {ReturnType<typeof read>[]} */
       const out = [read()];
       for (let i = 0; i < (beats || 0); i++) { window.CNPE_GAME.debug().tick(); out.push(read()); }
@@ -1186,7 +1186,7 @@ module.exports = async function (h) {
     await page.goto(url('game.html'));
     await page.waitForSelector('.gm-stage canvas');
     await skipIntro(page);
-    const colours = await page.evaluate(() => { const cs = getComputedStyle(document.getElementById('game-app')); const v = (/** @type {string} */ n) => cs.getPropertyValue(n).trim(); return { accent: v('--accent'), paper: v('--paper'), warn: v('--warn') }; });
+    const colors = await page.evaluate(() => { const cs = getComputedStyle(document.getElementById('game-app')); const v = (/** @type {string} */ n) => cs.getPropertyValue(n).trim(); return { accent: v('--accent'), paper: v('--paper'), warn: v('--warn') }; });
     let s = await sign(page);
     assert(!!s.goal && s.goal.x === TOWN.x && s.goal.y === TOWN.y && s.goal.what === 'the trial in Portmouth', 'from the start the signpost points to Portmouth\'s trial: ' + JSON.stringify(s.goal));
     assert(s.nx === 'next: the trial in Portmouth · 2 ▲' && /Substrate Downs/.test(s.where), 'the where window says so, with the steps and the way: ' + JSON.stringify(s.nx));
@@ -1195,9 +1195,9 @@ module.exports = async function (h) {
     const frames = await ring(page, TOWN.x, TOWN.y, 2);
     const on = frames.filter(f => f.odd), off = frames.filter(f => !f.odd);
     assert(on.length === 1 && off.length === 2, 'three beats by hand: one odd frame, two even: ' + JSON.stringify(frames.map(f => f.odd)));
-    assert(on.every(f => [f.tl, f.br, f.left, f.top].every(c => c === rgb(colours.accent)) && f.inner !== rgb(colours.accent) && f.centre === rgb(colours.paper)),
+    assert(on.every(f => [f.tl, f.br, f.left, f.top].every(c => c === rgb(colors.accent)) && f.inner !== rgb(colors.accent) && f.center === rgb(colors.paper)),
       'on the odd frame the ring is the accent, hollow, and the town\'s own pixel shows through it: ' + JSON.stringify(on[0]));
-    assert(off.every(f => [f.tl, f.br, f.left, f.top].every(c => c !== rgb(colours.accent))), 'on the even frames the ring is lifted and the ground shows: ' + JSON.stringify(off[0]));
+    assert(off.every(f => [f.tl, f.br, f.left, f.top].every(c => c !== rgb(colors.accent))), 'on the even frames the ring is lifted and the ground shows: ' + JSON.stringify(off[0]));
     // the trial cleared, the signpost moves on to the dungeon door
     await page.evaluate(() => { const st = window.CNPE_PROGRESS.get(); st.game.towns = { '1.1': 1 }; window.CNPE_PROGRESS.save(); });
     s = await sign(page);
@@ -1218,7 +1218,7 @@ module.exports = async function (h) {
     s = await sign(page);
     assert(s.goal === null && s.nx === '' && /The exam is passed/.test(s.label || ''), 'with the exam passed there is nowhere left to point: ' + JSON.stringify({ goal: s.goal, nx: s.nx }));
     const gone = (await ring(page, nearest.x, nearest.y))[0];
-    assert([gone.tl, gone.br, gone.left, gone.top].every(c => c !== rgb(colours.accent)), 'and the ring is lifted for good: ' + JSON.stringify(gone));
+    assert([gone.tl, gone.br, gone.left, gone.top].every(c => c !== rgb(colors.accent)), 'and the ring is lifted for good: ' + JSON.stringify(gone));
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
     // reduced motion: the ring holds steady, like the dot
@@ -1227,9 +1227,9 @@ module.exports = async function (h) {
     await still.page.waitForSelector('.gm-stage canvas');
     await skipIntro(still.page);
     const steady = (await ring(still.page, TOWN.x, TOWN.y, 1))[1];
-    assert([steady.tl, steady.br, steady.left, steady.top].every(c => c === rgb(colours.accent)), 'reduced motion: the ring is on and stays through a beat asked for by hand: ' + JSON.stringify(steady));
+    assert([steady.tl, steady.br, steady.left, steady.top].every(c => c === rgb(colors.accent)), 'reduced motion: the ring is on and stays through a beat asked for by hand: ' + JSON.stringify(steady));
     // the player stands two tiles under the town, on the ring's bottom row: the dot is painted last, so where you stand wins
-    assert(steady.below === rgb(colours.warn), 'where the dot and the ring meet, the dot shows: ' + JSON.stringify(steady));
+    assert(steady.below === rgb(colors.warn), 'where the dot and the ring meet, the dot shows: ' + JSON.stringify(steady));
     assert(still.page.errors.length === 0, 'no console errors: ' + still.page.errors.join(' | '));
     await still.ctx.close();
   });

@@ -4,7 +4,7 @@
  *     node curriculum/tools/game-sim-test.mjs
  *
  * assets/game-sim.js touches no DOM and assets/game-data.js is data, so the
- * whole fight is checked here rather than through a browser: the normalisation
+ * whole fight is checked here rather than through a browser: the normalization
  * table, and for every scenario the commands a player would type to surface each
  * piece of evidence, the documented fix, a plausible wrong fix, and a command
  * the scenario never heard of. The probe commands are the ones make break's
@@ -26,7 +26,7 @@ const ok = (cond, label) => {
 };
 const group = t => console.log(t);
 
-/* ── normalisation ─────────────────────────────────────────── */
+/* ── normalization ─────────────────────────────────────────── */
 group("one command, many spellings");
 const SAME = [
   ["kubectl get pods -n team-a", ["k get po -nteam-a", "kubectl get pod --namespace=team-a", "kubectl -n team-a get pods | grep broken",
@@ -57,9 +57,9 @@ SAME.forEach(([want, forms]) => {
     const got = S.normalize(f);
     ok(got === want, JSON.stringify(f) + " -> " + want + (got === want ? "" : ", got " + got));
   });
-  ok(S.normalize(want) === want, "and the normalised form is a fixed point: " + want);
+  ok(S.normalize(want) === want, "and the normalized form is a fixed point: " + want);
 });
-ok(S.normalize("") === "" && S.normalize("   ") === "" && S.normalize("$") === "", "a blank line normalises to nothing");
+ok(S.normalize("") === "" && S.normalize("   ") === "" && S.normalize("$") === "", "a blank line normalizes to nothing");
 ok(S.normalize("kubectl get pods -a") === "kubectl get pods -a", "-a and -A are different flags");
 [["kubectl get pods", "kubectl"], ["flux get ks", "flux"], ["argocd app get x", "argo"], ["kubectl argo rollouts get rollout x", "argo"],
   ["tkn pr list", "tekton"], ["crossplane beta trace x y", "crossplane"], ["kubectl get servicemonitors -A", "platform"],

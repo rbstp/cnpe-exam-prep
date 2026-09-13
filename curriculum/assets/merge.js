@@ -448,7 +448,7 @@
     }
     /* A store as it goes over the wire. A running exam clock stays on the machine
        that started it, as import has always left it. The layout is stable so an
-       unchanged store normalises to exactly what was sent last time: the resume
+       unchanged store normalizes to exactly what was sent last time: the resume
        pointer travels, and app.js moves it only when a new section is opened. */
     function wire(p) {
         if (!p || typeof p !== "object")

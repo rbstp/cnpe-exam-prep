@@ -82,14 +82,14 @@ module.exports = async function (h) {
         const detail = await page.evaluate(() => {
           const canvas = /** @type {HTMLCanvasElement} */ (document.querySelector('.gm-town > .gm-scene'));
           const pixels = canvas.getContext('2d').getImageData(0, 0, 480, 144).data;
-          const colours = new Map();
+          const colors = new Map();
           for (let i = 0; i < pixels.length; i += 4) {
             const key = pixels[i] + ',' + pixels[i + 1] + ',' + pixels[i + 2];
-            colours.set(key, (colours.get(key) || 0) + 1);
+            colors.set(key, (colors.get(key) || 0) + 1);
           }
-          return { colours: colours.size, flat: Math.max(...colours.values()) / (480 * 144) };
+          return { colors: colors.size, flat: Math.max(...colors.values()) / (480 * 144) };
         });
-        assert(detail.colours >= 20 && detail.flat < .65, tag + ': visible upper scenery contains detailed artwork, not a blank field: ' + JSON.stringify(detail));
+        assert(detail.colors >= 20 && detail.flat < .65, tag + ': visible upper scenery contains detailed artwork, not a blank field: ' + JSON.stringify(detail));
         assert(await noOverflow(page), tag + ': town menus fit the viewport');
         await page.locator('.gm-menu button').filter({ hasText: /^Inn/ }).click();
         await settle(page);
@@ -310,7 +310,7 @@ module.exports = async function (h) {
     await ctx.close();
   });
 
-  for (const leave of [false, true]) await group('pending sound startup: ' + (leave ? 'old visit cannot mute the new one' : 'can be cancelled immediately'), async () => {
+  for (const leave of [false, true]) await group('pending sound startup: ' + (leave ? 'old visit cannot mute the new one' : 'can be canceled immediately'), async () => {
     const { ctx, page } = await fresh(seed);
     await page.addInitScript(() => {
       const NativeAudio = window.AudioContext, w = /** @type {*} */ (window);

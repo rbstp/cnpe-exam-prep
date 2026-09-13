@@ -43,11 +43,11 @@ module.exports = async function (h) {
     // theory panels may carry reference blocks of their own before it
     assert(await page.evaluate(() => !!document.querySelector('.exercise .cb').closest('.exercise')),
       'the block under test lives inside an exercise panel');
-    // syntax-test.mjs proves the colouring; this proves it reaches the page at
+    // syntax-test.mjs proves the coloring; this proves it reaches the page at
     // all, which the copy button cannot see (it reads textContent) and neither
     // does check-site.sh. Without it a highlighter that throws deploys green.
     assert(await page.evaluate(() => !!document.querySelector('.exercise .cb code span.t-cmd')),
-      'the block came out coloured, so syntax.js loaded and app.js called it');
+      'the block came out colored, so syntax.js loaded and app.js called it');
     const expected = await page.evaluate(() => document.querySelector('.exercise .cb code').textContent);
     await page.click('.exercise .cb .copy-btn');
     const copied = await page.evaluate(() => window.__copied);

@@ -95,7 +95,7 @@ module.exports = async function (h) {
   });
   await group('mobile: nor at 320px, where a long unbroken token would show', () => sweep(SMALL));
 
-  /* 3. the column is the measure, so nothing carries a gutter its neighbour
+  /* 3. the column is the measure, so nothing carries a gutter its neighbor
      does not — the rule that keeps prose the width of the exercise bodies */
   await group('measure: text spends the whole column at every width', async () => {
     const { ctx, page } = await fresh();
@@ -218,7 +218,7 @@ module.exports = async function (h) {
         hop: Math.round(hop.getBoundingClientRect().width),
         arr: Math.round(arr.getBoundingClientRect().width),
         inner: Math.round(inner),
-        // the arrow is a vertical line: its centre has to be the box's centre
+        // the arrow is a vertical line: its center has to be the box's center
         hopMid: Math.round(hop.getBoundingClientRect().left + hop.getBoundingClientRect().width / 2),
         arrMid: Math.round(arr.getBoundingClientRect().left + arr.getBoundingClientRect().width / 2)
       };
@@ -227,7 +227,7 @@ module.exports = async function (h) {
     assert(fig && fig.hop <= fig.inner, 'a hop box drops its 340px and fits the phone: ' +
       (fig ? fig.hop + ' in ' + fig.inner : ''));
     assert(fig && Math.abs(fig.hopMid - fig.arrMid) <= 1,
-      'the connector is still centred on the box it joins: ' + (fig ? fig.hopMid + ' vs ' + fig.arrMid : ''));
+      'the connector is still centered on the box it joins: ' + (fig ? fig.hopMid + ' vs ' + fig.arrMid : ''));
     await page.goto(url('01-architecture/02-compute-right-sizing.html'));
     await page.waitForSelector('.wctl');
     await laidOut(page);

@@ -49,7 +49,7 @@
 
     <div class="callout trap">
       <span class="tag">Admission order decides who refuses you</span>
-      <p>The order is: <em>mutating</em> admission (LimitRanger injects defaults, Kyverno mutates labels) → <em>validating</em> admission (PSS, quota, Kyverno/Gatekeeper validate). So a pod with no resources block can be admitted because LimitRange gave it some, and a validating policy demanding requests will never see a violation in a namespace that has a LimitRange. Section 5.2 makes a whole lesson of this; here, just internalise that <strong>a mutation can satisfy a validation the user never wrote</strong>.</p>
+      <p>The order is: <em>mutating</em> admission (LimitRanger injects defaults, Kyverno mutates labels) → <em>validating</em> admission (PSS, quota, Kyverno/Gatekeeper validate). So a pod with no resources block can be admitted because LimitRange gave it some, and a validating policy demanding requests will never see a violation in a namespace that has a LimitRange. Section 5.2 makes a whole lesson of this; here, just internalize that <strong>a mutation can satisfy a validation the user never wrote</strong>.</p>
     </div>
 
     <h3>Reading the refusal</h3>
@@ -72,7 +72,7 @@
 
     <div class="callout exam">
       <span class="tag">Quota's second-order effects</span>
-      <p>Quota is enforced by an admission controller against a <em>usage cache</em>, which is why the failure often appears one level down: a Deployment applies fine and its <em>ReplicaSet</em> logs the quota error while replicas stall below the target. Look at <code>kubectl describe rs</code> or namespace events, not at the Deployment. The same indirection shows up for PSS (5.3), and recognising the two-level pattern generalises across the whole exam.</p>
+      <p>Quota is enforced by an admission controller against a <em>usage cache</em>, which is why the failure often appears one level down: a Deployment applies fine and its <em>ReplicaSet</em> logs the quota error while replicas stall below the target. Look at <code>kubectl describe rs</code> or namespace events, not at the Deployment. The same indirection shows up for PSS (5.3), and recognizing the two-level pattern generalizes across the whole exam.</p>
     </div>
   </div>
 </section>
@@ -84,7 +84,7 @@
     <ul>
       <li><strong>Priority and preemption.</strong> A <code>PriorityClass</code> decides who gets evicted when the cluster is full. Platform components (ingress, monitoring, CNI) should outrank tenant workloads; a tenant that can preempt your metrics stack is a tenant that can blind you. Quota can be scoped per priority class (<code>scopeSelector</code>) so nobody hoards the high-priority lane.</li>
       <li><strong>Overcommit ratios.</strong> Setting <code>limits</code> well above <code>requests</code> across every tenant is how you get density; it is also how you get a node that OOMs under coincident spikes. The lab's LimitRange (50m request / 200m limit) is a deliberate 4× burst ratio: a decision, not an accident.</li>
-      <li><strong>Node pools with taints.</strong> When two tenants must not share a kernel (or a GPU, or a licence), taint the pool and pair it with nodeAffinity. Cost: stranded capacity in each pool.</li>
+      <li><strong>Node pools with taints.</strong> When two tenants must not share a kernel (or a GPU, or a license), taint the pool and pair it with nodeAffinity. Cost: stranded capacity in each pool.</li>
       <li><strong>Idle reclamation.</strong> The unused space between requests and usage is the tenancy tax, and it is exactly what OpenCost puts a number on in section 1.5. "Optimizing multi-tenancy resource usage" is, in practice, driving that number down without breaking the guardrails above.</li>
     </ul>
 
@@ -93,7 +93,7 @@
 
     <h3>Quotas beyond requests and limits</h3>
     <ul>
-      <li><strong>Object counts</strong>: <code>count/&lt;resource&gt;.&lt;group&gt;</code> works for any kind, including custom resources (<code>count/widgets.example.com</code>), and the specialised forms <code>pods</code>, <code>services</code>, <code>secrets</code>, <code>configmaps</code>, <code>persistentvolumeclaims</code>, <code>services.loadbalancers</code>, <code>services.nodeports</code>. These protect the control plane and the bill, not the nodes.</li>
+      <li><strong>Object counts</strong>: <code>count/&lt;resource&gt;.&lt;group&gt;</code> works for any kind, including custom resources (<code>count/widgets.example.com</code>), and the specialized forms <code>pods</code>, <code>services</code>, <code>secrets</code>, <code>configmaps</code>, <code>persistentvolumeclaims</code>, <code>services.loadbalancers</code>, <code>services.nodeports</code>. These protect the control plane and the bill, not the nodes.</li>
       <li><strong>Scopes</strong>: <code>scopeSelector</code> narrows a quota to <code>BestEffort</code>/<code>NotBestEffort</code>, <code>Terminating</code>/<code>NotTerminating</code> (pods with <code>activeDeadlineSeconds</code>), <code>CrossNamespacePodAffinity</code>, or <code>PriorityClass</code> with <code>In</code> a list of class names. A quota scoped to <code>PriorityClass In [platform-critical]</code> with <code>pods: "0"</code> is how you stop tenants using the platform's own lane.</li>
       <li><strong>Per-class storage</strong>: <code>&lt;class&gt;.storageclass.storage.k8s.io/requests.storage</code> and <code>.../persistentvolumeclaims</code>, as in 1.3.</li>
       <li><strong>Ephemeral storage</strong>: <code>requests.ephemeral-storage</code> and <code>limits.ephemeral-storage</code>; container logs count against it, which is why a chatty pod can be evicted for disk.</li>

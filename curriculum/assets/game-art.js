@@ -2,7 +2,7 @@
 /* CNPE Quest: original, palette-indexed pixel art. Sprites are small character
    grids; scenery is composed from stepped silhouettes, tiled materials and
    hand-built architecture. No imported artwork. The pigment ramps retain
-   their material colours while the console palette changes their lighting.
+   their material colors while the console palette changes their lighting.
 
    The grids are ASCII only: tools/subset-fonts.py counts every character in
    assets/*.js as one the fonts must carry, and these must not add a glyph.
@@ -42,7 +42,7 @@
     }
     function alpha(a, t) { var x = parse(a); return css([x[0], x[1], x[2], t]); }
     function lum(c) { var x = parse(c); return 0.2126 * x[0] + 0.7152 * x[1] + 0.0722 * x[2]; }
-    /* ── the palette, and the colour sets built from it ─────── */
+    /* ── the palette, and the color sets built from it ─────── */
     var P = null;
     var bright = "#fff", dark = "#000"; // whichever of ink and paper is the lighter, per theme
     var gen = 0; // bumps on theme(); part of every cache key
@@ -50,8 +50,8 @@
     /** lighter in both themes: toward the palette's brighter end */
     function lighten(c, t) { return mix(c, bright, t); }
     function darken(c, t) { return mix(c, dark, t); }
-    /** Art pigments, rather than UI surface colours: daylight and twilight share
-        the same materials. A little theme colour keeps custom palettes alive. */
+    /** Art pigments, rather than UI surface colors: daylight and twilight share
+        the same materials. A little theme color keeps custom palettes alive. */
     function pigment(day, night, tint) {
         return mix(lum(P.ink) > lum(P.paper) ? day : night, tint, 0.12);
     }
@@ -312,7 +312,7 @@
                 "....TTTTTTTTT...", "....STTTTTTTT...", "....S.TTTTTT....", ".....tttttt.....", "......BBBB......", "......BBBB......", "......BBBB......", "....xxxxxxxx...."]
         ]
     };
-    /* Auburn hair, a gold clasp and a violet travelling mantle over teal cloth.
+    /* Auburn hair, a gold clasp and a violet traveling mantle over teal cloth.
        Material shading is baked into the grids once, not into walking frames. */
     Object.keys(HERO).forEach(function (face) {
         HERO[face] = HERO[face].map(function (g, frame) {
@@ -344,7 +344,7 @@
     });
     HERO.r = HERO.l.map(flip);
     var HERO_FRAMES = 4; // standing, the two halves of a stride, the pass between them
-    /** skin and hair that read in both themes: the warm colours pulled toward the light and the dark end */
+    /** skin and hair that read in both themes: the warm colors pulled toward the light and the dark end */
     function skin() { return pigment("#f3cba0", "#e8b491", P.warn); }
     function hair() { return pigment("#965742", "#814436", P.warnDim); }
     function heroSlots() {
@@ -366,7 +366,7 @@
         };
     }
     /* ── the enemies: one shape per fault family, 32 by 32 ───── */
-    /* b the body, dark; d the outline, darker; l the family colour as a highlight;
+    /* b the body, dark; d the outline, darker; l the family color as a highlight;
        e the glow of an eye; p the black inside a maw or a socket; a metal, smoke or
        chain; w a fang or a bone; s the shadow on the ground */
     var ENEMIES = {
@@ -452,7 +452,7 @@
         ]
     };
     /* Directional facets and family-specific materials on the original silhouettes:
-       scales, wood grain, spectral folds and engraved armour, rather than flat fill. */
+       scales, wood grain, spectral folds and engraved armor, rather than flat fill. */
     Object.keys(ENEMIES).forEach(function (family) {
         var g = ENEMIES[family];
         ENEMIES[family] = g.map(function (row, y) {
@@ -481,7 +481,7 @@
         });
     });
     var FAMILIES = Object.keys(ENEMIES);
-    /** a family's colour is its highlight; the body is that colour pulled far toward the dark, the eyes burn */
+    /** a family's color is its highlight; the body is that color pulled far toward the dark, the eyes burn */
     function enemySlots(family) {
         var p = P;
         var hues = {
@@ -499,7 +499,7 @@
             a: metal, A: "#ead2a1", w: pigment("#f1dec2", "#d9c4ad", p.paper3), s: alpha(outline(), 0.35)
         };
     }
-    /** the fault family a scenario belongs to, by its id; the sprite and its colour follow */
+    /** the fault family a scenario belongs to, by its id; the sprite and its color follow */
     function familyOf(id, domain) {
         if (/^(image|probe|resources|quota|config|hpa-unknown)$/.test(id))
             return "workload";
@@ -559,7 +559,7 @@
     /* ── the painter ────────────────────────────────────────── */
     function canvas(w, h) { var c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
     function k2d(c) { var k = c.getContext("2d"); k.imageSmoothingEnabled = false; return k; }
-    /** draw a grid at (x, y), each cell s pixels; runs of one colour are one fillRect */
+    /** draw a grid at (x, y), each cell s pixels; runs of one color are one fillRect */
     function stamp(k, g, slots, x, y, s) {
         s = s || 1;
         for (var r = 0; r < g.length; r++) {
@@ -590,7 +590,7 @@
         return c;
     }
     function fill(k, c) { k.fillStyle = c; k.fillRect(0, 0, TILE, TILE); }
-    /** N=1 E=2 S=4 W=8: the sides whose neighbour is a different kind of ground; g is the north band */
+    /** N=1 E=2 S=4 W=8: the sides whose neighbor is a different kind of ground; g is the north band */
     function edges4(k, g, slots, mask) {
         var dirs = rots4(g);
         for (var i = 0; i < 4; i++)
@@ -666,7 +666,7 @@
         });
     }
     function noise(n) { return ((Math.imul(n + 17, 374761393) ^ Math.imul(n + 41, 668265263)) >>> 0) % 997 / 997; }
-    function sceneColours(d) {
+    function sceneColors(d) {
         var p = P, g = ground(d), tint = tintOf(d);
         return {
             sky: pigment(d === 5 ? "#797cb2" : "#659ec5", d === 5 ? "#38375e" : "#293d70", p.info),
@@ -968,8 +968,8 @@
         block(k, c.foam, x + 5, y - 4, 1, 7);
     }
     function townScene(k, w, h, d, talk) {
-        var c = sceneColours(d), s = stoneSlots(), full = h >= 220;
-        var street = full ? Math.min(120, Math.floor(h * 0.42)) : Math.floor(h * 0.67), centre = Math.floor(w * 0.49);
+        var c = sceneColors(d), s = stoneSlots(), full = h >= 220;
+        var street = full ? Math.min(120, Math.floor(h * 0.42)) : Math.floor(h * 0.67), center = Math.floor(w * 0.49);
         for (var y = 0; y < h; y += TILE)
             for (var x = 0; x < w; x += TILE)
                 k.drawImage(api.grass((x / TILE + y / TILE) % 4, d), x, y);
@@ -985,8 +985,8 @@
         }
         pavedArea(k, 0, street, w, full ? 18 : 11, c);
         if (full)
-            pavedArea(k, centre - 6, 0, 13, h, c);
-        pavedArea(k, centre - 28, street - 4, 57, full ? 31 : 20, c);
+            pavedArea(k, center - 6, 0, 13, h, c);
+        pavedArea(k, center - 28, street - 4, 57, full ? 31 : 20, c);
         block(k, c.bark, canal - 6, street - 2, 29, full ? 22 : 15);
         for (y = street; y < street + (full ? 20 : 12); y += 3) {
             block(k, c.barkLit, canal - 6, y, 29, 1);
@@ -1018,11 +1018,11 @@
                 scenicTree(k, hx - 11, rowTop + 59, 27, c, false, false);
             }
         }
-        fountain(k, centre, street + (full ? 7 : 5), c, s);
+        fountain(k, center, street + (full ? 7 : 5), c, s);
         var coats = [s.v, s.a, s.b, pigment("#bc9656", "#a38450", P.warn), c.leaf], people = talk ? 7 : 5;
         for (n = 0; n < people; n++) {
             var nx = 15 + n * Math.max(17, (canal - 35) / people), ny = street - 9 + (n % 3) * 4;
-            if (Math.abs(nx - centre) < 17)
+            if (Math.abs(nx - center) < 17)
                 nx += 19;
             stamp(k, VILLAGER, folk(coats[n % coats.length]), Math.floor(nx), ny);
         }
@@ -1031,19 +1031,19 @@
             garden(k, 30, street + 31, 57, 20, c, s);
             garden(k, canal - 74, street + 31, 56, 20, c, s);
             building(k, 30, south, houseW + 5, lowerH, 0, s);
-            building(k, centre + 62, south - 1, houseW + 7, lowerH, 1, s);
+            building(k, center + 62, south - 1, houseW + 7, lowerH, 1, s);
             for (n = 0; n < 3; n++) {
                 scenicTree(k, 126 + n * 24, h - 19, 34 + n % 2 * 7, c, false, false);
-                barrel(k, centre + 13 + n * 8, street + 31, s);
+                barrel(k, center + 13 + n * 8, street + 31, s);
             }
-            pavedArea(k, centre - 12, street + 32, 25, 8, c);
-            stamp(k, VILLAGER, folk(s.a), centre - 7, street + 23);
+            pavedArea(k, center - 12, street + 32, 25, 8, c);
+            stamp(k, VILLAGER, folk(s.a), center - 7, street + 23);
         }
         scenicTree(k, 0, street + 14, full ? 35 : 24, c, false, false);
         scenicTree(k, w - 1, street + 38, full ? 39 : 24, c, d === 3, false);
     }
     function battleScene(k, w, h, d) {
-        var c = sceneColours(d), horizon = outdoor(k, w, h, d, c), floor = Math.floor(h * 0.77);
+        var c = sceneColors(d), horizon = outdoor(k, w, h, d, c), floor = Math.floor(h * 0.77);
         /* Keep the central combat lane clear: these are ruins and landscape, never actors. */
         ruin(k, Math.floor(w * 0.13), horizon + 8, h * 0.31, c, d === 3 || d === 5);
         ruin(k, Math.floor(w * 0.83), horizon + 9, h * 0.22, c, false);
@@ -1077,7 +1077,7 @@
         }
     }
     function interior(k, w, h, d, inn) {
-        var p = P, s = stoneSlots(), c = sceneColours(d), full = h >= 110, floor = Math.floor(h * (full ? 0.24 : 0.57));
+        var p = P, s = stoneSlots(), c = sceneColors(d), full = h >= 110, floor = Math.floor(h * (full ? 0.24 : 0.57));
         var wall = pigment("#bb967b", "#7e6267", p.warnDim), mortar = pigment("#9a7b70", "#5a4b5b", p.rule);
         var wood = pigment("#a67553", "#785346", p.warnDim), woodLit = pigment("#cb9968", "#9e7554", p.warn);
         block(k, mortar, 0, 0, w, floor);
@@ -1223,15 +1223,15 @@
                         block(k, woodLit, bx + 1, by + 16, 39, 1);
                         block(k, s.P, bx + 4, by + 19, 33, 1);
                         for (var goods = 0; goods < 5; goods++) {
-                            var gx = bx + 4 + goods * 7, colour = goods % 3 === 0 ? s.v : goods % 3 === 1 ? s.a : s.y;
+                            var gx = bx + 4 + goods * 7, color = goods % 3 === 0 ? s.v : goods % 3 === 1 ? s.a : s.y;
                             if (rowN) {
                                 block(k, s.k, gx, by + 4, 5, 10);
-                                block(k, colour, gx, by + 4, 4, 8);
+                                block(k, color, gx, by + 4, 4, 8);
                                 block(k, s.w, gx + 1, by + 6, 2, 1);
                                 block(k, s.w, gx + 1, by + 10, 2, 1);
                             }
                             else {
-                                block(k, colour, gx, by + 7, 5, 6);
+                                block(k, color, gx, by + 7, 5, 6);
                                 block(k, s.C, gx + 1, by + 4, 3, 3);
                                 block(k, s.w, gx + 1, by + 8, 1, 3);
                                 block(k, s.y, gx + 1, by + 4, 3, 1);
@@ -1282,7 +1282,7 @@
                     stamp(k, CLIFF_N, s, 0, 0);
             });
         },
-        /* mask: N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128, set where the neighbour is land */
+        /* mask: N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128, set where the neighbor is land */
         water: function (mask, frame) {
             frame = ((frame % FRAMES) + FRAMES) % FRAMES;
             return cached("w" + mask + "." + frame, function (k) {
@@ -1361,7 +1361,7 @@
                     stamp(k, TORCH[frame], { f: p.warn, F: lighten(p.warn, 0.5) }, 0, 0);
             });
         },
-        /** the colour a region tints its ground with, for the minimap; the open sea's is the meadow's */
+        /** the color a region tints its ground with, for the minimap; the open sea's is the meadow's */
         tint: function (d) { return tintOf(d).c; },
         /** Cached pixel scenery; battles deliberately contain no actors. */
         backdrop: function (scene, d, w, h) {

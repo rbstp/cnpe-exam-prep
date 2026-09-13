@@ -10,12 +10,12 @@
    Two layers. The generic handlers render any sensible kubectl, argocd, flux, tkn
    or crossplane command from the table, so a player who explores gets plausible
    answers everywhere rather than "unknown command". The scenario's own evidence,
-   fix and wrong-fix matchers sit on top, written against the normalised form of
+   fix and wrong-fix matchers sit on top, written against the normalized form of
    a command so that "k get po -nteam-a", "kubectl get pods --namespace=team-a"
    and "kubectl -n team-a get pod | grep broken" are all one command. */
 (function (root) {
     "use strict";
-    /* ── normalisation ──────────────────────────────────────── */
+    /* ── normalization ──────────────────────────────────────── */
     var KINDS = {
         po: "pods", pod: "pods", pods: "pods",
         deploy: "deployments", deployment: "deployments", deployments: "deployments",
@@ -89,7 +89,7 @@
             return KINDS[low.slice(0, dot)];
         return low;
     }
-    /** kind/name and kind,kind lists, into one normalised token */
+    /** kind/name and kind,kind lists, into one normalized token */
     function kindTok(tok) {
         return tok.split(",").map(function (part) {
             var slash = part.indexOf("/");
@@ -112,8 +112,8 @@
             }
             // A quote opens a group at the start of a token or right after an =, as
             // in -p '{...}' and --patch="{...}". Anywhere else it is a character: the
-            // the normalised form of a patch carries its JSON quotes bare, and has to
-            // normalise to itself.
+            // the normalized form of a patch carries its JSON quotes bare, and has to
+            // normalize to itself.
             if ((c === "'" || c === '"') && (cur === "" || cur[cur.length - 1] === "=")) {
                 q = c;
                 had = true;
@@ -139,7 +139,7 @@
         // redirects are not part of the command either
         return out.filter(function (t) { return !/^\d?>/.test(t) && t !== "2>&1"; });
     }
-    // Flags that take a value, by their normalised name.
+    // Flags that take a value, by their normalized name.
     var VALUED = {
         "-n": "-n", "--namespace": "-n", "-o": "-o", "--output": "-o", "-l": "-l", "--selector": "-l",
         "--sort-by": "--sort-by", "--as": "--as", "--as-group": "--as-group", "--type": "--type",
@@ -157,7 +157,7 @@
         "--user": "--user", "--group": "--group", "--schedule": "--schedule", "--limit": "--limit",
         "--label": "--label", "--message": "--message"
     };
-    // The flags whose normalised order the matchers rely on; anything else is
+    // The flags whose normalized order the matchers rely on; anything else is
     // appended sorted, so two spellings of one command still meet.
     var ORDER = ["-n", "-l", "-A", "-o", "--previous", "--sort-by", "--show-labels", "--as", "--as-group",
         "--type", "-p", "--tail", "--overwrite", "--image", "--requests", "--limits", "--replicas", "-f",
@@ -463,7 +463,7 @@
             lines.push(r.yaml);
         return lines.join("\n");
     }
-    /** the Kind a plural resource name stands for, where it is not just the singular capitalised */
+    /** the Kind a plural resource name stands for, where it is not just the singular capitalized */
     var KIND_NAMES = {
         pod: "Pod", deployment: "Deployment", replicaset: "ReplicaSet", service: "Service", namespace: "Namespace", configmap: "ConfigMap",
         secret: "Secret", persistentvolumeclaim: "PersistentVolumeClaim", storageclass: "StorageClass",
@@ -616,7 +616,7 @@
         }
         return { out: generic(sc, n), generic: true };
     }
-    /** @param n normalised command */
+    /** @param n normalized command */
     function parts(n) {
         var t = n.split(" "), tool = t[0], i = 1, pos = [], f = {};
         if (tool === "kubectl" && t[1] === "argo" && t[2] === "rollouts") {

@@ -86,7 +86,7 @@
 
     <div class="callout reflex">
       <span class="tag">Command reflex</span>
-      <p><code>kubectl get endpointslices -l kubernetes.io/service-name=X</code> beats <code>describe svc</code>, because it shows you conditions per address (<code>ready</code>, <code>serving</code>, <code>terminating</code>) rather than a summarised list. When a rollout half-breaks, those three booleans tell the whole story.</p>
+      <p><code>kubectl get endpointslices -l kubernetes.io/service-name=X</code> beats <code>describe svc</code>, because it shows you conditions per address (<code>ready</code>, <code>serving</code>, <code>terminating</code>) rather than a summarized list. When a rollout half-breaks, those three booleans tell the whole story.</p>
     </div>
   </div>
 </section>
@@ -188,7 +188,7 @@
       <p>This cluster installs the standard-channel Gateway API CRDs so you can author and schema-validate all of it, but no controller programs a data plane for them on the main cluster. Your Gateway will sit unprogrammed; do not mistake a clean apply for a working Gateway. On the mesh cluster (<code>make mesh</code>), Istio serves Gateway API for real: the same manifests, an actual Programmed condition.</p>
     </div>
 
-    <p>One neighbour the Gateway needs and Kubernetes does not provide: <strong>certificates</strong>. A TLS listener references a Secret, and something has to keep that Secret valid. In practice that something is cert-manager: an <code>Issuer</code>/<code>ClusterIssuer</code> (ACME, CA, or Vault) plus a <code>Certificate</code>, or the <code>cert-manager.io/cluster-issuer</code> annotation on the Gateway, which issues into the Secret and renews before expiry. Not installed in this lab, but "who renews that certificate" is a fair question about any Gateway you design, and <em>ResolvedRefs: False</em> on a listener is usually its absence.</p>
+    <p>One neighbor the Gateway needs and Kubernetes does not provide: <strong>certificates</strong>. A TLS listener references a Secret, and something has to keep that Secret valid. In practice that something is cert-manager: an <code>Issuer</code>/<code>ClusterIssuer</code> (ACME, CA, or Vault) plus a <code>Certificate</code>, or the <code>cert-manager.io/cluster-issuer</code> annotation on the Gateway, which issues into the Secret and renews before expiry. Not installed in this lab, but "who renews that certificate" is a fair question about any Gateway you design, and <em>ResolvedRefs: False</em> on a listener is usually its absence.</p>
 
     <p>Progressive delivery ties in here (section 2.5): weighted <code>backendRefs</code> on an HTTPRoute are how a mesh shifts traffic by route weight instead of by replica count, and Flagger drives exactly those weights.</p>
   </div>
@@ -242,7 +242,7 @@ spec:
         - { name: demo-stable, port: 80, weight: 90 }
         - { name: demo-canary, port: 80, weight: 10 }</code></pre></div>
 
-    <h3>The neighbours that arrived recently</h3>
+    <h3>The neighbors that arrived recently</h3>
     <ul>
       <li><strong>ReferenceGrant</strong> is <code>v1</code> since v1.5: <code>from</code> (group, kind, namespace of the referrer) and <code>to</code> (group, kind, optionally name) in the namespace being referenced. It is consent, never a route: it grants nothing by itself.</li>
       <li><strong>BackendTLSPolicy</strong> (Standard since v1.4) configures TLS from the Gateway to the backend pods: <code>targetRefs</code> a Service, <code>validation.hostname</code> as SNI, and either <code>caCertificateRefs</code> or <code>wellKnownCACertificates: System</code>. Same namespace as the Service, by design.</li>
@@ -265,7 +265,7 @@ spec:
         </tbody>
       </table>
     </div>
-    <p>The community <code>ingress2gateway</code> tool does the mechanical conversion for common controllers; the judgement it cannot do for you is deciding who owns the Gateway and which namespaces its listeners admit.</p>
+    <p>The community <code>ingress2gateway</code> tool does the mechanical conversion for common controllers; the judgment it cannot do for you is deciding who owns the Gateway and which namespaces its listeners admit.</p>
 
     <div class="callout exam"><span class="tag">How this gets tested</span><p>"Expose service X on host Y through the existing Gateway in namespace infra" is three checks: does the Gateway's listener admit routes from your namespace (<code>allowedRoutes</code>), does your hostname fit the listener hostname, and does <code>status.parents[].conditions</code> read <code>Accepted: True</code> and <code>ResolvedRefs: True</code>. A cross-namespace backend adds a fourth object, the ReferenceGrant, in the backend's namespace, not yours.</p></div>
   </div>
@@ -287,7 +287,7 @@ spec:
         </tbody>
       </table>
     </div>
-    <p>Two Service fields that ride on this layer. <code>spec.trafficDistribution</code> (GA since v1.33) takes <code>PreferSameZone</code> or <code>PreferSameNode</code> (<code>PreferClose</code> is the deprecated older alias); it is a preference, and <code>externalTrafficPolicy</code> / <code>internalTrafficPolicy: Local</code> override it. The old <code>Endpoints</code> API is deprecated since v1.33 in favour of EndpointSlice, and <code>spec.externalIPs</code> is deprecated since v1.36; when a task says "expose", the modern answers are LoadBalancer or a Gateway.</p>
+    <p>Two Service fields that ride on this layer. <code>spec.trafficDistribution</code> (GA since v1.33) takes <code>PreferSameZone</code> or <code>PreferSameNode</code> (<code>PreferClose</code> is the deprecated older alias); it is a preference, and <code>externalTrafficPolicy</code> / <code>internalTrafficPolicy: Local</code> override it. The old <code>Endpoints</code> API is deprecated since v1.33 in favor of EndpointSlice, and <code>spec.externalIPs</code> is deprecated since v1.36; when a task says "expose", the modern answers are LoadBalancer or a Gateway.</p>
 
     <h3>CoreDNS: the Corefile you will be asked to read or edit</h3>
     <p>The ConfigMap is <code>coredns</code> in <code>kube-system</code>; the <code>reload</code> plugin picks up edits within about two minutes, so do not restart pods to make a change land. The stock server block and what each line buys you:</p>
@@ -316,7 +316,7 @@ spec:
       <li><strong>HA control plane</strong>: three control plane nodes minimum. Stacked etcd (etcd on the control plane nodes, kubeadm's default) is simpler; external etcd needs six hosts but losing a node no longer removes both an API server and an etcd member. Either way the API server sits behind a load balancer; Kubernetes itself does not fail over the endpoint.</li>
       <li><strong>Zones</strong>: nodes carry <code>topology.kubernetes.io/zone</code> and <code>region</code>; spread control plane replicas over at least three zones, spread workloads with topologySpreadConstraints, and use <code>WaitForFirstConsumer</code> storage so a volume is not provisioned in a zone the pod cannot reach.</li>
       <li><strong>Scale limits</strong> worth quoting: 110 pods per node by default, 5000 nodes, 150000 pods per cluster.</li>
-      <li><strong>Multi-cluster</strong>: a hub Argo CD with cluster Secrets and an ApplicationSet clusters generator, or one Flux per cluster each reconciling <code>clusters/&lt;name&gt;</code> from a shared repo. Hub-and-spoke centralises credentials and UI; agent-per-cluster survives hub loss and keeps credentials local. Section 2.2 covers the objects.</li>
+      <li><strong>Multi-cluster</strong>: a hub Argo CD with cluster Secrets and an ApplicationSet clusters generator, or one Flux per cluster each reconciling <code>clusters/&lt;name&gt;</code> from a shared repo. Hub-and-spoke centralizes credentials and UI; agent-per-cluster survives hub loss and keeps credentials local. Section 2.2 covers the objects.</li>
     </ul>
 
     <div class="callout trap"><span class="tag">The hostNetwork DNS trap</span><p>A monitoring or CNI-adjacent pod on <code>hostNetwork: true</code> that "cannot resolve services" is almost always <code>dnsPolicy: ClusterFirst</code> behaving as <code>Default</code>. Set <code>ClusterFirstWithHostNet</code>. The symptom looks exactly like a NetworkPolicy drop, and Hubble shows nothing because the query never went to CoreDNS.</p></div>
@@ -658,7 +658,7 @@ configmap/coredns configured</code></pre></details></div>
     </div>
 
     <div class="exercise" data-title="The hostNetwork DNS trap">
-      <p>A pod on the host network gets the node's resolver unless you say otherwise, so cluster names stop resolving and nothing in the pod spec looks wrong. It is a two-word fix and a favourite of exam authors.</p>
+      <p>A pod on the host network gets the node's resolver unless you say otherwise, so cluster names stop resolving and nothing in the pod spec looks wrong. It is a two-word fix and a favorite of exam authors.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl run hn --image=busybox:1.28 --restart=Never --overrides='{"spec":{"hostNetwork":true}}' -- nslookup kubernetes.default
 sleep 15
 kubectl logs hn

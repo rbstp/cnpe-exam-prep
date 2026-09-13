@@ -465,7 +465,7 @@
   }
 
   /* ── code blocks: language bar, copy, light highlighting ─── */
-  // The colouring is syntax.js; this file owns the block and does the write.
+  // The coloring is syntax.js; this file owns the block and does the write.
   function buildCodeBlocks() {
     // Axe treats a horizontally scrollable region as unreachable unless a
     // keyboard user can focus it. Whether a block overflows depends on the

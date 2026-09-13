@@ -36,14 +36,14 @@
   <div class="phdr"><h2>The method</h2><span class="meta">four steps, in order</span></div>
   <div class="pbody">
     <ol>
-      <li><strong>What is affected, first.</strong> What is broken and what still works. <code>kubectl get pods -A | grep -v Running</code>, <code>make status</code>, the top-level dashboards. One namespace or all? Data plane or control plane? This bounds everything that follows and stops you debugging a symptom two layers from the cause.</li>
+      <li><strong>Blast radius first.</strong> What is broken and what still works. <code>kubectl get pods -A | grep -v Running</code>, <code>make status</code>, the top-level dashboards. One namespace or all? Data plane or control plane? This bounds everything that follows and stops you debugging a symptom two layers from the cause.</li>
       <li><strong>Timeline second.</strong> What changed. <code>kubectl get events -A --sort-by=.lastTimestamp | tail -30</code>, recent syncs in Argo CD, <code>helm list -A</code> for fresh revisions, <code>kubectl rollout history</code>. <em>Most incidents turn out to be a recent deployment.</em></li>
       <li><strong>Descend one resource at a time.</strong> describe → events → logs → previous logs (<code>--previous</code>, for crash loops) → exec/debug. Resist skipping levels; the fast-looking jump is where wrong theories come from.</li>
       <li><strong>Fix the cause, then prove recovery with the same signal that showed the failure.</strong> If you found it via a failing curl, the incident ends with that curl succeeding, not with a pod showing Running.</li>
     </ol>
 
     <div class="callout model">
-      <span class="tag">The signal-to-layer map, worth memorising</span>
+      <span class="tag">The signal-to-layer map, worth memorizing</span>
       <div class="tbl-wrap">
         <table>
           <thead><tr><th>Symptom</th><th>Layer</th><th>First command</th></tr></thead>
@@ -158,7 +158,7 @@ cnpe-worker
           <tr><td>Progressive delivery</td><td><code>kubectl argo rollouts abort x</code> then <code>undo</code>; Flagger rolls back on its own when analysis fails</td><td>an aborted Rollout stays <code>Degraded</code> until you promote or undo</td></tr>
           <tr><td>Policy</td><td>flip <code>validationActions</code> to <code>Audit</code> or <code>enforcementAction</code> to <code>warn</code>; add a <code>PolicyException</code></td><td>deleting a webhook configuration is the last resort and must be re-created after</td></tr>
           <tr><td>Crossplane / kro</td><td><code>compositionUpdatePolicy: Manual</code> plus the old <code>compositionRevisionRef</code>; <code>crossplane.io/paused: "true"</code> or <code>kro.run/reconcile: suspended</code> to stop the bleeding</td><td>pausing stops drift correction too; note it in the postmortem</td></tr>
-          <tr><td>Node</td><td><code>kubectl cordon</code>, <code>drain --ignore-daemonsets --delete-emptydir-data</code>, <code>uncordon</code></td><td>drain honours PodDisruptionBudgets and hangs on them</td></tr>
+          <tr><td>Node</td><td><code>kubectl cordon</code>, <code>drain --ignore-daemonsets --delete-emptydir-data</code>, <code>uncordon</code></td><td>drain honors PodDisruptionBudgets and hangs on them</td></tr>
         </tbody>
       </table>
     </div>
@@ -175,7 +175,7 @@ cnpe-worker
     <p>Remediation is half the competency; the process around it is the other half, and it compresses to five lines you can write in five minutes:</p>
     <ol>
       <li><strong>Symptom</strong>: what a user or a check observed, with a timestamp.</li>
-      <li><strong>Who was hit</strong>: what was affected, and what was not.</li>
+      <li><strong>Blast radius</strong>: who and what was affected, and who was not.</li>
       <li><strong>Root cause</strong>: the change or condition that produced it, stated as a mechanism, not a culprit.</li>
       <li><strong>Fix</strong>: what you did, including anything you did that turned out to be irrelevant.</li>
       <li><strong>Proof of recovery</strong>: the command or signal that confirms it, and the follow-up that prevents recurrence (an alert that would have caught it sooner, a policy, a default).</li>
@@ -216,7 +216,7 @@ rbac  (domain: workload)
 
 the pod was switched to sa/app-sa, which has no RBAC at all. Nothing in pod status shows it; only 'kubectl auth can-i --as=system:serviceaccount:team-a:app-sa' does. Fix: bind a Role with the needed verbs.</code></pre></details></div>
       <p>Then drill the ones that hurt, by name. The classic workload seven: <code>FAULT=image</code>, <code>probe</code>, <code>resources</code>, <code>rbac</code>, <code>quota</code>, <code>netpol</code>, <code>config</code>. The rbac fault is invisible in pod listings and only surfaces under <code>kubectl auth can-i --as=...</code>; the netpol fault leaves everything Running while DNS is dead (the additive-allow-list lesson from 1.4). Beyond those, <code>DOMAIN=gitops</code>, <code>cicd</code>, <code>apis</code> or <code>security</code> scopes the draw to faults in the platform tooling itself: a frozen Argo CD sync, a suspended Flux Kustomization, a canary analysis querying a dead Prometheus, a Tekton pipeline missing its Task, a crashlooping EventListener, a Crossplane provider stripped of RBAC, a paused XR, a Kyverno Deny policy, a PSS flip. Those are the incidents domains 2, 3 and 5 grade.</p>
-      <div class="verify"><b>verify:</b> your diagnosis written down <em>before</em> <code>make break-answer</code>, and the fix confirmed by the failing behaviour now succeeding. <code>make break-fix</code> afterwards shows the evidence trail a systematic diagnosis would have followed; compare it with the path you actually took and note where you diverged.</div>
+      <div class="verify"><b>verify:</b> your diagnosis written down <em>before</em> <code>make break-answer</code>, and the fix confirmed by the failing behavior now succeeding. <code>make break-fix</code> afterwards shows the evidence trail a systematic diagnosis would have followed; compare it with the path you actually took and note where you diverged.</div>
     </div>
 
     <div class="exercise" data-title="Diagnose with telemetry, not just kubectl">
@@ -225,7 +225,7 @@ the pod was switched to sa/app-sa, which has no RBAC at all. Nothing in pod stat
     </div>
 
     <div class="exercise" data-title="One structured postmortem">
-      <p>After any drill, write five lines: symptom, who was hit, root cause, fix, the check that proves recovery.</p>
+      <p>After any drill, write five lines: symptom, blast radius, root cause, fix, the check that proves recovery.</p>
       <div class="verify"><b>verify:</b> a stranger could re-run your incident from those lines. Five minutes, once per drill; this is what a "structured incident response process" reduces to in practice.</div>
     </div>
 
@@ -336,7 +336,7 @@ apiServer:
     </div>
 
     <div class="exercise" data-title="Take DNS away">
-      <p>The failure text from inside a pod is the thing you are asked to recognise: a resolver that is still configured and still reachable, and a lookup that fails anyway. Produce it deliberately, then put it back.</p>
+      <p>The failure text from inside a pod is the thing you are asked to recognize: a resolver that is still configured and still reachable, and a lookup that fails anyway. Produce it deliberately, then put it back.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n kube-system scale deploy coredns --replicas=0
 until [ -z "$(kubectl -n kube-system get endpointslices -l kubernetes.io/service-name=kube-dns -o jsonpath='{.items[*].endpoints[*].addresses}')" ]; do sleep 5; done; echo 'kube-dns has no endpoints'
 kubectl run dnsdead --image=busybox:1.28 --restart=Never -it --rm --command -- nslookup kubernetes.default || true
@@ -389,11 +389,11 @@ Address 1: 10.96.0.10 kube-dns.kube-system.svc.cluster.local
 Name:      kubernetes.default
 Address 1: 10.96.0.1 kubernetes.default.svc.cluster.local
 pod "dnsalive" deleted from default namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the failing lookup times out against the Service address while the address itself is still configured in the pod, and the EndpointSlice is empty. That combination, resolver configured and no endpoints, is the signature to recognise.</div>
+      <div class="verify"><b>verify:</b> the failing lookup times out against the Service address while the address itself is still configured in the pod, and the EndpointSlice is empty. That combination, resolver configured and no endpoints, is the signature to recognize.</div>
     </div>
 
     <div class="exercise" data-title="A webhook with no backend at all">
-      <p>This is the outage that takes a cluster down without touching the API server: an admission webhook that must be called, with nothing to call. Deleting the Deployment is faster than scaling, and the message is the one you must recognise within seconds.</p>
+      <p>This is the outage that takes a cluster down without touching the API server: an admission webhook that must be called, with nothing to call. Deleting the Deployment is faster than scaling, and the message is the one you must recognize within seconds.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl get validatingwebhookconfiguration -o custom-columns=NAME:.metadata.name,POLICY:.webhooks[*].failurePolicy | grep -i kyverno
 # own the webhook rather than scaling a shared component to zero, and scope it to a throwaway namespace
 kubectl create ns wh-drill --dry-run=client -o yaml | kubectl apply -f -
@@ -654,7 +654,7 @@ etcd-0               Healthy   ok        </code></pre></details></div>
       <div class="answer"><p>An admission webhook's backend is down and its <code>failurePolicy</code> is <code>Fail</code>, so the API server refuses writes it cannot validate. Restore the backend, or (as a deliberate emergency step) remove/scope the webhook configuration. That is why <code>failurePolicy</code> is a governance decision, not a default to accept blindly (5.2).</p></div></details>
 
     <details class="quiz"><summary>You have four minutes left and no theory that fits the evidence. What do you do?</summary>
-      <div class="answer"><p>Go back to step 1 and widen: re-check what is affected and the timeline rather than digging deeper into the current object. Most stuck diagnoses are the result of over-committing to the first plausible layer. On the exam, flag it and move on; a stuck task costs you two easy ones.</p></div></details>
+      <div class="answer"><p>Go back to step 1 and widen: re-check blast radius and timeline rather than digging deeper into the current object. Most stuck diagnoses are the result of over-committing to the first plausible layer. On the exam, flag it and move on; a stuck task costs you two easy ones.</p></div></details>
 
     <details class="quiz"><summary>What proves an incident is over?</summary>
       <div class="answer"><p>The same signal that showed the failure, now succeeding: the failing curl returns 200, the alert resolves, the validation check passes. A pod showing Running proves only that a container started.</p></div></details>

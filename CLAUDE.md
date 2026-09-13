@@ -16,8 +16,15 @@ test descriptions, commit messages and PR bodies.
 - **No em dashes.** Use a colon, a comma, parentheses, or two sentences. The
   box-drawing runs in code comments (`── like this ──`) are not em dashes and
   stay as they are.
-- **British spelling**, matching the existing prose: normalise, materialise,
-  behaviour, defence, colour.
+- **American spelling**, matching the existing prose: normalize, materialize,
+  behavior, defense, color, center, labeled, canceled, gray, practice (noun and
+  verb). Keep the British form only where it is part of a name that has to match
+  something real: the `aria-labelledby` attribute, Tekton's `CancelledRunFinally`
+  and friends, Flagger's `Finalising` canary phase, the `cost-centre` label this
+  lab's Kyverno policy writes, the `unlabelled` Deployment 5.2's policy exercise
+  creates, the two shell comments in 4.3 and 5.5 whose drawers echo them, and the
+  quest's NPC names, which are stored keys (`Harbourmaster Selda` stays as she
+  is).
 - **Say what a thing does**, not what it resembles. A metaphor that needs
   unpacking costs more than the sentence it saved.
 
@@ -28,9 +35,8 @@ come back:
 
 | Avoid | Use instead |
 | --- | --- |
-| blast radius | what is affected, how far it reaches, who was hit, the risk |
 | shape, shaped (as a catch-all noun) | fields, pattern, form, task, mode, how it works |
-| canonical | normalised (in code), the one you will see most (in prose) |
+| canonical | normalized (in code), the one you will see most (in prose) |
 | load-bearing | the part everything else rests on, the decisive reason |
 | seam, spine | interface, where they join, the line down the middle |
 | footgun, smoking gun | the trap, the evidence |
@@ -40,16 +46,25 @@ come back:
 | leverage (as a verb or adjective) | use, the section that pays back the most |
 | delve, robust, seamless, holistic, cornerstone | plain equivalents |
 
-Two nuances:
+Three nuances:
 
 - **`scope` is fine as Kubernetes terminology**: cluster-scoped, namespace-scoped,
   RBAC scope, an OAuth scope. Avoid it as a filler noun for the extent of
   something.
+- **`blast radius` is fine, and wanted.** It is ordinary SRE and platform
+  vocabulary, the exam's included, so this site should teach it rather than talk
+  around it. A pass once replaced all 20 uses and they were put back.
 - **Keep a listed word when it is the literal term of art.** The repo already
   does this for OperatorHub's `Seamless Upgrades` capability level, the Kyverno
   policy named `legacy-shape` in captured lab output, and the literal sprite and
   tile shapes in the quest renderer. Captured terminal output is never edited for
   style.
+
+A `<details class="out">` drawer opens by echoing the command that produced it,
+as `<b>$ …</b>`. That echo has to stay identical to the line in the command block
+above it, comments included. So a word in a command block is only editable if you
+edit it in the drawer too, and the drawer is frozen: leave both alone. Two shell
+comments were caught this way during the American-spelling pass.
 
 ## Working in this repo
 

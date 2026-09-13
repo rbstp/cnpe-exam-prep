@@ -21,7 +21,7 @@ case "$MESH" in
     need istioctl
     log "Installing Istio (ambient mode)"
     istioctl install --context "$CTX" --set profile=ambient --skip-confirmation
-    log "Labelling default namespace into the mesh"
+    log "Labeling default namespace into the mesh"
     kubectl --context "$CTX" label ns default istio.io/dataplane-mode=ambient --overwrite
     cat <<'X'
 

@@ -28,14 +28,14 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 4.1 · logging and actionable dashboards</span></div>
   <div class="pbody">
-    <p class="lede">The competency wording is "dashboards that provide actionable insight", which is a judgement claim, not a tooling claim. Two things make it real: dashboards shipped as code, and dashboards designed around a question someone actually asks during an incident.</p>
+    <p class="lede">The competency wording is "dashboards that provide actionable insight", which is a judgment claim, not a tooling claim. Two things make it real: dashboards shipped as code, and dashboards designed around a question someone actually asks during an incident.</p>
   </div>
 </section>
 
 <section class="panel accent-c" id="dashboards">
   <div class="phdr"><h2>Dashboards as code</h2><span class="meta">the sidecar pattern</span></div>
   <div class="pbody">
-    <p>The exam-relevant fact about Grafana in a kube-prometheus-stack world: dashboards are <strong>provisioned, not clicked together</strong>. A sidecar container in the Grafana pod watches for ConfigMaps labelled <code>grafana_dashboard: "1"</code> and loads any dashboard JSON it finds inside. That is why the stack's forty-odd dashboards exist without anyone importing them, and it is how <em>you</em> ship a dashboard in a GitOps world: JSON in a ConfigMap in a git repo. Datasources provision the same way with <code>grafana_datasource: "1"</code>.</p>
+    <p>The exam-relevant fact about Grafana in a kube-prometheus-stack world: dashboards are <strong>provisioned, not clicked together</strong>. A sidecar container in the Grafana pod watches for ConfigMaps labeled <code>grafana_dashboard: "1"</code> and loads any dashboard JSON it finds inside. That is why the stack's forty-odd dashboards exist without anyone importing them, and it is how <em>you</em> ship a dashboard in a GitOps world: JSON in a ConfigMap in a git repo. Datasources provision the same way with <code>grafana_datasource: "1"</code>.</p>
 
     <pre class="diagram"><b>git</b> ──▶ ConfigMap (label <i>grafana_dashboard=1</i>) ──▶ <b>sidecar</b> writes /tmp/dashboards ──▶ <u>Grafana loads it</u>
                                                                                      │
@@ -72,11 +72,11 @@
         </tbody>
       </table>
     </div>
-    <p>Those five constructs cover exam depth. The one to internalise is the last: a metric query over logs is how you alert on something that only exists in text, and it is the bridge between this section and 4.2.</p>
+    <p>Those five constructs cover exam depth. The one to internalize is the last: a metric query over logs is how you alert on something that only exists in text, and it is the bridge between this section and 4.2.</p>
 
     <div class="callout reflex">
       <span class="tag">Terminal beats UI, often</span>
-      <p><code>stern &lt;pattern&gt; -n &lt;ns&gt;</code> tails many pods at once with colour-coded names, and <code>kubectl logs --previous</code> is the only way to read a crashed container's last words. Loki is for "what happened an hour ago across the fleet"; stern and kubectl are for "what is happening right now". Knowing which question you are asking picks the tool.</p>
+      <p><code>stern &lt;pattern&gt; -n &lt;ns&gt;</code> tails many pods at once with color-coded names, and <code>kubectl logs --previous</code> is the only way to read a crashed container's last words. Loki is for "what happened an hour ago across the fleet"; stern and kubectl are for "what is happening right now". Knowing which question you are asking picks the tool.</p>
     </div>
 
     <div class="callout exam">
@@ -91,7 +91,7 @@
   <div class="pbody">
     <h3>Grafana's own provisioning format</h3>
     <p>Files under <code>provisioning/datasources/*.yaml</code> and <code>provisioning/dashboards/*.yaml</code> start with <code>apiVersion: 1</code>. A datasource entry has <code>name</code>, <code>type</code> (<code>prometheus</code>, <code>loki</code>, <code>jaeger</code>, <code>tempo</code>), <code>url</code>, <code>access: proxy</code>, an optional stable <code>uid</code> (dashboards reference datasources by uid, so set it or every exported dashboard breaks on import), <code>isDefault</code>, <code>editable: false</code> to stop UI drift, and two maps: <code>jsonData</code> for settings (<code>httpMethod: POST</code>, <code>timeInterval</code>, Loki's <code>derivedFields</code> that turn a trace ID in a log line into a Tempo/Jaeger link, and <code>alertmanagerUid</code>) and <code>secureJsonData</code> for credentials, which Grafana encrypts at rest. <code>deleteDatasources</code> removes entries by name before applying. A dashboard provider entry names a <code>folder</code>, <code>type: file</code> and <code>options.path</code>, plus <code>foldersFromFilesStructure</code>, <code>allowUiUpdates</code> (default false: the file wins) and <code>disableDeletion</code>.</p>
-    <p>In kube-prometheus-stack the sidecar generates those provider files for you: ConfigMaps labelled <code>grafana_dashboard: "1"</code> land in the default folder unless annotated <code>grafana_folder: &lt;name&gt;</code>; ConfigMaps or Secrets labelled <code>grafana_datasource: "1"</code> are datasource files. The sidecar watches every namespace by default (<code>sidecar.dashboards.searchNamespace</code>), so a dashboard shipped with a team's Helm chart appears in the platform Grafana without anyone in <code>monitoring</code> touching anything.</p>
+    <p>In kube-prometheus-stack the sidecar generates those provider files for you: ConfigMaps labeled <code>grafana_dashboard: "1"</code> land in the default folder unless annotated <code>grafana_folder: &lt;name&gt;</code>; ConfigMaps or Secrets labeled <code>grafana_datasource: "1"</code> are datasource files. The sidecar watches every namespace by default (<code>sidecar.dashboards.searchNamespace</code>), so a dashboard shipped with a team's Helm chart appears in the platform Grafana without anyone in <code>monitoring</code> touching anything.</p>
 
     <h3>The Grafana Operator, when the exam gives you CRDs</h3>
     <div class="tbl-wrap">
@@ -144,7 +144,7 @@
       <li><strong>Retention</strong> is the compactor's job: <code>compactor.retention_enabled: true</code> plus <code>limits_config.retention_period</code> (global) or per-tenant/per-stream <code>retention_stream</code> overrides. Without the compactor flag, data is kept forever regardless of the period.</li>
       <li><strong>The ruler</strong> takes Prometheus-format rule groups whose <code>expr</code> is LogQL, from local files or object storage (<code>ruler.storage</code>), and sends alerts to <code>ruler.alertmanager_url</code>; recording rules can <code>remote_write</code> the resulting series into Prometheus so metrics derived from logs join the normal dashboards.</li>
     </ul>
-    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Find the pod that logged X in the last hour" is a stream selector plus <code>|=</code>; "count errors per service over time" is <code>sum by (app) (count_over_time(... |= "error" [5m]))</code>; "p95 latency from access logs" is <code>logfmt</code> or <code>pattern</code>, <code>unwrap</code>, <code>quantile_over_time</code>. Recognising which of the three you are being asked for is most of the time saved.</p></div>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Find the pod that logged X in the last hour" is a stream selector plus <code>|=</code>; "count errors per service over time" is <code>sum by (app) (count_over_time(... |= "error" [5m]))</code>; "p95 latency from access logs" is <code>logfmt</code> or <code>pattern</code>, <code>unwrap</code>, <code>quantile_over_time</code>. Recognizing which of the three you are being asked for is most of the time saved.</p></div>
   </div>
 </section>
 
@@ -561,7 +561,7 @@ Handling connection for 3100
   "service_name": "demo"
 }
 <b>$ kill $PF1</b></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the pattern parser produces labelled fields, <code>unwrap</code> turns size into a number you can take a quantile of, <code>absent_over_time</code> returns a series for the pod that does not exist, and <code>logfmt --strict</code> plus <code>__error__ != ""</code> returns the nginx access lines, which are not logfmt at all. The <code>--strict</code> flag is the point: plain <code>logfmt</code> in Loki 3 skips what it cannot parse and sets no <code>__error__</code>, so the same query without it comes back empty and you conclude, wrongly, that every line parsed.</div>
+      <div class="verify"><b>verify:</b> the pattern parser produces labeled fields, <code>unwrap</code> turns size into a number you can take a quantile of, <code>absent_over_time</code> returns a series for the pod that does not exist, and <code>logfmt --strict</code> plus <code>__error__ != ""</code> returns the nginx access lines, which are not logfmt at all. The <code>--strict</code> flag is the point: plain <code>logfmt</code> in Loki 3 skips what it cannot parse and sets no <code>__error__</code>, so the same query without it comes back empty and you conclude, wrongly, that every line parsed.</div>
     </div>
 
     <div class="exercise" data-title="Translate a promtail config">
@@ -661,7 +661,7 @@ storage-loki-0   Bound    pvc-4589502f-0ed6-4923-9993-473e891d6ebf   10Gi       
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>How does a dashboard get into Grafana in a GitOps platform, and why not click it?</summary>
-      <div class="answer"><p>JSON in a ConfigMap labelled <code>grafana_dashboard: "1"</code>, delivered from git; the sidecar loads it. A clicked dashboard lives only in Grafana's database: unreviewable, unversioned, and gone with the pod unless persistence is configured.</p></div></details>
+      <div class="answer"><p>JSON in a ConfigMap labeled <code>grafana_dashboard: "1"</code>, delivered from git; the sidecar loads it. A clicked dashboard lives only in Grafana's database: unreviewable, unversioned, and gone with the pod unless persistence is configured.</p></div></details>
 
     <details class="quiz"><summary>Explain RED and USE, and which you would use for a queue worker.</summary>
       <div class="answer"><p>RED = Rate, Errors, Duration, for request-driven services. USE = Utilization, Saturation, Errors, for resources. A queue worker is best served by both plus queue depth: USE for the worker pool, RED-ish for message processing, and saturation is really "is the backlog growing".</p></div></details>
@@ -670,7 +670,7 @@ storage-loki-0   Bound    pvc-4589502f-0ed6-4923-9993-473e891d6ebf   10Gi       
       <div class="answer"><p>The shipper first (Alloy running, not erroring on push, actually tailing that namespace), then Loki (ingester healthy, retention not eating the window, right tenant/org headers if multi-tenancy is on). A healthy Loki with no shipper looks fine and holds nothing, which is why <code>make validate</code> demands streams, not readiness.</p></div></details>
 
     <details class="quiz"><summary>Why is a per-request-ID label a bad idea in Loki?</summary>
-      <div class="answer"><p>Labels define streams, and Loki's index is per stream. A unique label value per request creates a stream per request: index explosion, slow queries, high memory. Put high-cardinality identifiers in the log <em>line</em> and filter or parse them at query time; that is what Loki's design is optimised for.</p></div></details>
+      <div class="answer"><p>Labels define streams, and Loki's index is per stream. A unique label value per request creates a stream per request: index explosion, slow queries, high memory. Put high-cardinality identifiers in the log <em>line</em> and filter or parse them at query time; that is what Loki's design is optimized for.</p></div></details>
 
     <details class="quiz"><summary>Turn "alert me when payments start failing" into a LogQL-based rule, conceptually.</summary>
       <div class="answer"><p>A metric query over logs: <code>sum(rate({namespace="payments"} |= "payment_failed" [5m])) &gt; 0.1</code>, evaluated by Loki's ruler (or mirrored into Prometheus via a recording pipeline). Same alerting mechanics as 4.2; the only difference is where the series comes from.</p></div></details>

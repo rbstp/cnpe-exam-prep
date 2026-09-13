@@ -24,7 +24,7 @@ eq "nodes Ready" 3 "$NODES_READY"
 EXPECT_K8S=$(printf '%s' "$K8S_IMAGE" | sed -e 's|@.*||' -e 's|.*:||')
 eq "kubelet version" "$EXPECT_K8S" "$($K get nodes -o jsonpath='{.items[0].status.nodeInfo.kubeletVersion}' 2>/dev/null)"
 ZONES=$($K get nodes -o jsonpath='{range .items[*]}{.metadata.labels.topology\.kubernetes\.io/zone}{"\n"}{end}' 2>/dev/null | sort -u | grep -c .)
-ge "topology zones labelled" 2 "$ZONES"
+ge "topology zones labeled" 2 "$ZONES"
 BAD_PODS=$($K get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded --no-headers 2>/dev/null | wc -l)
 for _ in $(seq 1 6); do
   [ "$BAD_PODS" -eq 0 ] && break
