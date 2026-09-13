@@ -644,9 +644,37 @@ prometheusrule.monitoring.coreos.com "burn-rate" deleted from monitoring namespa
 
     <div class="exercise" data-title="Read the config Alertmanager is really running">
       <p>The AlertmanagerConfig objects you write are merged into one file by the operator, with a namespace matcher injected into every route. Reading the rendered result is how you find out what your object actually became.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | head -60
+      <div class="cb" data-lang="bash"><pre><code># nothing of yours is in the rendered file until an AlertmanagerConfig exists
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata: { name: read-me, namespace: default, labels: { release: prometheus } }
+spec:
+  route:
+    groupBy: [alertname]
+    receiver: mine
+  receivers:
+    - name: mine
+EOF
+sleep 60
+kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | head -60
 kubectl -n monitoring get alertmanagerconfig -A
-kubectl -n monitoring get alertmanager -o jsonpath='{.items[0].spec.alertmanagerConfigSelector}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | head -60</b>
+kubectl -n monitoring get alertmanager -o jsonpath='{.items[0].spec.alertmanagerConfigSelector}{"\n"}'
+kubectl -n default delete alertmanagerconfig read-me</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # nothing of yours is in the rendered file until an AlertmanagerConfig exists</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: monitoring.coreos.com/v1alpha1</b>
+<b>kind: AlertmanagerConfig</b>
+<b>metadata: { name: read-me, namespace: default, labels: { release: prometheus } }</b>
+<b>spec:</b>
+<b>  route:</b>
+<b>    groupBy: [alertname]</b>
+<b>    receiver: mine</b>
+<b>  receivers:</b>
+<b>    - name: mine</b>
+<b>EOF</b>
+alertmanagerconfig.monitoring.coreos.com/read-me created
+<b>$ sleep 60</b>
+<b>$ kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | head -60</b>
 global:
   resolve_timeout: 5m
 route:
@@ -654,6 +682,12 @@ route:
   group_by:
   - namespace
   routes:
+  - receiver: default/read-me/mine
+    group_by:
+    - alertname
+    matchers:
+    - namespace="default"
+    continue: true
   - receiver: "null"
     matchers:
     - alertname = "Watchdog"
@@ -681,17 +715,15 @@ inhibit_rules:
   - alertname = InfoInhibitor
   equal:
   - namespace
-- target_matchers:
-  - alertname = InfoInhibitor
-receivers:
-- name: "null"
-templates:
-- /etc/alertmanager/config/*.tmpl
+<i>... 7 more lines</i>
 <b>$ kubectl -n monitoring get alertmanagerconfig -A</b>
-No resources found
+NAMESPACE   NAME      AGE
+default     read-me   60s
 <b>$ kubectl -n monitoring get alertmanager -o jsonpath='{.items[0].spec.alertmanagerConfigSelector}{"\n"}'</b>
-{}</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the rendered routes carry a namespace matcher you never typed, and the receivers are prefixed with the namespace and object name. That prefixing is why a receiver name in your object does not match the one in the UI.</div>
+{}
+<b>$ kubectl -n default delete alertmanagerconfig read-me</b>
+alertmanagerconfig.monitoring.coreos.com "read-me" deleted from default namespace</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the rendered file carries a route you never typed: your <code>read-me</code> config appears with <code>namespace = "default"</code> added to its matchers, and its receiver is renamed <code>default/read-me/mine</code>, prefixed with the namespace and the object name. That prefixing is why a receiver name in your object does not match the one in the UI. Without an AlertmanagerConfig of your own there is nothing of yours in the file, only the chart's <code>null</code> receiver and the stock inhibit rules.</div>
     </div>
 
     <div class="exercise" data-title="Find how Prometheus knows where to send alerts">

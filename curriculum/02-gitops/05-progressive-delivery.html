@@ -461,7 +461,7 @@ rollout "demo" image updated</code></pre></details></div>
       <div class="verify"><b>verify:</b> the Canary reaches Succeeded (<code>kubectl get canary -A</code>), and while it runs, <code>kubectl get virtualservice podinfo -o yaml</code> shows Flagger moving real route weights between primary and canary. If the Canary sticks in Progressing, its events name the failing check.</div>
     </div>
 
-    <div class="exercise" data-title="An inconclusive analysis pauses, it does not fail">
+    <div class="exercise" data-title="Inconclusive is the third outcome">
       <p>A metric with neither a success nor a failure condition cannot decide anything, and Argo Rollouts records that honestly rather than guessing: the run ends <code>Inconclusive</code>, which is neither <code>Successful</code> nor <code>Failed</code>. Know the third outcome, because it is the one people forget when they write the alert on the other two.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: argoproj.io/v1alpha1
@@ -585,19 +585,19 @@ kubectl -n team-a patch rollout demo --type merge -p '{"spec":{"strategy":{"cana
 kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.25-alpine -n team-a
 sleep 75
 kubectl -n team-a get analysisrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.metricResults[0]}' | jq
+kubectl argo rollouts get rollout demo -n team-a --no-color | head -6
 kubectl argo rollouts undo demo -n team-a
 kubectl patch analysistemplate always-fails -n team-a --type merge -p '{"spec":{"metrics":[{"name":"always-fails","interval":"15s","count":5,"failureLimit":2,"successCondition":"result == \"never\"","provider":{"job":{"spec":{"backoffLimit":0,"template":{"spec":{"restartPolicy":"Never","containers":[{"name":"check","image":"busybox:1.36","command":["sh","-c","exit 1"]}]}}}}}}]}}'
 kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.24-alpine -n team-a
 sleep 120
 kubectl -n team-a get analysisrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.metricResults[0]}' | jq
+kubectl argo rollouts get rollout demo -n team-a --no-color | head -6
 kubectl argo rollouts undo demo -n team-a
 kubectl -n team-a delete analysisrun --all
 kubectl -n team-a delete analysistemplate always-fails
-kubectl -n team-a apply -f examples/rollouts/canary.yaml</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ # name order would hand you a stale AnalysisRun from an earlier exercise</b>
+kubectl -n team-a apply -f examples/rollouts/canary.yaml</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # name order would hand you a stale AnalysisRun from an earlier exercise</b>
 <b>$ kubectl -n team-a delete analysisrun --all</b>
-analysisrun.argoproj.io "demo-584f94bcff-16" deleted from team-a namespace
-analysisrun.argoproj.io "demo-5cfc49f565-17" deleted from team-a namespace
-analysisrun.argoproj.io "demo-6bcd89b78b-18" deleted from team-a namespace
+No resources found
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: AnalysisTemplate</b>
@@ -621,9 +621,9 @@ analysisrun.argoproj.io "demo-6bcd89b78b-18" deleted from team-a namespace
 <b>                    command: ["sh", "-c", "exit 1"]</b>
 <b>            backoffLimit: 0</b>
 <b>EOF</b>
-analysistemplate.argoproj.io/always-fails configured
+analysistemplate.argoproj.io/always-fails created
 <b>$ kubectl -n team-a patch rollout demo --type merge -p '{"spec":{"strategy":{"canary":{"analysis":{"templates":[{"templateName":"always-fails"}],"startingStep":0,"args":null}}}}}'</b>
-rollout.argoproj.io/demo patched (no change)
+rollout.argoproj.io/demo patched
 <b>$ kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.25-alpine -n team-a</b>
 rollout "demo" image updated
 <b>$ sleep 75</b>
@@ -633,19 +633,26 @@ rollout "demo" image updated
   "failed": 1,
   "measurements": [
     {
-      "finishedAt": "2026-09-13T12:35:07Z",
+      "finishedAt": "2026-09-13T16:56:49Z",
       "metadata": {
-        "job-name": "16e264de-68a4-459f-8e26-e53e9dc78851.always-fails.1",
+        "job-name": "c59c8d09-fe03-4eb2-b6d7-269647fa9645.always-fails.1",
         "job-namespace": "team-a"
       },
       "phase": "Failed",
-      "resumeAt": "2026-09-13T12:35:07Z",
-      "startedAt": "2026-09-13T12:34:54Z"
+      "resumeAt": "2026-09-13T16:56:49Z",
+      "startedAt": "2026-09-13T16:56:40Z"
     }
   ],
   "name": "always-fails",
   "phase": "Failed"
 }
+<b>$ kubectl argo rollouts get rollout demo -n team-a --no-color | head -6</b>
+Name:            demo
+Namespace:       team-a
+Status:          ✖ Degraded
+Message:         RolloutAborted: Rollout aborted update to revision 23: Background analysis phase error/failed: Metric "always-fails" assessed Failed due to failed (1) &gt; failureLimit (0)
+Strategy:        Canary
+  Step:          0/5
 <b>$ kubectl argo rollouts undo demo -n team-a</b>
 rollout 'demo' undo
 <b>$ kubectl patch analysistemplate always-fails -n team-a --type merge -p '{"spec":{"metrics":[{"name":"always-fails","interval":"15s","count":5,"failureLimit":2,"successCondition":"result == \"never\"","provider":{"job":{"spec":{"backoffLimit":0,"template":{"spec":{"restartPolicy":"Never","containers":[{"name":"check","image":"busybox:1.36","command":["sh","-c","exit 1"]}]}}}}}}]}}'</b>
@@ -659,44 +666,52 @@ rollout "demo" image updated
   "failed": 3,
   "measurements": [
     {
-      "finishedAt": "2026-09-13T12:36:21Z",
+      "finishedAt": "2026-09-13T16:58:05Z",
       "metadata": {
-        "job-name": "af3c6ff5-c1af-4f83-9252-a9a47d247ea5.always-fails.1",
+        "job-name": "cbfcfe8a-a830-4350-8fc1-08f7c2d63670.always-fails.1",
         "job-namespace": "team-a"
       },
       "phase": "Failed",
-      "resumeAt": "2026-09-13T12:36:21Z",
-      "startedAt": "2026-09-13T12:36:09Z"
+      "resumeAt": "2026-09-13T16:58:05Z",
+      "startedAt": "2026-09-13T16:57:56Z"
     },
     {
-      "finishedAt": "2026-09-13T12:36:42Z",
+      "finishedAt": "2026-09-13T16:58:26Z",
       "metadata": {
-        "job-name": "af3c6ff5-c1af-4f83-9252-a9a47d247ea5.always-fails.2",
+        "job-name": "cbfcfe8a-a830-4350-8fc1-08f7c2d63670.always-fails.2",
         "job-namespace": "team-a"
       },
       "phase": "Failed",
-      "resumeAt": "2026-09-13T12:36:42Z",
-      "startedAt": "2026-09-13T12:36:36Z"
+      "resumeAt": "2026-09-13T16:58:26Z",
+      "startedAt": "2026-09-13T16:58:20Z"
     },
     {
-      "finishedAt": "2026-09-13T12:37:06Z",
+      "finishedAt": "2026-09-13T16:58:50Z",
       "metadata": {
-        "job-name": "af3c6ff5-c1af-4f83-9252-a9a47d247ea5.always-fails.3",
+        "job-name": "cbfcfe8a-a830-4350-8fc1-08f7c2d63670.always-fails.3",
         "job-namespace": "team-a"
       },
       "phase": "Failed",
-      "resumeAt": "2026-09-13T12:37:06Z",
-      "startedAt": "2026-09-13T12:36:57Z"
+      "resumeAt": "2026-09-13T16:58:50Z",
+      "startedAt": "2026-09-13T16:58:41Z"
     }
   ],
   "name": "always-fails",
   "phase": "Failed"
 }
+<b>$ kubectl argo rollouts get rollout demo -n team-a --no-color | head -6</b>
+Name:            demo
+Namespace:       team-a
+Status:          ✖ Degraded
+Message:         RolloutAborted: Rollout aborted update to revision 25: Background analysis phase error/failed: Metric "always-fails" assessed Failed due to failed (3) &gt; failureLimit (2)
+Strategy:        Canary
+  Step:          0/5
 <b>$ kubectl argo rollouts undo demo -n team-a</b>
 rollout 'demo' undo
 <b>$ kubectl -n team-a delete analysisrun --all</b>
-analysisrun.argoproj.io "demo-584f94bcff-19" deleted from team-a namespace
-analysisrun.argoproj.io "demo-6bcd89b78b-20" deleted from team-a namespace
+analysisrun.argoproj.io "demo-584f94bcff-23" deleted from team-a namespace
+analysisrun.argoproj.io "demo-5cfc49f565-24" deleted from team-a namespace
+analysisrun.argoproj.io "demo-6bcd89b78b-25" deleted from team-a namespace
 <b>$ kubectl -n team-a delete analysistemplate always-fails</b>
 analysistemplate.argoproj.io "always-fails" deleted from team-a namespace
 <b>$ kubectl -n team-a apply -f examples/rollouts/canary.yaml</b>
