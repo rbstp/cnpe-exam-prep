@@ -111,6 +111,61 @@
       <span class="tag">Command reflex</span>
       <p><code>kubectl get sc</code> first, every time: it shows provisioner, reclaim policy, binding mode and expansion in one line, which is four of the five fields above. Then <code>kubectl get pvc -A</code> and look for anything not Bound.</p>
     </div>
+  
+
+    <h3>Backup and restore as objects: Velero</h3>
+    <p>When the DR answer is "a backup tool", Velero is the one the exam pool knows, and its model is four CRDs. A <code>BackupStorageLocation</code> names the object store (bucket, prefix, provider plugin); a <code>VolumeSnapshotLocation</code> names where disk snapshots go; a <code>Backup</code> selects what to copy (<code>includedNamespaces</code>, <code>includedResources</code>, <code>labelSelector</code>, <code>ttl</code>, default 30 days) and a <code>Schedule</code> is a Backup template with a cron expression, producing backups named <code>&lt;schedule&gt;-&lt;timestamp&gt;</code>. Volumes are copied either by CSI snapshot (the snapshot is retained only for the life of the backup, then moved or deleted) or by file-system backup, which reads the mounted files from a node agent and works for any volume type at the cost of consistency. Backup hooks (<code>pre</code> and <code>post</code> exec commands, such as flushing a database) are the honest answer to "is this backup consistent". A <code>Restore</code> replays a backup, optionally mapping namespaces (<code>namespaceMapping: {abc: def}</code>), and restored objects carry the label <code>velero.io/restore-name</code>. In a GitOps cluster the split to state out loud is: manifests come back from git, PV contents come back from Velero (or the operator's own backup), and neither replaces the other.</p>
+  </div>
+</section>
+
+<section class="panel accent-c" id="lifecycle-features">
+  <div class="phdr"><h2>Lifecycle features by version, and copies of data</h2><span class="meta">retention · expansion · snapshots · clones · ephemeral volumes · VolumeAttributesClass</span></div>
+  <div class="pbody">
+    <p>Every item here is a field on a PVC, StatefulSet or StorageClass that a task can ask you to set, plus the version at which it stopped being optional. The cluster is 1.36, so everything marked GA is simply on.</p>
+
+    <h3>StatefulSet PVC retention (GA since 1.32)</h3>
+    <p><code>spec.persistentVolumeClaimRetentionPolicy</code> has two knobs, each <code>Retain</code> (default) or <code>Delete</code>: <code>whenDeleted</code> applies when the StatefulSet is deleted, <code>whenScaled</code> when replicas are reduced. <code>Delete</code> works by putting an ownerReference on the PVC so the garbage collector removes it after the pod is gone; a pod replaced after a node failure keeps its PVC regardless. The common production choice is <code>whenDeleted: Retain, whenScaled: Delete</code>: an accidental delete keeps the data, a deliberate scale-down does not leave orphans.</p>
+
+    <h3>Expansion and its failure path</h3>
+    <ul>
+      <li>Only with <code>allowVolumeExpansion: true</code> on the class and a CSI driver that supports it; you edit <code>spec.resources.requests.storage</code> on the PVC, never the PV (editing the PV first makes the controller think the resize already happened).</li>
+      <li>The block device grows immediately; the filesystem (ext3, ext4, xfs) is resized only when a pod mounts the claim, online if the driver supports it. Until then the PVC shows a <code>FileSystemResizePending</code> condition. "Resize stuck" with no consumer is therefore normal.</li>
+      <li>Shrinking is never allowed, but a failed grow can be retried smaller: <code>RecoverVolumeExpansionFailure</code> is GA since 1.34, so you may lower the request to any value above <code>status.capacity</code>. Progress lives in <code>status.allocatedResources</code> and <code>status.allocatedResourceStatuses</code> (for example <code>ControllerResizeInProgress</code>, <code>NodeResizePending</code>).</li>
+    </ul>
+
+    <h3>Snapshots, clones and populators</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Want</th><th>Write</th><th>Needs</th></tr></thead>
+        <tbody>
+          <tr><td>point-in-time copy</td><td class="mono">VolumeSnapshot { source: { persistentVolumeClaimName } , volumeSnapshotClassName }</td><td>snapshot CRDs + snapshot-controller (installed by the distro), csi-snapshotter sidecar in the driver; a VolumeSnapshotClass with <code>deletionPolicy: Delete</code> or <code>Retain</code></td></tr>
+          <tr><td>new PVC from a snapshot</td><td class="mono">dataSource: { kind: VolumeSnapshot, name, apiGroup: snapshot.storage.k8s.io }</td><td>same namespace and a class from the same driver; wait for <code>status.readyToUse: true</code> on the snapshot first</td></tr>
+          <tr><td>copy an existing PVC</td><td class="mono">dataSource: { kind: PersistentVolumeClaim, name }</td><td>CSI clone support; same namespace; requested size at least the source size</td></tr>
+          <tr><td>populate from anything else</td><td class="mono">dataSourceRef: { apiGroup, kind, name }</td><td>a volume populator controller for that kind (GA since 1.33); cross-namespace sources are still alpha</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Two protections you will meet as "stuck": a PVC being snapshotted cannot be deleted until the snapshot is <code>readyToUse</code>, and a PV bound to a claim carries <code>kubernetes.io/pv-protection</code>. Both clear themselves; do not strip them.</p>
+
+    <h3>Ephemeral volumes</h3>
+    <ul>
+      <li><strong>Generic ephemeral volume</strong> (GA since 1.23): <code>volumes[].ephemeral.volumeClaimTemplate</code> in the pod. The controller creates a real PVC named <code>&lt;pod&gt;-&lt;volume&gt;</code>, owned by the pod, so it is deleted with the pod, yet while it exists it can be snapshotted, cloned or expanded like any PVC. Use <code>WaitForFirstConsumer</code> classes so the scheduler picks the node first.</li>
+      <li><strong>CSI ephemeral volume</strong>: <code>volumes[].csi</code> inline, no PVC object, for drivers that declare the <code>Ephemeral</code> mode (secrets-store style drivers). Data disappears with the pod and never touches a StorageClass.</li>
+      <li><code>emptyDir</code> counts against <code>ephemeral-storage</code> requests and limits; with <code>medium: Memory</code> it counts against memory instead and can be resized in place on cgroup v2 nodes.</li>
+    </ul>
+
+    <h3>VolumeAttributesClass (GA since 1.34)</h3>
+    <p>A StorageClass decides how a volume is created; a <code>VolumeAttributesClass</code> (<code>driverName</code> plus <code>parameters</code> such as IOPS and throughput) decides how it performs, and <code>pvc.spec.volumeAttributesClassName</code> is mutable, so moving a claim from <code>silver</code> to <code>gold</code> is an edit rather than a migration. Quota can cap it per class (<code>&lt;vac&gt;.volumeattributesclass.storage.k8s.io/...</code>). It is the answer to "change the disk tier without recreating the PVC".</p>
+
+    <h3>Smaller facts with a version</h3>
+    <ul>
+      <li>Retroactive default class (GA since 1.28): a PVC created with no class while no default exists is patched when a default appears; a PVC with <code>storageClassName: ""</code> is left alone and binds only to classless PVs.</li>
+      <li><code>ReadWriteOncePod</code> is GA since 1.29 and CSI-only; the scheduler and kubelet enforce it, unlike the other three modes which are matching hints.</li>
+      <li><code>HonorPVReclaimPolicy</code> adds an <code>external-provisioner.volume.kubernetes.io/finalizer</code> so a <code>Delete</code> PV whose PVC outlives it is still cleaned up in the backend when the PV is deleted first.</li>
+      <li>StatefulSet <code>updateStrategy.rollingUpdate.maxUnavailable</code> is beta since 1.35 (default-on in 1.35.0 to 1.35.3, off again from 1.35.4 through 1.36, on by default in 1.37); a <code>Recreate</code> update strategy is also feature-gated. Do not assume either in a task; the default is one pod at a time, highest ordinal first.</li>
+    </ul>
+
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Grow the database volume to 20Gi" is graded on the PVC's <code>status.capacity</code>; the edit alone earns nothing. If the class lacks <code>allowVolumeExpansion</code> the edit is rejected outright ("only dynamically provisioned pvc can be resized and the storageclass that provisions the pvc must support resize"); if no pod mounts the claim, capacity stays at the old value with <code>FileSystemResizePending</code>, and the task is not done until a consumer runs.</p></div>
   </div>
 </section>
 
@@ -194,6 +249,308 @@ spire        spire-data-spire-server-0   standard   ReadWriteOnce   1Gi</code></
       <div class="verify"><b>verify:</b> <code>kubectl get pv</code> shows STATUS Bound and CLAIM pointing at your PVC. Then delete the PVC and explain what the PV's new status means given its reclaim policy.</div>
     </div>
 
+    <div class="exercise" data-title="Retain on delete, delete on scale">
+      <p>A StatefulSet's claims outlive it by default, which is either the safety you wanted or the leak you get billed for. The retention policy splits the two cases apart, and the ownerReference the controller writes on each claim is how the deletion half is carried out.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: keep, namespace: default }
+spec:
+  serviceName: keep
+  replicas: 3
+  persistentVolumeClaimRetentionPolicy: { whenScaled: Delete, whenDeleted: Retain }
+  selector: { matchLabels: { app: keep } }
+  template:
+    metadata: { labels: { app: keep } }
+    spec:
+      containers:
+        - name: c
+          image: busybox:1.36
+          command: ["sh", "-c", "sleep 86400"]
+          volumeMounts: [{ name: data, mountPath: /data }]
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: { requests: { storage: 64Mi } }
+EOF
+kubectl rollout status statefulset/keep --timeout=180s
+kubectl get pvc -l app=keep
+kubectl get pvc data-keep-2 -o jsonpath='{.metadata.ownerReferences}' | jq   # nothing owns it yet
+kubectl scale statefulset keep --replicas=1
+sleep 15
+kubectl get pvc data-keep-2 -o jsonpath='{.metadata.ownerReferences}' | jq   # now the condemned pod does
+sleep 75
+kubectl get pvc -l app=keep
+kubectl delete statefulset keep
+sleep 15
+kubectl get pvc -l app=keep
+kubectl delete pvc data-keep-0
+kubectl delete pvc -l app=keep --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: apps/v1</b>
+<b>kind: StatefulSet</b>
+<b>metadata: { name: keep, namespace: default }</b>
+<b>spec:</b>
+<b>  serviceName: keep</b>
+<b>  replicas: 3</b>
+<b>  persistentVolumeClaimRetentionPolicy: { whenScaled: Delete, whenDeleted: Retain }</b>
+<b>  selector: { matchLabels: { app: keep } }</b>
+<b>  template:</b>
+<b>    metadata: { labels: { app: keep } }</b>
+<b>    spec:</b>
+<b>      containers:</b>
+<b>        - name: c</b>
+<b>          image: busybox:1.36</b>
+<b>          command: ["sh", "-c", "sleep 86400"]</b>
+<b>          volumeMounts: [{ name: data, mountPath: /data }]</b>
+<b>  volumeClaimTemplates:</b>
+<b>    - metadata: { name: data }</b>
+<b>      spec:</b>
+<b>        accessModes: [ReadWriteOnce]</b>
+<b>        resources: { requests: { storage: 64Mi } }</b>
+<b>EOF</b>
+statefulset.apps/keep created
+<b>$ kubectl rollout status statefulset/keep --timeout=180s</b>
+Waiting for statefulset spec update to be observed...
+Waiting for 3 pods to be ready...
+Waiting for 3 pods to be ready...
+Waiting for 2 pods to be ready...
+Waiting for 2 pods to be ready...
+Waiting for 1 pods to be ready...
+Waiting for 1 pods to be ready...
+partitioned roll out complete: 3 new pods have been updated...
+<b>$ kubectl get pvc -l app=keep</b>
+NAME          STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+data-keep-0   Bound    pvc-5d487b38-6213-435f-89fa-e84c958cc0f6   64Mi       RWO            standard       &lt;unset&gt;                 24s
+data-keep-1   Bound    pvc-7e38cb51-e9b5-4d16-9f05-27bc88315451   64Mi       RWO            standard       &lt;unset&gt;                 17s
+data-keep-2   Bound    pvc-cde3b56b-bd6d-4cfb-8233-ad4868f74623   64Mi       RWO            standard       &lt;unset&gt;                 9s
+<b>$ kubectl get pvc data-keep-2 -o jsonpath='{.metadata.ownerReferences}' | jq   # nothing owns it yet</b>
+<b>$ kubectl scale statefulset keep --replicas=1</b>
+statefulset.apps/keep scaled
+<b>$ sleep 15</b>
+<b>$ kubectl get pvc data-keep-2 -o jsonpath='{.metadata.ownerReferences}' | jq   # now the condemned pod does</b>
+[
+  {
+    "apiVersion": "v1",
+    "blockOwnerDeletion": true,
+    "controller": true,
+    "kind": "Pod",
+    "name": "keep-2",
+    "uid": "a92afd0d-1914-4e04-8ba2-85d6a507a65a"
+  }
+]
+<b>$ sleep 75</b>
+<b>$ kubectl get pvc -l app=keep</b>
+NAME          STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+data-keep-0   Bound    pvc-5d487b38-6213-435f-89fa-e84c958cc0f6   64Mi       RWO            standard       &lt;unset&gt;                 114s
+<b>$ kubectl delete statefulset keep</b>
+statefulset.apps "keep" deleted from default namespace
+<b>$ sleep 15</b>
+<b>$ kubectl get pvc -l app=keep</b>
+NAME          STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+data-keep-0   Bound    pvc-5d487b38-6213-435f-89fa-e84c958cc0f6   64Mi       RWO            standard       &lt;unset&gt;                 2m10s
+<b>$ kubectl delete pvc data-keep-0</b>
+persistentvolumeclaim "data-keep-0" deleted from default namespace
+<b>$ kubectl delete pvc -l app=keep --ignore-not-found</b>
+No resources found</code></pre></details></div>
+      <div class="verify"><b>verify:</b> while all three replicas are up the claims carry no ownerReferences at all, because <code>whenDeleted: Retain</code> means the set never owns them. Scale down and the two condemned claims each gain an ownerReference to their own pod, which is what deletes them once that pod is gone; the last claim then survives deletion of the set itself. Two halves of one field, opposite outcomes.</div>
+    </div>
+
+    <div class="exercise" data-title="Ask local-path to grow">
+      <p>Expansion is a property of the driver, not of the StorageClass field that advertises it. Setting <code>allowVolumeExpansion</code> on a class whose provisioner cannot expand produces one of the most quoted error strings in storage tasks, so meet it here rather than in a task.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get storageclass
+kubectl patch storageclass standard -p '{"allowVolumeExpansion":true}'
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: grow, namespace: default }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: { requests: { storage: 64Mi } }
+EOF
+kubectl run grower --image=busybox:1.36 --restart=Never --overrides='{"spec":{"containers":[{"name":"c","image":"busybox:1.36","command":["sh","-c","sleep 86400"],"volumeMounts":[{"name":"d","mountPath":"/d"}]}],"volumes":[{"name":"d","persistentVolumeClaim":{"claimName":"grow"}}]}}'
+kubectl wait --for=condition=Ready pod/grower --timeout=120s
+kubectl patch pvc grow -p '{"spec":{"resources":{"requests":{"storage":"128Mi"}}}}'
+sleep 20
+kubectl get pvc grow -o jsonpath='spec: {.spec.resources.requests.storage}  status: {.status.capacity.storage}{"\n"}'
+echo "conditions: $(kubectl get pvc grow -o jsonpath='{.status.conditions}')"
+kubectl get pvc grow -o jsonpath='{.status.allocatedResourceStatuses}{"\n"}'
+kubectl describe pvc grow | tail -8
+kubectl delete pod grower
+kubectl delete pvc grow
+# put the shared default class back the way it was
+kubectl patch storageclass standard -p '{"allowVolumeExpansion":false}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get storageclass</b>
+NAME                 PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+standard (default)   rancher.io/local-path   Delete          WaitForFirstConsumer   false                  20h
+<b>$ kubectl patch storageclass standard -p '{"allowVolumeExpansion":true}'</b>
+storageclass.storage.k8s.io/standard patched
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: PersistentVolumeClaim</b>
+<b>metadata: { name: grow, namespace: default }</b>
+<b>spec:</b>
+<b>  accessModes: [ReadWriteOnce]</b>
+<b>  resources: { requests: { storage: 64Mi } }</b>
+<b>EOF</b>
+persistentvolumeclaim/grow created
+<b>$ kubectl run grower --image=busybox:1.36 --restart=Never --overrides='{"spec":{"containers":[{"name":"c","image":"busybox:1.36","command":["sh","-c","sleep 86400"],"volumeMounts":[{"name":"d","mountPath":"/d"}]}],"volumes":[{"name":"d","persistentVolumeClaim":{"claimName":"grow"}}]}}'</b>
+pod/grower created
+<b>$ kubectl wait --for=condition=Ready pod/grower --timeout=120s</b>
+pod/grower condition met
+<b>$ kubectl patch pvc grow -p '{"spec":{"resources":{"requests":{"storage":"128Mi"}}}}'</b>
+persistentvolumeclaim/grow patched
+<b>$ sleep 20</b>
+<b>$ kubectl get pvc grow -o jsonpath='spec: {.spec.resources.requests.storage}  status: {.status.capacity.storage}{"\n"}'</b>
+spec: 128Mi  status: 64Mi
+<b>$ echo "conditions: $(kubectl get pvc grow -o jsonpath='{.status.conditions}')"</b>
+conditions: 
+<b>$ kubectl get pvc grow -o jsonpath='{.status.allocatedResourceStatuses}{"\n"}'</b>
+<b>$ kubectl describe pvc grow | tail -8</b>
+Events:
+  Type    Reason                 Age   From                                                                                                Message
+  ----    ------                 ----  ----                                                                                                -------
+  Normal  WaitForFirstConsumer   32s   persistentvolume-controller                                                                         waiting for first consumer to be created before binding
+  Normal  ExternalProvisioning   31s   persistentvolume-controller                                                                         Waiting for a volume to be created either by the external provisioner 'rancher.io/local-path' or manually by the system administrator. If volume creation is delayed, please verify that the provisioner is running and correctly registered.
+  Normal  Provisioning           31s   rancher.io/local-path_local-path-provisioner-855c7b7774-xsqw2_944b3c00-03a8-486a-896a-567844028b41  External provisioner is provisioning volume for claim "default/grow"
+  Normal  ProvisioningSucceeded  25s   rancher.io/local-path_local-path-provisioner-855c7b7774-xsqw2_944b3c00-03a8-486a-896a-567844028b41  Successfully provisioned volume pvc-f412d670-060c-4a9a-8fda-bd4cc5645a03
+  Normal  ExternalExpanding      21s   volume_expand                                                                                       waiting for an external controller to expand this PVC
+<b>$ kubectl delete pod grower</b>
+pod "grower" deleted from default namespace
+<b>$ kubectl delete pvc grow</b>
+persistentvolumeclaim "grow" deleted from default namespace
+<b>$ # put the shared default class back the way it was</b>
+<b>$ kubectl patch storageclass standard -p '{"allowVolumeExpansion":false}'</b>
+storageclass.storage.k8s.io/standard patched</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the class accepts <code>allowVolumeExpansion: true</code> and the claim accepts the larger request, so <code>spec</code> reads 128Mi while <code>status.capacity</code> stays at 64Mi. <code>status.conditions</code> is empty and the only event is <code>ExternalExpanding: waiting for an external controller to expand this PVC</code>, which is the whole answer: local-path has no resize support, so no controller ever picks the request up and the claim waits forever with its spec and status disagreeing. There is no error to find, which is the failure mode worth recognising.</div>
+    </div>
+
+    <div class="exercise" data-title="A claim that lives and dies with its pod">
+      <p>A generic ephemeral volume gives a pod a real PVC with a real class and a real lifetime of exactly one pod. The naming rule and the ownerReference are the whole trick.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: Pod
+metadata: { name: eph, namespace: default }
+spec:
+  containers:
+    - name: c
+      image: busybox:1.36
+      command: ["sh", "-c", "sleep 86400"]
+      volumeMounts: [{ name: scratch, mountPath: /scratch }]
+  volumes:
+    - name: scratch
+      ephemeral:
+        volumeClaimTemplate:
+          spec:
+            accessModes: [ReadWriteOnce]
+            resources: { requests: { storage: 64Mi } }
+EOF
+kubectl wait --for=condition=Ready pod/eph --timeout=120s
+kubectl get pvc eph-scratch
+kubectl get pvc eph-scratch -o jsonpath='{.metadata.ownerReferences}' | jq
+kubectl delete pod eph
+sleep 15
+kubectl get pvc eph-scratch</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: Pod</b>
+<b>metadata: { name: eph, namespace: default }</b>
+<b>spec:</b>
+<b>  containers:</b>
+<b>    - name: c</b>
+<b>      image: busybox:1.36</b>
+<b>      command: ["sh", "-c", "sleep 86400"]</b>
+<b>      volumeMounts: [{ name: scratch, mountPath: /scratch }]</b>
+<b>  volumes:</b>
+<b>    - name: scratch</b>
+<b>      ephemeral:</b>
+<b>        volumeClaimTemplate:</b>
+<b>          spec:</b>
+<b>            accessModes: [ReadWriteOnce]</b>
+<b>            resources: { requests: { storage: 64Mi } }</b>
+<b>EOF</b>
+pod/eph created
+<b>$ kubectl wait --for=condition=Ready pod/eph --timeout=120s</b>
+pod/eph condition met
+<b>$ kubectl get pvc eph-scratch</b>
+NAME          STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+eph-scratch   Bound    pvc-60e802fd-df09-43c4-90ba-64f0e90ad910   64Mi       RWO            standard       &lt;unset&gt;                 13s
+<b>$ kubectl get pvc eph-scratch -o jsonpath='{.metadata.ownerReferences}' | jq</b>
+[
+  {
+    "apiVersion": "v1",
+    "blockOwnerDeletion": true,
+    "controller": true,
+    "kind": "Pod",
+    "name": "eph",
+    "uid": "b7e5e146-ef47-42b5-afb7-8af422d2a318"
+  }
+]
+<b>$ kubectl delete pod eph</b>
+pod "eph" deleted from default namespace
+<b>$ sleep 15</b>
+<b>$ kubectl get pvc eph-scratch</b>
+Error from server (NotFound): persistentvolumeclaims "eph-scratch" not found</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the claim is named <code>&lt;pod&gt;-&lt;volume&gt;</code>, owned by the pod, and gone once the pod is.</div>
+    </div>
+
+    <div class="exercise" data-title="Check what the snapshot API needs">
+      <p>Snapshots are three separate installs: the CRDs, the snapshot-controller, and driver support. kind with local-path has none of them, and knowing that is more useful than reciting the object names.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get crd | grep snapshot.storage.k8s.io || echo 'no snapshot CRDs installed'
+kubectl api-resources | grep -i volumesnapshot || echo 'no volumesnapshot API on this cluster'
+kubectl get csidrivers
+kubectl get sc standard -o jsonpath='{.provisioner}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get crd | grep snapshot.storage.k8s.io || echo 'no snapshot CRDs installed'</b>
+no snapshot CRDs installed
+<b>$ kubectl api-resources | grep -i volumesnapshot || echo 'no volumesnapshot API on this cluster'</b>
+no volumesnapshot API on this cluster
+<b>$ kubectl get csidrivers</b>
+NAME            ATTACHREQUIRED   PODINFOONMOUNT   STORAGECAPACITY   TOKENREQUESTS   REQUIRESREPUBLISH   MODES       AGE
+csi.spiffe.io   false            true             false             &lt;unset&gt;         false               Ephemeral   21m
+<b>$ kubectl get sc standard -o jsonpath='{.provisioner}{"\n"}'</b>
+rancher.io/local-path</code></pre></details></div>
+      <div class="verify"><b>verify:</b> you can state the three pieces a working VolumeSnapshot needs and which of them this cluster has. On the exam cluster, run the same two commands before you write a VolumeSnapshot manifest at all.</div>
+    </div>
+
+    <div class="exercise" data-title="Lose the default class, then get it back">
+      <p>A PVC with no <code>storageClassName</code> is not bound to "the default forever": it records whatever default existed when admission saw it, and since retroactive default assignment it can be filled in later. Watch both halves.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get storageclass -o custom-columns='NAME:.metadata.name,DEFAULT:.metadata.annotations.storageclass\.kubernetes\.io/is-default-class'
+kubectl annotate storageclass standard storageclass.kubernetes.io/is-default-class-
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: noclass, namespace: default }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: { requests: { storage: 64Mi } }
+EOF
+kubectl get pvc noclass -o jsonpath='class=[{.spec.storageClassName}] phase={.status.phase}{"\n"}'
+kubectl annotate storageclass standard storageclass.kubernetes.io/is-default-class=true
+sleep 20
+kubectl get pvc noclass -o jsonpath='class=[{.spec.storageClassName}] phase={.status.phase}{"\n"}'
+kubectl delete pvc noclass</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl get storageclass -o custom-columns='NAME:.metadata.name,DEFAULT:.metadata.annotations.storageclass\.kubernetes\.io/is-default-class'</b>
+NAME       DEFAULT
+standard   true
+<b>$ kubectl annotate storageclass standard storageclass.kubernetes.io/is-default-class-</b>
+storageclass.storage.k8s.io/standard annotated
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: PersistentVolumeClaim</b>
+<b>metadata: { name: noclass, namespace: default }</b>
+<b>spec:</b>
+<b>  accessModes: [ReadWriteOnce]</b>
+<b>  resources: { requests: { storage: 64Mi } }</b>
+<b>EOF</b>
+persistentvolumeclaim/noclass created
+<b>$ kubectl get pvc noclass -o jsonpath='class=[{.spec.storageClassName}] phase={.status.phase}{"\n"}'</b>
+class=[] phase=Pending
+<b>$ kubectl annotate storageclass standard storageclass.kubernetes.io/is-default-class=true</b>
+storageclass.storage.k8s.io/standard annotated
+<b>$ sleep 20</b>
+<b>$ kubectl get pvc noclass -o jsonpath='class=[{.spec.storageClassName}] phase={.status.phase}{"\n"}'</b>
+class=[standard] phase=Pending
+<b>$ kubectl delete pvc noclass</b>
+persistentvolumeclaim "noclass" deleted from default namespace</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the claim sits Pending with an empty class while no default exists, then has <code>standard</code> written into its spec once the annotation is back. Restore the annotation before you leave this exercise or every later claim on the page hangs.</div>
+    </div>
+
   </div>
 </section>
 
@@ -214,6 +571,19 @@ spire        spire-data-spire-server-0   standard   ReadWriteOnce   1Gi</code></
 
     <details class="quiz"><summary>Which quota lines cap tenant storage, and why is per-class quota interesting?</summary>
       <div class="answer"><p><code>requests.storage</code> and <code>persistentvolumeclaims</code> cap the total and the count; <code>&lt;class&gt;.storageclass.storage.k8s.io/requests.storage</code> caps a specific class. The per-class form is how a platform team offers a fast expensive tier without every tenant defaulting to it: a pricing decision expressed as a Kubernetes object.</p></div></details>
+  
+
+    <details class="quiz"><summary>You want scale-down to reclaim volumes but deleting the StatefulSet by mistake to keep them. Which fields, and since when is this GA?</summary>
+      <div class="answer"><p><code>persistentVolumeClaimRetentionPolicy: { whenScaled: Delete, whenDeleted: Retain }</code>, GA since Kubernetes 1.32 (StatefulSetAutoDeletePVC). Delete works through an ownerReference on the PVC that the garbage collector honours after the pod is gone; a pod replaced after a node failure is not a scale event and keeps its claim.</p></div></details>
+
+    <details class="quiz"><summary>An expansion to 500Gi failed because the backend has no capacity and the PVC keeps retrying. Can you back out?</summary>
+      <div class="answer"><p>Yes: RecoverVolumeExpansionFailure is GA since 1.34, so edit the request down to any value still above <code>status.capacity</code> (never below it; shrinking is impossible). Watch <code>status.allocatedResourceStatuses</code> and events. Before 1.34 the recovery was the manual dance of Retain, delete the PVC, clear <code>claimRef</code>, recreate.</p></div></details>
+
+    <details class="quiz"><summary>Restore a database volume from last night's snapshot into a new PVC. What is the manifest shape and what must be true first?</summary>
+      <div class="answer"><p>A PVC whose <code>dataSource</code> is <code>{ kind: VolumeSnapshot, name: &lt;snap&gt;, apiGroup: snapshot.storage.k8s.io }</code>, in the same namespace, with a StorageClass from the same CSI driver and a size at least the snapshot's restore size. The VolumeSnapshot must show <code>status.readyToUse: true</code>; a not-ready snapshot leaves the PVC Pending with a provisioner event saying so.</p></div></details>
+
+    <details class="quiz"><summary>How do you change a volume's IOPS tier without recreating it?</summary>
+      <div class="answer"><p>VolumeAttributesClass (GA since 1.34): create a class with the driver's performance <code>parameters</code> and set <code>spec.volumeAttributesClassName</code> on the PVC; the field is mutable and the external-resizer applies the change. StorageClass parameters, by contrast, are fixed at provisioning time.</p></div></details>
   </div>
 </section>
 
@@ -223,9 +593,15 @@ spire        spire-data-spire-server-0   standard   ReadWriteOnce   1Gi</code></
     <ul class="docs">
       <li><b>kubernetes.io</b>: Persistent Volumes (the access-modes and reclaim tables), Storage Classes, Volume Snapshots, StatefulSet <code>volumeClaimTemplates</code>.</li>
       <li><b>Offline:</b> <code>kubectl explain pvc.spec</code>, <code>kubectl explain sc</code>, <code>kubectl get sc -o wide</code>, and PVC <code>status.conditions</code> when a resize misbehaves.</li>
+    
+      <li><b>kubernetes.io: Persistent Volumes, "Expanding Persistent Volumes Claims" and "Recovering from Failure when Expanding Volumes"</b>: the exact rules for grow-only, filesystem-on-mount and the smaller-retry path.</li>
+      <li><b>kubernetes.io: Ephemeral Volumes and Volume Attributes Classes</b>: generic ephemeral volume naming and ownership; the mutable volumeAttributesClassName field.</li>
+      <li><b>velero.io/docs: "How Velero Works" and "CSI snapshot support"</b>: the Backup/Schedule/Restore objects and the CSI versus file-system backup choice.</li>
     </ul>
   </div>
 </section>
+
+<div class="needs after"><span class="lbl">free before 1.4</span><code>make down-api</code></div>
 
 </article>
 <aside class="toc" id="toc"></aside>

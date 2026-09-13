@@ -86,6 +86,23 @@
       <li><strong>TriggerTemplate</strong>: stamps out the PipelineRun with those values.</li>
       <li>Plus <strong>interceptors</strong>: filter by event type, verify the webhook secret, or evaluate a CEL expression before anything runs. Without one, your EventListener builds anything anyone posts to it.</li>
     </ul>
+  
+
+    <h3>Resolvers, StepActions and Chains, as fields</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>taskRef.resolver</th><th>params</th><th>Use</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">git</td><td class="mono">url, revision, pathInRepo (anonymous clone) or org, repo, revision, pathInRepo (authenticated API)</td><td>a shared task library in a repo, pinned by revision</td></tr>
+          <tr><td class="mono">bundles</td><td class="mono">bundle (OCI ref), name, kind</td><td>tasks packaged as OCI images, signed and promoted like any image</td></tr>
+          <tr><td class="mono">hub</td><td class="mono">catalog, kind, name, version</td><td>Tekton Hub or Artifact Hub catalog tasks</td></tr>
+          <tr><td class="mono">cluster</td><td class="mono">kind, name, namespace</td><td>reference a Task in another namespace; the replacement for the deprecated ClusterTask</td></tr>
+          <tr><td class="mono">http</td><td class="mono">url</td><td>a raw YAML URL</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>A <strong>StepAction</strong> is the reusable unit one level below a Task: <code>image</code>, <code>command</code> or <code>script</code>, <code>args</code>, <code>env</code>, <code>params</code>, <code>results</code>, <code>workingDir</code>, <code>securityContext</code>, <code>volumeMounts</code>. A step uses it with <code>ref: { name: x }</code> (or <code>ref.resolver</code> for a remote one) and must then set none of those fields itself; doing so is a validation error. StepActions are stable; check <code>kubectl api-resources | grep stepaction</code> for the version served on the cluster in front of you. The point for the competency: a platform team ships one <code>kaniko-build</code> StepAction and tenants compose Tasks from it without copying container details.</p>
+    <p><strong>Tekton Chains</strong> is the supply-chain half. It watches completed TaskRuns and PipelineRuns, signs them and any type-hinted image results (<code>IMAGE_URL</code> and <code>IMAGE_DIGEST</code> results, or <code>artifacts.outputs</code>) with a key from the <code>signing-secrets</code> Secret in <code>tekton-chains</code> (cosign, x509 or KMS), produces an in-toto attestation in <code>slsa/v1</code> or <code>slsa/v2alpha4</code> format, stores it in the OCI registry next to the image, in Tekton annotations, or in a bucket, and marks the run <code>chains.tekton.dev/signed: "true"</code>. Formats, storage and signer are settings in the <code>chains-config</code> ConfigMap (<code>artifacts.taskrun.format</code>, <code>artifacts.oci.storage</code>, <code>transparency.enabled</code>). Section 5.6 verifies those signatures at admission; here the fact to hold is that the pipeline pod never holds the signing key.</p>
   </div>
 </section>
 
@@ -111,6 +128,55 @@
       <span class="tag">Tekton vs Argo Workflows</span>
       <p>Both run DAGs of containers, and the exam lists both. The distinction to state: Tekton is CI-shaped: build, test, publish artifacts, triggered by git events, with a task catalog built around that. Argo Workflows (section 3.4) is general orchestration: provisioning sequences, scheduled batch jobs, anything run-to-completion. Overlapping capability, different focus, and section 3.6 makes you defend the choice.</p>
     </div>
+  </div>
+</section>
+
+<section class="panel accent-c" id="tekton-status">
+  <div class="phdr"><h2>Status vocabulary, timeouts, cancellation and control flow</h2><span class="meta">what the condition says · timeouts.pipeline/tasks/finally · spec.status values · when, retries, onError</span></div>
+  <div class="pbody">
+    <p>A run has one condition, type <code>Succeeded</code>, and the pair (status, reason) is the whole story. Learn the table and <code>kubectl get pipelinerun -o jsonpath='{.items[*].status.conditions[0].reason}'</code> becomes a diagnosis.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>status</th><th>reason</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">Unknown</td><td class="mono">Started · Running · Cancelled</td><td>picked up; validated and working; cancellation requested but not finished</td></tr>
+          <tr><td class="mono">True</td><td class="mono">Succeeded</td><td>every task ran and passed</td></tr>
+          <tr><td class="mono">True</td><td class="mono">Completed</td><td>passed, but one or more tasks were skipped by <code>when</code>; the skipped ones are listed under <code>status.skippedTasks</code> with their reason</td></tr>
+          <tr><td class="mono">False</td><td class="mono">Failed</td><td>a TaskRun failed; the message counts "Tasks Completed: N (Failed: M, Cancelled 0), Skipped: K"</td></tr>
+          <tr><td class="mono">False</td><td class="mono">PipelineRunTimeout</td><td><code>timeouts.pipeline</code> elapsed; child TaskRuns are cancelled</td></tr>
+          <tr><td class="mono">False</td><td class="mono">Cancelled · CancelledRunFinally · StoppedRunFinally</td><td>you set <code>spec.status</code></td></tr>
+          <tr><td class="mono">False</td><td class="mono">CreateRunFailed</td><td>could not create a child TaskRun (quota, admission, missing ServiceAccount)</td></tr>
+          <tr><td class="mono">False</td><td class="mono">ParameterMissing · PipelineValidationFailed · InvalidWorkspaceBinding · CouldntGetTask · InvalidTaskResultReference · ResolvingPipelineRef...</td><td>permanent validation errors, often prefixed <code>[User error]</code> in the message; nothing ran</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>TaskRun reasons add the pod-level causes: <code>TaskRunTimeout</code>, <code>TaskRunImagePullFailed</code>, <code>PodEvicted</code>, <code>StepOOM</code> (a step container was OOMKilled: the run fails even if the exit code is 0), <code>InitContainerOOM</code>, <code>StepFailed</code>, <code>ToBeRetried</code> (a retry is pending; previous attempts sit under <code>status.retriesStatus</code>). Each step's <code>terminationReason</code> and exit code are under <code>status.steps[]</code>.</p>
+
+    <h3>Timeouts</h3>
+    <ul>
+      <li><code>spec.timeouts.pipeline</code> (default: the global <code>default-timeout-minutes</code>, 60), <code>timeouts.tasks</code> for the non-finally tasks together, <code>timeouts.finally</code> for the finally tasks; the constraint <code>pipeline &gt;= tasks + finally</code> is validated. <code>"0"</code> disables a section (then <code>pipeline</code> must be 0 too).</li>
+      <li>Per task: <code>pipeline.spec.tasks[].timeout</code>, or at run time <code>taskRunSpecs[].timeout</code>. When <code>timeouts.tasks</code> is hit, finally tasks still run if <code>timeouts.finally</code> allows.</li>
+    </ul>
+
+    <h3>Cancelling and pausing, by setting spec.status</h3>
+    <ul>
+      <li><code>Cancelled</code>: TaskRuns cancelled, pods deleted, retries skipped, pending finally tasks not scheduled.</li>
+      <li><code>CancelledRunFinally</code>: same, but finally tasks run (cleanup and notification still happen).</li>
+      <li><code>StoppedRunFinally</code>: running TaskRuns finish normally with their retries, nothing new starts, then finally runs.</li>
+      <li><code>PipelineRunPending</code>: create the run without starting it (a manual gate or a quota-aware queue); clear the field to start.</li>
+    </ul>
+
+    <h3>Control flow fields</h3>
+    <ul>
+      <li><code>retries: N</code> on a pipeline task re-runs the TaskRun on failure; <code>$(context.pipelineTask.retries)</code> and <code>retry-count</code> are available inside.</li>
+      <li><code>onError: continue</code> on a pipeline task lets the pipeline proceed past a failure (default <code>stopAndFail</code>); on a step, <code>onError: continue</code> lets later steps run and exposes <code>$(steps.&lt;name&gt;.exitCode.path)</code>.</li>
+      <li><code>when</code>: <code>input</code>, <code>operator: in|notin</code>, <code>values</code>; a CEL form (<code>cel: "'$(params.env)' == 'prod'"</code>) exists behind a feature flag. A guarded task's dependents are not automatically guarded: cascade the <code>when</code> or compose a sub-pipeline.</li>
+      <li>In <code>finally</code>, <code>$(tasks.&lt;name&gt;.status)</code> is <code>Succeeded</code>, <code>Failed</code> or <code>None</code> (skipped), and <code>$(tasks.status)</code> aggregates to <code>Succeeded</code>, <code>Completed</code>, <code>Failed</code> or <code>None</code>; finally tasks cannot be ordered among themselves.</li>
+      <li><code>matrix.params</code> fans one pipeline task out over every combination (cap 256 by default, <code>default-max-matrix-combinations-count</code>); TaskRuns are named <code>&lt;run&gt;-&lt;task&gt;-&lt;n&gt;</code> and array results from a fanned-out task are consumed with <code>$(tasks.x.results.y[*])</code>.</li>
+      <li>Results travel in the container termination message, capped at 4096 bytes per step including Tekton's own metadata; larger results need the <code>results-from: sidecar-logs</code> feature flag. "Termination message is above max allowed size" is the error.</li>
+    </ul>
+
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"The pipeline must always publish a report even when the build fails, and a failed scan must not stop the report" is two fields: the report task goes in <code>finally</code>, and either the scan task carries <code>onError: continue</code> or the report reads <code>$(tasks.scan.status)</code> to decide what to say. "Stop the running pipeline but let cleanup run" is <code>spec.status: CancelledRunFinally</code>, not deleting the PipelineRun.</p></div>
   </div>
 </section>
 
@@ -452,6 +518,524 @@ All Steps have completed executing</code></pre></details></div>
       <div class="verify"><b>verify:</b> <code>tkn pipelinerun list</code> grows by one without you touching kubectl, and <code>kubectl get eventlistener</code> shows Ready.</div>
     </div>
 
+    <div class="exercise" data-title="Reuse a step with StepAction">
+      <p>A StepAction is a step you can version and share the way a Task shares a whole sequence. The rule that catches people is that a step referencing one may not also carry its own image; the validation message says it plainly.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl api-resources | grep -i stepaction
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: tekton.dev/v1beta1
+kind: StepAction
+metadata: { name: say, namespace: default }
+spec:
+  image: busybox:1.36
+  params:
+    - name: text
+      type: string
+  env:
+    - name: TEXT
+      value: $(params.text)
+  script: |
+    echo "$TEXT"
+EOF
+kubectl create -f - &lt;&lt;'EOF'
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata: { generateName: say-run-, namespace: default }
+spec:
+  taskSpec:
+    steps:
+      - name: say
+        ref: { name: say }
+        params: [{ name: text, value: hello from a stepaction }]
+EOF
+sleep 45
+tkn taskrun logs --last
+kubectl create -f - &lt;&lt;'EOF'
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata: { generateName: say-bad-, namespace: default }
+spec:
+  taskSpec:
+    steps:
+      - name: say
+        image: busybox:1.36
+        ref: { name: say }
+        params: [{ name: text, value: this will not apply }]
+EOF
+kubectl delete stepaction say</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl api-resources | grep -i stepaction</b>
+stepactions                                                                           tekton.dev/v1beta1                        true         StepAction
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: tekton.dev/v1beta1</b>
+<b>kind: StepAction</b>
+<b>metadata: { name: say, namespace: default }</b>
+<b>spec:</b>
+<b>  image: busybox:1.36</b>
+<b>  params:</b>
+<b>    - name: text</b>
+<b>      type: string</b>
+<b>  env:</b>
+<b>    - name: TEXT</b>
+<b>      value: $(params.text)</b>
+<b>  script: |</b>
+<b>    echo "$TEXT"</b>
+<b>EOF</b>
+stepaction.tekton.dev/say created
+<b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: tekton.dev/v1</b>
+<b>kind: TaskRun</b>
+<b>metadata: { generateName: say-run-, namespace: default }</b>
+<b>spec:</b>
+<b>  taskSpec:</b>
+<b>    steps:</b>
+<b>      - name: say</b>
+<b>        ref: { name: say }</b>
+<b>        params: [{ name: text, value: hello from a stepaction }]</b>
+<b>EOF</b>
+taskrun.tekton.dev/say-run-cl79p created
+<b>$ sleep 45</b>
+<b>$ tkn taskrun logs --last</b>
+[say] hello from a stepaction
+<b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: tekton.dev/v1</b>
+<b>kind: TaskRun</b>
+<b>metadata: { generateName: say-bad-, namespace: default }</b>
+<b>spec:</b>
+<b>  taskSpec:</b>
+<b>    steps:</b>
+<b>      - name: say</b>
+<b>        image: busybox:1.36</b>
+<b>        ref: { name: say }</b>
+<b>        params: [{ name: text, value: this will not apply }]</b>
+<b>EOF</b>
+Error from server (BadRequest): error when creating "STDIN": admission webhook "validation.webhook.pipeline.tekton.dev" denied the request: validation failed: image cannot be used with Ref: spec.taskSpec.steps[0].image
+<b>$ kubectl delete stepaction say</b>
+stepaction.tekton.dev "say" deleted from default namespace</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the referencing run prints the parameter, and the second create is rejected at admission with a message naming the fields that may not appear alongside <code>ref</code>. That list is worth memorising; it is short.</div>
+    </div>
+
+    <div class="exercise" data-title="Three timeouts, one run">
+      <p>A PipelineRun has three clocks: the whole run, the non-finally tasks, and the finally tasks. They must add up, and the one that fires decides the reason string you will be asked to explain.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create -f - &lt;&lt;'EOF'
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata: { generateName: slow-, namespace: default }
+spec:
+  timeouts: { pipeline: 1m, tasks: 40s, finally: 20s }
+  pipelineSpec:
+    tasks:
+      - name: sleeper
+        taskSpec:
+          steps:
+            - name: sleep
+              image: busybox:1.36
+              script: |
+                sleep 90
+    finally:
+      - name: cleanup
+        taskSpec:
+          steps:
+            - name: say
+              image: busybox:1.36
+              script: |
+                echo cleanup ran
+EOF
+sleep 90
+tkn pipelinerun describe --last
+kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.conditions[0]}' | jq</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: tekton.dev/v1</b>
+<b>kind: PipelineRun</b>
+<b>metadata: { generateName: slow-, namespace: default }</b>
+<b>spec:</b>
+<b>  timeouts: { pipeline: 1m, tasks: 40s, finally: 20s }</b>
+<b>  pipelineSpec:</b>
+<b>    tasks:</b>
+<b>      - name: sleeper</b>
+<b>        taskSpec:</b>
+<b>          steps:</b>
+<b>            - name: sleep</b>
+<b>              image: busybox:1.36</b>
+<b>              script: |</b>
+<b>                sleep 90</b>
+<b>    finally:</b>
+<b>      - name: cleanup</b>
+<b>        taskSpec:</b>
+<b>          steps:</b>
+<b>            - name: say</b>
+<b>              image: busybox:1.36</b>
+<b>              script: |</b>
+<b>                echo cleanup ran</b>
+<b>EOF</b>
+pipelinerun.tekton.dev/slow-5vv4l created
+<b>$ sleep 90</b>
+<b>$ tkn pipelinerun describe --last</b>
+Name:              slow-5vv4l
+Namespace:         default
+Service Account:   default
+Labels:
+ tekton.dev/pipeline=slow-5vv4l
+Annotations:
+ chains.tekton.dev/cert-pipelinerun-8afc9a0d-8b68-40eb-8199-22ca1d923be1=
+ chains.tekton.dev/chain-pipelinerun-8afc9a0d-8b68-40eb-8199-22ca1d923be1=
+ chains.tekton.dev/payload-pipelinerun-8afc9a0d-8b68-40eb-8199-22ca1d923be1=eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjAuMSIsICJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9zbHNhLmRldi9wcm92ZW5hbmNlL3YwLjIiLCAicHJlZGljYXRlIjp7ImJ1aWxkQ29uZmlnIjp7InRhc2tzIjpbeyJmaW5pc2hlZE9uIjoiMjAyNi0wOS0xM1QxMTozOToxOFoiLCAiaW52b2NhdGlvbiI6eyJjb25maWdTb3VyY2UiOnt9LCAiZW52aXJvbm1lbnQiOnsiYW5ub3RhdGlvbnMiOnsicGlwZWxpbmUudGVrdG9uLmRldi9yZWxlYXNlIjoiZmNiYTUyMiJ9LCAibGFiZWxzIjp7ImFwcC5rdWJlcm5ldGVzLmlvL21hbmFnZWQtYnkiOiJ0ZWt0b24tcGlwZWxpbmVzIiwgInRla3Rvbi5kZXYvbWVtYmVyT2YiOiJ0YXNrcyIsICJ0ZWt0b24uZGV2L3BpcGVsaW5lIjoic2xvdy01dnY0bCIsICJ0ZWt0b24uZGV2L3BpcGVsaW5lUnVuIjoic2xvdy01dnY0bCIsICJ0ZWt0b24uZGV2L3BpcGVsaW5lUnVuVUlEIjoiOGFmYzlhMGQtOGI2OC00MGViLTgxOTktMjJjYTFkOTIzYmUxIiwgInRla3Rvbi5kZXYvcGlwZWxpbmVUYXNrIjoic2xlZXBlciJ9fSwgInBhcmFtZXRlcnMiOnt9fSwgIm5hbWUiOiJzbGVlcGVyIiwgInJlZiI6e30sICJzZXJ2aWNlQWNjb3VudE5hbWUiOiJkZWZhdWx0IiwgInN0YXJ0ZWRPbiI6IjIwMjYtMDktMTNUMTE6Mzg6MzlaIiwgInN0YXR1cyI6IkZhaWxlZCIsICJzdGVwcyI6W3siYW5ub3RhdGlvbnMiOm51bGwsICJhcmd1bWVudHMiOm51bGwsICJlbnRyeVBvaW50Ijoic2xlZXAgOTBcbiIsICJlbnZpcm9ubWVudCI6eyJjb250YWluZXIiOiJzbGVlcCIsICJpbWFnZSI6Im9jaTovL2RvY2tlci5pby9saWJyYXJ5L2J1c3lib3hAc2hhMjU2OjczYWFmMDkwZjNkODVhYTM0ZWUxOTk4NTdmMDNmYTNhOTVjOGVkZTJmZmQ0Y2MyY2RiNWI5NGU1NjZiMTE2NjIifX1dfV19LCAiYnVpbGRUeXBlIjoidGVrdG9uLmRldi92MS9QaXBlbGluZVJ1biIsICJidWlsZGVyIjp7ImlkIjoiaHR0cHM6Ly90ZWt0b24uZGV2L2NoYWlucy92MiJ9LCAiaW52b2NhdGlvbiI6eyJjb25maWdTb3VyY2UiOnt9LCAiZW52aXJvbm1lbnQiOnsibGFiZWxzIjp7InRla3Rvbi5kZXYvcGlwZWxpbmUiOiJzbG93LTV2djRsIn19LCAicGFyYW1ldGVycyI6e319LCAibWF0ZXJpYWxzIjpbeyJkaWdlc3QiOnsic2hhMjU2IjoiNzNhYWYwOTBmM2Q4NWFhMzRlZTE5OTg1N2YwM2ZhM2E5NWM4ZWRlMmZmZDRjYzJjZGI1Yjk0ZTU2NmIxMTY2MiJ9LCAidXJpIjoib2NpOi8vZG9ja2VyLmlvL2xpYnJhcnkvYnVzeWJveCJ9XSwgIm1ldGFkYXRhIjp7ImJ1aWxkRmluaXNoZWRPbiI6IjIwMjYtMDktMTNUMTE6Mzk6MThaIiwgImJ1aWxkU3RhcnRlZE9uIjoiMjAyNi0wOS0xM1QxMTozODozOFoiLCAiY29tcGxldGVuZXNzIjp7ImVudmlyb25tZW50IjpmYWxzZSwgIm1hdGVyaWFscyI6ZmFsc2UsICJwYXJhbWV0ZXJzIjpmYWxzZX0sICJyZXByb2R1Y2libGUiOmZhbHNlfX19
+ chains.tekton.dev/signature-pipelinerun-8afc9a0d-8b68-40eb-8199-22ca1d923be1=eyJwYXlsb2FkVHlwZSI6ImFwcGxpY2F0aW9uL3ZuZC5pbi10b3RvK2pzb24iLCJwYXlsb2FkIjoiZXlKZmRIbHdaU0k2SW1oMGRIQnpPaTh2YVc0dGRHOTBieTVwYnk5VGRHRjBaVzFsYm5RdmRqQXVNU0lzSUNKd2NtVmthV05oZEdWVWVYQmxJam9pYUhSMGNITTZMeTl6YkhOaExtUmxkaTl3Y205MlpXNWhibU5sTDNZd0xqSWlMQ0FpY0hKbFpHbGpZWFJsSWpwN0ltSjFhV3hrUTI5dVptbG5JanA3SW5SaGMydHpJanBiZXlKbWFXNXBjMmhsWkU5dUlqb2lNakF5Tmkwd09TMHhNMVF4TVRvek9Ub3hPRm9pTENBaWFXNTJiMk5oZEdsdmJpSTZleUpqYjI1bWFXZFRiM1Z5WTJVaU9udDlMQ0FpWlc1MmFYSnZibTFsYm5RaU9uc2lZVzV1YjNSaGRHbHZibk1pT25zaWNHbHdaV3hwYm1VdWRHVnJkRzl1TG1SbGRpOXlaV3hsWVhObElqb2labU5pWVRVeU1pSjlMQ0FpYkdGaVpXeHpJanA3SW1Gd2NDNXJkV0psY201bGRHVnpMbWx2TDIxaGJtRm5aV1F0WW5raU9pSjBaV3QwYjI0dGNHbHdaV3hwYm1Weklpd2dJblJsYTNSdmJpNWtaWFl2YldWdFltVnlUMllpT2lKMFlYTnJjeUlzSUNKMFpXdDBiMjR1WkdWMkwzQnBjR1ZzYVc1bElqb2ljMnh2ZHkwMWRuWTBiQ0lzSUNKMFpXdDBiMjR1WkdWMkwzQnBjR1ZzYVc1bFVuVnVJam9pYzJ4dmR5MDFkblkwYkNJc0lDSjBaV3QwYjI0dVpHVjJMM0JwY0dWc2FXNWxVblZ1VlVsRUlqb2lPR0ZtWXpsaE1HUXRPR0kyT0MwME1HVmlMVGd4T1RrdE1qSmpZVEZrT1RJelltVXhJaXdnSW5SbGEzUnZiaTVrWlhZdmNHbHdaV3hwYm1WVVlYTnJJam9pYzJ4bFpYQmxjaUo5ZlN3Z0luQmhjbUZ0WlhSbGNuTWlPbnQ5ZlN3Z0ltNWhiV1VpT2lKemJHVmxjR1Z5SWl3Z0luSmxaaUk2ZTMwc0lDSnpaWEoyYVdObFFXTmpiM1Z1ZEU1aGJXVWlPaUprWldaaGRXeDBJaXdnSW5OMFlYSjBaV1JQYmlJNklqSXdNall0TURrdE1UTlVNVEU2TXpnNk16bGFJaXdnSW5OMFlYUjFjeUk2SWtaaGFXeGxaQ0lzSUNKemRHVndjeUk2VzNzaVlXNXViM1JoZEdsdmJuTWlPbTUxYkd3c0lDSmhjbWQxYldWdWRITWlPbTUxYkd3c0lDSmxiblJ5ZVZCdmFXNTBJam9pYzJ4bFpYQWdPVEJjYmlJc0lDSmxiblpwY205dWJXVnVkQ0k2ZXlKamIyNTBZV2x1WlhJaU9pSnpiR1ZsY0NJc0lDSnBiV0ZuWlNJNkltOWphVG92TDJSdlkydGxjaTVwYnk5c2FXSnlZWEo1TDJKMWMzbGliM2hBYzJoaE1qVTJPamN6WVdGbU1Ea3daak5rT0RWaFlUTTBaV1V4T1RrNE5UZG1NRE5tWVROaE9UVmpPR1ZrWlRKbVptUTBZMk15WTJSaU5XSTVOR1UxTmpaaU1URTJOaklpZlgxZGZWMTlMQ0FpWW5WcGJHUlVlWEJsSWpvaWRHVnJkRzl1TG1SbGRpOTJNUzlRYVhCbGJHbHVaVkoxYmlJc0lDSmlkV2xzWkdWeUlqcDdJbWxrSWpvaWFIUjBjSE02THk5MFpXdDBiMjR1WkdWMkwyTm9ZV2x1Y3k5Mk1pSjlMQ0FpYVc1MmIyTmhkR2x2YmlJNmV5SmpiMjVtYVdkVGIzVnlZMlVpT250OUxDQWlaVzUyYVhKdmJtMWxiblFpT25zaWJHRmlaV3h6SWpwN0luUmxhM1J2Ymk1a1pYWXZjR2x3Wld4cGJtVWlPaUp6Ykc5M0xUVjJkalJzSW4xOUxDQWljR0Z5WVcxbGRHVnljeUk2ZTMxOUxDQWliV0YwWlhKcFlXeHpJanBiZXlKa2FXZGxjM1FpT25zaWMyaGhNalUySWpvaU56TmhZV1l3T1RCbU0yUTROV0ZoTXpSbFpURTVPVGcxTjJZd00yWmhNMkU1TldNNFpXUmxNbVptWkRSall6SmpaR0kxWWprMFpUVTJObUl4TVRZMk1pSjlMQ0FpZFhKcElqb2liMk5wT2k4dlpHOWphMlZ5TG1sdkwyeHBZbkpoY25rdlluVnplV0p2ZUNKOVhTd2dJbTFsZEdGa1lYUmhJanA3SW1KMWFXeGtSbWx1YVhOb1pXUlBiaUk2SWpJd01qWXRNRGt0TVROVU1URTZNems2TVRoYUlpd2dJbUoxYVd4a1UzUmhjblJsWkU5dUlqb2lNakF5Tmkwd09TMHhNMVF4TVRvek9Eb3pPRm9pTENBaVkyOXRjR3hsZEdWdVpYTnpJanA3SW1WdWRtbHliMjV0Wlc1MElqcG1ZV3h6WlN3Z0ltMWhkR1Z5YVdGc2N5STZabUZzYzJVc0lDSndZWEpoYldWMFpYSnpJanBtWVd4elpYMHNJQ0p5WlhCeWIyUjFZMmxpYkdVaU9tWmhiSE5sZlgxOSIsInNpZ25hdHVyZXMiOlt7ImtleWlkIjoiU0hBMjU2OklEeXcwSkYzYmlVOXlmL3lCQUhKdU1JTm42Q3FtTUh6RWdZMm9ieTAyQTQiLCJzaWciOiJNRVFDSUZUUUU3VWhvUUZHcFJubm01M0VkOERCZ3hxSGhjT3R2NEx1cDNxejJWODlBaUJjUjdQMGRGQ3Y3dUN0aWs4YjlLaTFkQkJwL3ZBSmFmdGJqR2hrQlFYQ1FBPT0ifV19
+ chains.tekton.dev/signed=true
+
+Status
+
+STARTED        DURATION   STATUS
+1 minute ago   40s        Failed(PipelineRunTimeout)
+
+Message
+
+PipelineRun "slow-5vv4l" failed due to tasks failed to finish within "40s"
+TaskRun(s) cancelled: slow-5vv4l-sleeper
+
+Timeouts
+ Pipeline:   1m0s
+ Tasks:      40s
+ Finally:    20s
+
+Taskruns
+
+ NAME                 TASK NAME   STARTED        DURATION   STATUS
+ slow-5vv4l-sleeper   sleeper     1 minute ago   39s        Cancelled(TaskRunCancelled)
+<b>$ kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.conditions[0]}' | jq</b>
+{
+  "lastTransitionTime": "2026-09-13T11:39:18Z",
+  "message": "PipelineRun \"slow-5vv4l\" failed due to tasks failed to finish within \"40s\"",
+  "reason": "PipelineRunTimeout",
+  "status": "False",
+  "type": "Succeeded"
+}</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the run fails on the tasks clock rather than the pipeline clock, the reason names which timeout expired, and the finally task still gets its own twenty seconds. Say what happens if <code>tasks</code> plus <code>finally</code> exceeds <code>pipeline</code>.</div>
+    </div>
+
+    <div class="exercise" data-title="Cancel a run and still clean up">
+      <p>There are two cancellations. One stops everything now; the other stops the work but lets finally run, which is what you want when finally releases a lock or posts a status back to git.</p>
+      <div class="cb" data-lang="bash"><pre><code># a fixed name needs a pre-delete or the second run reads a leftover from the first
+kubectl delete pipelinerun cancel-me --ignore-not-found
+kubectl create -f - &lt;&lt;'EOF'
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata: { name: cancel-me, namespace: default }
+spec:
+  pipelineSpec:
+    tasks:
+      - name: sleeper
+        taskSpec:
+          steps:
+            - name: sleep
+              image: busybox:1.36
+              script: |
+                sleep 600
+    finally:
+      - name: cleanup
+        taskSpec:
+          steps:
+            - name: say
+              image: busybox:1.36
+              script: |
+                echo finally ran after cancellation
+EOF
+sleep 30
+kubectl patch pipelinerun cancel-me --type merge -p '{"spec":{"status":"CancelledRunFinally"}}'
+sleep 45
+kubectl get pipelinerun cancel-me -o jsonpath='{.status.conditions[0]}' | jq
+tkn taskrun list | head -5
+tkn taskrun logs cancel-me-cleanup 2&gt;/dev/null | tail -3
+kubectl delete pipelinerun cancel-me</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # a fixed name needs a pre-delete or the second run reads a leftover from the first</b>
+<b>$ kubectl delete pipelinerun cancel-me --ignore-not-found</b>
+<b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: tekton.dev/v1</b>
+<b>kind: PipelineRun</b>
+<b>metadata: { name: cancel-me, namespace: default }</b>
+<b>spec:</b>
+<b>  pipelineSpec:</b>
+<b>    tasks:</b>
+<b>      - name: sleeper</b>
+<b>        taskSpec:</b>
+<b>          steps:</b>
+<b>            - name: sleep</b>
+<b>              image: busybox:1.36</b>
+<b>              script: |</b>
+<b>                sleep 600</b>
+<b>    finally:</b>
+<b>      - name: cleanup</b>
+<b>        taskSpec:</b>
+<b>          steps:</b>
+<b>            - name: say</b>
+<b>              image: busybox:1.36</b>
+<b>              script: |</b>
+<b>                echo finally ran after cancellation</b>
+<b>EOF</b>
+pipelinerun.tekton.dev/cancel-me created
+<b>$ sleep 30</b>
+<b>$ kubectl patch pipelinerun cancel-me --type merge -p '{"spec":{"status":"CancelledRunFinally"}}'</b>
+pipelinerun.tekton.dev/cancel-me patched
+<b>$ sleep 45</b>
+<b>$ kubectl get pipelinerun cancel-me -o jsonpath='{.status.conditions[0]}' | jq</b>
+{
+  "lastTransitionTime": "2026-09-13T16:39:38Z",
+  "message": "PipelineRun \"cancel-me\" was cancelled",
+  "reason": "Cancelled",
+  "status": "False",
+  "type": "Succeeded"
+}
+<b>$ tkn taskrun list | head -5</b>
+NAME                   STARTED          DURATION   STATUS
+cancel-me-cleanup      45 seconds ago   7s         Succeeded
+cancel-me-sleeper      1 minute ago     30s        Cancelled(TaskRunCancelled)
+skipper-c2xp8-always   4 hours ago      8s         Succeeded
+slow-5vv4l-sleeper     5 hours ago      39s        Cancelled(TaskRunCancelled)
+<b>$ tkn taskrun logs cancel-me-cleanup 2&gt;/dev/null | tail -3</b>
+[say] finally ran after cancellation
+<b>$ kubectl delete pipelinerun cancel-me</b>
+pipelinerun.tekton.dev "cancel-me" deleted from default namespace</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the PipelineRun ends with reason <code>Cancelled</code> and message <code>PipelineRun "cancel-me" was cancelled</code>, the sleeper TaskRun shows <code>Cancelled(TaskRunCancelled)</code>, and <code>cancel-me-cleanup</code> shows Succeeded with <code>finally ran after cancellation</code> in its logs. <code>CancelledRunningFinally</code> is only the reason while finally is still running; read it inside those few seconds and you will see it. The other value of <code>spec.status</code> is <code>Cancelled</code>, which would have killed <code>cancel-me-cleanup</code> along with the sleeper and left you no logs to read.</div>
+    </div>
+
+    <div class="exercise" data-title="Skip a task and prove it">
+      <p>A <code>when</code> that evaluates false does not fail a pipeline and does not hide either. The run succeeds and records what it skipped, which is the evidence a task asks for when the question is "why did the deploy step not run".</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create -f - &lt;&lt;'EOF'
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata: { generateName: skipper-, namespace: default }
+spec:
+  params: [{ name: env, value: staging }]
+  pipelineSpec:
+    params: [{ name: env, type: string }]
+    tasks:
+      - name: always
+        taskSpec:
+          steps:
+            - name: say
+              image: busybox:1.36
+              script: |
+                echo this always runs
+      - name: prod-only
+        when:
+          - input: $(params.env)
+            operator: in
+            values: [prod]
+        taskSpec:
+          steps:
+            - name: say
+              image: busybox:1.36
+              script: |
+                echo this should not run
+EOF
+sleep 60
+kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.conditions[0]}' | jq
+kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.skippedTasks}' | jq</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: tekton.dev/v1</b>
+<b>kind: PipelineRun</b>
+<b>metadata: { generateName: skipper-, namespace: default }</b>
+<b>spec:</b>
+<b>  params: [{ name: env, value: staging }]</b>
+<b>  pipelineSpec:</b>
+<b>    params: [{ name: env, type: string }]</b>
+<b>    tasks:</b>
+<b>      - name: always</b>
+<b>        taskSpec:</b>
+<b>          steps:</b>
+<b>            - name: say</b>
+<b>              image: busybox:1.36</b>
+<b>              script: |</b>
+<b>                echo this always runs</b>
+<b>      - name: prod-only</b>
+<b>        when:</b>
+<b>          - input: $(params.env)</b>
+<b>            operator: in</b>
+<b>            values: [prod]</b>
+<b>        taskSpec:</b>
+<b>          steps:</b>
+<b>            - name: say</b>
+<b>              image: busybox:1.36</b>
+<b>              script: |</b>
+<b>                echo this should not run</b>
+<b>EOF</b>
+pipelinerun.tekton.dev/skipper-c2xp8 created
+<b>$ sleep 60</b>
+<b>$ kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.conditions[0]}' | jq</b>
+{
+  "lastTransitionTime": "2026-09-13T11:44:16Z",
+  "message": "Tasks Completed: 1 (Failed: 0, Cancelled 0), Skipped: 1",
+  "reason": "Completed",
+  "status": "True",
+  "type": "Succeeded"
+}
+<b>$ kubectl get pipelinerun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.skippedTasks}' | jq</b>
+[
+  {
+    "name": "prod-only",
+    "reason": "When Expressions evaluated to false",
+    "whenExpressions": [
+      {
+        "input": "staging",
+        "operator": "in",
+        "values": [
+          "prod"
+        ]
+      }
+    ]
+  }
+]</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the condition is True with reason <code>Completed</code> and <code>skippedTasks</code> names <code>prod-only</code> with the reason it was skipped. A skipped task is a success, not a failure; be able to say so without hesitating.</div>
+    </div>
+
+    <div class="exercise" data-title="Fan out with a matrix">
+      <p>A matrix turns one task into one TaskRun per combination, named predictably. It is the cheapest way to run the same check against three versions, and the naming is how you find the one that failed.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create -f - &lt;&lt;'EOF'
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata: { name: fanout, namespace: default }
+spec:
+  pipelineSpec:
+    tasks:
+      - name: check
+        matrix:
+          params:
+            - name: version
+              value: ["1.35", "1.36", "1.37"]
+        taskSpec:
+          params: [{ name: version, type: string }]
+          steps:
+            - name: say
+              image: busybox:1.36
+              script: |
+                echo checking $(params.version)
+EOF
+sleep 75
+tkn taskrun list | head -6
+kubectl get pipelinerun fanout -o jsonpath='{.status.childReferences[*].name}{"\n"}'
+kubectl delete pipelinerun fanout</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: tekton.dev/v1</b>
+<b>kind: PipelineRun</b>
+<b>metadata: { name: fanout, namespace: default }</b>
+<b>spec:</b>
+<b>  pipelineSpec:</b>
+<b>    tasks:</b>
+<b>      - name: check</b>
+<b>        matrix:</b>
+<b>          params:</b>
+<b>            - name: version</b>
+<b>              value: ["1.35", "1.36", "1.37"]</b>
+<b>        taskSpec:</b>
+<b>          params: [{ name: version, type: string }]</b>
+<b>          steps:</b>
+<b>            - name: say</b>
+<b>              image: busybox:1.36</b>
+<b>              script: |</b>
+<b>                echo checking $(params.version)</b>
+<b>EOF</b>
+pipelinerun.tekton.dev/fanout created
+<b>$ sleep 75</b>
+<b>$ tkn taskrun list | head -6</b>
+NAME               STARTED         DURATION   STATUS
+fanout-check-1     1 minute ago    28s        Succeeded
+fanout-check-2     1 minute ago    29s        Succeeded
+fanout-check-0     1 minute ago    10s        Succeeded
+say-run-cl79p      2 minutes ago   10s        Succeeded
+provenance-lpwcp   5 hours ago     11s        Succeeded
+<b>$ kubectl get pipelinerun fanout -o jsonpath='{.status.childReferences[*].name}{"\n"}'</b>
+fanout-check-1 fanout-check-2 fanout-check-0
+<b>$ kubectl delete pipelinerun fanout</b>
+pipelinerun.tekton.dev "fanout" deleted from default namespace</code></pre></details></div>
+      <div class="verify"><b>verify:</b> three TaskRuns exist, named <code>fanout-check-0</code> through <code>-2</code>, and the PipelineRun's child references list all three. One failure in a matrix fails the whole task; say what that means for a matrix over environments.</div>
+    </div>
+
+    <div class="exercise" data-title="Sign what the pipeline built">
+      <p>Tekton Chains is not part of <code>make cicd</code>, so this block installs it, generates a signing key, and removes nothing afterwards: uninstall it when you are finished, or leave it if you want to keep experimenting with signing.</p>
+      <p>The release ships an empty <code>signing-secrets</code>, so the block replaces it with a real key pair. <code>cosign generate-key-pair</code> prompts for a password unless <code>COSIGN_PASSWORD</code> is set, which is why it is set to an empty one here; do not do that where the key matters. The point is that no pipeline change is needed: Chains watches completed TaskRuns and signs what they report.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f https://storage.googleapis.com/tekton-releases/chains/latest/release.yaml
+kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=300s
+kubectl -n tekton-chains get secret signing-secrets -o jsonpath='{.data}{"\n"}'
+kubectl -n tekton-chains delete secret signing-secrets
+COSIGN_PASSWORD='' cosign generate-key-pair k8s://tekton-chains/signing-secrets
+kubectl -n tekton-chains get secret signing-secrets -o json | jq '.data | keys'
+kubectl -n tekton-chains patch cm chains-config --type merge -p '{"data":{"artifacts.taskrun.format":"in-toto","artifacts.taskrun.storage":"tekton","artifacts.oci.storage":"tekton"}}'
+kubectl -n tekton-chains rollout restart deploy/tekton-chains-controller
+kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=180s
+kubectl create -f - &lt;&lt;'EOF'
+apiVersion: tekton.dev/v1
+kind: TaskRun
+metadata: { generateName: signed-, namespace: default }
+spec:
+  taskSpec:
+    steps:
+      - name: build
+        image: busybox:1.36
+        script: |
+          echo pretend this built something
+EOF
+sleep 60
+kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.annotations}' | jq 'with_entries(select(.key | startswith("chains")))'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f https://storage.googleapis.com/tekton-releases/chains/latest/release.yaml</b>
+namespace/tekton-chains unchanged
+secret/signing-secrets created
+configmap/chains-config unchanged
+deployment.apps/tekton-chains-controller unchanged
+clusterrolebinding.rbac.authorization.k8s.io/tekton-chains-controller-cluster-access unchanged
+clusterrole.rbac.authorization.k8s.io/tekton-chains-controller-cluster-access unchanged
+clusterrole.rbac.authorization.k8s.io/tekton-chains-controller-tenant-access unchanged
+clusterrolebinding.rbac.authorization.k8s.io/tekton-chains-controller-tenant-access unchanged
+serviceaccount/tekton-chains-controller unchanged
+role.rbac.authorization.k8s.io/tekton-chains-leader-election unchanged
+rolebinding.rbac.authorization.k8s.io/tekton-chains-controller-leaderelection unchanged
+role.rbac.authorization.k8s.io/tekton-chains-info unchanged
+rolebinding.rbac.authorization.k8s.io/tekton-chains-info unchanged
+configmap/chains-info unchanged
+configmap/tekton-chains-config-leader-election unchanged
+configmap/config-logging unchanged
+configmap/tekton-chains-config-observability unchanged
+service/tekton-chains-metrics unchanged
+<b>$ kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=300s</b>
+deployment "tekton-chains-controller" successfully rolled out
+<b>$ kubectl -n tekton-chains get secret signing-secrets -o jsonpath='{.data}{"\n"}'</b>
+<b>$ kubectl -n tekton-chains delete secret signing-secrets</b>
+secret "signing-secrets" deleted from tekton-chains namespace
+<b>$ COSIGN_PASSWORD='' cosign generate-key-pair k8s://tekton-chains/signing-secrets</b>
+Successfully created secret signing-secrets in namespace tekton-chains
+Public key written to cosign.pub
+<b>$ kubectl -n tekton-chains get secret signing-secrets -o json | jq '.data | keys'</b>
+[
+  "cosign.key",
+  "cosign.password",
+  "cosign.pub"
+]
+<b>$ kubectl -n tekton-chains patch cm chains-config --type merge -p '{"data":{"artifacts.taskrun.format":"in-toto","artifacts.taskrun.storage":"tekton","artifacts.oci.storage":"tekton"}}'</b>
+configmap/chains-config patched
+<b>$ kubectl -n tekton-chains rollout restart deploy/tekton-chains-controller</b>
+deployment.apps/tekton-chains-controller restarted
+<b>$ kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=180s</b>
+Waiting for deployment spec update to be observed...
+Waiting for deployment "tekton-chains-controller" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "tekton-chains-controller" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "tekton-chains-controller" rollout to finish: 1 old replicas are pending termination...
+deployment "tekton-chains-controller" successfully rolled out
+<b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: tekton.dev/v1</b>
+<b>kind: TaskRun</b>
+<b>metadata: { generateName: signed-, namespace: default }</b>
+<b>spec:</b>
+<b>  taskSpec:</b>
+<b>    steps:</b>
+<b>      - name: build</b>
+<b>        image: busybox:1.36</b>
+<b>        script: |</b>
+<b>          echo pretend this built something</b>
+<b>EOF</b>
+taskrun.tekton.dev/signed-86hrq created
+<b>$ sleep 60</b>
+<b>$ kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.annotations}' | jq 'with_entries(select(.key | startswith("chains")))'</b>
+{
+  "chains.tekton.dev/cert-taskrun-94974ec7-8759-49b2-bbc8-d8b1b6784ee7": "",
+  "chains.tekton.dev/chain-taskrun-94974ec7-8759-49b2-bbc8-d8b1b6784ee7": "",
+  "chains.tekton.dev/payload-taskrun-94974ec7-8759-49b2-bbc8-d8b1b6784ee7": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjAuMSIsICJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9zbHNhLmRldi9wcm92ZW5hbmNlL3YwLjIiLCAicHJlZGljYXRlIjp7ImJ1aWxkQ29uZmlnIjp7InN0ZXBzIjpbeyJhbm5vdGF0aW9ucyI6bnVsbCwgImFyZ3VtZW50cyI6bnVsbCwgImVudHJ5UG9pbnQiOiJlY2hvIHByZXRlbmQgdGhpcyBidWlsdCBzb21ldGhpbmdcbiIsICJlbnZpcm9ubWVudCI6eyJjb250YWluZXIiOiJidWlsZCIsICJpbWFnZSI6Im9jaTovL2RvY2tlci5pby9saWJyYXJ5L2J1c3lib3hAc2hhMjU2OjczYWFmMDkwZjNkODVhYTM0ZWUxOTk4NTdmMDNmYTNhOTVjOGVkZTJmZmQ0Y2MyY2RiNWI5NGU1NjZiMTE2NjIifX1dfSwgImJ1aWxkVHlwZSI6InRla3Rvbi5kZXYvdjEvVGFza1J1biIsICJidWlsZGVyIjp7ImlkIjoiaHR0cHM6Ly90ZWt0b24uZGV2L2NoYWlucy92MiJ9LCAiaW52b2NhdGlvbiI6eyJjb25maWdTb3VyY2UiOnt9LCAiZW52aXJvbm1lbnQiOnsiYW5ub3RhdGlvbnMiOnsicGlwZWxpbmUudGVrdG9uLmRldi9yZWxlYXNlIjoiZmNiYTUyMiJ9LCAibGFiZWxzIjp7ImFwcC5rdWJlcm5ldGVzLmlvL21hbmFnZWQtYnkiOiJ0ZWt0b24tcGlwZWxpbmVzIn19LCAicGFyYW1ldGVycyI6e319LCAibWF0ZXJpYWxzIjpbeyJkaWdlc3QiOnsic2hhMjU2IjoiNzNhYWYwOTBmM2Q4NWFhMzRlZTE5OTg1N2YwM2ZhM2E5NWM4ZWRlMmZmZDRjYzJjZGI1Yjk0ZTU2NmIxMTY2MiJ9LCAidXJpIjoib2NpOi8vZG9ja2VyLmlvL2xpYnJhcnkvYnVzeWJveCJ9XSwgIm1ldGFkYXRhIjp7ImJ1aWxkRmluaXNoZWRPbiI6IjIwMjYtMDktMTJUMTk6MzI6NDhaIiwgImJ1aWxkU3RhcnRlZE9uIjoiMjAyNi0wOS0xMlQxOTozMjoyN1oiLCAiY29tcGxldGVuZXNzIjp7ImVudmlyb25tZW50IjpmYWxzZSwgIm1hdGVyaWFscyI6ZmFsc2UsICJwYXJhbWV0ZXJzIjpmYWxzZX0sICJyZXByb2R1Y2libGUiOmZhbHNlfX19",
+  "chains.tekton.dev/signature-taskrun-94974ec7-8759-49b2-bbc8-d8b1b6784ee7": "eyJwYXlsb2FkVHlwZSI6ImFwcGxpY2F0aW9uL3ZuZC5pbi10b3RvK2pzb24iLCJwYXlsb2FkIjoiZXlKZmRIbHdaU0k2SW1oMGRIQnpPaTh2YVc0dGRHOTBieTVwYnk5VGRHRjBaVzFsYm5RdmRqQXVNU0lzSUNKd2NtVmthV05oZEdWVWVYQmxJam9pYUhSMGNITTZMeTl6YkhOaExtUmxkaTl3Y205MlpXNWhibU5sTDNZd0xqSWlMQ0FpY0hKbFpHbGpZWFJsSWpwN0ltSjFhV3hrUTI5dVptbG5JanA3SW5OMFpYQnpJanBiZXlKaGJtNXZkR0YwYVc5dWN5STZiblZzYkN3Z0ltRnlaM1Z0Wlc1MGN5STZiblZzYkN3Z0ltVnVkSEo1VUc5cGJuUWlPaUpsWTJodklIQnlaWFJsYm1RZ2RHaHBjeUJpZFdsc2RDQnpiMjFsZEdocGJtZGNiaUlzSUNKbGJuWnBjbTl1YldWdWRDSTZleUpqYjI1MFlXbHVaWElpT2lKaWRXbHNaQ0lzSUNKcGJXRm5aU0k2SW05amFUb3ZMMlJ2WTJ0bGNpNXBieTlzYVdKeVlYSjVMMkoxYzNsaWIzaEFjMmhoTWpVMk9qY3pZV0ZtTURrd1pqTmtPRFZoWVRNMFpXVXhPVGs0TlRkbU1ETm1ZVE5oT1RWak9HVmtaVEptWm1RMFkyTXlZMlJpTldJNU5HVTFOalppTVRFMk5qSWlmWDFkZlN3Z0ltSjFhV3hrVkhsd1pTSTZJblJsYTNSdmJpNWtaWFl2ZGpFdlZHRnphMUoxYmlJc0lDSmlkV2xzWkdWeUlqcDdJbWxrSWpvaWFIUjBjSE02THk5MFpXdDBiMjR1WkdWMkwyTm9ZV2x1Y3k5Mk1pSjlMQ0FpYVc1MmIyTmhkR2x2YmlJNmV5SmpiMjVtYVdkVGIzVnlZMlVpT250OUxDQWlaVzUyYVhKdmJtMWxiblFpT25zaVlXNXViM1JoZEdsdmJuTWlPbnNpY0dsd1pXeHBibVV1ZEdWcmRHOXVMbVJsZGk5eVpXeGxZWE5sSWpvaVptTmlZVFV5TWlKOUxDQWliR0ZpWld4eklqcDdJbUZ3Y0M1cmRXSmxjbTVsZEdWekxtbHZMMjFoYm1GblpXUXRZbmtpT2lKMFpXdDBiMjR0Y0dsd1pXeHBibVZ6SW4xOUxDQWljR0Z5WVcxbGRHVnljeUk2ZTMxOUxDQWliV0YwWlhKcFlXeHpJanBiZXlKa2FXZGxjM1FpT25zaWMyaGhNalUySWpvaU56TmhZV1l3T1RCbU0yUTROV0ZoTXpSbFpURTVPVGcxTjJZd00yWmhNMkU1TldNNFpXUmxNbVptWkRSall6SmpaR0kxWWprMFpUVTJObUl4TVRZMk1pSjlMQ0FpZFhKcElqb2liMk5wT2k4dlpHOWphMlZ5TG1sdkwyeHBZbkpoY25rdlluVnplV0p2ZUNKOVhTd2dJbTFsZEdGa1lYUmhJanA3SW1KMWFXeGtSbWx1YVhOb1pXUlBiaUk2SWpJd01qWXRNRGt0TVRKVU1UazZNekk2TkRoYUlpd2dJbUoxYVd4a1UzUmhjblJsWkU5dUlqb2lNakF5Tmkwd09TMHhNbFF4T1Rvek1qb3lOMW9pTENBaVkyOXRjR3hsZEdWdVpYTnpJanA3SW1WdWRtbHliMjV0Wlc1MElqcG1ZV3h6WlN3Z0ltMWhkR1Z5YVdGc2N5STZabUZzYzJVc0lDSndZWEpoYldWMFpYSnpJanBtWVd4elpYMHNJQ0p5WlhCeWIyUjFZMmxpYkdVaU9tWmhiSE5sZlgxOSIsInNpZ25hdHVyZXMiOlt7ImtleWlkIjoiU0hBMjU2OklEeXcwSkYzYmlVOXlmL3lCQUhKdU1JTm42Q3FtTUh6RWdZMm9ieTAyQTQiLCJzaWciOiJNRVlDSVFEMnpTQ2NCZmJWY3Y0S2NFVGVqeEZQdEF2bkV6S0JmbVNjZG5WRGVRMVRMZ0loQU5CWmpyMTNjbTNXd0k2QlNQUzdCMmVqYmp2ZlNKODVJeXhTblMxK3pNenUifV19",
+  "chains.tekton.dev/signed": "true"
+}</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the completed TaskRun carries a <code>chains.tekton.dev/signed</code> annotation set to true, added by a controller the pipeline author never mentioned. If it says <code>failed</code> instead, read the chains-controller log: the reason is almost always the key or the storage backend.</div>
+    </div>
+
   </div>
 </section>
 
@@ -472,6 +1056,16 @@ All Steps have completed executing</code></pre></details></div>
 
     <details class="quiz"><summary>Your EventListener is Ready and a push produces nothing. Diagnostic ladder?</summary>
       <div class="answer"><p>Did the webhook deliver (Gitea's webhook delivery log)? Did the listener receive it (its pod logs)? Did an interceptor filter it out (event type, secret mismatch, CEL expression)? Did the binding extract fields the template expects (a missing param yields an invalid PipelineRun)? Each rung produces a different error; check them in order.</p></div></details>
+  
+
+    <details class="quiz"><summary>A PipelineRun shows status True with reason Completed rather than Succeeded. What happened?</summary>
+      <div class="answer"><p>It passed, but at least one task was skipped by a <code>when</code> expression; the skipped tasks and the expressions that evaluated false are listed under <code>status.skippedTasks</code>. Graders and scripts that check for <code>reason == Succeeded</code> will miss this, so check <code>status == "True"</code> on the Succeeded condition instead.</p></div></details>
+
+    <details class="quiz"><summary>Which spec.status value stops new tasks, lets running ones finish and still runs finally?</summary>
+      <div class="answer"><p><code>StoppedRunFinally</code>. <code>CancelledRunFinally</code> kills running TaskRuns but still runs finally; plain <code>Cancelled</code> kills everything and skips finally. <code>PipelineRunPending</code> is the opposite direction: a run created but not yet started.</p></div></details>
+
+    <details class="quiz"><summary>A step referencing a StepAction also sets image. What happens, and why is the design that way?</summary>
+      <div class="answer"><p>Validation error: a step with <code>ref</code> may not set image, command, args, script, env or volumeMounts, because the StepAction owns them and the step only supplies params and results wiring. That separation is what lets a platform team publish one vetted StepAction and let tenants compose Tasks around it without copying container details.</p></div></details>
   </div>
 </section>
 
@@ -481,9 +1075,14 @@ All Steps have completed executing</code></pre></details></div>
     <ul class="docs">
       <li><b>tekton.dev</b>: Tasks, Pipelines, and the workspaces page (volumeClaimTemplate binding especially); Triggers' TriggerBinding examples for payload paths; the resolvers page.</li>
       <li><b>Offline:</b> <code>kubectl explain pipelinerun.spec</code>, <code>tkn &lt;verb&gt; --help</code>, and <code>tkn task describe &lt;name&gt;</code> to read a catalog task's params and workspaces without leaving the terminal.</li>
+    
+      <li><b>tekton.dev/docs/pipelines/pipelineruns ("PipelineRun status", "Configuring a failure timeout", "Cancelling")</b>: the status/reason table and the three spec.status cancellation values.</li>
+      <li><b>tekton.dev/docs/pipelines/stepactions and /resolution</b>: StepAction fields and the ref rules; the git, bundles, hub, cluster and http resolver parameters. <b>tekton.dev/docs/chains/config</b> for the chains-config keys.</li>
     </ul>
   </div>
 </section>
+
+<div class="needs after"><span class="lbl">free before 2.5</span><code>make down-cicd</code></div>
 
 </article>
 <aside class="toc" id="toc"></aside>

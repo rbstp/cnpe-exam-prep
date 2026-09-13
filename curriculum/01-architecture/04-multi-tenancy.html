@@ -89,6 +89,52 @@
     </ul>
 
     <p>Two more things a real tenant needs that people forget in exam prep: a default <code>ServiceAccount</code> with nothing attached (so workloads do not inherit power), and namespaced <strong>quota on objects that cost money outside the cluster</strong>: LoadBalancers, PVCs, NodePorts. That is why team-a caps <code>services.loadbalancers</code> at 1: quota as a cost tool, not just a fairness tool.</p>
+  
+
+    <h3>Quota shapes beyond requests and limits</h3>
+    <ul>
+      <li><strong>Object counts</strong>: <code>count/&lt;resource&gt;.&lt;group&gt;</code> works for any kind, including custom resources (<code>count/widgets.example.com</code>), and the specialised forms <code>pods</code>, <code>services</code>, <code>secrets</code>, <code>configmaps</code>, <code>persistentvolumeclaims</code>, <code>services.loadbalancers</code>, <code>services.nodeports</code>. These protect the control plane and the bill, not the nodes.</li>
+      <li><strong>Scopes</strong>: <code>scopeSelector</code> narrows a quota to <code>BestEffort</code>/<code>NotBestEffort</code>, <code>Terminating</code>/<code>NotTerminating</code> (pods with <code>activeDeadlineSeconds</code>), <code>CrossNamespacePodAffinity</code>, or <code>PriorityClass</code> with <code>In</code> a list of class names. A quota scoped to <code>PriorityClass In [platform-critical]</code> with <code>pods: "0"</code> is how you stop tenants using the platform's own lane.</li>
+      <li><strong>Per-class storage</strong>: <code>&lt;class&gt;.storageclass.storage.k8s.io/requests.storage</code> and <code>.../persistentvolumeclaims</code>, as in 1.3.</li>
+      <li><strong>Ephemeral storage</strong>: <code>requests.ephemeral-storage</code> and <code>limits.ephemeral-storage</code>; container logs count against it, which is why a chatty pod can be evicted for disk.</li>
+    </ul>
+    <p>The "optimizing" levers in field names: <code>LimitRange.spec.limits[].maxLimitRequestRatio</code> bounds overcommit per container (a ratio of 4 means a limit may be at most four times the request); <code>PriorityClass</code> plus <code>preemptionPolicy</code> decides who yields when the shared pool is full; a PriorityClass-scoped quota decides how much of the high lane each tenant may buy; and OpenCost's efficiency per namespace (1.5) tells you which tenant's requests are the hoarders. Bin-packing itself is the node autoscaler's job (1.2), and it only ever sees requests.</p>
+  </div>
+</section>
+
+<section class="panel accent-c" id="tenancy-models">
+  <div class="phdr"><h2>Tenancy models and the tools that implement them</h2><span class="meta">namespaces-as-a-service · virtual control planes · clusters · HNC, Capsule, vcluster</span></div>
+  <div class="pbody">
+    <p>The kubernetes.io multi-tenancy page splits isolation into <em>control plane</em> (namespaces, RBAC, quota) and <em>data plane</em> (network policy, storage, sandboxing, node isolation), and names two ways to share a cluster: a namespace per tenant or a virtual control plane per tenant. Scenario questions use exactly those words.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Model</th><th>Tenant gets</th><th>Cannot isolate</th><th>Cost</th><th>Tools</th></tr></thead>
+        <tbody>
+          <tr><td>Namespace per tenant (namespaces-as-a-service)</td><td>one or more namespaces with quota, LimitRange, NetworkPolicy, PSS, RBAC</td><td>anything cluster-scoped: CRDs, StorageClasses, webhooks, cluster roles, API versions</td><td>near zero</td><td>plain Kubernetes; HNC or Capsule to manage many</td></tr>
+          <tr><td>Virtual control plane per tenant</td><td>its own API server, CRDs, cluster-scoped objects; pods still run on shared nodes</td><td>the kernel and node-level attacks; cross-tenant sharing gets harder</td><td>one control plane pod per tenant</td><td>vcluster</td></tr>
+          <tr><td>Cluster per tenant</td><td>everything, possibly its own hardware</td><td>nothing, but nothing is shared either</td><td>full duplication, fleet management</td><td>Cluster API, managed clusters</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>The three tools by name</h3>
+    <ul>
+      <li><strong>Hierarchical Namespace Controller (HNC)</strong>: namespaces gain a parent; RBAC, NetworkPolicy and other objects <em>propagate</em> from parent to children (label <code>hnc.x-k8s.io/inherited-from</code>), and a tenant with rights in a parent can create <em>subnamespaces</em> (<code>kubectl hns create dev -n team-a</code>) without cluster permission to create namespaces. Every namespace gets tree labels (<code>team-a.tree.hnc.x-k8s.io/depth</code>) that NetworkPolicy selectors can use to mean "the whole team". <code>HierarchicalResourceQuota</code> caps a subtree's total (beta in HNC 1.1). Argo CD's annotation tracking exists partly so HNC copies do not show as drift.</li>
+      <li><strong>Capsule</strong>: a cluster-scoped <code>Tenant</code> CRD groups namespaces owned by a user or group; quota, LimitRange, NetworkPolicy, RBAC, allowed StorageClasses and IngressClasses, node selectors and registries defined once on the Tenant are stamped into every namespace the owner creates. Owners create namespaces themselves; the Capsule policy engine (admission) keeps them inside the tenant.</li>
+      <li><strong>vcluster</strong>: a tenant cluster whose API server, controller manager and data store (SQLite by default, etcd optional) run in one pod in a host namespace, plus a <em>syncer</em> that copies pods, Services, ConfigMaps and Secrets down to the host namespace where they actually run. Tenants see their own CRDs and cluster-scoped objects; the host sees translated copies. With <em>private nodes</em> a vcluster gets dedicated worker nodes and becomes indistinguishable from a real cluster; with <em>shared nodes</em> it is control-plane isolation only.</li>
+    </ul>
+
+    <h3>Data-plane controls the page lists that your tenant template may lack</h3>
+    <ul>
+      <li><strong>Storage</strong>: dynamic provisioning only, a StorageClass per tenant where it matters, and <code>reclaimPolicy: Delete</code> on shared classes so a released PV cannot be rebound by another namespace.</li>
+      <li><strong>Sandboxing</strong>: a <code>RuntimeClass</code> (gVisor, Kata) selected in the pod spec for untrusted code; the container boundary alone is a shared kernel.</li>
+      <li><strong>Node isolation</strong>: taint the tenant's pool and let a mutating webhook (or Kyverno mutate rule) add the toleration and nodeAffinity to pods in that tenant's namespaces, so tenants never write scheduling constraints themselves.</li>
+      <li><strong>DNS</strong>: CoreDNS answers cross-namespace queries by default; the CoreDNS policy plugin can restrict lookups to the pod's own namespace when the tenancy model requires it.</li>
+      <li><strong>API Priority and Fairness</strong>: FlowSchema and PriorityLevelConfiguration protect the API server from a tenant's chatty controller; it matters once tenants run their own operators.</li>
+    </ul>
+
+    <div class="callout model"><span class="tag">Mental model</span><p>Ask what the tenant needs to own: only workloads, then namespaces; CRDs and webhooks too, then a virtual control plane; the kernel and the version skew, then a cluster. Each step up trades idle capacity and operations for a boundary. Naming the boundary the threat model actually requires is the whole answer.</p></div>
   </div>
 </section>
 
@@ -196,6 +242,227 @@ pod/poke condition met</code></pre></details></div>
       <div class="verify"><b>verify:</b> the same nslookup now succeeds.</div>
     </div>
 
+    <div class="exercise" data-title="Quota that only counts critical pods">
+      <p>A scoped quota counts a subset of the namespace rather than all of it, which is how a platform team forbids one class of workload without capping the tenant. The rejection names the quota, so the tenant learns what they hit.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: ResourceQuota
+metadata: { name: no-critical, namespace: team-a }
+spec:
+  hard: { pods: "0" }
+  scopeSelector:
+    matchExpressions:
+      - scopeName: PriorityClass
+        operator: In
+        values: [system-cluster-critical]
+EOF
+kubectl -n team-a run critical --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"priorityClassName":"system-cluster-critical","containers":[{"name":"critical","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"50m","memory":"64Mi"},"limits":{"cpu":"100m","memory":"128Mi"}}}]}}'
+kubectl -n team-a run ordinary --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"containers":[{"name":"ordinary","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"50m","memory":"64Mi"},"limits":{"cpu":"100m","memory":"128Mi"}}}]}}'
+kubectl -n team-a get pods ordinary
+kubectl -n team-a delete pod ordinary --ignore-not-found
+kubectl -n team-a delete resourcequota no-critical</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: ResourceQuota</b>
+<b>metadata: { name: no-critical, namespace: team-a }</b>
+<b>spec:</b>
+<b>  hard: { pods: "0" }</b>
+<b>  scopeSelector:</b>
+<b>    matchExpressions:</b>
+<b>      - scopeName: PriorityClass</b>
+<b>        operator: In</b>
+<b>        values: [system-cluster-critical]</b>
+<b>EOF</b>
+resourcequota/no-critical created
+<b>$ kubectl -n team-a run critical --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"priorityClassName":"system-cluster-critical","containers":[{"name":"critical","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"50m","memory":"64Mi"},"limits":{"cpu":"100m","memory":"128Mi"}}}]}}'</b>
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "critical" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "critical" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "critical" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "critical" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+Error from server (Forbidden): pods "critical" is forbidden: exceeded quota: no-critical, requested: pods=1, used: pods=0, limited: pods=0
+<b>$ kubectl -n team-a run ordinary --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"containers":[{"name":"ordinary","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"50m","memory":"64Mi"},"limits":{"cpu":"100m","memory":"128Mi"}}}]}}'</b>
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "ordinary" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "ordinary" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "ordinary" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "ordinary" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+pod/ordinary created
+<b>$ kubectl -n team-a get pods ordinary</b>
+NAME       READY   STATUS    RESTARTS   AGE
+ordinary   0/1     Pending   0          0s
+<b>$ kubectl -n team-a delete pod ordinary --ignore-not-found</b>
+pod "ordinary" deleted from team-a namespace
+<b>$ kubectl -n team-a delete resourcequota no-critical</b>
+resourcequota "no-critical" deleted from team-a namespace</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the critical pod is refused with an "exceeded quota" message naming <code>no-critical</code>, and the ordinary pod is admitted under the tenant's existing quota. One namespace, two answers, decided by a scope.</div>
+    </div>
+
+    <div class="exercise" data-title="Count objects, not just cores">
+      <p>Quota is not only cpu and memory. <code>count/&lt;resource&gt;.&lt;group&gt;</code> caps any kind the API server knows about, including the CRDs your platform ships, which is the cheapest guardrail against a tenant looping on create.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create quota objs -n team-a --hard=count/configmaps=3,count/analysistemplates.argoproj.io=1
+kubectl -n team-a get quota objs -o jsonpath='{.status}' | jq
+kubectl -n team-a create configmap one --from-literal=a=1
+kubectl -n team-a create configmap two --from-literal=a=1
+kubectl -n team-a create configmap three --from-literal=a=1
+kubectl -n team-a get quota objs -o jsonpath='{.status.used}' | jq
+kubectl -n team-a delete configmap one two three --ignore-not-found
+kubectl -n team-a delete quota objs</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl create quota objs -n team-a --hard=count/configmaps=3,count/analysistemplates.argoproj.io=1</b>
+resourcequota/objs created
+<b>$ kubectl -n team-a get quota objs -o jsonpath='{.status}' | jq</b>
+{
+  "hard": {
+    "count/analysistemplates.argoproj.io": "1",
+    "count/configmaps": "3"
+  },
+  "used": {
+    "count/analysistemplates.argoproj.io": "1",
+    "count/configmaps": "2"
+  }
+}
+<b>$ kubectl -n team-a create configmap one --from-literal=a=1</b>
+configmap/one created
+<b>$ kubectl -n team-a create configmap two --from-literal=a=1</b>
+error: failed to create configmap: configmaps "two" is forbidden: exceeded quota: objs, requested: count/configmaps=1, used: count/configmaps=3, limited: count/configmaps=3
+<b>$ kubectl -n team-a create configmap three --from-literal=a=1</b>
+error: failed to create configmap: configmaps "three" is forbidden: exceeded quota: objs, requested: count/configmaps=1, used: count/configmaps=3, limited: count/configmaps=3
+<b>$ kubectl -n team-a get quota objs -o jsonpath='{.status.used}' | jq</b>
+{
+  "count/analysistemplates.argoproj.io": "1",
+  "count/configmaps": "3"
+}
+<b>$ kubectl -n team-a delete configmap one two three --ignore-not-found</b>
+configmap "one" deleted from team-a namespace
+<b>$ kubectl -n team-a delete quota objs</b>
+resourcequota "objs" deleted from team-a namespace</code></pre></details></div>
+      <div class="verify"><b>verify:</b> <code>status.used</code> tracks both keys the moment the quota is created: <code>count/configmaps</code> at 2, because team-a already holds <code>kube-root-ca.crt</code> and one more before you create anything, and <code>count/analysistemplates.argoproj.io</code> at 1 for the <code>success-rate</code> template. So the limit of 3 leaves room for exactly one, <code>one</code> is created and <code>two</code> is refused with a message naming <code>objs</code> and both numbers. Count quotas are charged against what is already there, not against what you add.</div>
+    </div>
+
+    <div class="exercise" data-title="Hierarchical namespaces, installed on purpose">
+      <p>The lab does not install HNC, so this block installs it first and removes it at the end. Do it once to see what namespace inheritance actually produces, then decide whether you would run it.</p>
+      <p>The <code>kubectl hns</code> plugin is not part of the lab's tool set either, so this uses the CRs directly: a SubnamespaceAnchor is what the plugin creates for you.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f https://github.com/kubernetes-sigs/hierarchical-namespaces/releases/download/v1.1.0/default.yaml
+kubectl -n hnc-system rollout status deploy/hnc-controller-manager --timeout=180s
+kubectl -n team-a create rolebinding tenant-view --clusterrole=view --user=dev-a
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: hnc.x-k8s.io/v1alpha2
+kind: SubnamespaceAnchor
+metadata: { name: dev, namespace: team-a }
+EOF
+sleep 20
+kubectl get ns dev
+kubectl get hierarchyconfiguration -n dev -o jsonpath='{.items[0].status}' | jq
+kubectl get rolebinding -n dev --show-labels
+kubectl delete subnamespaceanchor dev -n team-a
+kubectl -n team-a delete rolebinding tenant-view
+kubectl delete -f https://github.com/kubernetes-sigs/hierarchical-namespaces/releases/download/v1.1.0/default.yaml</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl apply -f https://github.com/kubernetes-sigs/hierarchical-namespaces/releases/download/v1.1.0/default.yaml</b>
+namespace/hnc-system created
+customresourcedefinition.apiextensions.k8s.io/hierarchicalresourcequotas.hnc.x-k8s.io created
+customresourcedefinition.apiextensions.k8s.io/hierarchyconfigurations.hnc.x-k8s.io created
+customresourcedefinition.apiextensions.k8s.io/hncconfigurations.hnc.x-k8s.io created
+customresourcedefinition.apiextensions.k8s.io/subnamespaceanchors.hnc.x-k8s.io created
+role.rbac.authorization.k8s.io/hnc-leader-election-role created
+clusterrole.rbac.authorization.k8s.io/hnc-admin-role created
+clusterrole.rbac.authorization.k8s.io/hnc-manager-role created
+rolebinding.rbac.authorization.k8s.io/hnc-leader-election-rolebinding created
+clusterrolebinding.rbac.authorization.k8s.io/hnc-manager-rolebinding created
+secret/hnc-webhook-server-cert created
+service/hnc-controller-manager-metrics-service created
+service/hnc-webhook-service created
+deployment.apps/hnc-controller-manager created
+mutatingwebhookconfiguration.admissionregistration.k8s.io/hnc-mutating-webhook-configuration created
+validatingwebhookconfiguration.admissionregistration.k8s.io/hnc-validating-webhook-configuration created
+<b>$ kubectl -n hnc-system rollout status deploy/hnc-controller-manager --timeout=180s</b>
+Waiting for deployment "hnc-controller-manager" rollout to finish: 0 of 1 updated replicas are available...
+deployment "hnc-controller-manager" successfully rolled out
+<b>$ kubectl -n team-a create rolebinding tenant-view --clusterrole=view --user=dev-a</b>
+rolebinding.rbac.authorization.k8s.io/tenant-view created
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: hnc.x-k8s.io/v1alpha2</b>
+<b>kind: SubnamespaceAnchor</b>
+<b>metadata: { name: dev, namespace: team-a }</b>
+<b>EOF</b>
+subnamespaceanchor.hnc.x-k8s.io/dev created
+<b>$ sleep 20</b>
+<b>$ kubectl get ns dev</b>
+NAME   STATUS   AGE
+dev    Active   20s
+<b>$ kubectl get hierarchyconfiguration -n dev -o jsonpath='{.items[0].status}' | jq</b>
+{}
+<b>$ kubectl get rolebinding -n dev --show-labels</b>
+NAME          ROLE               AGE   LABELS
+developer     Role/developer     1s    app.kubernetes.io/managed-by=hnc.x-k8s.io,hnc.x-k8s.io/inherited-from=team-a
+pg            Role/pg            1s    app.kubernetes.io/managed-by=hnc.x-k8s.io,cnpg.io/cluster=pg,hnc.x-k8s.io/inherited-from=team-a
+tenant-view   ClusterRole/view   1s    app.kubernetes.io/managed-by=hnc.x-k8s.io,hnc.x-k8s.io/inherited-from=team-a
+<b>$ kubectl delete subnamespaceanchor dev -n team-a</b>
+subnamespaceanchor.hnc.x-k8s.io "dev" deleted from team-a namespace
+<b>$ kubectl -n team-a delete rolebinding tenant-view</b>
+rolebinding.rbac.authorization.k8s.io "tenant-view" deleted from team-a namespace
+<b>$ kubectl delete -f https://github.com/kubernetes-sigs/hierarchical-namespaces/releases/download/v1.1.0/default.yaml</b>
+namespace "hnc-system" deleted
+customresourcedefinition.apiextensions.k8s.io "hierarchicalresourcequotas.hnc.x-k8s.io" deleted
+customresourcedefinition.apiextensions.k8s.io "hierarchyconfigurations.hnc.x-k8s.io" deleted
+customresourcedefinition.apiextensions.k8s.io "hncconfigurations.hnc.x-k8s.io" deleted
+customresourcedefinition.apiextensions.k8s.io "subnamespaceanchors.hnc.x-k8s.io" deleted
+role.rbac.authorization.k8s.io "hnc-leader-election-role" deleted from hnc-system namespace
+clusterrole.rbac.authorization.k8s.io "hnc-admin-role" deleted
+clusterrole.rbac.authorization.k8s.io "hnc-manager-role" deleted
+rolebinding.rbac.authorization.k8s.io "hnc-leader-election-rolebinding" deleted from hnc-system namespace
+clusterrolebinding.rbac.authorization.k8s.io "hnc-manager-rolebinding" deleted
+secret "hnc-webhook-server-cert" deleted from hnc-system namespace
+service "hnc-controller-manager-metrics-service" deleted from hnc-system namespace
+service "hnc-webhook-service" deleted from hnc-system namespace
+deployment.apps "hnc-controller-manager" deleted from hnc-system namespace
+mutatingwebhookconfiguration.admissionregistration.k8s.io "hnc-mutating-webhook-configuration" deleted
+validatingwebhookconfiguration.admissionregistration.k8s.io "hnc-validating-webhook-configuration" deleted</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the <code>dev</code> namespace appears without anyone creating it, and the RoleBinding you made in team-a is copied into it carrying an <code>hnc.x-k8s.io/inherited-from</code> label. That label is the whole argument for and against the model: propagation you did not ask for, visible in the object.</div>
+    </div>
+
+    <div class="exercise" data-title="Find the fair-queueing objects">
+      <p>API Priority and Fairness is already running on every cluster you will be handed, with objects you can read. A tenant hammering the API server is a fairness question before it is a quota question.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get flowschema
+kubectl get prioritylevelconfiguration
+kubectl get flowschema -o custom-columns=NAME:.metadata.name,PL:.spec.priorityLevelConfiguration.name,MATCH:.spec.rules[0].subjects[0].kind | head -20
+kubectl get --raw /debug/api_priority_and_fairness/dump_priority_levels | head -20</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get flowschema</b>
+NAME                           PRIORITYLEVEL     MATCHINGPRECEDENCE   DISTINGUISHERMETHOD   AGE   MISSINGPL
+exempt                         exempt            1                    &lt;none&gt;                47m   False
+probes                         exempt            2                    &lt;none&gt;                47m   False
+system-leader-election         leader-election   100                  ByUser                47m   False
+system-node-high               node-high         400                  ByUser                47m   False
+system-nodes                   system            500                  ByUser                47m   False
+kube-controller-manager        workload-high     800                  ByNamespace           47m   False
+kube-scheduler                 workload-high     800                  ByNamespace           47m   False
+kube-system-service-accounts   workload-high     900                  ByNamespace           47m   False
+service-accounts               workload-low      9000                 ByUser                47m   False
+global-default                 global-default    9900                 ByUser                47m   False
+catch-all                      catch-all         10000                ByUser                47m   False
+<b>$ kubectl get prioritylevelconfiguration</b>
+NAME              TYPE      NOMINALCONCURRENCYSHARES   QUEUES   HANDSIZE   QUEUELENGTHLIMIT   AGE
+catch-all         Limited   5                          &lt;none&gt;   &lt;none&gt;     &lt;none&gt;             47m
+exempt            Exempt    &lt;none&gt;                     &lt;none&gt;   &lt;none&gt;     &lt;none&gt;             47m
+global-default    Limited   20                         128      6          50                 47m
+leader-election   Limited   10                         16       4          50                 47m
+node-high         Limited   40                         64       6          50                 47m
+system            Limited   30                         64       6          50                 47m
+workload-high     Limited   40                         128      6          50                 47m
+workload-low      Limited   100                        128      6          50                 47m
+<b>$ kubectl get flowschema -o custom-columns=NAME:.metadata.name,PL:.spec.priorityLevelConfiguration.name,MATCH:.spec.rules[0].subjects[0].kind | head -20</b>
+NAME                           PL                MATCH
+catch-all                      catch-all         Group
+exempt                         exempt            Group
+global-default                 global-default    Group
+kube-controller-manager        workload-high     User
+kube-scheduler                 workload-high     User
+kube-system-service-accounts   workload-high     ServiceAccount
+probes                         exempt            Group
+service-accounts               workload-low      Group
+system-leader-election         leader-election   User
+system-node-high               node-high         Group
+system-nodes                   system            Group
+<b>$ kubectl get --raw /debug/api_priority_and_fairness/dump_priority_levels | head -20</b>
+PriorityLevelName, ActiveQueues, IsIdle, IsQuiescing, WaitingRequests, ExecutingRequests, DispatchedRequests, RejectedRequests, TimedoutRequests, CancelledRequests
+catch-all,         0,            true,   false,       0,               0,                 59,                 0,                0,                0
+exempt,            0,            true,   false,       0,               0,                 6418,               0,                0,                0
+global-default,    0,            false,  false,       0,               1,                 4449,               0,                0,                0
+leader-election,   0,            true,   false,       0,               0,                 4063,               0,                0,                0
+node-high,         0,            true,   false,       0,               0,                 965,                0,                0,                0
+system,            0,            true,   false,       0,               0,                 6670,               0,                0,                0
+workload-high,     0,            true,   false,       0,               0,                 12303,              0,                0,                0
+workload-low,      0,            true,   false,       0,               0,                 48013,              0,                0,                0</code></pre></details></div>
+      <div class="verify"><b>verify:</b> you can name the flow schema a request from a tenant ServiceAccount would land in, and the priority level it maps to. The dump endpoint is the one to reach for when the complaint is "the API server is slow for us only".</div>
+    </div>
+
   </div>
 </section>
 
@@ -216,6 +483,19 @@ pod/poke condition met</code></pre></details></div>
 
     <details class="quiz"><summary>Why is <code>services.loadbalancers: "1"</code> in a tenant quota?</summary>
       <div class="answer"><p>Because a LoadBalancer bills outside the cluster whether or not traffic flows. Quota here is a spend control, not a fairness control: the same reasoning that puts per-StorageClass storage quota in a tenant template.</p></div></details>
+  
+
+    <details class="quiz"><summary>A tenant needs to install its own CRDs and admission webhooks but you cannot afford a cluster per tenant. Which model?</summary>
+      <div class="answer"><p>A virtual control plane per tenant, for example vcluster: the tenant gets its own API server (so CRDs and webhooks are theirs alone) while pods still run on shared nodes through the syncer. Namespaces cannot isolate cluster-scoped objects; a dedicated cluster can, at full duplication cost.</p></div></details>
+
+    <details class="quiz"><summary>What does HNC add to plain namespaces, in two sentences?</summary>
+      <div class="answer"><p>A parent-child hierarchy: RBAC, NetworkPolicies and other chosen objects propagate from a parent to all descendants, and users with rights in a parent can create subnamespaces without cluster-level permission. Tree labels on every namespace let selectors mean "the whole team", and HierarchicalResourceQuota caps a subtree.</p></div></details>
+
+    <details class="quiz"><summary>Tenants keep launching pods with the PriorityClass reserved for platform components. Fix with a quota.</summary>
+      <div class="answer"><p>A ResourceQuota in each tenant namespace with <code>scopeSelector: { matchExpressions: [{ scopeName: PriorityClass, operator: In, values: [platform-critical] }] }</code> and <code>hard: { pods: "0" }</code>. Admission then rejects any pod naming that class in the namespace, with an "exceeded quota" message, while other classes are unaffected.</p></div></details>
+
+    <details class="quiz"><summary>Why should a StorageClass shared between tenants use reclaimPolicy Delete?</summary>
+      <div class="answer"><p>A Retain PV released by one tenant stays in the cluster with its data; PVs are cluster-scoped, so a claim from another namespace could bind to it once the claimRef is cleared. Delete removes the backend volume with the claim, so data cannot cross tenants through the storage layer. Per-tenant classes are the stronger alternative.</p></div></details>
   </div>
 </section>
 
@@ -226,9 +506,15 @@ pod/poke condition met</code></pre></details></div>
       <li><b>kubernetes.io</b>: Resource Quotas (the full list of countable resources), Limit Ranges, Network Policies.</li>
       <li><b>kubernetes.io Concepts → Security → Multi-tenancy</b>: reads like it was written for this competency; the isolation-ladder framing above is theirs.</li>
       <li><b>Offline:</b> <code>kubectl explain resourcequota.spec.hard</code>, <code>kubectl explain limitrange.spec.limits</code>, and <code>kubectl describe quota -n &lt;ns&gt;</code> for the used/hard table.</li>
+    
+      <li><b>kubernetes.io Concepts → Security → Multi-tenancy, "Implementations"</b>: namespace-per-tenant versus virtual control plane, and the data-plane list (network, storage, sandboxing, node isolation).</li>
+      <li><b>github.com/kubernetes-sigs/hierarchical-namespaces (user guide)</b>: subnamespaces, propagation, tree labels and HRQ; <b>projectcapsule.dev</b> for the Tenant CRD; <b>vcluster.com/docs</b> architecture page for the syncer and shared vs private nodes.</li>
+      <li><b>kubernetes.io: Resource Quotas, "Quota scopes" and "Object count quota"</b>: the scopeSelector operators and the count/ syntax that also covers custom resources.</li>
     </ul>
   </div>
 </section>
+
+<div class="needs after"><span class="lbl">free before 1.5</span><code>make down-sec</code></div>
 
 </article>
 <aside class="toc" id="toc"></aside>

@@ -164,6 +164,17 @@ Message:         stored artifact for revision 'main@sha1:c7cb9a1e37949219ff64e2c
       <span class="tag">Suspend is a real answer</span>
       <p>"Stop the controller overwriting my hotfix while I debug" has a named, auditable answer in both engines: <code>flux suspend</code>, or disabling auto-sync in Argo. Doing it with <code>kubectl scale deploy/kustomize-controller --replicas=0</code> works and will cost you the mark, because it stops <em>everything</em> and leaves no record on the object.</p>
     </div>
+  
+
+    <h3>More Kustomization fields and the per-resource annotations</h3>
+    <ul>
+      <li><code>retryInterval</code>: how soon to retry after a failure (defaults to <code>interval</code>); <code>timeout</code> bounds build, apply and health checks together.</li>
+      <li><code>deletionPolicy</code>: <code>MirrorPrune</code> (default: delete managed objects on Kustomization deletion only if <code>prune: true</code>), <code>Delete</code>, <code>WaitForTermination</code>, <code>Orphan</code>. <code>Orphan</code> is the answer when a namespace deletion would otherwise race the controller.</li>
+      <li><code>healthCheckExprs</code>: CEL <code>current</code>, <code>failed</code> and <code>inProgress</code> expressions per <code>apiVersion</code>/<code>kind</code>, for custom resources whose status kstatus cannot read; <code>dependsOn[].readyExpr</code> does the same for a dependency.</li>
+      <li><code>patches</code>, <code>images</code>, <code>components</code>, <code>namePrefix</code>/<code>nameSuffix</code>, <code>commonMetadata</code>: kustomize edits applied by the controller without touching the repo.</li>
+      <li><code>kubeConfig.secretRef</code>: apply to another cluster with a kubeconfig Secret; Flux's multi-cluster story is one Kustomization per remote cluster.</li>
+    </ul>
+    <p>Annotations you put on the manifests in the source, not on the Kustomization: <code>kustomize.toolkit.fluxcd.io/prune: disabled</code> (never garbage-collect this object, for PVCs and namespaces), <code>kustomize.toolkit.fluxcd.io/ssa: Merge</code> (keep fields other tools add), <code>IfNotPresent</code> (create once, never overwrite: cert-manager-managed Secrets, webhook configurations) or <code>Ignore</code> (skip entirely), and <code>kustomize.toolkit.fluxcd.io/force: enabled</code> (recreate on immutable-field changes, for Jobs; dangerous on StatefulSets). Fields you edit with <code>kubectl</code> survive only if you apply them with <code>--field-manager=flux-client-side-apply</code>. A reconcile outside the interval is the annotation <code>reconcile.fluxcd.io/requestedAt</code>, which is what <code>flux reconcile</code> sets.</p>
   </div>
 </section>
 
@@ -187,6 +198,79 @@ Message:         stored artifact for revision 'main@sha1:c7cb9a1e37949219ff64e2c
       </table>
     </div>
     <p>Practice moving across this table in both directions; the exam can hand you either tool.</p>
+  </div>
+</section>
+
+<section class="panel accent-c" id="flux-conditions">
+  <div class="phdr"><h2>Condition vocabulary and failure remediation</h2><span class="meta">Ready reasons · HelmRelease install/upgrade remediation · drift detection · force and reset</span></div>
+  <div class="pbody">
+    <p>Flux objects follow kstatus: a <code>Ready</code> condition summarises, a <code>Reconciling</code> condition (negative polarity, present only while true) says work is in progress with reason <code>Progressing</code> or <code>ProgressingWithRetry</code>, and <code>Stalled</code> means the controller gave up until the spec changes. The reason strings are stable API and a task can quote them.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Object</th><th>Ready=True reasons</th><th>Ready=False reasons</th><th>Other condition types</th></tr></thead>
+        <tbody>
+          <tr><td>GitRepository / OCIRepository / Bucket</td><td class="mono">Succeeded</td><td class="mono">AuthenticationFailed · GitOperationFailed · OCIArtifactPullFailed · OCIArtifactLayerOperationFailed · VerificationError</td><td class="mono">FetchFailed · IncludeUnavailable · StorageOperationFailed · SourceVerified · ArtifactInStorage</td></tr>
+          <tr><td>Kustomization</td><td class="mono">ReconciliationSucceeded</td><td class="mono">ArtifactFailed · BuildFailed · HealthCheckFailed · PruneFailed · DependencyNotReady · ReconciliationFailed</td><td class="mono">Healthy</td></tr>
+          <tr><td>HelmRelease</td><td class="mono">InstallSucceeded · UpgradeSucceeded · TestSucceeded</td><td class="mono">InstallFailed · UpgradeFailed · TestFailed · RollbackSucceeded · RollbackFailed · UninstallSucceeded · UninstallFailed · RetriesExceeded</td><td class="mono">Released · TestSuccess · Remediated · Drifted (DriftDetected / NoDriftDetected)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Reading the table as a ladder: <code>ArtifactFailed</code> means the source is not Ready or has no artifact yet (fix the source); <code>BuildFailed</code> is kustomize build (path, invalid YAML, a missing substituteFrom ConfigMap unless <code>optional: true</code>); <code>DependencyNotReady</code> points at another Kustomization; <code>ReconciliationFailed</code> carries the API server's rejection ("field is immutable", "admission webhook denied"); <code>HealthCheckFailed</code> means it applied but never became healthy within <code>timeout</code>. For a HelmRelease, <code>Ready=False</code> with reason <code>RollbackSucceeded</code> is not a contradiction: the upgrade failed, remediation rolled back, and the object stays not-ready until you fix the chart or values.</p>
+
+    <h3>HelmRelease failure handling, field by field</h3>
+    <ul>
+      <li><code>install.remediation.retries</code> (default 0): between attempts the release is uninstalled; <code>-1</code> retries forever. <code>upgrade.remediation.retries</code> with <code>strategy: rollback</code> (default) or <code>uninstall</code>; <code>remediateLastFailure</code> defaults to true for upgrades once retries is above 0, so the release lands on the last good revision rather than a failed one.</li>
+      <li><code>install.strategy.name</code> / <code>upgrade.strategy.name</code>: <code>RemediateOnFailure</code> (the behaviour above) or <code>RetryOnFailure</code> with <code>retryInterval</code> (Flux 2.7+), which simply retries without rolling back.</li>
+      <li><code>test.enable: true</code> runs Helm tests after install/upgrade; failures count as release failures unless <code>test.ignoreFailures: true</code>.</li>
+      <li><code>install.crds</code> defaults to <code>Create</code>, but <code>upgrade.crds</code> defaults to <code>Skip</code>: Helm does not upgrade CRDs, so a chart bump with new CRD fields needs <code>upgrade.crds: CreateReplace</code> or the CRDs delivered by a separate Kustomization.</li>
+      <li><code>driftDetection.mode</code>: <code>disabled</code> (default), <code>warn</code> (emit an event and the <code>Drifted</code> condition), <code>enabled</code> (correct it with a server-side apply); <code>driftDetection.ignore</code> takes JSON 6902 paths and a target, the equivalent of Argo's <code>ignoreDifferences</code>, for HPA-managed replicas and webhook-injected fields.</li>
+      <li>Since Flux 2.8 the helm-controller applies with server-side apply by default (<code>install.serverSideApply</code>, <code>upgrade.serverSideApply: auto</code>) and records a <code>status.inventory</code> of everything the release owns; the wait strategy defaults to kstatus polling rather than Helm's own wait.</li>
+      <li><code>valuesFrom[]</code>: <code>kind</code> ConfigMap or Secret, <code>name</code>, <code>valuesKey</code> (default <code>values.yaml</code>), <code>targetPath</code> to graft one value, <code>optional</code>. Inline <code>values</code> win over <code>valuesFrom</code>.</li>
+    </ul>
+
+    <h3>The three annotations behind flux reconcile</h3>
+    <p><code>flux reconcile helmrelease X</code> sets <code>reconcile.fluxcd.io/requestedAt</code>; <code>--force</code> adds <code>reconcile.fluxcd.io/forceAt</code> (run the install or upgrade again even though nothing changed); <code>--reset</code> adds <code>reconcile.fluxcd.io/resetAt</code> (zero the failure counters after <code>RetriesExceeded</code>). Without <code>--reset</code>, a release that exhausted its retries stays failed until the chart, values or generation changes. Kustomizations know <code>requestedAt</code> only; a stuck one is fixed by fixing the cause.</p>
+
+    <div class="callout trap"><span class="tag">install.retries: 0 is the default</span><p>A chart whose first install fails is left in a failed state and not retried until the spec changes; only the <code>Ready</code> reason tells you (InstallFailed). Set <code>install.remediation.retries: 3</code> and <code>upgrade.remediation.retries: 3</code> on anything you cannot babysit, and know that <code>flux reconcile hr X --reset</code> is the manual restart.</p></div>
+  </div>
+</section>
+
+<section class="panel accent-p" id="flux-sources-automation">
+  <div class="phdr"><h2>Sources, image automation, notifications and bootstrap</h2><span class="meta">the fields on each kind · Alert, Provider, Receiver · lockdown flags · CLI verbs</span></div>
+  <div class="pbody">
+    <h3>Source kinds</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Kind</th><th>Pointer fields</th><th>Extras a task may set</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">GitRepository</td><td class="mono">url · ref.branch | ref.tag | ref.semver | ref.name (refs/pull/1/head) | ref.commit</td><td><code>secretRef</code> (basic auth, token, SSH key, TLS CA), <code>ignore</code> (or a <code>.sourceignore</code> file), <code>include</code> other GitRepositories, <code>verify.mode</code> for signed commits, <code>sparseCheckout</code>, <code>recurseSubmodules</code>, <code>provider: github|azure|aws</code> for app or workload identity</td></tr>
+          <tr><td class="mono">OCIRepository</td><td class="mono">url: oci://... · ref.tag | ref.semver | ref.semverFilter | ref.digest</td><td><code>layerSelector</code>, <code>verify.provider: cosign|notation</code> (keyless via OIDC identities or public keys in a Secret), <code>provider: aws|azure|gcp</code>, <code>insecure</code> for plain HTTP registries</td></tr>
+          <tr><td class="mono">HelmRepository</td><td class="mono">url (https:// index, or oci:// with type: oci)</td><td><code>secretRef</code>, <code>passCredentials</code>; a <code>HelmChart</code> is generated per HelmRelease and is what <code>flux get sources chart</code> lists</td></tr>
+          <tr><td class="mono">Bucket</td><td class="mono">bucketName · endpoint · provider: generic|aws|gcp|azure</td><td>for S3-style config stores</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Every source publishes an <code>Artifact</code> (a tarball plus a <code>revision</code> such as <code>main@sha1:9f2c1ab</code>) and consumers see only the artifact, which is why a failing source starves every Kustomization behind it with <code>ArtifactFailed</code>.</p>
+
+    <h3>Image automation, the loop that closes CI to CD</h3>
+    <ul>
+      <li><code>ImageRepository</code> scans a registry path on an <code>interval</code> (credentials via <code>secretRef</code> or cloud <code>provider</code>).</li>
+      <li><code>ImagePolicy</code> picks one tag from the scan: <code>policy.semver.range: 5.0.x</code>, <code>alphabetical</code>, or <code>numerical</code>, optionally after <code>filterTags.pattern</code> with an <code>extract</code> group for tags like <code>main-abc123-1699999999</code>. <code>status.latestRef</code> holds image, tag and digest.</li>
+      <li><code>ImageUpdateAutomation</code> writes the chosen tag into files under <code>update.path</code> in the <code>sourceRef</code> GitRepository (which needs write credentials) wherever a marker comment appears: <code>image: ghcr.io/org/app:1.0 # {"$imagepolicy": "flux-system:app"}</code>, with <code>:tag</code> or <code>:name</code> suffixes to update only that part. It commits with <code>git.commit.author</code> and pushes to <code>git.push.branch</code>, which may be a different branch so a PR gates production.</li>
+    </ul>
+
+    <h3>Notification controller</h3>
+    <ul>
+      <li><code>Provider</code> (<code>notification.toolkit.fluxcd.io/v1beta3</code>): <code>type</code> slack, msteams, discord, github, gitlab, generic webhook and others; <code>address</code>, <code>channel</code>, <code>secretRef</code>. The <code>github</code>/<code>gitlab</code> types post commit statuses, which is how a red X appears on the commit that broke reconciliation.</li>
+      <li><code>Alert</code> (v1beta3): <code>providerRef</code>, <code>eventSeverity: info|error</code>, <code>eventSources</code> (kind, name or <code>*</code>, namespace), <code>inclusionList</code>/<code>exclusionList</code> regexes, <code>eventMetadata</code> added to every message.</li>
+      <li><code>Receiver</code> (v1): <code>type</code> github, gitea, gitlab, harbor, dockerhub, generic, generic-hmac, cdevents; <code>events</code> to accept; <code>secretRef</code> with the webhook token; <code>resources</code> to reconcile (a GitRepository, or ImageRepositories for registry pushes). <code>status.webhookPath</code> is the path to give the git server, served by the <code>webhook-receiver</code> Service that you must expose yourself. A Receiver turns a one-minute poll into an instant pull.</li>
+    </ul>
+
+    <h3>Bootstrap and lockdown recap</h3>
+    <p><code>flux bootstrap &lt;provider&gt;</code> commits <code>gotk-components.yaml</code> and <code>gotk-sync.yaml</code> to <code>--path</code>, installs the controllers, and creates the <code>flux-system</code> GitRepository and Kustomization that manage Flux from then on; <code>--components-extra</code> adds the image controllers; <code>--token-auth</code> uses HTTPS with a token instead of a deploy key. Multi-tenant lockdown is three controller flags (<code>--no-cross-namespace-refs=true</code>, <code>--no-remote-bases=true</code>, <code>--default-service-account=default</code>) plus <code>spec.serviceAccountName: kustomize-controller</code> on the flux-system Kustomization, applied as kustomize patches in the bootstrap directory. After lockdown a tenant Kustomization without a <code>serviceAccountName</code> impersonates the namespace's <code>default</code> account, which has no rights, and fails with a Forbidden in <code>ReconciliationFailed</code>.</p>
+
+    <div class="callout reflex"><span class="tag">Reflex</span><p><code>flux get all -A --status-selector ready=false</code> lists only what is broken; <code>kubectl get fluxcd -A</code> (the CRD category) lists every Flux object; <code>flux events --for Kustomization/x</code>, <code>flux logs --level=error -A</code>, <code>flux trace</code> and <code>flux tree</code> descend from there. <code>flux build kustomization x --path ./dir</code> renders locally and <code>flux diff kustomization x --path ./dir</code> shows what a commit would change.</p></div>
   </div>
 </section>
 
@@ -270,6 +354,569 @@ podinfo   1/1     1            1           48s</code></pre></details></div>
       <div class="verify"><b>verify:</b> your hand-written spec matches the generated one field for field.</div>
     </div>
 
+    <div class="exercise" data-title="Fail a HelmRelease on purpose">
+      <p>Remediation is the part of a HelmRelease you only meet when something breaks, which is the worst time to read the field names. Break one deliberately and watch the retry count, the reason strings, and the recovery.</p>
+      <div class="cb" data-lang="bash"><pre><code># a leftover release makes this an upgrade, and the install remediation never runs
+flux -n flux-demo delete hr broken -s --timeout=90s 2&gt;/dev/null || true
+kubectl -n flux-demo patch hr broken --type merge -p '{"metadata":{"finalizers":null}}' 2&gt;/dev/null || true
+kubectl -n flux-demo delete hr broken --ignore-not-found --timeout=60s
+kubectl -n flux-demo wait --for=delete hr/broken --timeout=60s 2&gt;/dev/null || true
+flux create source helm podinfo --url=https://stefanprodan.github.io/podinfo --interval=10m
+kubectl create ns flux-demo --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata: { name: broken, namespace: flux-demo }
+spec:
+  interval: 1m
+  chart:
+    spec:
+      chart: podinfo
+      sourceRef: { kind: HelmRepository, name: podinfo, namespace: flux-system }
+  install:
+    remediation: { retries: 2 }
+  timeout: 1m
+  values:
+    image:
+      repository: kind-registry:5000/does-not-exist
+      tag: nope
+EOF
+sleep 210
+kubectl -n flux-demo get hr broken -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
+kubectl -n flux-demo get hr broken -o jsonpath='{.status.installFailures}{"\n"}'
+flux -n flux-demo events --for HelmRelease/broken | tail -15
+# the install remediation already uninstalled, so the recovery runs as an upgrade:
+# give it a timeout it can meet and a retry budget, or --reset clears a counter and the retry stalls anyway
+kubectl -n flux-demo patch hr broken --type merge -p '{"spec":{"timeout":"5m","upgrade":{"remediation":{"retries":2}},"values":{"image":{"repository":"ghcr.io/stefanprodan/podinfo","tag":"6.7.1"}}}}'
+flux -n flux-demo reconcile hr broken --reset --timeout=60s || true
+kubectl -n flux-demo get hr broken -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'
+flux -n flux-demo delete hr broken -s --timeout=90s
+flux -n flux-system delete source helm podinfo -s</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # a leftover release makes this an upgrade, and the install remediation never runs</b>
+<b>$ flux -n flux-demo delete hr broken -s --timeout=90s 2&gt;/dev/null || true</b>
+<b>$ kubectl -n flux-demo patch hr broken --type merge -p '{"metadata":{"finalizers":null}}' 2&gt;/dev/null || true</b>
+<b>$ kubectl -n flux-demo delete hr broken --ignore-not-found --timeout=60s</b>
+<b>$ kubectl -n flux-demo wait --for=delete hr/broken --timeout=60s 2&gt;/dev/null || true</b>
+<b>$ flux create source helm podinfo --url=https://stefanprodan.github.io/podinfo --interval=10m</b>
+✚ generating HelmRepository source
+► applying HelmRepository source
+✔ source created
+◎ waiting for HelmRepository source reconciliation
+✔ HelmRepository source reconciliation completed
+✔ fetched revision: sha256:e7dc68a4dec90a35c2c6d8cdfedb7eaaee17fde45dced5898289df85069ec089
+<b>$ kubectl create ns flux-demo --dry-run=client -o yaml | kubectl apply -f -</b>
+namespace/flux-demo unchanged
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: helm.toolkit.fluxcd.io/v2</b>
+<b>kind: HelmRelease</b>
+<b>metadata: { name: broken, namespace: flux-demo }</b>
+<b>spec:</b>
+<b>  interval: 1m</b>
+<b>  chart:</b>
+<b>    spec:</b>
+<b>      chart: podinfo</b>
+<b>      sourceRef: { kind: HelmRepository, name: podinfo, namespace: flux-system }</b>
+<b>  install:</b>
+<b>    remediation: { retries: 2 }</b>
+<b>  timeout: 1m</b>
+<b>  values:</b>
+<b>    image:</b>
+<b>      repository: kind-registry:5000/does-not-exist</b>
+<b>      tag: nope</b>
+<b>EOF</b>
+helmrelease.helm.toolkit.fluxcd.io/broken created
+<b>$ sleep 210</b>
+<b>$ kubectl -n flux-demo get hr broken -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+{
+  "type": "Stalled",
+  "status": "True",
+  "reason": "RetriesExceeded",
+  "message": "Failed to install after 3 attempt(s)"
+}
+{
+  "type": "Ready",
+  "status": "False",
+  "reason": "InstallFailed",
+  "message": "Helm install failed for release flux-demo/broken with chart podinfo@6.15.0: timeout waiting for: [Deployment/flux-demo/broken-podinfo status: 'InProgress']"
+}
+{
+  "type": "Released",
+  "status": "False",
+  "reason": "InstallFailed",
+  "message": "Helm install failed for release flux-demo/broken with chart podinfo@6.15.0: timeout waiting for: [Deployment/flux-demo/broken-podinfo status: 'InProgress']"
+}
+<b>$ kubectl -n flux-demo get hr broken -o jsonpath='{.status.installFailures}{"\n"}'</b>
+3
+<b>$ flux -n flux-demo events --for HelmRelease/broken | tail -15</b>
+           	                    	       	                          	                          	                                                                                                                                                                                             	
+           	                    	       	                          	                          	2026-09-13T16:35:17.741388114Z: creating resource(s): {"resources":2}                                                                                                                        	
+           	                    	       	                          	                          	2026-09-13T16:35:17.741398875Z: using server-side apply for resource creation: {"dryRun":false,"fieldValidationDirective":"Strict","forceConflicts":false}                                   	
+           	                    	       	                          	                          	2026-09-13T16:35:17.925407257Z: Created resource via patch: {"gvk":"/v1, Kind=Service","name":"broken-podinfo","namespace":"flux-demo"}                                                      	
+           	                    	       	                          	                          	2026-09-13T16:35:18.0179015Z: Created resource via patch: {"gvk":"apps/v1, Kind=Deployment","name":"broken-podinfo","namespace":"flux-demo"}                                                 	
+flux-demo  	74s (x2 over 2m26s) 	Normal 	UninstallSucceeded        	HelmRelease/broken        	Helm uninstall remediation for release flux-demo/broken.v1 with chart podinfo@6.15.0 succeeded                                                                                               	
+flux-system	29s (x3 over 2m28s) 	Normal 	ArtifactUpToDate          	HelmChart/flux-demo-broken	artifact up-to-date with remote revision: '6.15.0'                                                                                                                                           	
+flux-demo  	1s                  	Warning	InstallFailed             	HelmRelease/broken        	Helm install failed for release flux-demo/broken with chart podinfo@6.15.0: timeout waiting for: [Deployment/flux-demo/broken-podinfo status: 'InProgress']                                  	
+           	                    	       	                          	                          	                                                                                                                                                                                             	
+           	                    	       	                          	                          	Last Helm logs:                                                                                                                                                                              	
+           	                    	       	                          	                          	                                                                                                                                                                                             	
+           	                    	       	                          	                          	2026-09-13T16:36:31.153330997Z: creating resource(s): {"resources":2}                                                                                                                        	
+           	                    	       	                          	                          	2026-09-13T16:36:31.153335997Z: using server-side apply for resource creation: {"dryRun":false,"fieldValidationDirective":"Strict","forceConflicts":false}                                   	
+           	                    	       	                          	                          	2026-09-13T16:36:31.198687584Z: Created resource via patch: {"gvk":"/v1, Kind=Service","name":"broken-podinfo","namespace":"flux-demo"}                                                      	
+           	                    	       	                          	                          	2026-09-13T16:36:31.405086633Z: Created resource via patch: {"gvk":"apps/v1, Kind=Deployment","name":"broken-podinfo","namespace":"flux-demo"}                                               	
+<b>$ # the install remediation already uninstalled, so the recovery runs as an upgrade:</b>
+<b>$ # give it a timeout it can meet and a retry budget, or --reset clears a counter and the retry stalls anyway</b>
+<b>$ kubectl -n flux-demo patch hr broken --type merge -p '{"spec":{"timeout":"5m","upgrade":{"remediation":{"retries":2}},"values":{"image":{"repository":"ghcr.io/stefanprodan/podinfo","tag":"6.7.1"}}}}'</b>
+helmrelease.helm.toolkit.fluxcd.io/broken patched
+<b>$ flux -n flux-demo reconcile hr broken --reset --timeout=60s || true</b>
+► annotating HelmRelease broken in flux-demo namespace
+✔ HelmRelease annotated
+◎ waiting for HelmRelease reconciliation
+✗ context deadline exceeded
+<b>$ kubectl -n flux-demo get hr broken -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
+{
+  "type": "Reconciling",
+  "status": "True",
+  "reason": "Progressing"
+}
+{
+  "type": "Ready",
+  "status": "Unknown",
+  "reason": "Progressing"
+}
+{
+  "type": "Released",
+  "status": "False",
+  "reason": "InstallFailed"
+}
+<b>$ flux -n flux-demo delete hr broken -s --timeout=90s</b>
+► deleting helmrelease broken in flux-demo namespace
+✔ helmrelease deleted
+<b>$ flux -n flux-system delete source helm podinfo -s</b>
+► deleting source helm podinfo in flux-system namespace
+✔ source helm deleted</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the failing install retries the number of times you asked for and then stops: <code>Stalled</code> with reason <code>RetriesExceeded</code>, the message <code>Failed to install after 3 attempt(s)</code>, and <code>status.installFailures</code> at 3. <code>--reset</code> then clears that counter and the release goes back to <code>Reconciling / Progressing</code>, which is why the 60 second wait returns <code>context deadline exceeded</code> rather than a verdict: resetting starts the attempts again, it does not finish them. Delete any earlier release first, and clear its finalizer: with one already in history this is an upgrade rather than an install, and you get <code>UpgradeFailed</code> and <code>MissingRollbackTarget</code> from an <code>install.remediation</code> block that never ran.</div>
+    </div>
+
+    <div class="exercise" data-title="Let Flux notice a Helm drift">
+      <p>A Kustomization corrects drift because it applies every interval. A HelmRelease does not, unless you turn drift detection on: Helm only acts when the release changes. This is the single most surprising difference between the two.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n flux-demo get hr podinfo -o jsonpath='{.spec.driftDetection}{"\n"}'
+kubectl -n flux-demo patch hr podinfo --type merge -p '{"spec":{"driftDetection":{"mode":"enabled"}}}'
+kubectl -n flux-demo scale deploy podinfo --replicas=5
+kubectl -n flux-demo get deploy podinfo -o jsonpath='{.spec.replicas}{"\n"}'
+sleep 120
+kubectl -n flux-demo get deploy podinfo -o jsonpath='{.spec.replicas}{"\n"}'
+flux -n flux-demo events --for HelmRelease/podinfo | tail -10
+kubectl -n flux-demo get hr podinfo -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n flux-demo get hr podinfo -o jsonpath='{.spec.driftDetection}{"\n"}'</b>
+<b>$ kubectl -n flux-demo patch hr podinfo --type merge -p '{"spec":{"driftDetection":{"mode":"enabled"}}}'</b>
+helmrelease.helm.toolkit.fluxcd.io/podinfo patched
+<b>$ kubectl -n flux-demo scale deploy podinfo --replicas=5</b>
+deployment.apps/podinfo scaled
+<b>$ kubectl -n flux-demo get deploy podinfo -o jsonpath='{.spec.replicas}{"\n"}'</b>
+5
+<b>$ sleep 120</b>
+<b>$ kubectl -n flux-demo get deploy podinfo -o jsonpath='{.spec.replicas}{"\n"}'</b>
+1
+<b>$ flux -n flux-demo events --for HelmRelease/podinfo | tail -10</b>
+flux-system	13m               	Normal 	NewArtifact       	HelmRepository/podinfo     	stored fetched index of size 81.8kB from 'https://stefanprodan.github.io/podinfo'                                  	
+flux-demo  	13m               	Normal 	HelmChartCreated  	HelmRelease/podinfo        	Created HelmChart/flux-system/flux-demo-podinfo with SourceRef 'HelmRepository/flux-system/podinfo'                	
+flux-system	13m               	Normal 	ChartPullSucceeded	HelmChart/flux-demo-podinfo	pulled 'podinfo' chart with version '6.15.0'                                                                       	
+flux-demo  	12m               	Normal 	InstallSucceeded  	HelmRelease/podinfo        	Helm install succeeded for release flux-demo/podinfo.v1 with chart podinfo@6.15.0                                  	
+flux-system	2m57s             	Normal 	ArtifactUpToDate  	HelmRepository/podinfo     	artifact up-to-date with remote revision: 'sha256:e7dc68a4dec90a35c2c6d8cdfedb7eaaee17fde45dced5898289df85069ec089'	
+flux-demo  	60s               	Warning	DriftDetected     	HelmRelease/podinfo        	Cluster state of release flux-demo/podinfo.v1 has drifted from the desired state:                                  	
+           	                  	       	                  	                           	Deployment/flux-demo/podinfo changed (0 additions, 1 changes, 0 removals)                                          	
+flux-demo  	60s               	Normal 	DriftCorrected    	HelmRelease/podinfo        	Cluster state of release flux-demo/podinfo.v1 has been corrected:                                                  	
+           	                  	       	                  	                           	Deployment/flux-demo/podinfo configured                                                                            	
+flux-system	14s (x13 over 12m)	Normal 	ArtifactUpToDate  	HelmChart/flux-demo-podinfo	artifact up-to-date with remote revision: '6.15.0'                                                                 	
+<b>$ kubectl -n flux-demo get hr podinfo -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
+{
+  "type": "Ready",
+  "status": "True",
+  "reason": "InstallSucceeded"
+}
+{
+  "type": "Drifted",
+  "status": "False",
+  "reason": "NoDriftDetected"
+}
+{
+  "type": "Released",
+  "status": "True",
+  "reason": "InstallSucceeded"
+}</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the replica count returns on its own and an event says the cluster state of the release had drifted. This exercise needs the HelmRelease from the exercise above it; if <code>podinfo</code> is not installed, do that one first.</div>
+    </div>
+
+    <div class="exercise" data-title="Exempt one object from pruning">
+      <p>Pruning is what makes a Kustomization authoritative, and sometimes one object must survive a delete in git anyway. The exemption is an annotation on the object, which means the escape hatch lives in the manifests, not in the controller.</p>
+      <div class="cb" data-lang="bash"><pre><code>START=$PWD   # the cd below would otherwise follow you into every later command
+rm -rf /tmp/platform-prune-flux &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune-flux &amp;&amp; cd /tmp/platform-prune-flux
+kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune=disabled --overwrite
+git rm demo-app/base/deployment.yaml
+sed -i '/deployment.yaml/d' demo-app/base/kustomization.yaml
+git commit -am 'remove the deployment from git' &amp;&amp; git push
+flux reconcile kustomization demo-flux --with-source
+sleep 20
+kubectl -n flux-demo get deploy demo
+flux events --for Kustomization/demo-flux | tail -10
+cd /tmp/platform-prune-flux &amp;&amp; git revert --no-edit HEAD &amp;&amp; git push
+flux reconcile kustomization demo-flux --with-source
+kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune-
+cd "$START"</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ START=$PWD   # the cd below would otherwise follow you into every later command</b>
+<b>$ rm -rf /tmp/platform-prune-flux &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune-flux &amp;&amp; cd /tmp/platform-prune-flux</b>
+Cloning into '/tmp/platform-prune-flux'...
+<b>$ kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune=disabled --overwrite</b>
+deployment.apps/demo annotated
+<b>$ git rm demo-app/base/deployment.yaml</b>
+rm 'demo-app/base/deployment.yaml'
+<b>$ sed -i '/deployment.yaml/d' demo-app/base/kustomization.yaml</b>
+<b>$ git commit -am 'remove the deployment from git' &amp;&amp; git push</b>
+[main 793d5b3] remove the deployment from git
+ 2 files changed, 40 deletions(-)
+ delete mode 100644 demo-app/base/deployment.yaml
+To http://gitea.lab:3000/lab/platform.git
+   83a41e2..793d5b3  main -&gt; main
+<b>$ flux reconcile kustomization demo-flux --with-source</b>
+► annotating GitRepository platform in flux-system namespace
+✔ GitRepository annotated
+◎ waiting for GitRepository reconciliation
+✔ fetched revision main@sha1:793d5b378e2e11c0eb62f8f322a7f6acb0846077
+► annotating Kustomization demo-flux in flux-system namespace
+✔ Kustomization annotated
+◎ waiting for Kustomization reconciliation
+✔ applied revision main@sha1:793d5b378e2e11c0eb62f8f322a7f6acb0846077
+<b>$ sleep 20</b>
+<b>$ kubectl -n flux-demo get deploy demo</b>
+NAME   READY   UP-TO-DATE   AVAILABLE   AGE
+demo   2/2     2            2           5h34m
+<b>$ flux events --for Kustomization/demo-flux | tail -10</b>
+5h34m                 	Normal 	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 1.695245538s, next run in 1m0s                                                                                        	
+5h33m                 	Normal 	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 403.342017ms, next run in 1m0s                                                                                        	
+5h32m                 	Normal 	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 522.080036ms, next run in 1m0s                                                                                        	
+5h31m                 	Normal 	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 1.613648954s, next run in 1m0s                                                                                        	
+5h30m                 	Normal 	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 1.983666745s, next run in 1m0s                                                                                        	
+5h29m                 	Normal 	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 442.161038ms, next run in 1m0s                                                                                        	
+5h28m                 	Normal 	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 269.029392ms, next run in 1m0s                                                                                        	
+5h27m                 	Normal 	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 669.242058ms, next run in 1m0s                                                                                        	
+3m47s (x85 over 6h20m)	Normal 	GitOperationSucceeded  	GitRepository/platform 	no changes since last reconciliation: observed revision 'main@sha1:83a41e21322e15eff2307bc1e9d5c89e33226d0d'                                     	
+2m24s (x32 over 5h26m)	Normal 	ReconciliationSucceeded	Kustomization/demo-flux	(combined from similar events): Reconciliation finished in 435.434931ms, next run in 1m0s                                                        	
+<b>$ cd /tmp/platform-prune-flux &amp;&amp; git revert --no-edit HEAD &amp;&amp; git push</b>
+[main dfe88a6] Revert "remove the deployment from git"
+ Date: Sun Sep 13 07:15:13 2026 -0400
+ 2 files changed, 40 insertions(+)
+ create mode 100644 demo-app/base/deployment.yaml
+To http://gitea.lab:3000/lab/platform.git
+   793d5b3..dfe88a6  main -&gt; main
+<b>$ flux reconcile kustomization demo-flux --with-source</b>
+► annotating GitRepository platform in flux-system namespace
+✔ GitRepository annotated
+◎ waiting for GitRepository reconciliation
+✔ fetched revision main@sha1:dfe88a660f9591488e000cc24ba120ac1186b7b1
+► annotating Kustomization demo-flux in flux-system namespace
+✔ Kustomization annotated
+◎ waiting for Kustomization reconciliation
+✔ applied revision main@sha1:dfe88a660f9591488e000cc24ba120ac1186b7b1
+<b>$ kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune-</b>
+deployment.apps/demo annotated
+<b>$ cd "$START"</b></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the reconcile succeeds against a revision that no longer contains the Deployment, and the Deployment is still running. That pair is the whole evidence: Flux emits no event for an object it skipped, so a prune that did not happen looks exactly like a reconcile with nothing to do. The annotation on the object is the only place the exemption is written down, which is why it belongs in the manifests rather than in the controller. Put the manifest back and remove the annotation before moving on; the later exercises on this page assume git and the cluster agree.</div>
+    </div>
+
+    <div class="exercise" data-title="Point a Kustomization at nothing">
+      <p>Half the Flux tickets you will be handed are a path that does not exist in the repo. The condition is not "cannot connect" and not "cannot apply"; learn the exact reason so you can skip straight to the right half of the problem.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: { name: nowhere, namespace: flux-system }
+spec:
+  interval: 1m
+  prune: true
+  sourceRef: { kind: GitRepository, name: platform }
+  path: ./does-not-exist
+  targetNamespace: flux-demo
+EOF
+sleep 30
+kubectl -n flux-system get kustomization nowhere -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
+flux events --for Kustomization/nowhere | tail -5
+flux delete kustomization nowhere -s</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: kustomize.toolkit.fluxcd.io/v1</b>
+<b>kind: Kustomization</b>
+<b>metadata: { name: nowhere, namespace: flux-system }</b>
+<b>spec:</b>
+<b>  interval: 1m</b>
+<b>  prune: true</b>
+<b>  sourceRef: { kind: GitRepository, name: platform }</b>
+<b>  path: ./does-not-exist</b>
+<b>  targetNamespace: flux-demo</b>
+<b>EOF</b>
+kustomization.kustomize.toolkit.fluxcd.io/nowhere created
+<b>$ sleep 30</b>
+<b>$ kubectl -n flux-system get kustomization nowhere -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+{
+  "type": "Reconciling",
+  "status": "True",
+  "reason": "ProgressingWithRetry",
+  "message": "Fetching manifests for revision main@sha1:2cb925cb149a0393023a477f919d901cfec7e371 with a timeout of 30s"
+}
+{
+  "type": "Ready",
+  "status": "False",
+  "reason": "ArtifactFailed",
+  "message": "kustomization path not found: stat /tmp/kustomization-552514629/does-not-exist: no such file or directory"
+}
+<b>$ flux events --for Kustomization/nowhere | tail -5</b>
+LAST SEEN           	TYPE   	REASON                    	OBJECT                	MESSAGE                                                                                                      
+27m (x85 over 6h44m)	Normal 	GitOperationSucceeded     	GitRepository/platform	no changes since last reconciliation: observed revision 'main@sha1:83a41e21322e15eff2307bc1e9d5c89e33226d0d'	
+22m (x11 over 13h)  	Normal 	GarbageCollectionSucceeded	GitRepository/platform	garbage collected 1 artifacts                                                                               	
+2m4s (x20 over 21m) 	Normal 	GitOperationSucceeded     	GitRepository/platform	no changes since last reconciliation: observed revision 'main@sha1:2cb925cb149a0393023a477f919d901cfec7e371'	
+29s                 	Warning	ArtifactFailed            	Kustomization/nowhere 	kustomization path not found: stat /tmp/kustomization-552514629/does-not-exist: no such file or directory   	
+<b>$ flux delete kustomization nowhere -s</b>
+► deleting kustomization nowhere in flux-system namespace
+✔ kustomization deleted</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the reason is about building the kustomization, not about the source, and the message quotes the path.</div>
+    </div>
+
+    <div class="exercise" data-title="Turn a push into an instant reconcile">
+      <p>An interval is a promise that you will be no more than a minute behind. A Receiver is how you stop waiting: the git server calls Flux, and the reconcile starts on the push.</p>
+      <div class="cb" data-lang="bash"><pre><code>TOKEN=$(head -c 24 /dev/urandom | base64 | tr -d '=+/')
+kubectl -n flux-system create secret generic receiver-token --from-literal=token="$TOKEN"
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: notification.toolkit.fluxcd.io/v1
+kind: Receiver
+metadata: { name: gitea-receiver, namespace: flux-system }
+spec:
+  # this Flux build has no "gitea" type; Gitea sends GitHub-format webhooks
+  type: github
+  events: [push]
+  secretRef: { name: receiver-token }
+  resources:
+    - { kind: GitRepository, name: platform }
+EOF
+sleep 10
+kubectl -n flux-system get receiver gitea-receiver -o jsonpath='{.status.webhookPath}{"\n"}'
+kubectl -n flux-system patch svc webhook-receiver -p '{"spec":{"type":"NodePort"}}'
+# a LoadBalancer IP needs cloud-provider-kind; the NodePort is always reachable from the host
+NODE_IP=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
+NODE_PORT=$(kubectl -n flux-system get svc webhook-receiver -o jsonpath='{.spec.ports[0].nodePort}')
+HOOK=$(kubectl -n flux-system get receiver gitea-receiver -o jsonpath='{.status.webhookPath}')
+echo "webhook URL for Gitea: http://$NODE_IP:$NODE_PORT$HOOK"
+flux events --for GitRepository/platform | tail -5
+# put the lab back: the Receiver and its token are the only things this exercise needed
+kubectl -n flux-system delete receiver gitea-receiver
+kubectl -n flux-system delete secret receiver-token
+kubectl -n flux-system patch svc webhook-receiver -p '{"spec":{"type":"ClusterIP"}}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ TOKEN=$(head -c 24 /dev/urandom | base64 | tr -d '=+/')</b>
+<b>$ kubectl -n flux-system create secret generic receiver-token --from-literal=token="$TOKEN"</b>
+secret/receiver-token created
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: notification.toolkit.fluxcd.io/v1</b>
+<b>kind: Receiver</b>
+<b>metadata: { name: gitea-receiver, namespace: flux-system }</b>
+<b>spec:</b>
+<b>  # this Flux build has no "gitea" type; Gitea sends GitHub-format webhooks</b>
+<b>  type: github</b>
+<b>  events: [push]</b>
+<b>  secretRef: { name: receiver-token }</b>
+<b>  resources:</b>
+<b>    - { kind: GitRepository, name: platform }</b>
+<b>EOF</b>
+receiver.notification.toolkit.fluxcd.io/gitea-receiver created
+<b>$ sleep 10</b>
+<b>$ kubectl -n flux-system get receiver gitea-receiver -o jsonpath='{.status.webhookPath}{"\n"}'</b>
+/hook/a2b76ad1fe000998707d8a990b50c26a825e15ea38b8b30872ae0f7062646270
+<b>$ kubectl -n flux-system patch svc webhook-receiver -p '{"spec":{"type":"NodePort"}}'</b>
+service/webhook-receiver patched
+<b>$ # a LoadBalancer IP needs cloud-provider-kind; the NodePort is always reachable from the host</b>
+<b>$ NODE_IP=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')</b>
+<b>$ NODE_PORT=$(kubectl -n flux-system get svc webhook-receiver -o jsonpath='{.spec.ports[0].nodePort}')</b>
+<b>$ HOOK=$(kubectl -n flux-system get receiver gitea-receiver -o jsonpath='{.status.webhookPath}')</b>
+<b>$ echo "webhook URL for Gitea: http://$NODE_IP:$NODE_PORT$HOOK"</b>
+webhook URL for Gitea: http://172.18.0.4:31536/hook/a2b76ad1fe000998707d8a990b50c26a825e15ea38b8b30872ae0f7062646270
+<b>$ flux events --for GitRepository/platform | tail -5</b>
+LAST SEEN           	TYPE  	REASON                    	OBJECT                	MESSAGE                                                                                                      
+27m (x85 over 6h44m)	Normal	GitOperationSucceeded     	GitRepository/platform	no changes since last reconciliation: observed revision 'main@sha1:83a41e21322e15eff2307bc1e9d5c89e33226d0d'	
+22m (x11 over 14h)  	Normal	GarbageCollectionSucceeded	GitRepository/platform	garbage collected 1 artifacts                                                                               	
+2m15s (x20 over 21m)	Normal	GitOperationSucceeded     	GitRepository/platform	no changes since last reconciliation: observed revision 'main@sha1:2cb925cb149a0393023a477f919d901cfec7e371'	
+<b>$ # put the lab back: the Receiver and its token are the only things this exercise needed</b>
+<b>$ kubectl -n flux-system delete receiver gitea-receiver</b>
+receiver.notification.toolkit.fluxcd.io "gitea-receiver" deleted from flux-system namespace
+<b>$ kubectl -n flux-system delete secret receiver-token</b>
+secret "receiver-token" deleted from flux-system namespace
+<b>$ kubectl -n flux-system patch svc webhook-receiver -p '{"spec":{"type":"ClusterIP"}}'</b>
+service/webhook-receiver patched</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the Receiver reports a <code>status.webhookPath</code> of the form <code>/hook/&lt;64 hex characters&gt;</code>, and the last line prints the full URL to paste into Gitea, for example <code>http://172.18.0.4:31536/hook/a2b76ad1...</code>. Note the type: this Flux build has no <code>gitea</code> receiver type, and Gitea sends GitHub-format webhooks, so <code>github</code> is the right answer. Point the repository's webhook at that URL with the same token and a push reconciles within seconds instead of at the next interval.</div>
+    </div>
+
+    <div class="exercise" data-title="Let a tag write a commit">
+      <p>Image automation is Flux writing to git on your behalf: a policy picks a tag, and a controller commits the change back to the overlay. The marker comment in the manifest is what tells it where to write.</p>
+      <div class="cb" data-lang="bash"><pre><code>flux create image repository demo --image=kind-registry:5000/demo --interval=1m
+kubectl -n flux-system patch imagerepository demo --type merge -p '{"spec":{"insecure":true}}'
+flux create image policy demo --image-ref=demo --select-semver='&gt;=1.0.0'
+skopeo copy --dest-tls-verify=false docker://ghcr.io/stefanprodan/podinfo:6.7.1 docker://localhost:5001/demo:1.0.1
+sleep 90
+kubectl -n flux-system get imagerepository demo -o jsonpath='{.status.lastScanResult}' | jq
+kubectl -n flux-system get imagepolicy demo -o jsonpath='{.status.latestRef}' | jq
+# the automation rewrites the line carrying the marker comment, and there is none in the repo yet.
+# keep it out of demo-app/overlays: Argo CD syncs that tree and would deploy the rewritten tag into team-a.
+rm -rf /tmp/platform-img &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-img
+mkdir -p /tmp/platform-img/image-automation
+cat &gt; /tmp/platform-img/image-automation/deployment.yaml &lt;&lt;'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: image-automation-demo, namespace: flux-demo }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: image-automation-demo } }
+  template:
+    metadata: { labels: { app: image-automation-demo } }
+    spec:
+      containers:
+        - name: app
+          image: kind-registry:5000/demo:1.0.0 # {"$imagepolicy": "flux-system:demo"}
+EOF
+git -C /tmp/platform-img add image-automation/deployment.yaml
+git -C /tmp/platform-img -c user.name=lab -c user.email=lab@lab.local commit -m 'a manifest for the automation to rewrite'
+git -C /tmp/platform-img push
+flux create image update demo-auto \
+  --interval=1m \
+  --git-repo-ref=platform \
+  --git-repo-path=./image-automation \
+  --checkout-branch=main \
+  --push-branch=main \
+  --author-name=fluxcdbot \
+  --author-email=fluxcdbot@lab.local
+flux -n flux-system reconcile image update demo-auto
+sleep 30
+flux events --for ImageUpdateAutomation/demo-auto | tail -10
+git -C /tmp/platform-img fetch &amp;&amp; git -C /tmp/platform-img log --format='%an  %s' -1 origin/main
+# three objects that would otherwise keep pushing to main forever
+flux -n flux-system delete image update demo-auto -s
+flux -n flux-system delete image policy demo -s
+flux -n flux-system delete image repository demo -s
+git -C /tmp/platform-img pull --rebase &amp;&amp; git -C /tmp/platform-img rm -r image-automation &amp;&amp; git -C /tmp/platform-img -c user.name=lab -c user.email=lab@lab.local commit -m 'remove the automation target' &amp;&amp; git -C /tmp/platform-img push
+rm -rf /tmp/platform-img</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ flux create image repository demo --image=kind-registry:5000/demo --interval=1m</b>
+✚ generating ImageRepository
+► applying ImageRepository
+✔ ImageRepository updated
+◎ waiting for ImageRepository reconciliation
+✗ context deadline exceeded
+<b>$ kubectl -n flux-system patch imagerepository demo --type merge -p '{"spec":{"insecure":true}}'</b>
+imagerepository.image.toolkit.fluxcd.io/demo patched
+<b>$ flux create image policy demo --image-ref=demo --select-semver='&gt;=1.0.0'</b>
+✚ generating ImagePolicy
+► applying ImagePolicy
+✔ ImagePolicy created
+◎ waiting for ImagePolicy reconciliation
+✔ ImagePolicy reconciliation completed
+<b>$ skopeo copy --dest-tls-verify=false docker://ghcr.io/stefanprodan/podinfo:6.7.1 docker://localhost:5001/demo:1.0.1</b>
+Getting image source signatures
+Copying blob sha256:7e517c53cd4ca936c3bc3d3dc66419278a680214f37444ad0ad1b8bd65968940
+Copying blob sha256:43c4264eed91be63b206e17d93e75256a6097070ce643c5e8f0379998b44f170
+Copying blob sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1
+Copying blob sha256:35d14af0e611499048effc4d39a2341345f96dd9103c8c186b7cc239a687de5c
+Copying blob sha256:2bf70b2badb9fa00aa36d50d61c6b9cc094d7a18fb4a3c7a91ce950dd7202900
+Copying blob sha256:31eaa2883f08a0ce854d061714a111f052444a3ba1b2323719cb12b872a0dbe3
+Copying blob sha256:47f87f374862e0c7555781b116554936999ad2e8e4c6a4e7417688ffe57d8b88
+Copying config sha256:c875de4397634b0dc138954cbe2c11b9d86d948b98b17bd9fc3227b3ad992eae
+Writing manifest to image destination
+<b>$ sleep 90</b>
+<b>$ kubectl -n flux-system get imagerepository demo -o jsonpath='{.status.lastScanResult}' | jq</b>
+{
+  "latestTags": [
+    "v1",
+    "unsigned",
+    "sha256-f451e838d60a425de0f81bd3126670198c3f7f02b89e5e010430abafe66466fa",
+    "sha256-ed73e9871dfba28276b28daab3463cc2f9b3c15337dfe0445e8b0f79694e0cd6",
+    "sha256-33213719f2b030a8a1260d1c5358f55524f8f690a790e35b14b00c1f50b46ddf",
+    "fake",
+    "1.0.1"
+  ],
+  "revision": "2060731329",
+  "scanTime": "2026-09-13T12:31:14Z",
+  "tagCount": 7
+}
+<b>$ kubectl -n flux-system get imagepolicy demo -o jsonpath='{.status.latestRef}' | jq</b>
+{
+  "name": "kind-registry:5000/demo",
+  "tag": "1.0.1"
+}
+<b>$ # the automation rewrites the line carrying the marker comment, and there is none in the repo yet.</b>
+<b>$ # keep it out of demo-app/overlays: Argo CD syncs that tree and would deploy the rewritten tag into team-a.</b>
+<b>$ rm -rf /tmp/platform-img &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-img</b>
+Cloning into '/tmp/platform-img'...
+<b>$ mkdir -p /tmp/platform-img/image-automation</b>
+<b>$ cat &gt; /tmp/platform-img/image-automation/deployment.yaml &lt;&lt;'EOF'</b>
+<b>apiVersion: apps/v1</b>
+<b>kind: Deployment</b>
+<b>metadata: { name: image-automation-demo, namespace: flux-demo }</b>
+<b>spec:</b>
+<b>  replicas: 1</b>
+<b>  selector: { matchLabels: { app: image-automation-demo } }</b>
+<b>  template:</b>
+<b>    metadata: { labels: { app: image-automation-demo } }</b>
+<b>    spec:</b>
+<b>      containers:</b>
+<b>        - name: app</b>
+<b>          image: kind-registry:5000/demo:1.0.0 # {"$imagepolicy": "flux-system:demo"}</b>
+<b>EOF</b>
+<b>$ git -C /tmp/platform-img add image-automation/deployment.yaml</b>
+<b>$ git -C /tmp/platform-img -c user.name=lab -c user.email=lab@lab.local commit -m 'a manifest for the automation to rewrite'</b>
+[main 226a068] a manifest for the automation to rewrite
+ 1 file changed, 12 insertions(+)
+ create mode 100644 image-automation/deployment.yaml
+<b>$ git -C /tmp/platform-img push</b>
+To http://gitea.lab:3000/lab/platform.git
+   1d38064..226a068  main -&gt; main
+<b>$ flux create image update demo-auto \</b>
+<b>    --interval=1m \</b>
+<b>    --git-repo-ref=platform \</b>
+<b>    --git-repo-path=./image-automation \</b>
+<b>    --checkout-branch=main \</b>
+<b>    --push-branch=main \</b>
+<b>    --author-name=fluxcdbot \</b>
+<b>    --author-email=fluxcdbot@lab.local</b>
+✚ generating ImageUpdateAutomation
+► applying ImageUpdateAutomation
+✔ ImageUpdateAutomation created
+◎ waiting for ImageUpdateAutomation reconciliation
+✔ ImageUpdateAutomation reconciliation completed
+<b>$ flux -n flux-system reconcile image update demo-auto</b>
+► annotating ImageUpdateAutomation demo-auto in flux-system namespace
+✔ ImageUpdateAutomation annotated
+◎ waiting for ImageUpdateAutomation reconciliation
+✔ repository up-to-date
+<b>$ sleep 30</b>
+<b>$ flux events --for ImageUpdateAutomation/demo-auto | tail -10</b>
+LAST SEEN	TYPE  	REASON   	OBJECT                         	MESSAGE                                  
+34s      	Normal	Succeeded	ImageUpdateAutomation/demo-auto	pushed commit 'ae19a2b' to branch 'main'	
+         	      	         	                               	Update from image update automation     	
+31s      	Normal	Succeeded	ImageUpdateAutomation/demo-auto	no change since last reconciliation     	
+<b>$ git -C /tmp/platform-img fetch &amp;&amp; git -C /tmp/platform-img log --format='%an  %s' -1 origin/main</b>
+From http://gitea.lab:3000/lab/platform
+   226a068..ae19a2b  main       -&gt; origin/main
+fluxcdbot  Update from image update automation
+<b>$ # three objects that would otherwise keep pushing to main forever</b>
+<b>$ flux -n flux-system delete image update demo-auto -s</b>
+► deleting image update automation demo-auto in flux-system namespace
+✔ image update automation deleted
+<b>$ flux -n flux-system delete image policy demo -s</b>
+► deleting image policy demo in flux-system namespace
+✔ image policy deleted
+<b>$ flux -n flux-system delete image repository demo -s</b>
+► deleting image repository demo in flux-system namespace
+✔ image repository deleted
+<b>$ git -C /tmp/platform-img pull --rebase &amp;&amp; git -C /tmp/platform-img rm -r image-automation &amp;&amp; git -C /tmp/platform-img -c user.name=lab -c user.email=lab@lab.local commit -m 'remove the automation target' &amp;&amp; git -C /tmp/platform-img push</b>
+Updating 226a068..ae19a2b
+Fast-forward
+ image-automation/deployment.yaml | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+rm 'image-automation/deployment.yaml'
+[main b793ef2] remove the automation target
+ 1 file changed, 12 deletions(-)
+ delete mode 100644 image-automation/deployment.yaml
+To http://gitea.lab:3000/lab/platform.git
+   ae19a2b..b793ef2  main -&gt; main
+<b>$ rm -rf /tmp/platform-img</b></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the policy resolves to <code>1.0.1</code>, and the newest commit on main is authored by <code>fluxcdbot</code> and rewrites the image line to <code>kind-registry:5000/demo:1.0.1</code>. Without the marker comment on that line the automation has nothing to rewrite and reports <code>repository up-to-date</code>, which is the failure you will be handed. Keep the marked manifest out of <code>demo-app/overlays</code>: Argo CD syncs that tree and would deploy the rewritten tag straight into <code>team-a</code>.</div>
+    </div>
+
   </div>
 </section>
 
@@ -290,6 +937,19 @@ podinfo   1/1     1            1           48s</code></pre></details></div>
 
     <details class="quiz"><summary>How does Flux stop one tenant's Kustomization from deploying cluster-admin-level resources?</summary>
       <div class="answer"><p><code>spec.serviceAccountName</code>: the controller impersonates that ServiceAccount when applying, so the tenant's manifests can never exceed the tenant's RBAC. Combined with disallowing cross-namespace source references, that is Flux's multi-tenancy story: the structural equivalent of Argo's AppProject.</p></div></details>
+  
+
+    <details class="quiz"><summary>A HelmRelease shows Ready False with reason RollbackSucceeded. Is the release broken or healthy right now?</summary>
+      <div class="answer"><p>Healthy on the last good revision: the upgrade failed and remediation rolled back. The object stays not-ready because the desired state (new chart or values) is not what is running. Fix the chart or values in git, or after fixing something out of band run <code>flux reconcile hr X --reset</code> to zero the retry counters if <code>RetriesExceeded</code> stopped further attempts.</p></div></details>
+
+    <details class="quiz"><summary>A chart upgrade adds a CRD field but the CR that uses it is rejected as unknown. Why, and which field fixes it?</summary>
+      <div class="answer"><p><code>spec.upgrade.crds</code> defaults to <code>Skip</code>: Helm does not upgrade CRDs on upgrade, so the old schema is still served and prunes or rejects the new field. Set <code>upgrade.crds: CreateReplace</code> (and <code>install.crds: CreateReplace</code>), or deliver CRDs through their own Kustomization that the HelmRelease depends on.</p></div></details>
+
+    <details class="quiz"><summary>Make a git push reconcile Flux immediately instead of at the next interval. Objects and the field you hand to the git server?</summary>
+      <div class="answer"><p>A <code>Receiver</code> of the matching <code>type</code> (github, gitea, gitlab, generic) with <code>events: [push]</code>, a <code>secretRef</code> holding a token, and <code>resources</code> listing the GitRepository. Expose the notification-controller's <code>webhook-receiver</code> Service, then configure the webhook URL as that host plus <code>status.webhookPath</code> with the same token as the secret.</p></div></details>
+
+    <details class="quiz"><summary>After multi-tenant lockdown, a tenant's Kustomization fails with Forbidden. What did they leave out?</summary>
+      <div class="answer"><p><code>spec.serviceAccountName</code>. With <code>--default-service-account=default</code>, a Kustomization or HelmRelease without an explicit account impersonates the namespace's <code>default</code> ServiceAccount, which has no RBAC; the API server refuses the apply and the Ready condition reads ReconciliationFailed with the Forbidden text. The platform must have created a ServiceAccount and RoleBinding for the tenant to name.</p></div></details>
   </div>
 </section>
 
@@ -299,6 +959,10 @@ podinfo   1/1     1            1           48s</code></pre></details></div>
     <ul class="docs">
       <li><b>fluxcd.io</b>: GitRepository, Kustomization, HelmRelease API references; the "flux CLI" cheat sheet; the multi-tenancy guide for the serviceAccountName pattern.</li>
       <li><b>Offline:</b> <code>flux --help</code> and <code>flux create &lt;kind&gt; --help --export</code> generate correct YAML without docs, which is faster than searching during the exam.</li>
+    
+      <li><b>fluxcd.io/flux/components/kustomize/kustomizations (Kustomization Status, Conditions)</b> and <b>components/helm/helmreleases (Conditions, Install/Upgrade remediation, Drift detection)</b>: the reason strings quoted above and the remediation fields.</li>
+      <li><b>fluxcd.io/flux/components/image and guides/image-update</b>: ImageRepository, ImagePolicy, ImageUpdateAutomation and the marker comment syntax.</li>
+      <li><b>fluxcd.io/flux/components/notification (Alerts, Providers, Receivers)</b> and <b>installation/configuration/multitenancy</b>: the notification objects and the lockdown patches.</li>
     </ul>
   </div>
 </section>

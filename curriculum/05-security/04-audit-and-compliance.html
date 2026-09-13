@@ -49,7 +49,7 @@
       </table>
     </div>
 
-    <p><strong>Stages</strong>: <code>RequestReceived</code>, <code>ResponseStarted</code> (long-running watches), <code>ResponseComplete</code>, <code>Panic</code>. Most analysis uses ResponseComplete. Policy rules match <em>in order, first hit wins</em> (the same mental model as Alertmanager routes), so the file reads as: drop the noise, elevate the sensitive, catch everything else at Metadata. Read <code>kind/audit-policy.yaml</code> in this repo and you will see exactly that shape.</p>
+    <p><strong>Stages</strong>: <code>RequestReceived</code>, <code>ResponseStarted</code> (long-running watches), <code>ResponseComplete</code>, <code>Panic</code>. Most analysis uses ResponseComplete. Policy rules match <em>in order, first hit wins</em> (the same mental model as Alertmanager routes), so the file reads as: drop the noise, raise the sensitive, catch everything else at Metadata. Read <code>kind/audit-policy.yaml</code> in this repo and you will see exactly that shape.</p>
 
     <h3>Fields that answer real questions</h3>
     <div class="tbl-wrap">
@@ -76,6 +76,70 @@
       <span class="tag">What audit is and is not</span>
       <p>It records <em>API requests</em>. It does not record what happened inside a container, what a pod did on the network, or anything that bypassed the API server. Pair it with Falco-style runtime detection, network flow logs (Hubble), and image scanning for the other layers, and say so if a scenario asks for "a complete audit trail".</p>
     </div>
+  </div>
+</section>
+
+<section class="panel accent-c" id="audit-fields">
+  <div class="phdr"><h2>Audit policy and backends, field by field</h2><span class="meta">rule fields, ordering, the flags, what a good policy records</span></div>
+  <div class="pbody">
+    <h3>Rule fields</h3>
+    <p>A <code>Policy</code> (<code>audit.k8s.io/v1</code>) has <code>rules[]</code> and a top-level <code>omitStages</code>. Each rule sets a <code>level</code> and narrows by any of <code>users</code>, <code>userGroups</code>, <code>verbs</code>, <code>resources[]</code> (each with <code>group</code>, <code>resources</code> such as <code>pods</code> or <code>pods/exec</code>, and optional <code>resourceNames</code>), <code>namespaces</code>, <code>nonResourceURLs</code> (<code>/healthz*</code>, <code>/metrics</code>, <code>/version</code>), plus a per-rule <code>omitStages</code> and <code>omitManagedFields</code>. A request is matched against rules top to bottom and the first match sets the level, so the file is ordered: drop noise, raise sensitive things, catch the rest.</p>
+    <div class="cb" data-lang="yaml"><pre><code>apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages: [RequestReceived]          # one event per request, not two
+rules:
+- level: None                          # noise first
+  users: ["system:kube-proxy"]
+  verbs: ["watch"]
+  resources: [{ group: "", resources: ["endpoints", "services", "endpointslices"] }]
+- level: None
+  nonResourceURLs: ["/healthz*", "/readyz*", "/livez*", "/metrics", "/version"]
+- level: None
+  resources: [{ group: "coordination.k8s.io", resources: ["leases"] }]
+- level: Metadata                      # never the body: it holds the values
+  resources: [{ group: "", resources: ["secrets", "configmaps"] },
+              { group: "authentication.k8s.io", resources: ["tokenreviews"] }]
+- level: Metadata
+  resources: [{ group: "", resources: ["pods/exec", "pods/attach", "pods/portforward"] }]
+- level: RequestResponse               # who changed access and policy, with the diff
+  resources: [{ group: "rbac.authorization.k8s.io" },
+              { group: "kyverno.io" }, { group: "policies.kyverno.io" },
+              { group: "constraints.gatekeeper.sh" }, { group: "admissionregistration.k8s.io" }]
+- level: Metadata                      # everything else
+  omitStages: [RequestReceived]</code></pre></div>
+    <ul>
+      <li><strong>Why those levels.</strong> <code>Request</code>/<code>RequestResponse</code> on Secrets writes secret values into the log; Metadata still records who read which Secret and whether it succeeded. <code>pods/exec</code> at Metadata answers "who shelled into production". RBAC and policy objects at <code>RequestResponse</code> give you the before/after for a permissions change. <code>Request</code> alone suits high-volume writes where the response body is redundant (a Deployment update).</li>
+      <li><strong>Stages.</strong> <code>RequestReceived</code> fires before authorization, so it records requests that are later denied; most policies omit it and rely on <code>ResponseComplete</code>, which carries <code>responseStatus.code</code>. <code>ResponseStarted</code> exists only for long-running requests (watch, exec, port-forward). <code>Panic</code> is rare. Both events of one request share <code>auditID</code>.</li>
+      <li><strong>Event fields you will grep for</strong> beyond the table above: <code>level</code>, <code>stage</code>, <code>requestURI</code>, <code>impersonatedUser</code> (present when <code>--as</code> was used; <code>user</code> is then the real caller), <code>requestObject</code>/<code>responseObject</code> at the higher levels, <code>requestReceivedTimestamp</code>. <code>omitManagedFields: true</code> strips the noisy <code>managedFields</code> block out of both bodies.</li>
+    </ul>
+
+    <h3>Backends and their flags</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th class="mono">Flag</th><th>Backend</th><th>Means</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">--audit-policy-file</td><td>both</td><td>the Policy above; if absent, nothing is logged; if the path is wrong, the API server does not start</td></tr>
+          <tr><td class="mono">--audit-log-path</td><td>log</td><td>JSON lines file (<code>-</code> for stdout); the flag that enables the log backend</td></tr>
+          <tr><td class="mono">--audit-log-maxage / -maxbackup / -maxsize</td><td>log</td><td>rotation: days to keep, number of files, MB per file</td></tr>
+          <tr><td class="mono">--audit-log-format</td><td>log</td><td><code>json</code> (default) or <code>legacy</code></td></tr>
+          <tr><td class="mono">--audit-log-mode</td><td>log</td><td><code>blocking</code> (default), <code>blocking-strict</code> (a logging failure at RequestReceived fails the request), <code>batch</code></td></tr>
+          <tr><td class="mono">--audit-webhook-config-file</td><td>webhook</td><td>a kubeconfig naming the remote sink (a SIEM, Falco's k8saudit plugin, a Fluent Bit input)</td></tr>
+          <tr><td class="mono">--audit-webhook-mode</td><td>webhook</td><td><code>batch</code> (default), <code>blocking</code>, <code>blocking-strict</code></td></tr>
+          <tr><td class="mono">--audit-webhook-batch-buffer-size / -max-size / -max-wait</td><td>webhook</td><td>10000 events buffered, 400 per batch, 30s max wait; overflow drops events</td></tr>
+          <tr><td class="mono">--audit-webhook-initial-backoff</td><td>webhook</td><td>retry delay after the first failed delivery (exponential after)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Static-pod control planes (kubeadm, kind) need the policy file and the log directory mounted as <code>hostPath</code> volumes into the <code>kube-apiserver</code> manifest; a missing mount is the "dead cluster" failure the callout above describes. On managed control planes you cannot set any of this; you consume the provider's audit stream instead, and the exam's equivalent question becomes "what would you look for in it".</p>
+
+    <h3>Annotations other controls leave in the audit event</h3>
+    <ul>
+      <li><code>authorization.k8s.io/decision</code> and <code>authorization.k8s.io/reason</code>: RBAC's verdict and the rule that produced it.</li>
+      <li><code>pod-security.kubernetes.io/audit-violations</code>: the PSS <code>audit</code> label's findings, per pod.</li>
+      <li><code>validation.policy.admission.k8s.io/validation_failure</code>: a ValidatingAdmissionPolicy binding with <code>validationActions: [Audit]</code> records here; the policy's own <code>auditAnnotations</code> add custom keys.</li>
+      <li><code>mutation.webhook.admission.k8s.io/round_0_index_N</code> and <code>patch.webhook.admission.k8s.io/...</code>: which mutating webhooks touched the object and what they changed, when the level is <code>Request</code> or higher.</li>
+    </ul>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>Two shapes. Write or fix a policy: "record who reads Secrets without logging their contents, and drop health checks" is a Metadata rule on <code>secrets</code> plus a <code>None</code> rule on <code>nonResourceURLs</code>, in that order relative to the catch-all. Query the log: "which ServiceAccount deleted the Deployment" is a <code>jq</code> filter on <code>verb</code>, <code>objectRef.resource</code>, <code>objectRef.name</code> and <code>user.username</code>. Both are graded on the output, so run the query after the change.</p></div>
   </div>
 </section>
 
@@ -108,6 +172,46 @@
       <li>The one-sentence purpose: <em>when the next log4shell drops, you query your SBOMs for the package instead of rescanning the world.</em></li>
       <li>Neighbours: <strong>provenance/attestation</strong> (how it was built; see section 5.6), <strong>signatures</strong> (who vouches for it). Three different documents, one trust story.</li>
     </ul>
+  </div>
+</section>
+
+<section class="panel accent-p" id="evidence">
+  <div class="phdr"><h2>Runtime detection, SBOM tooling and compliance evidence</h2><span class="meta">Falco, syft/grype/trivy, the Trivy Operator's report kinds, kube-bench, in-toto</span></div>
+  <div class="pbody">
+    <h3>Falco fills the gap the API audit leaves</h3>
+    <p>The API server never sees a shell spawned inside a container, a file written under <code>/etc</code>, or an outbound connection to an unexpected host. Falco does: a kernel driver (modern eBPF by default) or a plugin (the <code>k8saudit</code> plugin consumes the audit webhook stream above, so one Falco can watch both layers) produces events, and rules match them. A rule has <code>rule</code>, <code>desc</code>, <code>condition</code> (a filter over event fields such as <code>proc.name</code>, <code>container.image.repository</code>, <code>k8s.ns.name</code>, <code>fd.sip</code>), <code>output</code> (a format string), <code>priority</code> (EMERGENCY to DEBUG) and <code>tags</code>; <code>macro</code> and <code>list</code> entries factor conditions. Rules ship in maturity tiers (stable rules are bundled; incubating and sandbox are opt-in) and are customised by override files rather than edits. Alerts go to stdout, a file, gRPC or HTTP; Falcosidekick fans them out to Slack, Loki, Alertmanager and the like. "Detect a shell in a production container" or "alert on writes below /etc" is a Falco question; "who created that pod" is an audit-log question.</p>
+
+    <h3>SBOM and scanner tooling, one line each</h3>
+    <ul>
+      <li><strong>Formats.</strong> SPDX (ISO/IEC 5962, tag-value or JSON) and CycloneDX (OWASP, JSON or XML); both list components with versions, licences and hashes. <code>trivy image --format cyclonedx|spdx-json</code>, <code>syft &lt;image&gt; -o cyclonedx-json</code>. An SBOM is input to a scanner (<code>trivy sbom sbom.json</code>, <code>grype sbom:sbom.json</code>), which is why generating it at build time and rescanning later works.</li>
+      <li><strong>Attaching it to the image.</strong> <code>cosign attest --predicate sbom.json --type cyclonedx &lt;image@digest&gt;</code> stores it as a signed in-toto attestation next to the image; admission policies can then require it (5.6).</li>
+      <li><strong>VEX</strong> (Vulnerability Exploitability eXchange, OpenVEX or CSAF) is the vendor's or your statement that a CVE does not affect a product as shipped; <code>trivy --vex &lt;file&gt;</code> or <code>--vex repo</code> suppresses those findings with a recorded justification, which is the auditable alternative to a growing ignore file.</li>
+    </ul>
+
+    <h3>The Trivy Operator's report kinds</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th class="mono">Kind (aquasecurity.github.io/v1alpha1)</th><th>Scope</th><th>Holds</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">VulnerabilityReport</td><td>namespaced, one per container of a workload; named <code>&lt;kind&gt;-&lt;name&gt;-&lt;container&gt;</code>, owned by the ReplicaSet or controller so it is garbage-collected with it</td><td><code>report.summary.criticalCount|highCount|...</code>, <code>report.vulnerabilities[]</code> with <code>vulnerabilityID</code>, <code>installedVersion</code>, <code>fixedVersion</code>, <code>severity</code>, <code>primaryLink</code></td></tr>
+          <tr><td class="mono">SbomReport / ClusterSbomReport</td><td>per container</td><td>a CycloneDX BOM under <code>report.components</code></td></tr>
+          <tr><td class="mono">ConfigAuditReport / ClusterConfigAuditReport</td><td>per workload / per cluster object</td><td>misconfiguration checks (<code>AVD-KSV-*</code> ids): privileged, missing limits, root user</td></tr>
+          <tr><td class="mono">ExposedSecretReport</td><td>per container</td><td>credentials found in image layers</td></tr>
+          <tr><td class="mono">RbacAssessmentReport / ClusterRbacAssessmentReport</td><td>per Role / ClusterRole</td><td>risky rules (wildcards, secrets access, escalate)</td></tr>
+          <tr><td class="mono">InfraAssessmentReport / ClusterInfraAssessmentReport</td><td>per node component</td><td>kubelet, API server and etcd checks, the kube-bench territory</td></tr>
+          <tr><td class="mono">ClusterComplianceReport</td><td>cluster</td><td><code>spec.compliance.id</code> in <code>k8s-cis-1.23</code>, <code>k8s-nsa-1.0</code>, <code>k8s-pss-baseline-0.1</code>, <code>k8s-pss-restricted-0.1</code>; <code>spec.cron</code> and <code>spec.reportType: summary|all</code>; <code>status.summary.passCount/failCount</code> and per-control results mapping to the check ids above</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Reports carry labels <code>trivy-operator.resource.kind</code>, <code>trivy-operator.resource.name</code>, <code>trivy-operator.container.name</code>, so <code>-l trivy-operator.resource.name=payments</code> narrows a query without parsing names. Scans run as short-lived jobs in the operator's namespace (or the workload's, per <code>OPERATOR_SCAN_JOB_...</code> settings), which is why a NetworkPolicy or a registry pull secret can stop reports from appearing: the scan job is a pod like any other. Rescans happen on a TTL (<code>OPERATOR_VULNERABILITY_SCANNER_REPORT_TTL</code>) and when the image digest changes.</p>
+
+    <h3>Benchmarks and attestations</h3>
+    <ul>
+      <li><strong>CIS Kubernetes Benchmark</strong> checks the control plane and node configuration (API server flags, kubelet flags, file permissions) and is versioned separately from Kubernetes. <strong>kube-bench</strong> runs it as a Job with a target set (<code>master</code>, <code>node</code>, <code>etcd</code>, <code>policies</code>) and prints PASS/FAIL/WARN with the control number (for example <code>1.2.x</code> API server); <code>--benchmark</code> picks the CIS version and managed-cluster variants (eks, gke, aks) exist. The Trivy Operator's <code>k8s-cis</code> compliance report covers the same ground as CRDs.</li>
+      <li><strong>in-toto attestation</strong> is the envelope format everything else uses: a DSSE envelope (<code>payloadType: application/vnd.in-toto+json</code>, signatures) around a <em>Statement</em> (<code>_type: https://in-toto.io/Statement/v1</code>, <code>subject[]</code> with name and <code>digest.sha256</code>, <code>predicateType</code>, <code>predicate</code>). SLSA provenance, SBOMs, vulnerability scan results and VEX are all predicate types. "Attestation" in a task means one of these, signed, attached to an image digest.</li>
+      <li><strong>An evidence pipeline</strong>, in one sentence per stage: build produces the image and its SBOM; scan gates on severity and writes the scan result as an attestation; sign the digest; store SBOM and provenance attestations in the registry beside the image; admission requires signature and attestations; the operator rescans continuously and the compliance reports roll it up. Each stage leaves a queryable artefact, which is what "generating audit trails" means for the supply chain.</li>
+    </ul>
+    <div class="callout trap"><span class="tag">Trap</span><p>A <code>ClusterComplianceReport</code> is only as current as its <code>spec.cron</code> and the underlying reports; a freshly changed cluster shows yesterday's numbers until the next run. Read <code>status.updateTimestamp</code> before quoting a pass count, and expect graders to check the report after your fix, not the fix itself.</p></div>
   </div>
 </section>
 
@@ -214,6 +318,330 @@ tekton-pipelines	replicaset-6985f46fcc	3	15</code></pre></details></div>
       <div class="verify"><b>verify:</b> you can trace a failed control to the check behind it and say which earlier curriculum section would fix it. Most CIS findings in this lab trace back to sections 5.1–5.3.</div>
     </div>
 
+    <div class="exercise" data-title="Two SBOMs of the same image">
+      <p>An SBOM is only useful if you can scan it and compare it. Produce one with each tool, feed it back to the scanner, and then suppress a finding with VEX so the exception is a document rather than a flag.</p>
+      <div class="cb" data-lang="bash"><pre><code>trivy image --format spdx-json --output /tmp/sbom-trivy.json ghcr.io/stefanprodan/podinfo:6.7.1
+jq '{name: .name, packages: (.packages | length)}' /tmp/sbom-trivy.json
+mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"
+command -v syft &gt;/dev/null || curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$HOME/.local/bin"
+syft version | head -2
+syft ghcr.io/stefanprodan/podinfo:6.7.1 -o spdx-json=/tmp/sbom-syft.json
+jq '{name: .name, packages: (.packages | length)}' /tmp/sbom-syft.json
+jq -r '.packages[].name' /tmp/sbom-trivy.json | sort -u &gt; /tmp/p-trivy.txt
+jq -r '.packages[].name' /tmp/sbom-syft.json | sort -u &gt; /tmp/p-syft.txt
+wc -l /tmp/p-trivy.txt /tmp/p-syft.txt
+comm -3 /tmp/p-trivy.txt /tmp/p-syft.txt | head -10
+trivy sbom /tmp/sbom-trivy.json --severity HIGH,CRITICAL | head -30
+trivy image --severity HIGH,CRITICAL --format json ghcr.io/stefanprodan/podinfo:6.7.1 | jq -r '[.Results[].Vulnerabilities // [] | .[].VulnerabilityID] | unique | .[0:3][]'
+CVE=$(trivy image --severity HIGH,CRITICAL --format json ghcr.io/stefanprodan/podinfo:6.7.1 | jq -r '[.Results[].Vulnerabilities // [] | .[].VulnerabilityID] | unique | .[0]')
+echo "suppressing $CVE"
+cat &gt; /tmp/vex.json &lt;&lt;EOF
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://lab.local/vex/podinfo",
+  "author": "platform team",
+  "statements": [
+    {
+      "vulnerability": { "name": "${CVE}" },
+      "products": [{ "@id": "pkg:oci/podinfo" }],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path"
+    }
+  ]
+}
+EOF
+trivy image --vex /tmp/vex.json --severity HIGH,CRITICAL ghcr.io/stefanprodan/podinfo:6.7.1 | head -20</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ trivy image --format spdx-json --output /tmp/sbom-trivy.json ghcr.io/stefanprodan/podinfo:6.7.1</b>
+2026-09-13T13:01:03-04:00	INFO	"--format spdx-json" disables security scanning. Specify "--scanners vuln" explicitly if you want to include vulnerabilities in the "spdx-json" report.
+2026-09-13T13:01:03-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
+2026-09-13T13:01:03-04:00	INFO	Number of language-specific files	num=2
+
+📣 Notices:
+  - Version 0.74.0 of Trivy is now available, current version is 0.73.0
+
+To suppress version checks, run Trivy scans with the --skip-version-check flag
+<b>$ jq '{name: .name, packages: (.packages | length)}' /tmp/sbom-trivy.json</b>
+{
+  "name": "ghcr.io/stefanprodan/podinfo:6.7.1",
+  "packages": 115
+}
+<b>$ mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"</b>
+<b>$ command -v syft &gt;/dev/null || curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$HOME/.local/bin"</b>
+<b>$ syft version | head -2</b>
+Application:   syft
+Version:       1.51.1
+<b>$ syft ghcr.io/stefanprodan/podinfo:6.7.1 -o spdx-json=/tmp/sbom-syft.json</b>
+<b>$ jq '{name: .name, packages: (.packages | length)}' /tmp/sbom-syft.json</b>
+{
+  "name": "ghcr.io/stefanprodan/podinfo",
+  "packages": 112
+}
+<b>$ jq -r '.packages[].name' /tmp/sbom-trivy.json | sort -u &gt; /tmp/p-trivy.txt</b>
+<b>$ jq -r '.packages[].name' /tmp/sbom-syft.json | sort -u &gt; /tmp/p-syft.txt</b>
+<b>$ wc -l /tmp/p-trivy.txt /tmp/p-syft.txt</b>
+ 103 /tmp/p-trivy.txt
+ 100 /tmp/p-syft.txt
+ 203 total
+<b>$ comm -3 /tmp/p-trivy.txt /tmp/p-syft.txt | head -10</b>
+alpine
+	ghcr.io/stefanprodan/podinfo
+ghcr.io/stefanprodan/podinfo:6.7.1
+home/app/podinfo
+usr/local/bin/podcli
+<b>$ trivy sbom /tmp/sbom-trivy.json --severity HIGH,CRITICAL | head -30</b>
+2026-09-13T13:01:08-04:00	INFO	[vuln] Vulnerability scanning is enabled
+2026-09-13T13:01:08-04:00	INFO	Detected SBOM format	format="spdx-json"
+2026-09-13T13:01:08-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
+2026-09-13T13:01:08-04:00	INFO	[alpine] Detecting vulnerabilities...	os_version="3.20" repository="" pkg_num=27
+2026-09-13T13:01:08-04:00	INFO	Number of language-specific files	num=2
+2026-09-13T13:01:08-04:00	INFO	[gobinary] Detecting vulnerabilities...
+2026-09-13T13:01:08-04:00	WARN	Using severities from other vendors for some vulnerabilities. Read https://trivy.dev/docs/v0.73/guide/scanner/vulnerability#severity-selection for details.
+2026-09-13T13:01:08-04:00	WARN	This OS version is no longer supported by the distribution	family="alpine" version="3.20.3"
+2026-09-13T13:01:08-04:00	WARN	The vulnerability detection may be insufficient because security updates are not provided
+
+Report Summary
+
+┌──────────────────────────────────────┬──────────┬─────────────────┐
+│                Target                │   Type   │ Vulnerabilities │
+├──────────────────────────────────────┼──────────┼─────────────────┤
+│ /tmp/sbom-trivy.json (alpine 3.20.3) │  alpine  │       21        │
+├──────────────────────────────────────┼──────────┼─────────────────┤
+│ home/app/podinfo                     │ gobinary │       36        │
+├──────────────────────────────────────┼──────────┼─────────────────┤
+│ usr/local/bin/podcli                 │ gobinary │       33        │
+└──────────────────────────────────────┴──────────┴─────────────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+
+
+/tmp/sbom-trivy.json (alpine 3.20.3)
+====================================
+Total: 21 (HIGH: 19, CRITICAL: 2)
+
+┌────────────┬────────────────┬──────────┬────────┬───────────────────┬───────────────┬──────────────────────────────────────────────────────────────┐
+│  Library   │ Vulnerability  │ Severity │ Status │ Installed Version │ Fixed Version │                            Title                             │
+├────────────┼────────────────┼──────────┼────────┼───────────────────┼───────────────┼──────────────────────────────────────────────────────────────┤
+│ libcrypto3 │ CVE-2026-31789 │ CRITICAL │ fixed  │ 3.3.2-r0          │ 3.3.7-r0      │ openssl: OpenSSL: Heap buffer overflow on 32-bit systems     │
+│            │                │          │        │                   │               │ from large X.509 certificate...                              │
+│            │                │          │        │                   │               │ https://avd.aquasec.com/nvd/cve-2026-31789                   │
+│            ├────────────────┼──────────┤        │                   ├───────────────┼──────────────────────────────────────────────────────────────┤
+│            │ CVE-2024-12797 │ HIGH     │        │                   │ 3.3.3-r0      │ openssl: RFC7250 handshakes with unauthenticated servers     │
+│            │                │          │        │                   │               │ don't abort as expected                                      │
+<b>$ trivy image --severity HIGH,CRITICAL --format json ghcr.io/stefanprodan/podinfo:6.7.1 | jq -r '[.Results[].Vulnerabilities // [] | .[].VulnerabilityID] | unique | .[0:3][]'</b>
+2026-09-13T13:01:08-04:00	INFO	[vuln] Vulnerability scanning is enabled
+2026-09-13T13:01:08-04:00	INFO	[secret] Secret scanning is enabled
+2026-09-13T13:01:08-04:00	INFO	[secret] If your scanning is slow, please try '--scanners vuln' to disable secret scanning
+2026-09-13T13:01:08-04:00	INFO	[secret] Please see https://trivy.dev/docs/v0.73/guide/scanner/secret#recommendation for faster secret detection
+2026-09-13T13:01:08-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
+2026-09-13T13:01:08-04:00	INFO	[alpine] Detecting vulnerabilities...	os_version="3.20" repository="3.20" pkg_num=27
+2026-09-13T13:01:08-04:00	INFO	Number of language-specific files	num=2
+2026-09-13T13:01:08-04:00	INFO	[gobinary] Detecting vulnerabilities...
+2026-09-13T13:01:08-04:00	WARN	Using severities from other vendors for some vulnerabilities. Read https://trivy.dev/docs/v0.73/guide/scanner/vulnerability#severity-selection for details.
+2026-09-13T13:01:08-04:00	WARN	This OS version is no longer supported by the distribution	family="alpine" version="3.20.3"
+2026-09-13T13:01:08-04:00	WARN	The vulnerability detection may be insufficient because security updates are not provided
+
+📣 Notices:
+  - Version 0.74.0 of Trivy is now available, current version is 0.73.0
+
+To suppress version checks, run Trivy scans with the --skip-version-check flag
+
+CVE-2024-12797
+CVE-2024-45338
+CVE-2025-15467
+<b>$ CVE=$(trivy image --severity HIGH,CRITICAL --format json ghcr.io/stefanprodan/podinfo:6.7.1 | jq -r '[.Results[].Vulnerabilities // [] | .[].VulnerabilityID] | unique | .[0]')</b>
+2026-09-13T13:01:08-04:00	INFO	[vuln] Vulnerability scanning is enabled
+2026-09-13T13:01:08-04:00	INFO	[secret] Secret scanning is enabled
+2026-09-13T13:01:08-04:00	INFO	[secret] If your scanning is slow, please try '--scanners vuln' to disable secret scanning
+2026-09-13T13:01:08-04:00	INFO	[secret] Please see https://trivy.dev/docs/v0.73/guide/scanner/secret#recommendation for faster secret detection
+2026-09-13T13:01:09-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
+2026-09-13T13:01:09-04:00	INFO	[alpine] Detecting vulnerabilities...	os_version="3.20" repository="3.20" pkg_num=27
+2026-09-13T13:01:09-04:00	INFO	Number of language-specific files	num=2
+2026-09-13T13:01:09-04:00	INFO	[gobinary] Detecting vulnerabilities...
+2026-09-13T13:01:09-04:00	WARN	Using severities from other vendors for some vulnerabilities. Read https://trivy.dev/docs/v0.73/guide/scanner/vulnerability#severity-selection for details.
+2026-09-13T13:01:09-04:00	WARN	This OS version is no longer supported by the distribution	family="alpine" version="3.20.3"
+2026-09-13T13:01:09-04:00	WARN	The vulnerability detection may be insufficient because security updates are not provided
+
+📣 Notices:
+  - Version 0.74.0 of Trivy is now available, current version is 0.73.0
+
+To suppress version checks, run Trivy scans with the --skip-version-check flag
+<b>$ echo "suppressing $CVE"</b>
+suppressing CVE-2024-12797
+<b>$ cat &gt; /tmp/vex.json &lt;&lt;EOF</b>
+<b>{</b>
+<b>  "@context": "https://openvex.dev/ns/v0.2.0",</b>
+<b>  "@id": "https://lab.local/vex/podinfo",</b>
+<b>  "author": "platform team",</b>
+<b>  "statements": [</b>
+<b>    {</b>
+<b>      "vulnerability": { "name": "${CVE}" },</b>
+<b>      "products": [{ "@id": "pkg:oci/podinfo" }],</b>
+<b>      "status": "not_affected",</b>
+<b>      "justification": "vulnerable_code_not_in_execute_path"</b>
+<b>    }</b>
+<b>  ]</b>
+<b>}</b>
+<b>EOF</b>
+<b>$ trivy image --vex /tmp/vex.json --severity HIGH,CRITICAL ghcr.io/stefanprodan/podinfo:6.7.1 | head -20</b>
+2026-09-13T13:01:09-04:00	INFO	[vuln] Vulnerability scanning is enabled
+2026-09-13T13:01:09-04:00	INFO	[secret] Secret scanning is enabled
+2026-09-13T13:01:09-04:00	INFO	[secret] If your scanning is slow, please try '--scanners vuln' to disable secret scanning
+2026-09-13T13:01:09-04:00	INFO	[secret] Please see https://trivy.dev/docs/v0.73/guide/scanner/secret#recommendation for faster secret detection
+2026-09-13T13:01:09-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
+2026-09-13T13:01:09-04:00	INFO	[alpine] Detecting vulnerabilities...	os_version="3.20" repository="3.20" pkg_num=27
+2026-09-13T13:01:09-04:00	INFO	Number of language-specific files	num=2
+2026-09-13T13:01:09-04:00	INFO	[gobinary] Detecting vulnerabilities...
+2026-09-13T13:01:09-04:00	WARN	Using severities from other vendors for some vulnerabilities. Read https://trivy.dev/docs/v0.73/guide/scanner/vulnerability#severity-selection for details.
+2026-09-13T13:01:09-04:00	WARN	This OS version is no longer supported by the distribution	family="alpine" version="3.20.3"
+2026-09-13T13:01:09-04:00	WARN	The vulnerability detection may be insufficient because security updates are not provided
+2026-09-13T13:01:09-04:00	INFO	Some vulnerabilities have been ignored/suppressed. Use the "--show-suppressed" flag to display them.
+
+Report Summary
+
+┌────────────────────────────────────────────────────┬──────────┬─────────────────┬─────────┐
+│                       Target                       │   Type   │ Vulnerabilities │ Secrets │
+├────────────────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
+│ ghcr.io/stefanprodan/podinfo:6.7.1 (alpine 3.20.3) │  alpine  │       19        │    -    │
+├────────────────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
+│ home/app/podinfo                                   │ gobinary │       36        │    -    │
+├────────────────────────────────────────────────────┼──────────┼─────────────────┼─────────┤
+│ usr/local/bin/podcli                               │ gobinary │       33        │    -    │
+└────────────────────────────────────────────────────┴──────────┴─────────────────┴─────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+
+
+ghcr.io/stefanprodan/podinfo:6.7.1 (alpine 3.20.3)
+==================================================
+Total: 19 (HIGH: 17, CRITICAL: 2)</code></pre></details></div>
+      <div class="verify"><b>verify:</b> two SBOM files exist, both list the alpine packages plus the Go module list, and <code>comm</code> shows where the two catalogers disagree. The counts are close but not identical, which is the honest result: each tool decides for itself what counts as a package. <code>trivy sbom</code> accepts either file as input. Then the VEX half: the same image rescanned with <code>--vex</code> reports 19 alpine findings where the plain scan reported 21, and trivy says so in a line of its own, "Some vulnerabilities have been ignored/suppressed". An exception you can diff, not a flag someone remembered to pass.</div>
+    </div>
+
+    <div class="exercise" data-title="Force a compliance report to refresh">
+      <p>A ClusterComplianceReport is generated on a schedule, so a stale timestamp means you are reading yesterday's answer. Changing the cron is the supported way to force a rerun, and the timestamp proves it happened.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get clustercompliancereport
+BEFORE=$(kubectl get clustercompliancereport k8s-cis-1.23 -o jsonpath='{.status.updateTimestamp}'); echo "before: $BEFORE"
+kubectl get clustercompliancereport k8s-cis-1.23 -o jsonpath='{.spec.cron}{"\n"}'
+kubectl patch clustercompliancereport k8s-cis-1.23 --type merge -p '{"spec":{"cron":"*/1 * * * *"}}'
+for i in $(seq 1 24); do NOW=$(kubectl get clustercompliancereport k8s-cis-1.23 -o jsonpath='{.status.updateTimestamp}'); [ "$NOW" != "$BEFORE" ] &amp;&amp; { echo "after:  $NOW (took ${i}0s)"; break; }; sleep 10; done
+kubectl get clustercompliancereport k8s-cis-1.23 -o jsonpath='{.status.summary}' | jq
+kubectl patch clustercompliancereport k8s-cis-1.23 --type merge -p '{"spec":{"cron":"0 */6 * * *"}}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl get clustercompliancereport</b>
+NAME                     AGE
+k8s-cis-1.23             15h
+k8s-nsa-1.0              15h
+k8s-pss-baseline-0.1     15h
+k8s-pss-restricted-0.1   15h
+<b>$ BEFORE=$(kubectl get clustercompliancereport k8s-cis-1.23 -o jsonpath='{.status.updateTimestamp}'); echo "before: $BEFORE"</b>
+before: 2026-09-13T00:00:00Z
+<b>$ kubectl get clustercompliancereport k8s-cis-1.23 -o jsonpath='{.spec.cron}{"\n"}'</b>
+0 */6 * * *
+<b>$ kubectl patch clustercompliancereport k8s-cis-1.23 --type merge -p '{"spec":{"cron":"*/1 * * * *"}}'</b>
+clustercompliancereport.aquasecurity.github.io/k8s-cis-1.23 patched
+<b>$ for i in $(seq 1 24); do NOW=$(kubectl get clustercompliancereport k8s-cis-1.23 -o jsonpath='{.status.updateTimestamp}'); [ "$NOW" != "$BEFORE" ] &amp;&amp; { echo "after:  $NOW (took ${i}0s)"; break; }; sleep 10; done</b>
+after:  2026-09-13T10:49:49Z (took 10s)
+<b>$ kubectl get clustercompliancereport k8s-cis-1.23 -o jsonpath='{.status.summary}' | jq</b>
+{
+  "failCount": 34,
+  "passCount": 82
+}
+<b>$ kubectl patch clustercompliancereport k8s-cis-1.23 --type merge -p '{"spec":{"cron":"0 */6 * * *"}}'</b>
+clustercompliancereport.aquasecurity.github.io/k8s-cis-1.23 patched</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the timestamp moves and the summary counts fail and pass totals.</div>
+    </div>
+
+    <div class="exercise" data-title="Run kube-bench against the node">
+      <p>CIS benchmark output is the format compliance conversations happen in: a control id, a verdict, and a remediation. Run it once so the ids mean something when a task quotes one at you.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: batch/v1
+kind: Job
+metadata: { name: kube-bench, namespace: default }
+spec:
+  template:
+    spec:
+      hostPID: true
+      nodeSelector: { node-role.kubernetes.io/control-plane: "" }
+      tolerations:
+        - { key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }
+      containers:
+        - name: kube-bench
+          image: docker.io/aquasec/kube-bench:latest
+          command: ["kube-bench", "run", "--targets", "master"]
+          volumeMounts:
+            - { name: etc-kubernetes, mountPath: /etc/kubernetes, readOnly: true }
+            - { name: var-lib-etcd, mountPath: /var/lib/etcd, readOnly: true }
+      restartPolicy: Never
+      volumes:
+        - { name: etc-kubernetes, hostPath: { path: /etc/kubernetes } }
+        - { name: var-lib-etcd, hostPath: { path: /var/lib/etcd } }
+  backoffLimit: 0
+EOF
+kubectl wait --for=condition=complete job/kube-bench --timeout=300s || true
+kubectl logs job/kube-bench | grep -E '^\[(PASS|FAIL)\]' | head -10
+kubectl logs job/kube-bench | tail -20
+kubectl delete job kube-bench</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: batch/v1</b>
+<b>kind: Job</b>
+<b>metadata: { name: kube-bench, namespace: default }</b>
+<b>spec:</b>
+<b>  template:</b>
+<b>    spec:</b>
+<b>      hostPID: true</b>
+<b>      nodeSelector: { node-role.kubernetes.io/control-plane: "" }</b>
+<b>      tolerations:</b>
+<b>        - { key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }</b>
+<b>      containers:</b>
+<b>        - name: kube-bench</b>
+<b>          image: docker.io/aquasec/kube-bench:latest</b>
+<b>          command: ["kube-bench", "run", "--targets", "master"]</b>
+<b>          volumeMounts:</b>
+<b>            - { name: etc-kubernetes, mountPath: /etc/kubernetes, readOnly: true }</b>
+<b>            - { name: var-lib-etcd, mountPath: /var/lib/etcd, readOnly: true }</b>
+<b>      restartPolicy: Never</b>
+<b>      volumes:</b>
+<b>        - { name: etc-kubernetes, hostPath: { path: /etc/kubernetes } }</b>
+<b>        - { name: var-lib-etcd, hostPath: { path: /var/lib/etcd } }</b>
+<b>  backoffLimit: 0</b>
+<b>EOF</b>
+job.batch/kube-bench created
+<b>$ kubectl wait --for=condition=complete job/kube-bench --timeout=300s || true</b>
+job.batch/kube-bench condition met
+<b>$ kubectl logs job/kube-bench | grep -E '^\[(PASS|FAIL)\]' | head -10</b>
+[PASS] 1.1.1 Ensure that the API server pod specification file permissions are set to 600 or more restrictive (Automated)
+[PASS] 1.1.2 Ensure that the API server pod specification file ownership is set to root:root (Automated)
+[PASS] 1.1.3 Ensure that the controller manager pod specification file permissions are set to 600 or more restrictive (Automated)
+[PASS] 1.1.4 Ensure that the controller manager pod specification file ownership is set to root:root (Automated)
+[PASS] 1.1.5 Ensure that the scheduler pod specification file permissions are set to 600 or more restrictive (Automated)
+[PASS] 1.1.6 Ensure that the scheduler pod specification file ownership is set to root:root (Automated)
+[PASS] 1.1.7 Ensure that the etcd pod specification file permissions are set to 600 or more restrictive (Automated)
+[PASS] 1.1.8 Ensure that the etcd pod specification file ownership is set to root:root (Automated)
+[PASS] 1.1.11 Ensure that the etcd data directory permissions are set to 700 or more restrictive (Automated)
+[FAIL] 1.1.12 Ensure that the etcd data directory ownership is set to etcd:etcd (Automated)
+<b>$ kubectl logs job/kube-bench | tail -20</b>
+1.4.1 Edit the Scheduler pod specification file /etc/kubernetes/manifests/kube-scheduler.yaml file
+on the control plane node and set the below parameter.
+--profiling=false
+
+1.4.2 Edit the Scheduler pod specification file /etc/kubernetes/manifests/kube-scheduler.yaml
+on the control plane node and ensure the correct value for the --bind-address parameter
+
+
+== Summary master ==
+38 checks PASS
+11 checks FAIL
+11 checks WARN
+0 checks INFO
+
+== Summary total ==
+38 checks PASS
+11 checks FAIL
+11 checks WARN
+0 checks INFO
+<b>$ kubectl delete job kube-bench</b>
+job.batch "kube-bench" deleted from default namespace</code></pre></details></div>
+      <div class="verify"><b>verify:</b> you can quote one PASS and one FAIL with their control ids, and read the remediation text for the failure.</div>
+    </div>
+
   </div>
 </section>
 
@@ -234,6 +662,16 @@ tekton-pipelines	replicaset-6985f46fcc	3	15</code></pre></details></div>
 
     <details class="quiz"><summary>Your cluster's API server will not start after an audit change. First hypothesis?</summary>
       <div class="answer"><p>The audit policy file is missing or unparseable at the path given by <code>--audit-policy-file</code> (or the volume mount is wrong). The API server refuses to start rather than run unaudited: a safety choice that presents as a dead control plane.</p></div></details>
+  
+
+    <details class="quiz"><summary>Your audit policy puts the catch-all <code>Metadata</code> rule first and the Secrets rule after it. What is wrong, and what else should precede the catch-all?</summary>
+      <div class="answer"><p>First match wins, so the Secrets rule never applies and every request lands at Metadata (harmless for Secrets in this case, but the same mistake with a <code>None</code> rule after the catch-all means the noise is never dropped, and a <code>RequestResponse</code> rule after it never raises RBAC changes). Order: <code>None</code> for health URLs, leases and kube-proxy watches; <code>Metadata</code> for secrets, configmaps, tokenreviews and <code>pods/exec</code>; <code>RequestResponse</code> for RBAC and policy groups; then the catch-all.</p></div></details>
+
+    <details class="quiz"><summary>Which layer catches each: a user reads a Secret; a process in a container starts <code>/bin/sh</code>; an image contains a package with a new CVE; a node's kubelet allows anonymous auth?</summary>
+      <div class="answer"><p>API audit log (Metadata on <code>secrets</code>); Falco syscall rules; the Trivy Operator's VulnerabilityReport on rescan (or a pipeline scan at build); kube-bench or the Trivy Operator's InfraAssessmentReport and CIS compliance report. Four different sensors, one compliance story; naming which sees what is the answer to "design a complete audit trail".</p></div></details>
+
+    <details class="quiz"><summary>What is the difference between an SBOM attestation and a VEX document, and why keep both?</summary>
+      <div class="answer"><p>The SBOM lists what is inside the artefact; VEX states whether known vulnerabilities in those components actually affect it (not affected, affected, fixed, under investigation) with a justification. Scanners join the SBOM against CVE feeds and then apply VEX to suppress non-applicable findings with a recorded reason, which is auditable in a way a bare <code>.trivyignore</code> line is not.</p></div></details>
   </div>
 </section>
 
@@ -245,6 +683,10 @@ tekton-pipelines	replicaset-6985f46fcc	3	15</code></pre></details></div>
       <li><b>aquasecurity.github.io/trivy-operator</b>: the CRD reference pages, one per report kind.</li>
       <li><b>cyclonedx.org</b> / <b>spdx.dev</b>: enough to know which is which.</li>
       <li><b>Offline:</b> <code>jq</code> against the log file, and <code>kubectl explain clustercompliancereport.status</code>.</li>
+    
+      <li><b>kubernetes.io/docs/tasks/debug/debug-cluster/audit</b>: rule fields, stages, and the full flag list for both backends; the <code>Policy</code> API reference under <code>audit.k8s.io/v1</code> for <code>omitManagedFields</code>.</li>
+      <li><b>aquasecurity.github.io/trivy-operator/latest/docs/crds</b> (one page per report kind) and <b>/docs/compliance</b> (the four compliance spec ids); <b>aquasecurity.github.io/trivy/latest/docs/configuration/filtering</b> for VEX and ignore files.</li>
+      <li><b>falco.org/docs/rules</b> for rule syntax and <b>github.com/in-toto/attestation/tree/main/spec</b> for the Statement and DSSE layout.</li>
     </ul>
   </div>
 </section>

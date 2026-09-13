@@ -141,8 +141,9 @@ module.exports = async function (h) {
     const { qs } = await walk(page, 20, i => (i === 0 ? '1' : '2'));
     const hit = dueQs.filter(q => qs.indexOf(q) >= 0).length;
     assert(hit >= 3, hit + ' of the 5 due cards made the 20-card deck');
-    // the 19 got right went away for a day or more; the one missed is due again now
-    assert((await due()) === 1, 'the session left exactly the missed card due: ' + await due());
+    // the cards got right went away for a day or more; the one missed is due again now,
+    // and so is any due card the 20-card deal did not reach
+    assert((await due()) === 1 + (5 - hit), 'the session left exactly the missed card and the undealt due cards due: ' + await due());
     const missed = await page.evaluate(() => {
       const st = window.CNPE_PROGRESS.get();
       return Object.keys(st.drill).filter(function (k) { return st.drill[k].ok === false; }).length;

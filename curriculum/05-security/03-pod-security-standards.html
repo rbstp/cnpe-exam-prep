@@ -64,6 +64,41 @@ pod-security.kubernetes.io/audit: restricted</code></pre></div>
   </div>
 </section>
 
+<section class="panel accent-c" id="fields-by-profile">
+  <div class="phdr"><h2>The profiles at field level</h2><span class="meta">what baseline forbids, what restricted demands, path by path</span></div>
+  <div class="pbody">
+    <p>The rejection message names the control (<code>privileged</code>, <code>hostPath volumes</code>, <code>allowPrivilegeEscalation != false</code>, <code>unrestricted capabilities</code>, <code>runAsNonRoot != true</code>, <code>seccompProfile</code>). Knowing which field each control reads turns that message into a one-line edit.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Control</th><th>Field(s), on pod and every container (<code>containers</code>, <code>initContainers</code>, <code>ephemeralContainers</code>)</th><th>Baseline</th><th>Restricted adds</th></tr></thead>
+        <tbody>
+          <tr><td>Host namespaces</td><td class="mono">spec.hostNetwork, hostPID, hostIPC</td><td>must be false/unset</td><td>same</td></tr>
+          <tr><td>Privileged</td><td class="mono">securityContext.privileged</td><td>false/unset</td><td>same</td></tr>
+          <tr><td>Capabilities</td><td class="mono">securityContext.capabilities.add / drop</td><td><code>add</code> only from: AUDIT_WRITE, CHOWN, DAC_OVERRIDE, FOWNER, FSETID, KILL, MKNOD, NET_BIND_SERVICE, SETFCAP, SETGID, SETPCAP, SETUID, SYS_CHROOT</td><td><code>drop: ["ALL"]</code> required; <code>add</code> may contain only NET_BIND_SERVICE</td></tr>
+          <tr><td>HostPath volumes</td><td class="mono">spec.volumes[*].hostPath</td><td>forbidden</td><td>same</td></tr>
+          <tr><td>Host ports</td><td class="mono">containers[*].ports[*].hostPort</td><td>unset or 0</td><td>same</td></tr>
+          <tr><td>AppArmor</td><td class="mono">securityContext.appArmorProfile.type</td><td><code>RuntimeDefault</code>, <code>Localhost</code>, or unset; not <code>Unconfined</code></td><td>same</td></tr>
+          <tr><td>SELinux</td><td class="mono">securityContext.seLinuxOptions.type / user / role</td><td>type in <code>container_t</code>, <code>container_init_t</code>, <code>container_kvm_t</code>, <code>container_engine_t</code> or unset; user and role must be unset</td><td>same</td></tr>
+          <tr><td>/proc mount</td><td class="mono">securityContext.procMount</td><td><code>Default</code> or unset</td><td>same</td></tr>
+          <tr><td>Seccomp</td><td class="mono">securityContext.seccompProfile.type</td><td>not <code>Unconfined</code> (unset allowed)</td><td>must be set: <code>RuntimeDefault</code> or <code>Localhost</code>, at pod level or on every container</td></tr>
+          <tr><td>Sysctls</td><td class="mono">spec.securityContext.sysctls[*].name</td><td>only the safe set (<code>kernel.shm_rmid_forced</code>, <code>net.ipv4.ip_local_port_range</code>, <code>net.ipv4.tcp_syncookies</code>, <code>net.ipv4.ping_group_range</code>, <code>net.ipv4.ip_unprivileged_port_start</code> and a few more)</td><td>same</td></tr>
+          <tr><td>Volume types</td><td class="mono">spec.volumes[*]</td><td>anything but hostPath</td><td>only <code>configMap</code>, <code>csi</code>, <code>downwardAPI</code>, <code>emptyDir</code>, <code>ephemeral</code>, <code>persistentVolumeClaim</code>, <code>projected</code>, <code>secret</code></td></tr>
+          <tr><td>Privilege escalation</td><td class="mono">containers[*].securityContext.allowPrivilegeEscalation</td><td>n/a</td><td>must be <code>false</code> on every container (Linux pods)</td></tr>
+          <tr><td>Non-root</td><td class="mono">securityContext.runAsNonRoot; runAsUser</td><td>n/a</td><td><code>runAsNonRoot: true</code> at pod level or on every container; <code>runAsUser</code> must not be 0 where set</td></tr>
+          <tr><td>Windows HostProcess</td><td class="mono">securityContext.windowsOptions.hostProcess</td><td>false/unset</td><td>same</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <ul>
+      <li><strong>Pod level vs container level.</strong> <code>runAsNonRoot</code>, <code>runAsUser</code>, <code>seccompProfile</code>, <code>appArmorProfile</code> and <code>seLinuxOptions</code> can be set on <code>spec.securityContext</code> and inherited, with a container able to override; <code>allowPrivilegeEscalation</code>, <code>capabilities</code>, <code>privileged</code>, <code>procMount</code> and <code>readOnlyRootFilesystem</code> exist only per container. A restricted failure that says "container x" wants a per-container field; one that names the pod wants the pod-level block.</li>
+      <li><strong>Not required by restricted.</strong> <code>readOnlyRootFilesystem</code>, resource limits, a non-root <code>fsGroup</code>. Tasks that ask for them are asking for a policy engine rule or a hardened manifest, not PSS.</li>
+      <li><strong>Images that run as root.</strong> <code>runAsNonRoot: true</code> with an image whose default user is root fails at container start with <code>container has runAsNonRoot and image will run as root</code> (a <code>CreateContainerConfigError</code>), not at admission. Add <code>runAsUser: 1000</code> (and usually <code>runAsGroup</code>), or use an image built for a non-root user.</li>
+      <li><strong>Ephemeral containers count.</strong> <code>kubectl debug</code> into a restricted namespace fails unless you pass <code>--profile=restricted</code>, because the injected container also has to satisfy the profile.</li>
+    </ul>
+    <div class="callout reflex"><span class="tag">Reflex</span><p>Reading a rejection: split the message on commas; each clause is one row of the table and names the container. Fix them all in one edit; PSS reports every violation at once, so a second apply should be clean.</p></div>
+  </div>
+</section>
+
 <section class="panel accent-y" id="operational">
   <div class="phdr"><h2>Two operational facts that decide troubleshooting tasks</h2><span class="meta">and one preview command</span></div>
   <div class="pbody">
@@ -95,6 +130,49 @@ containers:
       <span class="tag">PSS versus a policy engine</span>
       <p>PSS is fixed, built in, free, and covers exactly the pod-hardening dimension. A policy engine is arbitrary, installable, and covers everything else (image registries, labels, ownership, cross-object rules) at the cost of running a webhook. The professional answer to "which should we use" is <strong>both</strong>: PSS as the always-on floor, an engine for organisation-specific rules. The engine can also enforce PSS-like rules in namespaces where you need exceptions PSS cannot express.</p>
     </div>
+  </div>
+</section>
+
+<section class="panel accent-y" id="defaults-exemptions">
+  <div class="phdr"><h2>Cluster-wide defaults, exemptions and the newer knobs</h2><span class="meta">AdmissionConfiguration, workload resources, user namespaces, AppArmor</span></div>
+  <div class="pbody">
+    <h3>Defaults and exemptions live on the API server</h3>
+    <p>Namespace labels are the per-namespace layer. The cluster-wide layer is the <code>PodSecurity</code> admission plugin's configuration, passed to <code>kube-apiserver</code> with <code>--admission-control-config-file</code>:</p>
+    <div class="cb" data-lang="yaml"><pre><code>apiVersion: apiserver.config.k8s.io/v1
+kind: AdmissionConfiguration
+plugins:
+- name: PodSecurity
+  configuration:
+    apiVersion: pod-security.admission.config.k8s.io/v1
+    kind: PodSecurityConfiguration
+    defaults:                       # applied to namespaces with no label for that mode
+      enforce: baseline
+      enforce-version: latest
+      audit: restricted
+      audit-version: latest
+      warn: restricted
+      warn-version: latest
+    exemptions:
+      usernames: []                 # authenticated or impersonated users
+      runtimeClasses: [kata]        # pods with this runtimeClassName
+      namespaces: [kube-system]     # whole namespaces</code></pre></div>
+    <ul>
+      <li>A namespace label always overrides the default for that mode; the default only fills gaps. So "every new namespace must be at least baseline" is this file, not a Kyverno policy that labels namespaces (though that works too and is the answer when you cannot touch the API server, which on managed clusters you usually cannot).</li>
+      <li>Exempt requests skip all three modes. Exempting a username exempts what that user creates directly, not what a controller creates on their behalf, which is why the docs say not to exempt controller ServiceAccounts such as the ReplicaSet controller: that would exempt everyone who can create a Deployment.</li>
+      <li><code>pod_security_evaluations_total</code> and <code>pod_security_exemptions_total</code> on the API server tell you how often each mode fires; a spike in <code>decision="deny"</code> after a label change is your rollout signal.</li>
+    </ul>
+
+    <h3>Workload resources and updates</h3>
+    <p><code>warn</code> and <code>audit</code> are applied to Deployments, StatefulSets, Jobs and other pod-template resources, so the person applying a Deployment sees the warning; <code>enforce</code> is applied only to the resulting pods, which is the two-level failure from the exercises. Pod updates that touch only metadata (other than seccomp or AppArmor annotations), <code>activeDeadlineSeconds</code> or <code>tolerations</code> are exempt from re-evaluation; anything that creates a new pod, including a Deployment rollout, is evaluated in full, which is when a tightened label first bites a running workload. <code>kubectl label --dry-run=server</code> is the preview for the label change; <code>kubectl apply --dry-run=server</code> on a workload previews the warnings without creating it.</p>
+
+    <h3>Newer knobs that change what "compliant" means</h3>
+    <ul>
+      <li><strong>User namespaces (GA in 1.36).</strong> <code>spec.hostUsers: false</code> maps container UIDs to unprivileged host UIDs, so root in the container is not root on the node. Needs a Linux 6.3+ kernel with idmap mounts on every filesystem the pod uses (tmpfs included), containerd 2.0+ or CRI-O, and runc 1.2+ or crun 1.9+. It is Linux-only and does not apply to <code>hostPath</code> or host namespaces. PSS still evaluates the pod normally; user namespaces are defence in depth under it.</li>
+      <li><strong>AppArmor (GA in 1.30).</strong> The field is <code>securityContext.appArmorProfile: { type: RuntimeDefault | Localhost | Unconfined, localhostProfile: name }</code>; the old <code>container.apparmor.security.beta.kubernetes.io/&lt;container&gt;</code> annotation is deprecated and rejected when it disagrees with the field. Baseline reads the field.</li>
+      <li><strong>Seccomp.</strong> <code>RuntimeDefault</code> uses the container runtime's profile; <code>Localhost</code> needs <code>localhostProfile</code> relative to the kubelet's <code>/var/lib/kubelet/seccomp/</code> directory on every node. The kubelet flag <code>--seccomp-default</code> (or <code>seccompDefault: true</code> in <code>KubeletConfiguration</code>) makes <code>RuntimeDefault</code> the default for pods that set nothing, which is how you satisfy restricted's seccomp requirement fleet-wide without editing manifests; PSS, though, checks the pod spec, not the kubelet default, so restricted still wants the field written.</li>
+      <li><strong>PodSecurityPolicy</strong> was removed in 1.25; a <code>policy/v1beta1 PodSecurityPolicy</code> manifest in a task is a trick, and the answer is labels plus an engine.</li>
+    </ul>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Make namespace X enforce restricted without breaking its current workloads" is: preview with <code>--dry-run=server</code>, fix the manifests the warnings name (usually <code>allowPrivilegeEscalation</code>, <code>capabilities.drop</code>, <code>runAsNonRoot</code>, <code>seccompProfile</code>), then set the label with a pinned <code>enforce-version</code>. "Allow one system workload that needs hostPath in an otherwise restricted cluster" is an exemption by namespace or a separate <code>privileged</code> namespace, never a per-pod exception, because PSS has none.</p></div>
   </div>
 </section>
 
@@ -137,6 +215,220 @@ sneaky   0/1     0            0           11s
       <div class="verify"><b>verify:</b> a warning per non-compliant pod, zero mutations made. Pair with the audit log (section 5.4) to see what the <code>audit</code> label has been quietly recording all along.</div>
     </div>
 
+    <div class="exercise" data-title="runAsNonRoot meets a root image">
+      <p>Pod Security admits this pod happily: the spec is compliant. The kubelet then refuses to start it, because the image's user is root and the spec said not root. The refusal therefore lands in the container status, not at admission, which is why the pod is created and never runs.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create ns hardened --dry-run=client -o yaml | kubectl apply -f -
+kubectl label ns hardened pod-security.kubernetes.io/enforce=restricted --overwrite
+kubectl -n hardened apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: Pod
+metadata: { name: rootimage }
+spec:
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile: { type: RuntimeDefault }
+  containers:
+    - name: c
+      image: nginx:1.27-alpine
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities: { drop: ["ALL"] }
+EOF
+sleep 20
+kubectl -n hardened get pod rootimage -o jsonpath='{.status.containerStatuses[0].state}' | jq
+kubectl -n hardened describe pod rootimage | sed -n '/Events/,$p'
+kubectl -n hardened delete pod rootimage</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create ns hardened --dry-run=client -o yaml | kubectl apply -f -</b>
+namespace/hardened created
+<b>$ kubectl label ns hardened pod-security.kubernetes.io/enforce=restricted --overwrite</b>
+namespace/hardened labeled
+<b>$ kubectl -n hardened apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: Pod</b>
+<b>metadata: { name: rootimage }</b>
+<b>spec:</b>
+<b>  securityContext:</b>
+<b>    runAsNonRoot: true</b>
+<b>    seccompProfile: { type: RuntimeDefault }</b>
+<b>  containers:</b>
+<b>    - name: c</b>
+<b>      image: nginx:1.27-alpine</b>
+<b>      securityContext:</b>
+<b>        allowPrivilegeEscalation: false</b>
+<b>        capabilities: { drop: ["ALL"] }</b>
+<b>EOF</b>
+pod/rootimage created
+<b>$ sleep 20</b>
+<b>$ kubectl -n hardened get pod rootimage -o jsonpath='{.status.containerStatuses[0].state}' | jq</b>
+{
+  "waiting": {
+    "message": "container has runAsNonRoot and image will run as root (pod: \"rootimage_hardened(b1353a96-63bb-4895-b6f2-838249d72469)\", container: c)",
+    "reason": "CreateContainerConfigError"
+  }
+}
+<b>$ kubectl -n hardened describe pod rootimage | sed -n '/Events/,$p'</b>
+Events:
+  Type     Reason           Age               From               Message
+  ----     ------           ----              ----               -------
+  Warning  PolicyViolation  21s               kyverno-admission  policy require-resource-requests/ fail: every container must set cpu and memory requests
+  Normal   Scheduled        21s               default-scheduler  Successfully assigned hardened/rootimage to cnpe-worker
+  Normal   Pulled           7s (x3 over 19s)  kubelet            spec.containers{c}: Container image "nginx:1.27-alpine" already present on machine and can be accessed by the pod
+  Warning  Failed           7s (x3 over 19s)  kubelet            spec.containers{c}: Error: container has runAsNonRoot and image will run as root (pod: "rootimage_hardened(b1353a96-63bb-4895-b6f2-838249d72469)", container: c)
+<b>$ kubectl -n hardened delete pod rootimage</b>
+pod "rootimage" deleted from hardened namespace</code></pre></details></div>
+      <div class="verify"><b>verify:</b> admission accepts the pod and the container status is <code>CreateContainerConfigError</code> with an event saying the container has runAsNonRoot and the image will run as root.</div>
+    </div>
+
+    <div class="exercise" data-title="Debug into a restricted namespace">
+      <p><code>kubectl debug</code> adds an ephemeral container, and that container goes through admission like any other. In a restricted namespace the default debug container is refused, and the profile flag is the fix people do not know exists.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n hardened run target --image=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine --restart=Never --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"target","image":"ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine","securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}'
+kubectl -n hardened wait --for=condition=Ready pod/target --timeout=120s
+kubectl -n hardened debug target --image=busybox:1.36 --target=target -- true
+kubectl -n hardened debug target --image=busybox:1.36 --target=target --profile=restricted -- true
+kubectl -n hardened get pod target -o jsonpath='{range .spec.ephemeralContainers[*]}{.name} {.securityContext.allowPrivilegeEscalation} {.securityContext.capabilities.drop}{"\n"}{end}'
+sleep 10
+kubectl -n hardened get pod target -o json | jq -r '.status.ephemeralContainerStatuses[]? | "\(.name) \(.state|keys[0])"'
+kubectl -n hardened delete pod target</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl -n hardened run target --image=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine --restart=Never --overrides='{"spec":{"securityContext":{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"target","image":"ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine","securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}'</b>
+pod/target created
+<b>$ kubectl -n hardened wait --for=condition=Ready pod/target --timeout=120s</b>
+pod/target condition met
+<b>$ kubectl -n hardened debug target --image=busybox:1.36 --target=target -- true</b>
+Targeting container "target". If you don't see processes from this container it may be because the container runtime doesn't support this feature.
+Defaulting debug container name to debugger-s56nq.
+Error from server (Forbidden): pods "target" is forbidden: violates PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "debugger-s56nq" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "debugger-s56nq" must set securityContext.capabilities.drop=["ALL"]; container "debugger-s56nq" must not include "SYS_PTRACE" in securityContext.capabilities.add)
+<b>$ kubectl -n hardened debug target --image=busybox:1.36 --target=target --profile=restricted -- true</b>
+Targeting container "target". If you don't see processes from this container it may be because the container runtime doesn't support this feature.
+Defaulting debug container name to debugger-67shh.
+<b>$ kubectl -n hardened get pod target -o jsonpath='{range .spec.ephemeralContainers[*]}{.name} {.securityContext.allowPrivilegeEscalation} {.securityContext.capabilities.drop}{"\n"}{end}'</b>
+debugger-67shh false ["ALL"]
+<b>$ sleep 10</b>
+<b>$ kubectl -n hardened get pod target -o json | jq -r '.status.ephemeralContainerStatuses[]? | "\(.name) \(.state|keys[0])"'</b>
+debugger-67shh waiting
+<b>$ kubectl -n hardened delete pod target</b>
+pod "target" deleted from hardened namespace</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the first attempt is rejected by Pod Security naming the fields the ephemeral container is missing, and <code>--profile=restricted</code> is accepted. The spec listing then shows the accepted debug container with <code>allowPrivilegeEscalation false</code> and <code>capabilities drop ["ALL"]</code>, which is what the profile built for you. Read the spec rather than the status: the kubelet writes <code>ephemeralContainerStatuses</code> a beat later, so a status read this soon shows <code>waiting</code>, or nothing at all. The profile changes the container it builds, not the namespace's policy.</div>
+    </div>
+
+    <div class="exercise" data-title="Give a pod its own user namespace">
+      <p><code>hostUsers: false</code> maps the container's root to an unprivileged uid on the host, which defangs a whole class of escapes. Whether it works depends on the kernel and the runtime, and in this lab it does not: a kind node is itself a container, and the runtime will not give a nested user namespace the mounts it needs. The refusal is the exercise, because it is the same message you will read on any cluster where the feature is unavailable.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n default apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: Pod
+metadata: { name: userns }
+spec:
+  hostUsers: false
+  containers:
+    - name: c
+      image: busybox:1.36
+      command: ["sh", "-c", "sleep 600"]
+EOF
+sleep 30
+kubectl -n default get pod userns -o jsonpath='{.status.phase} {.status.conditions[*].message}{"\n"}'
+kubectl -n default get events --field-selector involvedObject.name=userns -o jsonpath='{range .items[*]}{.reason}: {.message}{"\n"}{end}' | tail -1
+kubectl -n default exec userns -- cat /proc/self/uid_map
+kubectl -n default exec userns -- id
+kubectl -n default delete pod userns</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl -n default apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: Pod</b>
+<b>metadata: { name: userns }</b>
+<b>spec:</b>
+<b>  hostUsers: false</b>
+<b>  containers:</b>
+<b>    - name: c</b>
+<b>      image: busybox:1.36</b>
+<b>      command: ["sh", "-c", "sleep 600"]</b>
+<b>EOF</b>
+pod/userns created
+<b>$ sleep 30</b>
+<b>$ kubectl -n default get pod userns -o jsonpath='{.status.phase} {.status.conditions[*].message}{"\n"}'</b>
+Pending containers with unready status: [c] containers with unready status: [c]
+<b>$ kubectl -n default get events --field-selector involvedObject.name=userns -o jsonpath='{range .items[*]}{.reason}: {.message}{"\n"}{end}' | tail -1</b>
+FailedCreatePodSandBox: Failed to create pod sandbox: rpc error: code = Unknown desc = failed to start sandbox "8f8262b522a1e5b8f11a084559e731dd00390acf1c8d8f4ebddd62f0452dc38d": failed to create containerd task: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: error mounting "sysfs" to rootfs at "/sys": mount src=sysfs, dst=/sys, dstFd=/proc/thread-self/fd/11, flags=MS_RDONLY|MS_NOSUID|MS_NODEV|MS_NOEXEC: operation not permitted
+<b>$ kubectl -n default exec userns -- cat /proc/self/uid_map</b>
+error: unable to upgrade connection: container not found ("c")
+<b>$ kubectl -n default exec userns -- id</b>
+error: unable to upgrade connection: container not found ("c")
+<b>$ kubectl -n default delete pod userns</b>
+pod "userns" deleted from default namespace</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the pod stays <code>Pending</code> with <code>containers with unready status: [c]</code>, and the event is <code>FailedCreatePodSandBox ... error mounting "sysfs" to rootfs at "/sys": ... operation not permitted</code>. That is the runtime, not the API, refusing: admission accepted <code>hostUsers: false</code> quite happily, so the exec that follows fails with <code>container not found</code> rather than with anything about user namespaces. On a cluster where it does work, <code>cat /proc/self/uid_map</code> inside the pod shows container uid 0 mapped to a high host uid rather than to 0, which is the check worth remembering.</div>
+    </div>
+
+    <div class="exercise" data-title="Preview a tightening without breaking anyone">
+      <p>Warn and audit labels let you find out what restricted would reject before you enforce it. A server-side dry run is the same question asked about one workload, and it costs nothing.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl create ns warnzone --dry-run=client -o yaml | kubectl apply -f -
+kubectl label ns warnzone pod-security.kubernetes.io/warn=restricted pod-security.kubernetes.io/audit=restricted --overwrite
+kubectl -n warnzone apply --dry-run=server -f - &lt;&lt;'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: legacy-app }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: legacy-app } }
+  template:
+    metadata: { labels: { app: legacy-app } }
+    spec:
+      containers:
+        - name: c
+          image: nginx:1.27-alpine
+EOF
+kubectl -n warnzone apply -f - &lt;&lt;'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: legacy-app }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: legacy-app } }
+  template:
+    metadata: { labels: { app: legacy-app } }
+    spec:
+      containers:
+        - name: c
+          image: nginx:1.27-alpine
+EOF
+kubectl -n warnzone get deploy legacy-app
+kubectl delete ns warnzone</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create ns warnzone --dry-run=client -o yaml | kubectl apply -f -</b>
+namespace/warnzone created
+<b>$ kubectl label ns warnzone pod-security.kubernetes.io/warn=restricted pod-security.kubernetes.io/audit=restricted --overwrite</b>
+namespace/warnzone labeled
+<b>$ kubectl -n warnzone apply --dry-run=server -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: apps/v1</b>
+<b>kind: Deployment</b>
+<b>metadata: { name: legacy-app }</b>
+<b>spec:</b>
+<b>  replicas: 1</b>
+<b>  selector: { matchLabels: { app: legacy-app } }</b>
+<b>  template:</b>
+<b>    metadata: { labels: { app: legacy-app } }</b>
+<b>    spec:</b>
+<b>      containers:</b>
+<b>        - name: c</b>
+<b>          image: nginx:1.27-alpine</b>
+<b>EOF</b>
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "c" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "c" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "c" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "c" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+deployment.apps/legacy-app created (server dry run)
+<b>$ kubectl -n warnzone apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: apps/v1</b>
+<b>kind: Deployment</b>
+<b>metadata: { name: legacy-app }</b>
+<b>spec:</b>
+<b>  replicas: 1</b>
+<b>  selector: { matchLabels: { app: legacy-app } }</b>
+<b>  template:</b>
+<b>    metadata: { labels: { app: legacy-app } }</b>
+<b>    spec:</b>
+<b>      containers:</b>
+<b>        - name: c</b>
+<b>          image: nginx:1.27-alpine</b>
+<b>EOF</b>
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "c" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "c" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "c" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "c" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+deployment.apps/legacy-app created
+<b>$ kubectl -n warnzone get deploy legacy-app</b>
+NAME         READY   UP-TO-DATE   AVAILABLE   AGE
+legacy-app   0/1     0            0           0s
+<b>$ kubectl delete ns warnzone</b>
+namespace "warnzone" deleted</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the dry run prints the restricted warning listing every field the workload is missing, and the real apply prints the same warning and creates it anyway. That list is the migration plan; paste it into the ticket.</div>
+    </div>
+
   </div>
 </section>
 
@@ -157,6 +449,16 @@ sneaky   0/1     0            0           11s
 
     <details class="quiz"><summary>PSS or Kyverno for "images must come from our registry"?</summary>
       <div class="answer"><p>Kyverno (or Gatekeeper): PSS covers only the fixed pod-hardening dimension and has no notion of registries. PSS is the floor; the engine is for organisation-specific rules, and it is fine, indeed normal, to run both.</p></div></details>
+  
+
+    <details class="quiz"><summary>A pod passes restricted admission and then sits in <code>CreateContainerConfigError</code> with <code>container has runAsNonRoot and image will run as root</code>. What happened?</summary>
+      <div class="answer"><p>You set <code>runAsNonRoot: true</code>, which satisfies PSS at admission, but the image's default user is root, so the kubelet refuses to start it. Set <code>runAsUser</code> (and <code>runAsGroup</code>) to a non-zero id, or use an image whose <code>USER</code> is non-root. PSS checks the spec; the kubelet checks the image.</p></div></details>
+
+    <details class="quiz"><summary>How do you make every namespace without labels enforce baseline and warn on restricted, cluster-wide, and what does a namespace label do to that default?</summary>
+      <div class="answer"><p>An <code>AdmissionConfiguration</code> with a <code>PodSecurityConfiguration</code> whose <code>defaults</code> set <code>enforce: baseline</code>, <code>warn: restricted</code> (plus versions), passed to the API server with <code>--admission-control-config-file</code>. A namespace label for a mode overrides the default for that mode only. On a managed control plane you cannot set this, so the fallback is a policy engine that labels namespaces at creation.</p></div></details>
+
+    <details class="quiz"><summary>Restricted rejects a container for <code>seccompProfile</code>, yet the kubelet runs with <code>seccompDefault: true</code>. Why is that not enough?</summary>
+      <div class="answer"><p>PSS evaluates the pod spec at admission; the kubelet default is applied later, at container creation, and is invisible to the admission controller. Restricted requires <code>seccompProfile.type</code> to be <code>RuntimeDefault</code> or <code>Localhost</code> in the spec, at pod level or on every container. The kubelet flag is still worth setting: it protects pods in namespaces that are not restricted.</p></div></details>
   </div>
 </section>
 
@@ -166,6 +468,9 @@ sneaky   0/1     0            0           11s
     <ul class="docs">
       <li><b>kubernetes.io</b>: Pod Security Standards (the profile tables; do not memorise the capability lists, know where they are) and Enforce Pod Security Standards with Namespace Labels.</li>
       <li><b>Offline:</b> the rejection messages themselves; PSS names every violated control, which makes it the most self-documenting admission mechanism in the cluster; plus <code>kubectl explain pod.spec.securityContext</code>.</li>
+    
+      <li><b>kubernetes.io/docs/concepts/security/pod-security-standards</b>: the field-by-field tables (use them, do not memorise the capability list); <b>/docs/concepts/security/pod-security-admission</b> for workload-resource behaviour and exemptions.</li>
+      <li><b>kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-admission-controller</b>: the <code>AdmissionConfiguration</code> file; <b>/docs/concepts/workloads/pods/user-namespaces</b> for <code>hostUsers</code> and its runtime requirements.</li>
     </ul>
   </div>
 </section>

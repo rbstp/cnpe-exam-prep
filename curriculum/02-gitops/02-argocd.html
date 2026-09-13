@@ -115,6 +115,25 @@ spec:
       </table>
     </div>
     <p>They can be set per-Application (<code>spec.syncPolicy.syncOptions</code>) or per-resource with the <code>argocd.argoproj.io/sync-options</code> annotation. Know both placements.</p>
+  
+
+    <h3>The rest of the sync options</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Option</th><th>What it does</th><th>Placement</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">Prune=false · Delete=false</td><td>never prune this resource / keep it when the Application is deleted (PVCs, namespaces)</td><td>resource annotation, or app-wide</td></tr>
+          <tr><td class="mono">Prune=confirm · Delete=confirm</td><td>the sync stays in Syncing until a human confirms; confirmation is the <code>argocd.argoproj.io/deletion-approved</code> annotation on the Application (UI button, CLI <code>argocd app confirm-deletion</code>)</td><td>either</td></tr>
+          <tr><td class="mono">PruneLast=true</td><td>prune as a final implicit wave after everything else is healthy</td><td>either</td></tr>
+          <tr><td class="mono">RespectIgnoreDifferences=true</td><td>also honour <code>ignoreDifferences</code> when applying, so Argo stops overwriting the HPA's replica count</td><td>app</td></tr>
+          <tr><td class="mono">FailOnSharedResource=true</td><td>fail the sync if another Application already manages a resource</td><td>app</td></tr>
+          <tr><td class="mono">Validate=false</td><td>skip schema validation (needed with ServerSideApply partial manifests, RawExtension kinds)</td><td>either</td></tr>
+          <tr><td class="mono">Force=true</td><td>delete-and-recreate; only meaningful with <code>Replace=true</code> or client-side apply</td><td>resource annotation</td></tr>
+          <tr><td class="mono">ServerSideApply=true</td><td><code>kubectl apply --server-side --force-conflicts</code>; also enables patching partial manifests and the automatic client-side-apply migration of managedFields</td><td>either; <code>ServerSideApply=false</code> opts one resource out</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><code>Replace=true</code> takes precedence over <code>ServerSideApply=true</code>. Namespace metadata is the special case: <code>syncPolicy.managedNamespaceMetadata</code> sets labels and annotations on a namespace created by <code>CreateNamespace=true</code>; a Namespace manifest in the repo with the same name wins over it.</p>
   </div>
 </section>
 
@@ -240,6 +259,93 @@ ID      DATE                           REVISION
   </div>
 </section>
 
+<section class="panel accent-c" id="argocd3-status">
+  <div class="phdr"><h2>Argo CD 3.x defaults and the vocabulary of status</h2><span class="meta">what changed in 3.0 to 3.5 · conditions · operation phases · deletion · refresh</span></div>
+  <div class="pbody">
+    <h3>Defaults that differ from what older tutorials assume</h3>
+    <ul>
+      <li><strong>Annotation tracking</strong> is the default (<code>application.resourceTrackingMethod: annotation</code>): resources carry <code>argocd.argoproj.io/tracking-id: &lt;app&gt;:&lt;group&gt;/&lt;kind&gt;:&lt;ns&gt;/&lt;name&gt;</code> instead of the <code>app.kubernetes.io/instance</code> label. <code>annotation+label</code> keeps the label for other tools. A copied resource whose annotation names a different object is ignored, which is how HNC copies stop showing as drift.</li>
+      <li><strong>Fine-grained RBAC</strong>: <code>update</code> and <code>delete</code> on <code>applications</code> no longer cover the Application's child resources; those need <code>update/*</code> and <code>delete/*</code> (or a specific <code>update/apps/Deployment/ns/name</code>). <code>logs, get</code> is a first-class permission; without it the logs tab is blank.</li>
+      <li><strong>Default <code>resource.exclusions</code></strong> drop high-churn kinds from the cache: Endpoints, EndpointSlice, Lease, the SubjectAccessReview family, CertificateSigningRequest, Kyverno reports, cert-manager CertificateRequest, Cilium identities and endpoints. If a task asks why Argo CD "does not see" a Lease, that is why.</li>
+      <li><strong>Status ignored in diffs</strong> for all kinds (previously CRDs only), so a controller writing <code>.status</code> never causes OutOfSync.</li>
+      <li>3.1 added <code>oci://</code> sources and CLI plugins; 3.2 loosened OCI layer rules and made UI deletion consistent; 3.3 requires server-side apply to install the ApplicationSet CRD (it exceeds the client-side annotation limit); 3.4 changed the cluster version format and Teams notifications; 3.5 (August 2026) made the Source Hydrator and impersonation beta, added internal mTLS, git commit signature verification, ApplicationSets in any namespace and Helm 4 support.</li>
+    </ul>
+
+    <h3>Status fields, exactly</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Field</th><th>Values</th><th>Read it when</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">status.sync.status</td><td class="mono">Synced · OutOfSync · Unknown</td><td>Unknown means comparison itself failed: look at conditions</td></tr>
+          <tr><td class="mono">status.health.status</td><td class="mono">Healthy · Progressing · Degraded · Suspended · Missing · Unknown</td><td>aggregate of resource health; Missing means a desired resource does not exist live</td></tr>
+          <tr><td class="mono">status.operationState.phase</td><td class="mono">Running · Terminating · Succeeded · Failed · Error</td><td>Failed is an apply rejected by the API server; Error is Argo itself failing (render, network); Terminating follows <code>argocd app terminate-op</code></td></tr>
+          <tr><td class="mono">status.operationState.syncResult.resources[].status</td><td class="mono">Synced · SyncFailed · Pruned · PruneSkipped</td><td>per-resource result with the API server's message verbatim</td></tr>
+          <tr><td class="mono">status.conditions[].type</td><td class="mono">ComparisonError · InvalidSpecError · SyncError · DeletionError · UnknownError · SharedResourceWarning · RepeatedResourceWarning · ExcludedResourceWarning · OrphanedResourceWarning</td><td>errors block, warnings do not; <code>SharedResourceWarning</code> is the two-apps-one-resource case, <code>InvalidSpecError</code> the AppProject refusal</td></tr>
+          <tr><td class="mono">status.sourceHydrator.currentOperation.phase</td><td class="mono">Hydrating · Hydrated · Failed</td><td>only with the hydrator</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>An <code>InvalidSpecError</code> with "application repo X is not permitted in project Y" or "destination namespace Z is not permitted" is the AppProject speaking; the fix is the project's <code>sourceRepos</code> or <code>destinations</code>, not the Application.</p>
+
+    <h3>Deletion and refresh mechanics</h3>
+    <ul>
+      <li>Cascade deletion is the finalizer <code>resources-finalizer.argocd.argoproj.io</code> (foreground) or <code>resources-finalizer.argocd.argoproj.io/background</code>. <code>argocd app delete X</code> adds it; <code>--cascade=false</code> removes it and leaves the workload running (the "stop managing but keep" move). With kubectl, patch the finalizer in or out before deleting. <code>PreDelete</code> and <code>PostDelete</code> hooks run only on Application deletion and block it with a <code>DeletionError</code> condition if they fail.</li>
+      <li>Refresh without the CLI: annotate the Application <code>argocd.argoproj.io/refresh: normal</code> or <code>hard</code>; the controller removes the annotation when done. <code>argocd.argoproj.io/skip-reconcile: "true"</code> freezes an Application entirely (alpha; status stops updating).</li>
+      <li>Hook cleanup defaults to <code>BeforeHookCreation</code> when no <code>hook-delete-policy</code> is set; do not add <code>ttlSecondsAfterFinished</code> to hook Jobs, because Argo may then wait for a Job Kubernetes already deleted. Pruning runs waves in reverse; the delay between waves is 2 s (<code>ARGOCD_SYNC_WAVE_DELAY</code>).</li>
+    </ul>
+
+    <div class="callout reflex"><span class="tag">Reflex</span><p><code>argocd app get X</code> then <code>kubectl -n argocd get app X -o jsonpath='{.status.conditions}'</code>. The first tells you sync and health; the second names the error type, and the type tells you which object to edit: InvalidSpecError → AppProject or spec; ComparisonError → repo-server or credentials; SyncError → the API server's rejection.</p></div>
+  </div>
+</section>
+
+<section class="panel accent-p" id="appset-rbac-notify">
+  <div class="phdr"><h2>ApplicationSet behaviour, RBAC and notifications</h2><span class="meta">generator specifics · policies · progressive syncs · policy.csv · subscriptions · sync windows</span></div>
+  <div class="pbody">
+    <h3>Generators: what each one yields</h3>
+    <ul>
+      <li><strong>list</strong>: literal <code>elements</code>; the simplest fan-out and the one to reach for when a task gives you three clusters by name.</li>
+      <li><strong>clusters</strong>: one set of parameters per cluster Secret (<code>name</code>, <code>server</code>, and the Secret's labels as <code>metadata.labels.*</code>); <code>selector</code> filters on those labels; the local cluster appears only if registered.</li>
+      <li><strong>git directories</strong>: <code>path: apps/*</code> yields <code>path.path</code>, <code>path.basename</code>, <code>path.basenameNormalized</code>, <code>path.segments</code>; <code>exclude: true</code> entries remove directories; dot-directories are skipped. <strong>git files</strong>: every matching JSON or YAML file becomes one set of parameters with its keys.</li>
+      <li><strong>matrix</strong>: cartesian product of exactly two generators; a child may use the other's parameters only if it comes second; combination generators nest one level only.</li>
+      <li><strong>merge</strong>: base generator overridden by later generators on <code>mergeKeys</code>; same nesting rules.</li>
+      <li><strong>scmProvider</strong> (repos in an org) and <strong>pullRequest</strong> (open PRs matching <code>labels</code>, <code>branchMatch</code>, <code>titleMatch</code>): Applications appear and disappear with the repo or PR, which is the preview-environment pattern. <code>requeueAfterSeconds</code> polls; webhooks make it instant.</li>
+      <li><strong>plugin</strong> (RPC to your own service), <strong>clusterDecisionResource</strong> (a placement CR), <strong>oci</strong> (directories or files in an OCI artifact).</li>
+    </ul>
+    <p>Templating: <code>goTemplate: true</code> with <code>goTemplateOptions: ["missingkey=error"]</code> so a typo fails loudly instead of rendering an empty string; <code>normalize</code> and <code>slugify</code> make names DNS-safe. Two generated Applications with the same name silently collapse into one.</p>
+
+    <h3>Controlling what the controller may do</h3>
+    <ul>
+      <li><code>spec.syncPolicy.applicationsSync</code>: <code>sync</code> (default: create, update, delete), <code>create-only</code>, <code>create-update</code>, <code>create-delete</code>. The controller flag <code>--policy</code> overrides unless policy override is enabled.</li>
+      <li><code>spec.syncPolicy.preserveResourcesOnDeletion: true</code> keeps child resources when the ApplicationSet is deleted; to keep the Applications themselves you also need the finalizer on the ApplicationSet and background deletion.</li>
+      <li><code>spec.ignoreApplicationDifferences</code> lets humans toggle auto-sync on a generated Application without the controller reverting it.</li>
+      <li><strong>Progressive syncs</strong> (experimental, must be enabled): <code>strategy.type: RollingSync</code> with <code>steps[].matchExpressions</code> over Application labels and <code>maxUpdate</code>; each group must be Healthy before the next starts, and it forces generated Applications to auto-sync disabled.</li>
+    </ul>
+
+    <h3>RBAC in one table</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Line in policy.csv</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">p, role:team-a, applications, get, team-a/*, allow</td><td>role may read every Application in project team-a (object is <code>&lt;project&gt;/&lt;app&gt;</code>)</td></tr>
+          <tr><td class="mono">p, role:team-a, applications, sync, team-a/*, allow</td><td>may sync them; <code>update</code>, <code>delete</code>, <code>override</code>, <code>action/*</code> are separate verbs</td></tr>
+          <tr><td class="mono">p, role:team-a, logs, get, team-a/*, allow</td><td>needed since 3.0 to see pod logs in the UI</td></tr>
+          <tr><td class="mono">g, oidc-group-team-a, role:team-a</td><td>binds an SSO group (or user) to the role</td></tr>
+          <tr><td class="mono">policy.default: role:readonly</td><td>what an authenticated user gets with no other rule; empty means nothing</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Resources you can name: <code>applications</code>, <code>applicationsets</code>, <code>clusters</code>, <code>projects</code>, <code>repositories</code>, <code>accounts</code>, <code>certificates</code>, <code>gpgkeys</code>, <code>logs</code>, <code>exec</code>, <code>extensions</code>. The same grammar works inside an AppProject's <code>spec.roles[].policies</code>, scoped to that project, and project roles can mint JWTs for CI. Project-scoped repositories and clusters (a <code>project:</code> field on the Secret) let a team register its own sources without seeing anyone else's.</p>
+
+    <h3>Notifications and sync windows</h3>
+    <ul>
+      <li>Config lives in <code>argocd-notifications-cm</code>: <code>service.slack</code>, <code>service.webhook.&lt;name&gt;</code>, <code>trigger.on-sync-failed</code>, <code>template.app-sync-failed</code>; secrets in <code>argocd-notifications-secret</code>. Subscribing is an annotation on the Application or AppProject: <code>notifications.argoproj.io/subscribe.on-sync-succeeded.slack: my-channel</code>. Installing the catalog gives you the standard triggers (<code>on-deployed</code>, <code>on-health-degraded</code>, <code>on-sync-failed</code>, <code>on-sync-status-unknown</code>).</li>
+      <li>Sync windows on the AppProject: <code>kind: allow|deny</code>, cron <code>schedule</code>, <code>duration</code>, and selectors by <code>applications</code>, <code>namespaces</code>, <code>clusters</code>; <code>manualSync: true</code> lets a human sync during a deny window; active deny beats active allow.</li>
+    </ul>
+
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Team A may deploy only from repo R into namespace N and must be able to sync but not delete" is an AppProject with <code>sourceRepos: [R]</code>, <code>destinations: [{server, namespace: N}]</code>, and a project role whose policies grant <code>applications, get</code> and <code>applications, sync</code> but not <code>delete</code>, bound to the team's group. Verify by reading the Application's conditions after pointing it somewhere forbidden: <code>InvalidSpecError</code> is the proof the guardrail works.</p></div>
+  </div>
+</section>
+
 <section class="panel accent-g" id="exercises">
   <div class="phdr"><h2>Exercises</h2><span class="meta">tick the dot when its check passes</span></div>
   <div class="pbody">
@@ -299,6 +405,598 @@ staging-demo   3/3     3            3           55s
       <div class="verify"><b>verify:</b> Sync status Synced, health on its way to Degraded, and you can articulate why clicking sync again is useless here. Revert the commit. This exact confusion is section 2.6's opening scenario.</div>
     </div>
 
+    <div class="exercise" data-title="Read the operation, not just the health">
+      <p>Sync status and health are summaries. <code>operationState</code> is the record of the last attempt, with a result code per resource, and it is where a failed sync explains itself. Capture it clean, then break one resource and read it again.</p>
+      <div class="cb" data-lang="bash"><pre><code># the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there
+ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
+argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web
+argocd app wait demo-staging --operation --timeout 180 || true
+argocd app sync demo-staging --timeout 120 || true
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.status} {.message}{"\n"}{end}'
+kubectl -n team-a delete deploy staging-demo --cascade=orphan
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: staging-demo, namespace: team-a }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: something-else } }
+  template:
+    metadata: { labels: { app: something-else } }
+    spec:
+      containers: [{ name: web, image: nginx:1.27-alpine }]
+EOF
+argocd app wait demo-staging --operation --timeout 180 || true
+argocd app sync demo-staging --timeout 120 || true
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.status} {.message}{"\n"}{end}'
+kubectl -n team-a delete deploy staging-demo
+argocd app wait demo-staging --operation --timeout 180 || true
+argocd app sync demo-staging --timeout 120</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there</b>
+<b>$ ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')</b>
+<b>$ argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web</b>
+'admin:login' logged in successfully
+Context '172.18.0.4:32015' updated
+<b>$ argocd app wait demo-staging --operation --timeout 180 || true</b>
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        Synced to main (83a41e2)
+Health Status:      Healthy
+
+Operation:          Sync
+Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Phase:              Succeeded
+Start:              2026-09-13 00:53:59 -0400 EDT
+Finished:           2026-09-13 00:54:00 -0400 EDT
+Duration:           1s
+Message:            successfully synced (all tasks run)
+
+GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
+       Service     team-a     staging-demo  Synced  Healthy        service/staging-demo unchanged
+apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged
+<b>$ argocd app sync demo-staging --timeout 120 || true</b>
+TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
+2026-09-13T00:54:56-04:00            Service      team-a          staging-demo    Synced  Healthy              
+2026-09-13T00:54:56-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
+2026-09-13T00:54:57-04:00            Service      team-a          staging-demo    Synced  Healthy              service/staging-demo unchanged
+2026-09-13T00:54:57-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              deployment.apps/staging-demo unchanged
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        Synced to main (83a41e2)
+Health Status:      Healthy
+
+Operation:          Sync
+Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Phase:              Succeeded
+Start:              2026-09-13 00:54:56 -0400 EDT
+Finished:           2026-09-13 00:54:57 -0400 EDT
+Duration:           1s
+Message:            successfully synced (all tasks run)
+
+GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
+       Service     team-a     staging-demo  Synced  Healthy        service/staging-demo unchanged
+apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.status} {.message}{"\n"}{end}'</b>
+Succeeded
+Service/staging-demo Synced service/staging-demo unchanged
+Deployment/staging-demo Synced deployment.apps/staging-demo unchanged
+<b>$ kubectl -n team-a delete deploy staging-demo --cascade=orphan</b>
+deployment.apps "staging-demo" deleted from team-a namespace
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: apps/v1</b>
+<b>kind: Deployment</b>
+<b>metadata: { name: staging-demo, namespace: team-a }</b>
+<b>spec:</b>
+<b>  replicas: 1</b>
+<b>  selector: { matchLabels: { app: something-else } }</b>
+<b>  template:</b>
+<b>    metadata: { labels: { app: something-else } }</b>
+<b>    spec:</b>
+<b>      containers: [{ name: web, image: nginx:1.27-alpine }]</b>
+<b>EOF</b>
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "web" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "web" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "web" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "web" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+deployment.apps/staging-demo created
+<b>$ argocd app wait demo-staging --operation --timeout 180 || true</b>
+TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME       STATUS   HEALTH        HOOK  MESSAGE
+2026-09-13T00:54:59-04:00            Service      team-a          staging-demo       Synced  Healthy              
+2026-09-13T00:54:59-04:00   apps  Deployment      team-a          staging-demo       Synced  Missing              
+2026-09-13T00:54:59-04:00   apps  ReplicaSet      team-a  staging-demo-66955f8974            Healthy              
+2026-09-13T00:54:59-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Missing              
+2026-09-13T00:55:00-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Missing              error when patching "/dev/shm/2994384382": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-09-13T00:55:10-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Healthy              error when patching "/dev/shm/2994384382": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-09-13T00:55:10-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Healthy              error when patching "/dev/shm/1714539329": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-09-13T00:55:30-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Healthy              error when patching "/dev/shm/128196255": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-09-13T00:56:10-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Healthy              error when patching "/dev/shm/1706085184": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-09-13T00:57:30-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Healthy              error when patching "/dev/shm/1824439474": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+
+This is the state of the app after wait timed out:
+
+The command timed out waiting for the conditions to be met.
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        OutOfSync from main (83a41e2)
+Health Status:      Healthy
+
+Operation:          Sync
+Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Phase:              Running
+Start:              2026-09-13 00:54:59 -0400 EDT
+Finished:           2026-09-13 00:57:30 -0400 EDT
+Duration:           2m31s
+Message:            one or more objects failed to apply, reason: error when patching "/dev/shm/1824439474": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable. Retrying attempt #5 at 4:58AM.
+
+GROUP  KIND        NAMESPACE  NAME                     STATUS     HEALTH   HOOK  MESSAGE
+apps   Deployment  team-a     staging-demo             OutOfSync  Healthy        error when patching "/dev/shm/1824439474": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+<i>... 3 more lines</i>
+<b>$ argocd app sync demo-staging --timeout 120 || true</b>
+{"level":"fatal","msg":"rpc error: code = FailedPrecondition desc = another operation is already in progress","time":"2026-09-13T00:57:59-04:00"}
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.status} {.message}{"\n"}{end}'</b>
+Running
+Deployment/staging-demo SyncFailed error when patching "/dev/shm/1824439474": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+<b>$ kubectl -n team-a delete deploy staging-demo</b>
+deployment.apps "staging-demo" deleted from team-a namespace
+<b>$ argocd app wait demo-staging --operation --timeout 180 || true</b>
+TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME       STATUS    HEALTH        HOOK  MESSAGE
+2026-09-13T00:58:00-04:00   apps  Deployment      team-a          staging-demo     OutOfSync  Healthy              error when patching "/dev/shm/1824439474": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-09-13T00:58:00-04:00            Service      team-a          staging-demo       Synced   Healthy              
+2026-09-13T00:58:00-04:00   apps  ReplicaSet      team-a  staging-demo-66955f8974             Healthy              
+2026-09-13T01:00:10-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Missing              error when patching "/dev/shm/1824439474": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        Synced to main (83a41e2)
+Health Status:      Healthy
+
+Operation:          Sync
+Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Phase:              Succeeded
+Start:              2026-09-13 00:54:59 -0400 EDT
+Finished:           2026-09-13 01:00:10 -0400 EDT
+Duration:           5m11s
+Message:            successfully synced (all tasks run)
+
+GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
+apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo created
+       Service     team-a     staging-demo  Synced  Healthy        
+<b>$ argocd app sync demo-staging --timeout 120</b>
+TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
+2026-09-13T01:00:11-04:00            Service      team-a          staging-demo    Synced  Healthy              
+2026-09-13T01:00:11-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
+2026-09-13T01:00:13-04:00            Service      team-a          staging-demo    Synced  Healthy              service/staging-demo unchanged
+2026-09-13T01:00:13-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              deployment.apps/staging-demo unchanged
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        Synced to main (83a41e2)
+Health Status:      Healthy
+
+Operation:          Sync
+Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Phase:              Succeeded
+Start:              2026-09-13 01:00:11 -0400 EDT
+Finished:           2026-09-13 01:00:12 -0400 EDT
+Duration:           1s
+Message:            successfully synced (all tasks run)
+
+GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
+       Service     team-a     staging-demo  Synced  Healthy        service/staging-demo unchanged
+apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the clean run ends <code>Succeeded</code> with every resource Synced. After the selector is broken, <code>operationState</code> carries <code>Deployment/staging-demo SyncFailed error when patching ...: spec.selector: Invalid value ...: field is immutable</code>, which is the sentence you would paste into an incident channel. The manual sync in the middle may also come back <code>another operation is already in progress</code>: this app syncs automatically, so the controller was already doing the same work.</div>
+    </div>
+
+    <div class="exercise" data-title="Ask for a repo the project forbids">
+      <p>An AppProject is the boundary between what a tenant may ask for and what the platform allows. When it refuses, the Application does not fail to sync, it fails to be valid, and the difference tells you where to look.</p>
+      <div class="cb" data-lang="bash"><pre><code># the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there
+ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
+argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web
+kubectl -n argocd patch appproject default --type merge -p '{"spec":{"sourceRepos":["http://gitea.lab:3000/lab/platform.git"]}}'
+# a throwaway Application: argocd app set tests repo connectivity before it writes, and the
+# ApplicationSet that generated demo-staging puts the old repo back within seconds
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: { name: forbidden-repo, namespace: argocd }
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/argoproj/argocd-example-apps.git
+    targetRevision: HEAD
+    path: guestbook
+  destination: { server: https://kubernetes.default.svc, namespace: default }
+EOF
+sleep 20
+kubectl -n argocd get app forbidden-repo -o jsonpath='{.status.conditions}' | jq '.[] | {type, message}'
+kubectl -n argocd delete app forbidden-repo
+kubectl -n argocd patch appproject default --type merge -p '{"spec":{"sourceRepos":["*"]}}'
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there</b>
+<b>$ ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')</b>
+<b>$ argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web</b>
+'admin:login' logged in successfully
+Context '172.18.0.4:32015' updated
+<b>$ kubectl -n argocd patch appproject default --type merge -p '{"spec":{"sourceRepos":["http://gitea.lab:3000/lab/platform.git"]}}'</b>
+appproject.argoproj.io/default patched
+<b>$ # a throwaway Application: argocd app set tests repo connectivity before it writes, and the</b>
+<b>$ # ApplicationSet that generated demo-staging puts the old repo back within seconds</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: argoproj.io/v1alpha1</b>
+<b>kind: Application</b>
+<b>metadata: { name: forbidden-repo, namespace: argocd }</b>
+<b>spec:</b>
+<b>  project: default</b>
+<b>  source:</b>
+<b>    repoURL: https://github.com/argoproj/argocd-example-apps.git</b>
+<b>    targetRevision: HEAD</b>
+<b>    path: guestbook</b>
+<b>  destination: { server: https://kubernetes.default.svc, namespace: default }</b>
+<b>EOF</b>
+application.argoproj.io/forbidden-repo created
+<b>$ sleep 20</b>
+<b>$ kubectl -n argocd get app forbidden-repo -o jsonpath='{.status.conditions}' | jq '.[] | {type, message}'</b>
+{
+  "type": "InvalidSpecError",
+  "message": "application repo https://github.com/argoproj/argocd-example-apps.git is not permitted in project 'default'"
+}
+<b>$ kubectl -n argocd delete app forbidden-repo</b>
+application.argoproj.io "forbidden-repo" deleted from argocd namespace
+<b>$ kubectl -n argocd patch appproject default --type merge -p '{"spec":{"sourceRepos":["*"]}}'</b>
+appproject.argoproj.io/default patched
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status}{"\n"}'</b>
+Synced</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the condition on <code>forbidden-repo</code> is <code>InvalidSpecError</code> and its message reads <code>application repo https://github.com/argoproj/argocd-example-apps.git is not permitted in project 'default'</code>. The API server accepted the object and the controller rejected it, which is why the fault is in status rather than in the apply. Do not try this by pointing <code>demo-staging</code> at another repo: <code>argocd app set</code> tests repository connectivity before it writes, and the ApplicationSet that generated <code>demo-staging</code> puts the old repo back within seconds.</div>
+    </div>
+
+    <div class="exercise" data-title="Delete the Application, keep the workload">
+      <p>Cascading deletion is a finalizer, not a law. Removing an Application without cascade leaves every object it managed running and unowned, which is exactly what you want during a migration and exactly what you must not do by accident.</p>
+      <div class="cb" data-lang="bash"><pre><code># the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there
+ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
+argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web
+# a standalone Application, not one the ApplicationSet generates: deleting a generated one
+# only makes the generator recreate it, and deleting the generator takes the workload with it
+kubectl -n argocd delete app orphan-demo --ignore-not-found
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: orphan-demo
+  namespace: argocd
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: http://gitea.lab:3000/lab/platform.git
+    targetRevision: main
+    path: demo-app/base
+  destination: { server: https://kubernetes.default.svc, namespace: orphan }
+  syncPolicy:
+    automated: {}
+    syncOptions: [CreateNamespace=true]
+EOF
+argocd app wait orphan-demo --health --timeout 180
+kubectl -n argocd get app orphan-demo -o jsonpath='{.metadata.finalizers}{"\n"}'
+kubectl -n orphan get deploy
+argocd app delete orphan-demo --cascade=false -y
+sleep 15
+kubectl -n argocd get app orphan-demo || echo 'application gone'
+kubectl -n orphan get deploy
+kubectl delete ns orphan</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there</b>
+<b>$ ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')</b>
+<b>$ argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web</b>
+'admin:login' logged in successfully
+Context '172.18.0.4:32015' updated
+<b>$ # a standalone Application, not one the ApplicationSet generates: deleting a generated one</b>
+<b>$ # only makes the generator recreate it, and deleting the generator takes the workload with it</b>
+<b>$ kubectl -n argocd delete app orphan-demo --ignore-not-found</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: argoproj.io/v1alpha1</b>
+<b>kind: Application</b>
+<b>metadata:</b>
+<b>  name: orphan-demo</b>
+<b>  namespace: argocd</b>
+<b>  finalizers: [resources-finalizer.argocd.argoproj.io]</b>
+<b>spec:</b>
+<b>  project: default</b>
+<b>  source:</b>
+<b>    repoURL: http://gitea.lab:3000/lab/platform.git</b>
+<b>    targetRevision: main</b>
+<b>    path: demo-app/base</b>
+<b>  destination: { server: https://kubernetes.default.svc, namespace: orphan }</b>
+<b>  syncPolicy:</b>
+<b>    automated: {}</b>
+<b>    syncOptions: [CreateNamespace=true]</b>
+<b>EOF</b>
+Warning: metadata.finalizers: "resources-finalizer.argocd.argoproj.io": prefer a domain-qualified finalizer name including a path (/) to avoid accidental conflicts with other finalizer writers
+application.argoproj.io/orphan-demo created
+<b>$ argocd app wait orphan-demo --health --timeout 180</b>
+TIMESTAMP  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
+2026-09-13T11:58:57-04:00            Service      orphan                  demo  OutOfSync  Missing              
+2026-09-13T11:58:57-04:00   apps  Deployment      orphan                  demo  OutOfSync  Missing              
+2026-09-13T11:58:58-04:00          Namespace                            orphan   Running   Synced              namespace/orphan created
+
+Name:               argocd/orphan-demo
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          orphan
+URL:                https://argocd.example.com/applications/orphan-demo
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/base
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated
+Sync Status:        OutOfSync from main (b793ef2)
+Health Status:      Healthy
+
+
+GROUP  KIND        NAMESPACE  NAME    STATUS     HEALTH   HOOK  MESSAGE
+       Namespace              orphan  Running    Synced         namespace/orphan created
+       Service     orphan     demo    Synced     Healthy        service/demo created
+apps   Deployment  orphan     demo    OutOfSync  Missing        deployment.apps/demo created
+<b>$ kubectl -n argocd get app orphan-demo -o jsonpath='{.metadata.finalizers}{"\n"}'</b>
+["resources-finalizer.argocd.argoproj.io"]
+<b>$ kubectl -n orphan get deploy</b>
+NAME   READY   UP-TO-DATE   AVAILABLE   AGE
+demo   0/2     2            0           1s
+<b>$ argocd app delete orphan-demo --cascade=false -y</b>
+application 'orphan-demo' deleted
+<b>$ sleep 15</b>
+<b>$ kubectl -n argocd get app orphan-demo || echo 'application gone'</b>
+Error from server (NotFound): applications.argoproj.io "orphan-demo" not found
+application gone
+<b>$ kubectl -n orphan get deploy</b>
+NAME   READY   UP-TO-DATE   AVAILABLE   AGE
+demo   2/2     2            2           17s
+<b>$ kubectl delete ns orphan</b>
+namespace "orphan" deleted</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the Application is gone and the Deployment it created is still running, unowned. Use a standalone Application for this: deleting one the ApplicationSet generated only makes the generator put it back within seconds, and deleting the generator instead takes the workload with it, because the generated Application still carries the cascade finalizer. The finalizer is the whole mechanism, and <code>--cascade=false</code> is what removes it without letting it run.</div>
+    </div>
+
+    <div class="exercise" data-title="Refresh without the CLI">
+      <p><code>argocd app get --refresh</code> is a convenience over an annotation. Knowing the annotation means you can force a refresh from any machine that can reach the API server, including one with no Argo CD CLI on it.</p>
+      <div class="cb" data-lang="bash"><pre><code>BEFORE=$(kubectl -n argocd get app demo-staging -o jsonpath='{.status.reconciledAt}'); echo "before: $BEFORE"
+kubectl -n argocd annotate app demo-staging argocd.argoproj.io/refresh=hard --overwrite
+sleep 10
+kubectl -n argocd get app demo-staging -o jsonpath='{.metadata.annotations}' | jq
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.reconciledAt}{"\n"}' | sed 's/^/after:  /'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ BEFORE=$(kubectl -n argocd get app demo-staging -o jsonpath='{.status.reconciledAt}'); echo "before: $BEFORE"</b>
+before: 2026-09-13T10:45:51Z
+<b>$ kubectl -n argocd annotate app demo-staging argocd.argoproj.io/refresh=hard --overwrite</b>
+application.argoproj.io/demo-staging annotated
+<b>$ sleep 10</b>
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.metadata.annotations}' | jq</b>
+{
+  "argocd.argoproj.io/hydrate": "normal"
+}
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.reconciledAt}{"\n"}' | sed 's/^/after:  /'</b>
+after:  2026-09-13T10:49:16Z</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the annotation is gone by the time you read it back and <code>reconciledAt</code> has moved. The controller consumes the annotation as its signal, which is why you never see it in a healthy application.</div>
+    </div>
+
+    <div class="exercise" data-title="Make pruning ask first">
+      <p>Automatic pruning is the feature that deletes production when someone deletes a file. <code>Prune=confirm</code> turns the delete into a request that waits for a human, and the sync sits there saying so.</p>
+      <div class="cb" data-lang="bash"><pre><code># the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there
+ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
+argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web
+# git -C rather than cd: a cd here would follow you into every later command in the session
+rm -rf /tmp/platform-prune &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune
+# set it on the template: the ApplicationSet controller overwrites a spec edit on the generated Application
+kubectl -n argocd patch applicationset demo-envs --type merge -p '{"spec":{"template":{"spec":{"syncPolicy":{"syncOptions":["CreateNamespace=true","Prune=confirm"]}}}}}'
+sleep 15
+git -C /tmp/platform-prune rm demo-app/base/service.yaml
+sed -i '/service.yaml/d' /tmp/platform-prune/demo-app/base/kustomization.yaml
+git -C /tmp/platform-prune commit -am 'drop the service' &amp;&amp; git -C /tmp/platform-prune push
+argocd app sync demo-staging --prune --timeout 60 || true
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{.status.operationState.message}{"\n"}'
+kubectl -n argocd annotate app demo-staging argocd.argoproj.io/deletion-approved="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
+sleep 20
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}'
+git -C /tmp/platform-prune revert --no-edit HEAD &amp;&amp; git -C /tmp/platform-prune push
+# unset removes the option; setting Prune=false would just record a different value
+kubectl -n argocd patch applicationset demo-envs --type merge -p '{"spec":{"template":{"spec":{"syncPolicy":{"syncOptions":["CreateNamespace=true"]}}}}}'
+argocd app sync demo-staging --timeout 120
+kubectl -n argocd get app demo-staging -o jsonpath='{.spec.syncPolicy.syncOptions}{"\n"}'
+rm -rf /tmp/platform-prune</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there</b>
+<b>$ ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')</b>
+<b>$ argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web</b>
+'admin:login' logged in successfully
+Context '172.18.0.4:32015' updated
+<b>$ # git -C rather than cd: a cd here would follow you into every later command in the session</b>
+<b>$ rm -rf /tmp/platform-prune &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune</b>
+Cloning into '/tmp/platform-prune'...
+<b>$ # set it on the template: the ApplicationSet controller overwrites a spec edit on the generated Application</b>
+<b>$ kubectl -n argocd patch applicationset demo-envs --type merge -p '{"spec":{"template":{"spec":{"syncPolicy":{"syncOptions":["CreateNamespace=true","Prune=confirm"]}}}}}'</b>
+applicationset.argoproj.io/demo-envs patched
+<b>$ sleep 15</b>
+<b>$ git -C /tmp/platform-prune rm demo-app/base/service.yaml</b>
+rm 'demo-app/base/service.yaml'
+<b>$ sed -i '/service.yaml/d' /tmp/platform-prune/demo-app/base/kustomization.yaml</b>
+<b>$ git -C /tmp/platform-prune commit -am 'drop the service' &amp;&amp; git -C /tmp/platform-prune push</b>
+[main b761904] drop the service
+ 2 files changed, 8 deletions(-)
+ delete mode 100644 demo-app/base/service.yaml
+To http://gitea.lab:3000/lab/platform.git
+   894975d..b761904  main -&gt; main
+<b>$ argocd app sync demo-staging --prune --timeout 60 || true</b>
+TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
+2026-09-13T08:06:10-04:00            Service      team-a          staging-demo    Synced  Healthy              
+2026-09-13T08:06:10-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
+
+This is the state of the app after wait timed out:
+
+The command timed out waiting for the conditions to be met.
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        Synced to main (894975d)
+Health Status:      Healthy
+
+Operation:          Sync
+Sync Revision:      b761904983e66ec86d904ff126285f518ac6182b
+Phase:              Running
+Start:              2026-09-13 08:06:10 -0400 EDT
+Finished:           &lt;nil&gt;
+Duration:           1m0s
+Message:            waiting for pruning confirmation of /Service/staging-demo
+
+GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
+       Service     team-a     staging-demo  Synced  Healthy        
+apps   Deployment  team-a     staging-demo  Synced  Healthy        
+{"level":"fatal","msg":"timed out (60s) waiting for app \"demo-staging\" match desired state","time":"2026-09-13T08:07:10-04:00"}
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{.status.operationState.message}{"\n"}'</b>
+Running
+waiting for pruning confirmation of /Service/staging-demo
+<b>$ kubectl -n argocd annotate app demo-staging argocd.argoproj.io/deletion-approved="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite</b>
+application.argoproj.io/demo-staging annotated
+<b>$ sleep 20</b>
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}'</b>
+Succeeded
+<b>$ git -C /tmp/platform-prune revert --no-edit HEAD &amp;&amp; git -C /tmp/platform-prune push</b>
+[main 1d38064] Revert "drop the service"
+ Date: Sun Sep 13 08:07:31 2026 -0400
+ 2 files changed, 8 insertions(+)
+ create mode 100644 demo-app/base/service.yaml
+To http://gitea.lab:3000/lab/platform.git
+   b761904..1d38064  main -&gt; main
+<b>$ # unset removes the option; setting Prune=false would just record a different value</b>
+<b>$ kubectl -n argocd patch applicationset demo-envs --type merge -p '{"spec":{"template":{"spec":{"syncPolicy":{"syncOptions":["CreateNamespace=true"]}}}}}'</b>
+applicationset.argoproj.io/demo-envs patched
+<b>$ argocd app sync demo-staging --timeout 120</b>
+TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
+2026-09-13T08:07:32-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
+2026-09-13T08:07:32-04:00            Service      team-a          staging-demo  OutOfSync  Healthy              
+2026-09-13T08:07:33-04:00            Service      team-a          staging-demo  OutOfSync  Healthy              service/staging-demo created
+2026-09-13T08:07:33-04:00   apps  Deployment      team-a          staging-demo    Synced   Healthy              deployment.apps/staging-demo unchanged
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        Synced to main (1d38064)
+Health Status:      Healthy
+
+Operation:          Sync
+Sync Revision:      1d38064a22b6d6e6ee6d5acbc0044745d3960f3a
+Phase:              Succeeded
+Start:              2026-09-13 08:07:32 -0400 EDT
+Finished:           2026-09-13 08:07:33 -0400 EDT
+Duration:           1s
+Message:            successfully synced (all tasks run)
+
+GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
+       Service     team-a     staging-demo  Synced  Healthy        service/staging-demo created
+apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.spec.syncPolicy.syncOptions}{"\n"}'</b>
+["CreateNamespace=true"]
+<b>$ rm -rf /tmp/platform-prune</b></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the operation does not reach Succeeded, its message asks for the pruning to be confirmed, and the Service is still there until you apply the <code>argocd.argoproj.io/deletion-approved</code> annotation. Set the option on the ApplicationSet template, not on the generated Application: the ApplicationSet controller overwrites a spec edit on <code>demo-staging</code> within seconds and the prune then happens unattended, which is what makes this look like it worked when it did not.</div>
+    </div>
+
+    <div class="exercise" data-title="Test a project role before you hand it over">
+      <p>A project role plus a token is how a tenant gets to sync their own application and nothing else. Hand the token to the role, then use it: a denial names the exact rule it wanted, which is the fastest way to see whether you granted what you meant to. Note that <code>argocd account can-i</code> does not answer for a project token, only for a logged-in account, so the token itself is the test.</p>
+      <div class="cb" data-lang="bash"><pre><code>ARGO_PW=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)
+# the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there
+ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
+argocd login "$ARGO" --username admin --password "$ARGO_PW" --plaintext --grpc-web
+argocd proj role create default deployer
+# add-policy prepends the project, so the object here is the bare app name: 'default/demo-staging' would become default/default/demo-staging and match nothing
+argocd proj role add-policy default deployer --action get --permission allow --object 'demo-staging'
+kubectl -n argocd get appproject default -o jsonpath='{.spec.roles[0].policies}{"\n"}'
+TOKEN=$(argocd proj role create-token default deployer -t)
+argocd app get demo-staging --auth-token "$TOKEN" --server "$ARGO" --plaintext --grpc-web | head -3
+argocd app sync demo-staging --auth-token "$TOKEN" --server "$ARGO" --plaintext --grpc-web --timeout 30 2&gt;&amp;1 | tail -1
+argocd proj role add-policy default deployer --action sync --permission allow --object 'demo-staging'
+TOKEN=$(argocd proj role create-token default deployer -t)
+argocd app sync demo-staging --auth-token "$TOKEN" --server "$ARGO" --plaintext --grpc-web --timeout 60 2&gt;&amp;1 | tail -2
+argocd proj role delete default deployer</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ ARGO_PW=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)</b>
+<b>$ # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there</b>
+<b>$ ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')</b>
+<b>$ argocd login "$ARGO" --username admin --password "$ARGO_PW" --plaintext --grpc-web</b>
+'admin:login' logged in successfully
+Context '172.18.0.4:32015' updated
+<b>$ argocd proj role create default deployer</b>
+Role 'deployer' created
+<b>$ # add-policy prepends the project, so the object here is the bare app name: 'default/demo-staging' would become default/default/demo-staging and match nothing</b>
+<b>$ argocd proj role add-policy default deployer --action get --permission allow --object 'demo-staging'</b>
+<b>$ kubectl -n argocd get appproject default -o jsonpath='{.spec.roles[0].policies}{"\n"}'</b>
+["p, proj:default:deployer, applications, get, default/demo-staging, allow"]
+<b>$ TOKEN=$(argocd proj role create-token default deployer -t)</b>
+<b>$ argocd app get demo-staging --auth-token "$TOKEN" --server "$ARGO" --plaintext --grpc-web | head -3</b>
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+<b>$ argocd app sync demo-staging --auth-token "$TOKEN" --server "$ARGO" --plaintext --grpc-web --timeout 30 2&gt;&amp;1 | tail -1</b>
+{"level":"fatal","msg":"rpc error: code = PermissionDenied desc = permission denied: applications, sync, default/demo-staging, sub: proj:default:deployer, iat: 2026-09-13T05:00:15Z","time":"2026-09-13T01:00:15-04:00"}
+<b>$ argocd proj role add-policy default deployer --action sync --permission allow --object 'demo-staging'</b>
+<b>$ TOKEN=$(argocd proj role create-token default deployer -t)</b>
+<b>$ argocd app sync demo-staging --auth-token "$TOKEN" --server "$ARGO" --plaintext --grpc-web --timeout 60 2&gt;&amp;1 | tail -2</b>
+       Service     team-a     staging-demo  Synced  Healthy        service/staging-demo unchanged
+apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged
+<b>$ argocd proj role delete default deployer</b>
+Role 'deployer' deleted</code></pre></details></div>
+      <div class="verify"><b>verify:</b> with only the <code>get</code> policy the token reads the app but the sync is refused with <code>permission denied: applications, sync, default/demo-staging, sub: proj:default:deployer</code>, and after the sync policy is added the same command syncs. The denial names the action, the object and the subject, which is three of the four things you need to fix it.</div>
+    </div>
+
   </div>
 </section>
 
@@ -322,6 +1020,19 @@ staging-demo   3/3     3            3           55s
 
     <details class="quiz"><summary>You changed the repo but Argo insists nothing changed. Sequence of moves?</summary>
       <div class="answer"><p><code>argocd app get --refresh</code> first (recompare), then <code>--hard-refresh</code> (drop the manifest cache), then check the app is on the branch you pushed to (<code>targetRevision</code>), then check repo-server logs for auth or render errors. Cheapest first, always.</p></div></details>
+  
+
+    <details class="quiz"><summary>A sync ends with operation phase Error rather than Failed. What is the difference and where do you look?</summary>
+      <div class="answer"><p><code>Failed</code> means the apply reached the API server and was rejected (immutable field, admission denial); the message is in <code>syncResult.resources[]</code>. <code>Error</code> means Argo CD itself could not complete the operation: rendering failed, the repo was unreachable, a hook could not be created. For Error, read repo-server and application-controller logs; for Failed, read the resource message.</p></div></details>
+
+    <details class="quiz"><summary>You must stop managing an Application but keep its workloads running. Exact move?</summary>
+      <div class="answer"><p><code>argocd app delete X --cascade=false</code>, or with kubectl: patch <code>metadata.finalizers</code> to remove <code>resources-finalizer.argocd.argoproj.io</code>, then delete the Application. Deleting with the finalizer present cascades in the foreground and removes every managed resource. <code>Delete=false</code> as a resource annotation is the per-resource version of the same protection.</p></div></details>
+
+    <details class="quiz"><summary>An ApplicationSet with a matrix of a git directories generator and a clusters generator: how many Applications, and what breaks if you nest another matrix inside?</summary>
+      <div class="answer"><p>directories × clusters, one Application per pair, named by the template (collisions silently merge). Matrix takes exactly two child generators and combination generators nest only one level deep, so a matrix inside a matrix inside a matrix is rejected at generation time, not by the API server's schema validation.</p></div></details>
+
+    <details class="quiz"><summary>A user can see Applications and sync them but the Logs tab is empty. Which policy line is missing since 3.0?</summary>
+      <div class="answer"><p><code>p, role:&lt;their-role&gt;, logs, get, &lt;project&gt;/*, allow</code>. From 3.0, logs RBAC is enforced by default and is no longer implied by <code>applications, get</code>. The same 3.0 change split <code>update</code> and <code>delete</code> on child resources into <code>update/*</code> and <code>delete/*</code>.</p></div></details>
   </div>
 </section>
 
@@ -331,6 +1042,10 @@ staging-demo   3/3     3            3           55s
     <ul class="docs">
       <li><b>argo-cd.readthedocs.io</b>: Application spec reference, sync options, sync waves and hooks, AppProject, ApplicationSet generators.</li>
       <li><b>Offline:</b> <code>argocd app --help</code> covers most of what the docs would, and <code>kubectl explain application.spec --recursive</code> works because the Application is just a CRD.</li>
+    
+      <li><b>argo-cd.readthedocs.io: Upgrading v2.14 to 3.0 (and 3.x to 3.y)</b>: annotation tracking, fine-grained RBAC, logs RBAC, default resource exclusions, ignored status; the per-minor pages list every behavioural change since.</li>
+      <li><b>argo-cd.readthedocs.io: RBAC Configuration and Projects</b>: the policy.csv grammar, resource and action lists, project roles and JWT tokens, sync windows.</li>
+      <li><b>argo-cd.readthedocs.io: ApplicationSet Generators (per generator) and Controlling Resource Modification</b>: parameters each generator emits, matrix/merge restrictions, applicationsSync policies, preserveResourcesOnDeletion.</li>
     </ul>
   </div>
 </section>

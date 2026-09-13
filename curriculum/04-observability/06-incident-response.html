@@ -89,6 +89,86 @@ cnpe-worker
   </div>
 </section>
 
+<section class="panel accent-c" id="signalmap-more">
+  <div class="phdr"><h2>The extended signal map</h2><span class="meta">pod reasons and exit codes, then the cluster-level scenarios</span></div>
+  <div class="pbody">
+    <p>The table in the method panel covers the workload layer. Two more tables finish the map: the exact reasons and codes a pod shows, and the cluster-level incidents whose first symptom is often a workload one.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>What you see</th><th>Means</th><th>Confirm with</th></tr></thead>
+        <tbody>
+          <tr><td><code>Pending</code>, event <code>0/3 nodes are available: 3 Insufficient cpu</code></td><td>requests exceed free capacity</td><td><code>kubectl describe node</code> Allocated resources; lower requests or add nodes</td></tr>
+          <tr><td class="mono">... had untolerated taint {...}</td><td>taint without toleration</td><td>node taints vs pod <code>tolerations</code></td></tr>
+          <tr><td class="mono">... didn't match Pod's node affinity/selector</td><td><code>nodeSelector</code> or affinity impossible</td><td>node labels</td></tr>
+          <tr><td class="mono">pod has unbound immediate PersistentVolumeClaims</td><td>PVC Pending: no StorageClass, no capacity, wrong access mode</td><td><code>kubectl describe pvc</code> events</td></tr>
+          <tr><td class="mono">exceeded quota: ... requested: ..., used: ..., limited: ...</td><td>ResourceQuota; the pod is never created, the ReplicaSet event says so</td><td><code>kubectl describe quota -n ns</code>; <code>kubectl describe rs</code></td></tr>
+          <tr><td><code>ImagePullBackOff</code> with <code>unauthorized</code> / <code>manifest unknown</code> / <code>no such host</code></td><td>pull secret, tag, registry DNS or egress</td><td>the exact registry error in <code>describe pod</code>; <code>imagePullSecrets</code> on pod or SA</td></tr>
+          <tr><td class="mono">CreateContainerConfigError</td><td>a referenced ConfigMap/Secret or key does not exist</td><td>event names the missing object</td></tr>
+          <tr><td class="mono">CreateContainerError</td><td>runtime refused the container spec (bad command, invalid mount)</td><td>event text; containerd logs on the node</td></tr>
+          <tr><td><code>ContainerCreating</code> for minutes, event <code>failed to setup network for sandbox</code> / <code>FailedMount</code> / <code>Multi-Attach error</code></td><td>CNI down, or a volume still attached to the old node</td><td>CNI DaemonSet pods; <code>kubectl get volumeattachments</code></td></tr>
+          <tr><td class="mono">CrashLoopBackOff</td><td>the container keeps exiting; backoff doubles to a 5 minute cap</td><td><code>kubectl logs --previous</code>, then the exit code below</td></tr>
+          <tr><td class="mono">OOMKilled</td><td>memory limit; reason on <code>lastState.terminated</code></td><td><code>container_memory_working_set_bytes</code> vs limit</td></tr>
+          <tr><td class="mono">Evicted</td><td>node pressure (ephemeral storage, memory)</td><td>event message names the resource; node conditions</td></tr>
+          <tr><td><code>Terminating</code> forever</td><td>finalizer whose controller is gone, or a stuck preStop/grace period</td><td><code>metadata.finalizers</code>; <code>kubectl delete --grace-period=0 --force</code> as a last resort</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Exit codes, read from <code>lastState.terminated.exitCode</code>: <code>0</code> ran to completion (a Job, or a container that should not have exited), <code>1</code> application error (read the log), <code>2</code> shell misuse, <code>126</code> command not executable, <code>127</code> command not found (wrong <code>command</code> or image), <code>137</code> SIGKILL (OOM if the reason says so, otherwise killed after the grace period), <code>139</code> segfault, <code>143</code> SIGTERM (a graceful stop; if it recurs, the liveness probe is killing a healthy container).</p>
+
+    <h3>Cluster-level scenarios</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Scenario</th><th>Tells</th><th>Lever</th></tr></thead>
+        <tbody>
+          <tr><td>node <code>NotReady</code></td><td>condition message <code>Kubelet stopped posting node status</code>; pods on it go <code>Unknown</code>, then are evicted after the eviction timeout (5 minutes by default)</td><td><code>kubectl debug node/</code> and read <code>/host/var/log/kubelet.log</code> and containerd; disk pressure and certificate expiry are the usual causes</td></tr>
+          <tr><td>DNS</td><td>everything Running, apps log <code>no such host</code>; <code>nslookup kubernetes.default</code> from a pod fails</td><td>CoreDNS pods and its ConfigMap; a NetworkPolicy that forgot UDP/TCP 53 egress to <code>kube-system</code></td></tr>
+          <tr><td>certificate expiry</td><td><code>x509: certificate has expired or is not yet valid</code> in kubelet or kubectl output; a webhook whose <code>caBundle</code> no longer matches</td><td><code>kubeadm certs check-expiration</code> and <code>kubeadm certs renew</code>; cert-manager for the webhook</td></tr>
+          <tr><td>etcd full</td><td>every write fails with <code>etcdserver: mvcc: database space exceeded</code>; reads still work</td><td><code>etcdctl alarm list</code>, compact, defrag, <code>alarm disarm</code>; raise <code>--quota-backend-bytes</code>; find what filled it (events, huge ConfigMaps)</td></tr>
+          <tr><td>admission webhook down</td><td>writes time out with <code>failed calling webhook ... context deadline exceeded</code>, reads work</td><td>the backend Deployment; as an emergency, delete or scope the webhook configuration (5.2)</td></tr>
+          <tr><td>API server slow</td><td><code>apiserver_request_duration_seconds</code> p99 high; <code>Throttling request took</code> in client logs</td><td>a controller in a hot loop (<code>apiserver_request_total</code> by user agent), or a webhook adding latency to every write</td></tr>
+          <tr><td>image pull auth across a namespace</td><td>every new pod <code>ImagePullBackOff</code> with <code>401 Unauthorized</code></td><td>the pull Secret expired or the ServiceAccount lost its <code>imagePullSecrets</code></td></tr>
+          <tr><td>control-plane tooling</td><td>Argo CD <code>Unknown</code> health with <code>ComparisonError</code>; Flux <code>Ready=False</code> with <code>reconciliation failed</code>; Tekton PipelineRun <code>CouldntGetTask</code>; Crossplane <code>Synced=False</code></td><td>each tool's own condition message names the layer; the fix is in that tool's section</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout reflex"><span class="tag">Reflex</span><p>Before anything else on a "cluster is broken" task: <code>kubectl get nodes</code>, <code>kubectl get pods -A | grep -v Running</code>, <code>kubectl get events -A --sort-by=.lastTimestamp | tail -30</code>, and <code>kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations</code>. Those four outputs place the incident in one row of the tables above nine times out of ten.</p></div>
+  </div>
+</section>
+
+<section class="panel accent-y" id="toolbox">
+  <div class="phdr"><h2>The toolbox and the rollback verbs</h2><span class="meta">debug profiles, per-tool rollback, remediation vs resolution</span></div>
+  <div class="pbody">
+    <h3>kubectl debug, the flags</h3>
+    <ul>
+      <li><code>kubectl debug -it pod/x --image=busybox --target=app</code> adds an ephemeral container sharing the process namespace of <code>app</code>; ephemeral containers cannot be removed, only the pod deleted.</li>
+      <li><code>--copy-to=x-debug --share-processes --set-image=app=busybox</code> copies the pod with a changed image or command, for a container that crashes before you can attach; <code>--copy-to</code> with <code>--container app -- sh</code> overrides the command.</li>
+      <li><code>kubectl debug node/n -it --image=busybox</code> schedules a pod on the node with the host filesystem at <code>/host</code>; it is not privileged unless <code>--profile=sysadmin</code>. The other profiles are <code>general</code> (the default), <code>baseline</code> and <code>restricted</code> (pass PSS), <code>netadmin</code> (NET_ADMIN and NET_RAW for tcpdump and ip). Delete the <code>node-debugger-*</code> pod afterwards.</li>
+      <li><code>kubectl get --raw /readyz?verbose</code> and <code>/livez?verbose</code> list API server health checks by name (etcd, informers, webhooks); <code>kubectl get componentstatuses</code> is gone, do not reach for it.</li>
+    </ul>
+
+    <h3>Rollback, per layer</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Layer</th><th>Restore service</th><th>Caveat</th></tr></thead>
+        <tbody>
+          <tr><td>Deployment</td><td><code>kubectl rollout undo deploy/x [--to-revision=N]</code>; <code>kubectl rollout history</code></td><td>GitOps will roll it forward again within a sync interval unless you suspend or fix git</td></tr>
+          <tr><td>Argo CD</td><td><code>argocd app rollback x &lt;id&gt;</code> (from <code>argocd app history</code>), or disable auto-sync first (<code>argocd app set x --sync-policy none</code>)</td><td>rollback with auto-sync on is refused; revert the commit for the durable fix</td></tr>
+          <tr><td>Flux</td><td><code>flux suspend kustomization x</code>, then <code>kubectl rollout undo</code> or a git revert; <code>flux resume</code> after</td><td>suspended objects show <code>suspended="true"</code> in <code>gotk_resource_info</code>; forgetting to resume is a follow-up incident</td></tr>
+          <tr><td>Helm</td><td><code>helm rollback x &lt;revision&gt;</code></td><td>only if Helm still owns the release; not under Argo CD's rendering</td></tr>
+          <tr><td>Progressive delivery</td><td><code>kubectl argo rollouts abort x</code> then <code>undo</code>; Flagger rolls back on its own when analysis fails</td><td>an aborted Rollout stays <code>Degraded</code> until you promote or undo</td></tr>
+          <tr><td>Policy</td><td>flip <code>validationActions</code> to <code>Audit</code> or <code>enforcementAction</code> to <code>warn</code>; add a <code>PolicyException</code></td><td>deleting a webhook configuration is the last resort and must be re-created after</td></tr>
+          <tr><td>Crossplane / kro</td><td><code>compositionUpdatePolicy: Manual</code> plus the old <code>compositionRevisionRef</code>; <code>crossplane.io/paused: "true"</code> or <code>kro.run/reconcile: suspended</code> to stop the bleeding</td><td>pausing stops drift correction too; note it in the postmortem</td></tr>
+          <tr><td>Node</td><td><code>kubectl cordon</code>, <code>drain --ignore-daemonsets --delete-emptydir-data</code>, <code>uncordon</code></td><td>drain honours PodDisruptionBudgets and hangs on them</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Vocabulary and process</h3>
+    <p>MTTD (detect: alert fired minus impact start), MTTA (acknowledge), MTTR (restore), plus the DORA framing of "failed deployment recovery time" from 4.5. A runbook is the document an alert's <code>runbook_url</code> points at: symptom, likely causes in order, the exact commands, the rollback, and who to escalate to. On-call hygiene that scenario questions reward: one severity taxonomy, a rotation with hand-over notes, every page linked to a runbook, an incident channel per incident, and a blameless postmortem within days that produces action items with owners (the five-line format above is the minimum viable version). Remediation restores service (rollback, scale, fail over, pause the policy); resolution removes the cause (fix the code, the composition, the quota). Say which one you did; graders and colleagues both need to know whether the fix is still open.</p>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>Incident tasks describe the symptom, not the cause: "the payments service returns 503 since the last deploy", "new pods in namespace X do not start", "nothing can be created in the cluster". Your first four commands should place it in a table row; your last command must reproduce the original symptom and show it gone. Partial credit usually exists for restoring service even if the root cause fix is incomplete, so remediate first, then resolve.</p></div>
+  </div>
+</section>
+
 <section class="panel accent-y" id="afterwards">
   <div class="phdr"><h2>After the fix</h2><span class="meta">"structured incident response process"</span></div>
   <div class="pbody">
@@ -154,6 +234,410 @@ the pod was switched to sa/app-sa, which has no RBAC at all. Nothing in pod stat
       <div class="verify"><b>verify:</b> <code>make validate</code> returns to PASS with FAIL 0. Self-inflicted incidents with a validation suite are the closest thing to a free exam simulator this repo has.</div>
     </div>
 
+    <div class="exercise" data-title="Fill etcd and dig out">
+      <p>etcd's quota is a hard stop: once it trips the cluster goes read-only for writes and stays that way until you compact, defrag and disarm the alarm. Four commands, in an order that has to be right.</p>
+      <p>This block lowers the quota on the kind control plane so the failure is reachable, then puts it back. Everything happens inside the control-plane container.</p>
+      <div class="cb" data-lang="bash"><pre><code>ETCD="kubectl -n kube-system exec etcd-cnpe-control-plane -- etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key"
+$ETCD endpoint status -w table
+docker exec cnpe-control-plane sed -i 's|- etcd$|- etcd\n    - --quota-backend-bytes=16777216|' /etc/kubernetes/manifests/etcd.yaml
+sleep 90
+kubectl create configmap canary --from-literal=a=1
+$ETCD alarm list
+docker exec cnpe-control-plane sed -i '/--quota-backend-bytes=16777216/d' /etc/kubernetes/manifests/etcd.yaml
+sleep 90
+REV=$($ETCD endpoint status --write-out=json | jq -r '.[0].Status.header.revision')
+$ETCD compact "$REV"
+$ETCD defrag
+$ETCD alarm disarm
+$ETCD alarm list
+kubectl create configmap canary --from-literal=a=1 &amp;&amp; kubectl delete configmap canary</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ ETCD="kubectl -n kube-system exec etcd-cnpe-control-plane -- etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key"</b>
+<b>$ $ETCD endpoint status -w table</b>
++------------------------+-----------------+---------+-----------------+---------+--------+-----------------------+--------+-----------+------------+-----------+------------+--------------------+--------+--------------------------+-------------------+
+|        ENDPOINT        |       ID        | VERSION | STORAGE VERSION | DB SIZE | IN USE | PERCENTAGE NOT IN USE | QUOTA  | IS LEADER | IS LEARNER | RAFT TERM | RAFT INDEX | RAFT APPLIED INDEX | ERRORS | DOWNGRADE TARGET VERSION | DOWNGRADE ENABLED |
++------------------------+-----------------+---------+-----------------+---------+--------+-----------------------+--------+-----------+------------+-----------+------------+--------------------+--------+--------------------------+-------------------+
+| https://127.0.0.1:2379 | 26e8d9c7b9b778d |   3.6.8 |           3.6.0 |   75 MB |  72 MB |                    5% | 2.1 GB |      true |      false |         4 |     125621 |             125621 |        |                          |             false |
++------------------------+-----------------+---------+-----------------+---------+--------+-----------------------+--------+-----------+------------+-----------+------------+--------------------+--------+--------------------------+-------------------+
+<b>$ docker exec cnpe-control-plane sed -i 's|- etcd$|- etcd\n    - --quota-backend-bytes=16777216|' /etc/kubernetes/manifests/etcd.yaml</b>
+<b>$ sleep 90</b>
+<b>$ kubectl create configmap canary --from-literal=a=1</b>
+error: failed to create configmap: etcdserver: mvcc: database space exceeded
+<b>$ $ETCD alarm list</b>
+memberID:175233138742228877 alarm:NOSPACE 
+<b>$ docker exec cnpe-control-plane sed -i '/--quota-backend-bytes=16777216/d' /etc/kubernetes/manifests/etcd.yaml</b>
+<b>$ sleep 90</b>
+<b>$ REV=$($ETCD endpoint status --write-out=json | jq -r '.[0].Status.header.revision')</b>
+<b>$ $ETCD compact "$REV"</b>
+compacted revision 120134
+<b>$ $ETCD defrag</b>
+Finished defragmenting etcd member[https://127.0.0.1:2379]. took 451.79565ms
+<b>$ $ETCD alarm disarm</b>
+memberID:175233138742228877 alarm:NOSPACE 
+<b>$ $ETCD alarm list</b>
+<b>$ kubectl create configmap canary --from-literal=a=1 &amp;&amp; kubectl delete configmap canary</b>
+configmap/canary created
+configmap "canary" deleted from default namespace</code></pre></details></div>
+      <div class="verify"><b>verify:</b> a write fails with <code>etcdserver: mvcc: database space exceeded</code>, <code>alarm list</code> shows NOSPACE, and writes only work again after compact, defrag and disarm in that order.</div>
+    </div>
+
+    <div class="exercise" data-title="Check the certificates before they check you">
+      <p>Control-plane certificates expire, usually at the least convenient moment, and the command that tells you lives on the node rather than in the API. Run it once so you know where it is.</p>
+      <div class="cb" data-lang="bash"><pre><code>docker exec cnpe-control-plane kubeadm certs check-expiration
+docker exec cnpe-control-plane sh -c 'ls -la /etc/kubernetes/pki/*.crt | head'
+kubectl -n kube-system get cm kubeadm-config -o jsonpath='{.data.ClusterConfiguration}' | head -20</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ docker exec cnpe-control-plane kubeadm certs check-expiration</b>
+[check-expiration] Reading configuration from the "kubeadm-config" ConfigMap in namespace "kube-system"...
+[check-expiration] Use 'kubeadm init phase upload-config kubeadm --config your-config-file' to re-upload it.
+
+CERTIFICATE                EXPIRES                  RESIDUAL TIME   CERTIFICATE AUTHORITY   EXTERNALLY MANAGED
+admin.conf                 Sep 12, 2027 16:00 UTC   364d            ca                      no      
+apiserver                  Sep 12, 2027 16:00 UTC   364d            ca                      no      
+apiserver-etcd-client      Sep 12, 2027 16:00 UTC   364d            etcd-ca                 no      
+apiserver-kubelet-client   Sep 12, 2027 16:00 UTC   364d            ca                      no      
+controller-manager.conf    Sep 12, 2027 16:00 UTC   364d            ca                      no      
+etcd-healthcheck-client    Sep 12, 2027 16:00 UTC   364d            etcd-ca                 no      
+etcd-peer                  Sep 12, 2027 16:00 UTC   364d            etcd-ca                 no      
+etcd-server                Sep 12, 2027 16:00 UTC   364d            etcd-ca                 no      
+front-proxy-client         Sep 12, 2027 16:00 UTC   364d            front-proxy-ca          no      
+scheduler.conf             Sep 12, 2027 16:00 UTC   364d            ca                      no      
+super-admin.conf           Sep 12, 2027 16:00 UTC   364d            ca                      no      
+
+CERTIFICATE AUTHORITY   EXPIRES                  RESIDUAL TIME   EXTERNALLY MANAGED
+ca                      Sep 09, 2036 16:00 UTC   9y              no      
+etcd-ca                 Sep 09, 2036 16:00 UTC   9y              no      
+front-proxy-ca          Sep 09, 2036 16:00 UTC   9y              no      
+<b>$ docker exec cnpe-control-plane sh -c 'ls -la /etc/kubernetes/pki/*.crt | head'</b>
+-rw-r--r-- 1 root root 1123 Sep 12 16:00 /etc/kubernetes/pki/apiserver-etcd-client.crt
+-rw-r--r-- 1 root root 1131 Sep 12 16:00 /etc/kubernetes/pki/apiserver-kubelet-client.crt
+-rw-r--r-- 1 root root 1326 Sep 12 16:00 /etc/kubernetes/pki/apiserver.crt
+-rw-r--r-- 1 root root 1107 Sep 12 16:00 /etc/kubernetes/pki/ca.crt
+-rw-r--r-- 1 root root 1123 Sep 12 16:00 /etc/kubernetes/pki/front-proxy-ca.crt
+-rw-r--r-- 1 root root 1119 Sep 12 16:00 /etc/kubernetes/pki/front-proxy-client.crt
+<b>$ kubectl -n kube-system get cm kubeadm-config -o jsonpath='{.data.ClusterConfiguration}' | head -20</b>
+apiServer:
+  certSANs:
+  - localhost
+  - 127.0.0.1
+  extraArgs:
+  - name: runtime-config
+    value: ""
+  - name: audit-log-maxsize
+    value: "100"
+  - name: audit-log-path
+    value: /var/log/kubernetes/audit.log
+  - name: audit-policy-file
+    value: /etc/kubernetes/audit/policy.yaml
+  - name: audit-log-maxage
+    value: "2"
+  - name: audit-log-maxbackup
+    value: "2"
+  extraVolumes:
+  - hostPath: /etc/kubernetes/audit
+    mountPath: /etc/kubernetes/audit</code></pre></details></div>
+      <div class="verify"><b>verify:</b> every certificate is listed with a residual time and whether the CA can renew it.</div>
+    </div>
+
+    <div class="exercise" data-title="Take DNS away">
+      <p>The failure text from inside a pod is the thing you are asked to recognise: a resolver that is still configured and still reachable, and a lookup that fails anyway. Produce it deliberately, then put it back.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n kube-system scale deploy coredns --replicas=0
+until [ -z "$(kubectl -n kube-system get endpointslices -l kubernetes.io/service-name=kube-dns -o jsonpath='{.items[*].endpoints[*].addresses}')" ]; do sleep 5; done; echo 'kube-dns has no endpoints'
+kubectl run dnsdead --image=busybox:1.28 --restart=Never -it --rm --command -- nslookup kubernetes.default || true
+kubectl -n kube-system get endpointslices -l kubernetes.io/service-name=kube-dns
+kubectl -n kube-system scale deploy coredns --replicas=2
+kubectl -n kube-system rollout status deploy coredns --timeout=180s
+kubectl run dnsalive --image=busybox:1.28 --restart=Never -it --rm --command -- nslookup kubernetes.default</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n kube-system scale deploy coredns --replicas=0</b>
+deployment.apps/coredns scaled
+<b>$ until [ -z "$(kubectl -n kube-system get endpointslices -l kubernetes.io/service-name=kube-dns -o jsonpath='{.items[*].endpoints[*].addresses}')" ]; do sleep 5; done; echo 'kube-dns has no endpoints'</b>
+kube-dns has no endpoints
+<b>$ kubectl run dnsdead --image=busybox:1.28 --restart=Never -it --rm --command -- nslookup kubernetes.default || true</b>
+Server:    10.96.0.10
+Address 1: 10.96.0.10
+
+nslookup: can't resolve 'kubernetes.default'
+Unable to use a TTY - input is not a terminal or the right kind of file
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+warning: couldn't attach to pod/dnsdead, falling back to streaming logs: unable to upgrade connection: container dnsdead not found in pod dnsdead_default
+Server:    10.96.0.10
+Address 1: 10.96.0.10
+
+nslookup: can't resolve 'kubernetes.default'
+pod "dnsdead" deleted from default namespace
+pod default/dnsdead terminated (Error)
+<b>$ kubectl -n kube-system get endpointslices -l kubernetes.io/service-name=kube-dns</b>
+NAME             ADDRESSTYPE   PORTS     ENDPOINTS   AGE
+kube-dns-6x2kw   IPv4          &lt;unset&gt;   &lt;unset&gt;     8h
+<b>$ kubectl -n kube-system scale deploy coredns --replicas=2</b>
+deployment.apps/coredns scaled
+<b>$ kubectl -n kube-system rollout status deploy coredns --timeout=180s</b>
+Waiting for deployment "coredns" rollout to finish: 0 out of 2 new replicas have been updated...
+Waiting for deployment "coredns" rollout to finish: 0 out of 2 new replicas have been updated...
+Waiting for deployment "coredns" rollout to finish: 0 of 2 updated replicas are available...
+Waiting for deployment "coredns" rollout to finish: 1 of 2 updated replicas are available...
+deployment "coredns" successfully rolled out
+<b>$ kubectl run dnsalive --image=busybox:1.28 --restart=Never -it --rm --command -- nslookup kubernetes.default</b>
+Server:    10.96.0.10
+Address 1: 10.96.0.10 kube-dns.kube-system.svc.cluster.local
+
+Name:      kubernetes.default
+Address 1: 10.96.0.1 kubernetes.default.svc.cluster.local
+Unable to use a TTY - input is not a terminal or the right kind of file
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+warning: couldn't attach to pod/dnsalive, falling back to streaming logs: unable to upgrade connection: container dnsalive not found in pod dnsalive_default
+Server:    10.96.0.10
+Address 1: 10.96.0.10 kube-dns.kube-system.svc.cluster.local
+
+Name:      kubernetes.default
+Address 1: 10.96.0.1 kubernetes.default.svc.cluster.local
+pod "dnsalive" deleted from default namespace</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the failing lookup times out against the Service address while the address itself is still configured in the pod, and the EndpointSlice is empty. That combination, resolver configured and no endpoints, is the signature to recognise.</div>
+    </div>
+
+    <div class="exercise" data-title="A webhook with no backend at all">
+      <p>This is the outage that takes a cluster down without touching the API server: an admission webhook that must be called, with nothing to call. Deleting the Deployment is faster than scaling, and the message is the one you must recognise within seconds.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get validatingwebhookconfiguration -o custom-columns=NAME:.metadata.name,POLICY:.webhooks[*].failurePolicy | grep -i kyverno
+# own the webhook rather than scaling a shared component to zero, and scope it to a throwaway namespace
+kubectl create ns wh-drill --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata: { name: no-backend }
+webhooks:
+  - name: no-backend.example.com
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: Fail
+    timeoutSeconds: 5
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: wh-drill }
+    clientConfig:
+      service: { name: nope, namespace: wh-drill, path: /validate, port: 443 }
+    rules:
+      - { apiGroups: [""], apiVersions: ["v1"], operations: ["CREATE"], resources: ["configmaps"], scope: Namespaced }
+EOF
+kubectl -n wh-drill create configmap blocked-cm --from-literal=a=1
+kubectl get validatingwebhookconfiguration no-backend -o jsonpath='{.webhooks[0].failurePolicy} {.webhooks[0].timeoutSeconds}{"\n"}'
+kubectl delete validatingwebhookconfiguration no-backend
+kubectl -n wh-drill create configmap blocked-cm --from-literal=a=1
+kubectl delete ns wh-drill</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl get validatingwebhookconfiguration -o custom-columns=NAME:.metadata.name,POLICY:.webhooks[*].failurePolicy | grep -i kyverno</b>
+kyverno-cel-exception-validating-webhook-cfg    Fail
+kyverno-cleanup-validating-webhook-cfg          Fail
+kyverno-exception-validating-webhook-cfg        Fail
+kyverno-global-context-validating-webhook-cfg   Fail
+kyverno-policy-validating-webhook-cfg           Fail
+kyverno-resource-validating-webhook-cfg         Fail
+kyverno-ttl-validating-webhook-cfg              Ignore
+<b>$ # own the webhook rather than scaling a shared component to zero, and scope it to a throwaway namespace</b>
+<b>$ kubectl create ns wh-drill --dry-run=client -o yaml | kubectl apply -f -</b>
+namespace/wh-drill created
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: admissionregistration.k8s.io/v1</b>
+<b>kind: ValidatingWebhookConfiguration</b>
+<b>metadata: { name: no-backend }</b>
+<b>webhooks:</b>
+<b>  - name: no-backend.example.com</b>
+<b>    admissionReviewVersions: ["v1"]</b>
+<b>    sideEffects: None</b>
+<b>    failurePolicy: Fail</b>
+<b>    timeoutSeconds: 5</b>
+<b>    namespaceSelector:</b>
+<b>      matchLabels: { kubernetes.io/metadata.name: wh-drill }</b>
+<b>    clientConfig:</b>
+<b>      service: { name: nope, namespace: wh-drill, path: /validate, port: 443 }</b>
+<b>    rules:</b>
+<b>      - { apiGroups: [""], apiVersions: ["v1"], operations: ["CREATE"], resources: ["configmaps"], scope: Namespaced }</b>
+<b>EOF</b>
+validatingwebhookconfiguration.admissionregistration.k8s.io/no-backend created
+<b>$ kubectl -n wh-drill create configmap blocked-cm --from-literal=a=1</b>
+error: failed to create configmap: Internal error occurred: failed calling webhook "no-backend.example.com": failed to call webhook: Post "https://nope.wh-drill.svc:443/validate?timeout=5s": service "nope" not found
+<b>$ kubectl get validatingwebhookconfiguration no-backend -o jsonpath='{.webhooks[0].failurePolicy} {.webhooks[0].timeoutSeconds}{"\n"}'</b>
+Fail 5
+<b>$ kubectl delete validatingwebhookconfiguration no-backend</b>
+validatingwebhookconfiguration.admissionregistration.k8s.io "no-backend" deleted
+<b>$ kubectl -n wh-drill create configmap blocked-cm --from-literal=a=1</b>
+configmap/blocked-cm created
+<b>$ kubectl delete ns wh-drill</b>
+namespace "wh-drill" deleted</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the first create fails with <code>Internal error occurred: failed calling webhook "no-backend.example.com"</code>, naming the service that does not exist, and the same create succeeds once the webhook configuration is deleted. The two fields that decide whether this is an outage or a gap are <code>failurePolicy</code> and the match scope, here <code>namespaceSelector</code> plus <code>rules</code>. Under a clock the fix is to delete the webhook configuration and put it back afterwards. Scaling Kyverno to zero does not reproduce this: both creates succeed, so a down policy engine is not by itself a cluster outage on this install.</div>
+    </div>
+
+    <div class="exercise" data-title="Two debug profiles on a node">
+      <p><code>kubectl debug node</code> gives you a pod on the node with a chosen level of access. Knowing which profile grants what saves you from asking for privileged when you needed a network namespace.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl debug node/cnpe-worker -it --image=busybox:1.36 --profile=sysadmin -- chroot /host sh -c 'ls /etc/kubernetes; cat /var/lib/kubelet/config.yaml | head -10'
+kubectl debug node/cnpe-worker -it --image=nicolaka/netshoot:latest --profile=netadmin -- ip link
+kubectl get pods -o name | grep node-debugger
+kubectl delete pod -l app.kubernetes.io/managed-by=kubectl-debug --ignore-not-found
+kubectl get pods -o name | grep node-debugger | xargs -r kubectl delete</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl debug node/cnpe-worker -it --image=busybox:1.36 --profile=sysadmin -- chroot /host sh -c 'ls /etc/kubernetes; cat /var/lib/kubelet/config.yaml | head -10'</b>
+Creating debugging pod node-debugger-cnpe-worker-xf265 with container debugger on node cnpe-worker.
+Unable to use a TTY - input is not a terminal or the right kind of file
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+warning: couldn't attach to pod/node-debugger-cnpe-worker-xf265, falling back to streaming logs: unable to upgrade connection: container debugger not found in pod node-debugger-cnpe-worker-xf265_default
+kubelet.conf  manifests  pki
+apiVersion: kubelet.config.k8s.io/v1beta1
+authentication:
+  anonymous:
+    enabled: false
+  webhook:
+    cacheTTL: 0s
+    enabled: true
+  x509:
+    clientCAFile: /etc/kubernetes/pki/ca.crt
+authorization:
+<b>$ kubectl debug node/cnpe-worker -it --image=nicolaka/netshoot:latest --profile=netadmin -- ip link</b>
+Creating debugging pod node-debugger-cnpe-worker-shgmz with container debugger on node cnpe-worker.
+Unable to use a TTY - input is not a terminal or the right kind of file
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+warning: couldn't attach to pod/node-debugger-cnpe-worker-shgmz, falling back to streaming logs: unable to upgrade connection: rpc error: code = InvalidArgument desc = tty and stderr cannot both be true
+1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+2: eth0@if22: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default 
+    link/ether f6:bf:03:f1:53:11 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+3: cilium_net@cilium_host: &lt;BROADCAST,MULTICAST,NOARP,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default 
+    link/ether fe:c6:be:4f:67:f8 brd ff:ff:ff:ff:ff:ff
+4: cilium_host@cilium_net: &lt;BROADCAST,MULTICAST,NOARP,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether ea:a5:4a:b9:92:c8 brd ff:ff:ff:ff:ff:ff
+5: cilium_vxlan: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UNKNOWN mode DEFAULT group default 
+    link/ether 42:d4:ee:8f:5c:90 brd ff:ff:ff:ff:ff:ff
+7: lxc_health@if6: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 9a:27:33:7a:69:07 brd ff:ff:ff:ff:ff:ff link-netnsid 1
+11: lxcd355da451c82@if10: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 5a:10:28:1c:33:0a brd ff:ff:ff:ff:ff:ff link-netnsid 3
+15: lxcc6de2304ea73@if14: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether fa:37:7d:9f:b9:84 brd ff:ff:ff:ff:ff:ff link-netnsid 4
+17: lxce8009643b771@if16: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 02:2e:2b:d8:d7:87 brd ff:ff:ff:ff:ff:ff link-netnsid 5
+19: lxc39a31623cd62@if18: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 52:2a:68:71:5a:c5 brd ff:ff:ff:ff:ff:ff link-netnsid 6
+23: lxc3c34b6d00aee@if22: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 6e:ce:31:d4:84:18 brd ff:ff:ff:ff:ff:ff link-netnsid 2
+25: lxc462eb9990672@if24: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 1e:b9:db:d4:fd:3a brd ff:ff:ff:ff:ff:ff link-netnsid 8
+27: lxc9da17d5cb210@if26: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 56:d5:63:4a:8d:e3 brd ff:ff:ff:ff:ff:ff link-netnsid 9
+33: lxc6b7a1dc9d767@if32: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 12:eb:27:a0:a3:9d brd ff:ff:ff:ff:ff:ff link-netnsid 12
+35: lxc9281f9de561b@if34: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether ba:90:29:b4:b9:fe brd ff:ff:ff:ff:ff:ff link-netnsid 13
+37: lxc957282906d6f@if36: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether be:61:c4:6d:bc:19 brd ff:ff:ff:ff:ff:ff link-netnsid 14
+41: lxc54dcffdf2a27@if40: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 32:20:ce:9c:c8:c6 brd ff:ff:ff:ff:ff:ff link-netnsid 16
+43: lxcee11a1eb7c67@if42: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+<i>... 55 more lines</i>
+<b>$ kubectl get pods -o name | grep node-debugger</b>
+pod/node-debugger-cnpe-worker-shgmz
+pod/node-debugger-cnpe-worker-xf265
+<b>$ kubectl delete pod -l app.kubernetes.io/managed-by=kubectl-debug --ignore-not-found</b>
+pod "node-debugger-cnpe-worker-shgmz" deleted from default namespace
+pod "node-debugger-cnpe-worker-xf265" deleted from default namespace
+<b>$ kubectl get pods -o name | grep node-debugger | xargs -r kubectl delete</b></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the sysadmin profile can chroot into the host filesystem and the netadmin one can read the host's interfaces.</div>
+    </div>
+
+    <div class="exercise" data-title="A probe that kills a healthy app">
+      <p>A liveness probe on the wrong port restarts a container that is working perfectly. The evidence is an exit code and an event, and the diagnosis has to separate "the app is broken" from "we are killing it".</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n default create deployment probed --image=ghcr.io/stefanprodan/podinfo:6.7.1
+kubectl -n default patch deployment probed --type merge -p '{"spec":{"template":{"spec":{"containers":[{"name":"podinfo","image":"ghcr.io/stefanprodan/podinfo:6.7.1","livenessProbe":{"httpGet":{"path":"/healthz","port":9999},"initialDelaySeconds":5,"periodSeconds":5,"failureThreshold":2}}]}}}}'
+sleep 90
+kubectl -n default get pods -l app=probed
+POD=$(kubectl -n default get pod -l app=probed -o jsonpath='{.items[0].metadata.name}')
+kubectl -n default get pod "$POD" -o jsonpath='{.status.containerStatuses[0].lastState}' | jq
+kubectl -n default describe pod "$POD" | sed -n '/Events/,$p'
+kubectl -n default delete deployment probed</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n default create deployment probed --image=ghcr.io/stefanprodan/podinfo:6.7.1</b>
+deployment.apps/probed created
+<b>$ kubectl -n default patch deployment probed --type merge -p '{"spec":{"template":{"spec":{"containers":[{"name":"podinfo","image":"ghcr.io/stefanprodan/podinfo:6.7.1","livenessProbe":{"httpGet":{"path":"/healthz","port":9999},"initialDelaySeconds":5,"periodSeconds":5,"failureThreshold":2}}]}}}}'</b>
+deployment.apps/probed patched
+<b>$ sleep 90</b>
+<b>$ kubectl -n default get pods -l app=probed</b>
+NAME                      READY   STATUS    RESTARTS      AGE
+probed-5fcd4554f7-8qzz5   1/1     Running   4 (26s ago)   90s
+<b>$ POD=$(kubectl -n default get pod -l app=probed -o jsonpath='{.items[0].metadata.name}')</b>
+<b>$ kubectl -n default get pod "$POD" -o jsonpath='{.status.containerStatuses[0].lastState}' | jq</b>
+{
+  "terminated": {
+    "containerID": "containerd://9d61ffcbb66c2a6e74f31775c38f992f2a9b6769a2812941730d973b49fdf5d0",
+    "exitCode": 0,
+    "finishedAt": "2026-09-13T03:44:00Z",
+    "reason": "Completed",
+    "startedAt": "2026-09-13T03:43:46Z"
+  }
+}
+<b>$ kubectl -n default describe pod "$POD" | sed -n '/Events/,$p'</b>
+Events:
+  Type     Reason           Age                From               Message
+  ----     ------           ----               ----               -------
+  Warning  PolicyViolation  90s                kyverno-admission  policy require-resource-requests/ fail: every container must set cpu and memory requests
+  Normal   Scheduled        90s                default-scheduler  Successfully assigned default/probed-5fcd4554f7-8qzz5 to cnpe-worker
+  Warning  PolicyViolation  59s                kyverno-scan       policy require-resource-requests/ fail: every container must set cpu and memory requests
+  Warning  Unhealthy        30s (x8 over 80s)  kubelet            spec.containers{podinfo}: Liveness probe failed: Get "http://10.244.1.218:9999/healthz": dial tcp 10.244.1.218:9999: connect: connection refused
+  Normal   Killing          30s (x4 over 75s)  kubelet            spec.containers{podinfo}: Container podinfo failed liveness probe, will be restarted
+  Warning  BackOff          26s (x2 over 27s)  kubelet            spec.containers{podinfo}: Back-off restarting failed container podinfo in pod probed-5fcd4554f7-8qzz5_default(51a2ebe0-4fb8-4789-8b5a-595055e4ddd5)
+  Normal   Pulled           2s (x5 over 88s)   kubelet            spec.containers{podinfo}: Container image "ghcr.io/stefanprodan/podinfo:6.7.1" already present on machine and can be accessed by the pod
+  Normal   Created          1s (x5 over 88s)   kubelet            spec.containers{podinfo}: Container created
+  Normal   Started          1s (x5 over 87s)   kubelet            spec.containers{podinfo}: Container started
+<b>$ kubectl -n default delete deployment probed</b>
+deployment.apps "probed" deleted from default namespace</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the restart count climbs (4 in 90 seconds here), the events carry <code>Liveness probe failed</code> with connection refused on port 9999 followed by <code>Killing</code> and <code>BackOff</code>, and <code>lastState.terminated</code> records the kill. The exit code is 0 with reason <code>Completed</code>, not 143, because podinfo handles SIGTERM and exits cleanly; 143 is what you see from a process that ignores it. The probe event plus the restart count is the evidence that separates "the app is broken" from "we are killing it", and the exit code alone does not.</div>
+    </div>
+
+    <div class="exercise" data-title="Ask the API server if it is well">
+      <p><code>/readyz?verbose</code> lists every readiness check the API server runs and which one is failing. It is the fastest first command on a control plane that feels wrong, and it needs no tooling at all.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get --raw '/readyz?verbose' | tail -30
+kubectl get --raw '/livez?verbose' | tail -10
+kubectl get --raw '/healthz/etcd'
+kubectl get componentstatuses 2&gt;/dev/null || echo 'componentstatuses is deprecated and may be gone'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get --raw '/readyz?verbose' | tail -30</b>
+[+]poststarthook/priority-and-fairness-filter ok
+[+]poststarthook/storage-object-count-tracker-hook ok
+[+]poststarthook/start-apiextensions-informers ok
+[+]poststarthook/start-apiextensions-controllers ok
+[+]poststarthook/crd-informer-synced ok
+[+]poststarthook/start-system-namespaces-controller ok
+[+]poststarthook/peer-endpoint-reconciler-controller ok
+[+]poststarthook/start-cluster-authentication-info-controller ok
+[+]poststarthook/start-kube-apiserver-identity-lease-controller ok
+[+]poststarthook/start-kube-apiserver-identity-lease-garbage-collector ok
+[+]poststarthook/storage-readiness ok
+[+]poststarthook/start-legacy-token-tracking-controller ok
+[+]poststarthook/start-service-ip-repair-controllers ok
+[+]poststarthook/rbac/bootstrap-roles ok
+[+]poststarthook/scheduling/bootstrap-system-priority-classes ok
+[+]poststarthook/priority-and-fairness-config-producer ok
+[+]poststarthook/bootstrap-controller ok
+[+]poststarthook/start-kubernetes-service-cidr-controller ok
+[+]poststarthook/aggregator-reload-proxy-client-cert ok
+[+]poststarthook/start-kube-aggregator-informers ok
+[+]poststarthook/apiservice-status-local-available-controller ok
+[+]poststarthook/apiservice-status-remote-available-controller ok
+[+]poststarthook/apiservice-registration-controller ok
+[+]poststarthook/apiservice-discovery-controller ok
+[+]poststarthook/kube-apiserver-autoregistration ok
+[+]autoregister-completion ok
+[+]poststarthook/apiservice-openapi-controller ok
+[+]poststarthook/apiservice-openapiv3-controller ok
+[+]shutdown ok
+readyz check passed
+<b>$ kubectl get --raw '/livez?verbose' | tail -10</b>
+[+]poststarthook/start-kube-aggregator-informers ok
+[+]poststarthook/apiservice-status-local-available-controller ok
+[+]poststarthook/apiservice-status-remote-available-controller ok
+[+]poststarthook/apiservice-registration-controller ok
+[+]poststarthook/apiservice-discovery-controller ok
+[+]poststarthook/kube-apiserver-autoregistration ok
+[+]autoregister-completion ok
+[+]poststarthook/apiservice-openapi-controller ok
+[+]poststarthook/apiservice-openapiv3-controller ok
+livez check passed
+<b>$ kubectl get --raw '/healthz/etcd'</b>
+ok
+<b>$ kubectl get componentstatuses 2&gt;/dev/null || echo 'componentstatuses is deprecated and may be gone'</b>
+NAME                 STATUS    MESSAGE   ERROR
+scheduler            Healthy   ok        
+controller-manager   Healthy   ok        
+etcd-0               Healthy   ok        </code></pre></details></div>
+      <div class="verify"><b>verify:</b> every check reports ok on a healthy cluster and the final line says readyz check passed.</div>
+    </div>
+
   </div>
 </section>
 
@@ -174,6 +658,19 @@ the pod was switched to sa/app-sa, which has no RBAC at all. Nothing in pod stat
 
     <details class="quiz"><summary>What proves an incident is over?</summary>
       <div class="answer"><p>The same signal that showed the failure, now succeeding: the failing curl returns 200, the alert resolves, the validation check passes. A pod showing Running proves only that a container started.</p></div></details>
+  
+
+    <details class="quiz"><summary>Every write to the cluster fails with <code>etcdserver: mvcc: database space exceeded</code> but reads work. What happened and what is the order of operations?</summary>
+      <div class="answer"><p>etcd hit its backend quota (2 GiB by default) and raised the NOSPACE alarm, which turns the store read-only. Compact old revisions, defragment each member, then <code>etcdctl alarm disarm</code>; raise <code>--quota-backend-bytes</code> if the data is legitimate. Then find the producer (event storms, oversized ConfigMaps or Secrets, a controller writing status in a loop) or it recurs.</p></div></details>
+
+    <details class="quiz"><summary>A container exits with code 143 every 30 seconds and the app logs look healthy. Diagnosis?</summary>
+      <div class="answer"><p>143 is SIGTERM: something is asking it to stop gracefully. On a fixed cadence that is almost always a failing liveness probe (wrong port or path, or a timeout shorter than the app's startup). Read <code>kubectl describe pod</code> for <code>Liveness probe failed</code> events, and fix the probe or add a startup probe. 137 would have pointed at OOM or a forced kill instead.</p></div></details>
+
+    <details class="quiz"><summary>You roll a Deployment back with <code>kubectl rollout undo</code> and two minutes later it is broken again. Why, and what should you have done?</summary>
+      <div class="answer"><p>A GitOps controller re-applied the desired state from git. Either disable or suspend first (<code>argocd app set x --sync-policy none</code>, <code>flux suspend kustomization x</code>) and undo as a stopgap, or go straight to the durable fix: revert the commit and let the controller roll back for you. Say in the incident notes that the suspension must be lifted.</p></div></details>
+
+    <details class="quiz"><summary>Which <code>kubectl debug</code> invocation gives you tcpdump on a node without full root, and why does the default node debug pod fail at <code>chroot /host</code>?</summary>
+      <div class="answer"><p><code>kubectl debug node/&lt;n&gt; -it --image=&lt;image with tcpdump&gt; --profile=netadmin</code> adds NET_ADMIN and NET_RAW. The default <code>general</code> profile mounts the host filesystem at <code>/host</code> but is not privileged, so operations that need root on the host (<code>chroot</code>, reading some <code>/proc</code> entries) fail; <code>--profile=sysadmin</code> is the privileged one.</p></div></details>
   </div>
 </section>
 
@@ -184,9 +681,15 @@ the pod was switched to sa/app-sa, which has no RBAC at all. Nothing in pod stat
       <li><b>kubernetes.io</b>: Debug Pods / Debug Running Pods (the ephemeral containers page), Troubleshooting Applications, and the Debug Cluster pages.</li>
       <li><b>sre.google</b>: the postmortem culture chapter, for the vocabulary a scenario question may borrow.</li>
       <li><b>Your own postmortem notes</b>: by the third drill they are the best incident doc you own.</li>
+    
+      <li><b>kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod</b> (ephemeral containers, <code>--copy-to</code>, <code>--share-processes</code>) and <b>/debug-cluster/kubectl-node-debug</b> (the <code>/host</code> mount and profiles).</li>
+      <li><b>kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle</b>: container states, the CrashLoopBackOff backoff rules and <code>restartPolicy</code>; <b>/docs/tasks/debug/debug-cluster</b> for node and control-plane logs.</li>
+      <li><b>etcd.io/docs/latest/op-guide/maintenance</b>: compaction, defragmentation and the space quota alarm sequence.</li>
     </ul>
   </div>
 </section>
+
+<div class="needs after"><span class="lbl">free before 5.1</span><code>make down-obs</code></div>
 
 </article>
 <aside class="toc" id="toc"></aside>

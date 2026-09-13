@@ -83,7 +83,8 @@ module.exports = async function (h) {
     await page.locator('.reading-menu').click();
     await page.locator('.reading-exercises summary').click();
     const count = await page.locator('.reading-exercises a').count();
-    assert(count === 5, 'all five exercises are indexed');
+    const onPage = await page.locator('.exercise').count();
+    assert(count === onPage && count >= 5, 'every exercise is indexed: ' + count + ' of ' + onPage);
     await page.locator('.reading-exercises a').last().click();
     assert(page.url().includes('#2.2/ex-'), 'exercise navigation retains the lesson in its shareable bundle route');
     await page.waitForFunction(() => document.activeElement.id === location.hash.split('/')[1]);

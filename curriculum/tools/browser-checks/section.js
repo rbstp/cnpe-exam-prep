@@ -39,25 +39,26 @@ module.exports = async function (h) {
   await group('the code-block copy button copies the block', async () => {
     const { ctx, page } = await freshWithClipboard();
     await page.goto(url('01-architecture/01-networking.html'));
-    // the first block sits inside an exercise, whose panel is rebuilt via innerHTML at boot
-    assert(await page.evaluate(() => !!document.querySelector('.cb').closest('.exercise')),
+    // the block under test is the first one inside an exercise, whose panel is rebuilt via innerHTML at boot;
+    // theory panels may carry reference blocks of their own before it
+    assert(await page.evaluate(() => !!document.querySelector('.exercise .cb').closest('.exercise')),
       'the block under test lives inside an exercise panel');
     // syntax-test.mjs proves the colouring; this proves it reaches the page at
     // all, which the copy button cannot see (it reads textContent) and neither
     // does check-site.sh. Without it a highlighter that throws deploys green.
-    assert(await page.evaluate(() => !!document.querySelector('.cb code span.t-cmd')),
+    assert(await page.evaluate(() => !!document.querySelector('.exercise .cb code span.t-cmd')),
       'the block came out coloured, so syntax.js loaded and app.js called it');
-    const expected = await page.evaluate(() => document.querySelector('.cb code').textContent);
-    await page.click('.cb .copy-btn');
+    const expected = await page.evaluate(() => document.querySelector('.exercise .cb code').textContent);
+    await page.click('.exercise .cb .copy-btn');
     const copied = await page.evaluate(() => window.__copied);
     assert(copied.length === 1 && copied[0] === expected, 'the first block arrived on the clipboard, verbatim');
     const btn = () => page.evaluate(() => {
-      const b = document.querySelector('.cb .copy-btn');
+      const b = document.querySelector('.exercise .cb .copy-btn');
       return { text: b.textContent, ok: b.classList.contains('ok') };
     });
     let b = await btn();
     assert(b.text === 'copied' && b.ok, 'the button acknowledges the copy');
-    await page.waitForFunction(() => document.querySelector('.cb .copy-btn').textContent === 'copy');
+    await page.waitForFunction(() => document.querySelector('.exercise .cb .copy-btn').textContent === 'copy');
     b = await btn();
     assert(b.text === 'copy' && !b.ok, 'and settles back to copy');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));

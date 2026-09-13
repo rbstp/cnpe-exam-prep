@@ -62,6 +62,86 @@
   </div>
 </section>
 
+<section class="panel accent-c" id="stations-flags">
+  <div class="phdr"><h2>Stations, tools and the flags that gate</h2><span class="meta">source, build, package, deploy, run; cosign and trivy flags</span></div>
+  <div class="pbody">
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Station</th><th>Threat</th><th>Control</th><th>Tool words</th></tr></thead>
+        <tbody>
+          <tr><td>Source</td><td>malicious or accidental commit, leaked credential</td><td>branch protection, signed commits, secret scanning, dependency review</td><td>gitleaks or trivy's secret scanner, Dependabot/Renovate, OpenSSF Scorecard</td></tr>
+          <tr><td>Build</td><td>compromised or unpinned dependency, tampered build</td><td>pinned base images by digest, hermetic and reproducible builds, provenance</td><td>SLSA levels, Tekton Chains, distroless or Chainguard bases</td></tr>
+          <tr><td>Package</td><td>known vulnerabilities shipped, unsigned artefact</td><td>scan gate, SBOM, signature, attestations in the registry</td><td>trivy, syft/grype, cosign sign/attest</td></tr>
+          <tr><td>Deploy</td><td>image that bypassed the pipeline, tag moved after verification</td><td>admission verification, digest pinning, registry allow-list</td><td>Kyverno ImageValidatingPolicy, Sigstore policy-controller, Gatekeeper + Ratify</td></tr>
+          <tr><td>Run</td><td>CVE published after ship, runtime compromise</td><td>continuous rescanning, runtime detection, PSS</td><td>Trivy Operator, Falco, Pod Security admission</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>cosign flags you will type</h3>
+    <ul>
+      <li><strong>Key-pair.</strong> <code>cosign generate-key-pair</code> (or <code>--kms awskms://...</code>, <code>gcpkms://</code>, <code>azurekms://</code>, <code>hashivault://</code>, <code>k8s://ns/secret</code> to keep the key out of files); <code>cosign sign --key cosign.key &lt;image@sha256:...&gt;</code>; <code>cosign verify --key cosign.pub &lt;image&gt;</code>. Success prints <code>Verified OK</code> and the claims lines (<code>The cosign claims were validated</code>, <code>The signatures were verified against the specified public key</code>) followed by the signature payload JSON; a tag is resolved to a digest first and the payload's <code>docker-manifest-digest</code> is checked against it.</li>
+      <li><strong>Keyless.</strong> <code>cosign sign &lt;image&gt;</code> with an OIDC login or a CI identity token (<code>--identity-token</code>, GitHub Actions' <code>id-token: write</code> permission) gets a short-lived certificate from Fulcio and logs to Rekor. Verification must pin the identity: <code>cosign verify --certificate-identity &lt;subject&gt; --certificate-oidc-issuer &lt;issuer URL&gt; &lt;image&gt;</code>, or the <code>-regexp</code> variants for a workflow path like <code>https://github.com/org/repo/.github/workflows/build.yaml@refs/heads/main</code> with issuer <code>https://token.actions.githubusercontent.com</code>. Without the identity flags the command refuses to run; that is the point.</li>
+      <li><strong>Offline and private.</strong> <code>--insecure-ignore-tlog</code> skips the Rekor check (needed when you signed with <code>--tlog-upload=false</code>); <code>--offline</code> with a bundle; <code>--certificate-chain</code> or <code>--ca-roots</code> for a private Fulcio; <code>--rekor-url</code> for a private Rekor. <code>-a key=value</code> at sign time adds annotations checked with the same flag at verify time.</li>
+      <li><strong>Attestations.</strong> <code>cosign attest --predicate file --type slsaprovenance1|spdxjson|cyclonedx|vuln|custom --key ... &lt;image&gt;</code>; <code>cosign verify-attestation --type &lt;type&gt; --key ... &lt;image&gt;</code>, optionally with <code>--policy policy.cue</code> or a Rego file to assert on predicate content (a maximum severity, a builder id). <code>cosign tree &lt;image&gt;</code> lists what is attached; <code>cosign download attestation</code> fetches it.</li>
+      <li><strong>Storage formats.</strong> Signatures live as OCI artefacts next to the image: the legacy tag form <code>sha256-&lt;digest&gt;.sig</code> and <code>.att</code>, or the newer bundle stored via OCI 1.1 referrers (cosign v3 default). A verifier that only understands one form reports <code>no signatures found</code> for an image signed in the other. The lab's <code>--new-bundle-format=false</code> is that mismatch made visible.</li>
+    </ul>
+
+    <h3>trivy gate flags</h3>
+    <ul>
+      <li><code>--severity HIGH,CRITICAL</code> filters; <code>--exit-code 1</code> makes findings fail the step (default exit code is 0 even with findings); <code>--ignore-unfixed</code> is shorthand for <code>--ignore-status affected,will_not_fix,fix_deferred,end_of_life</code>; <code>--scanners vuln,secret,misconfig,license</code> picks scanners (secret scanning is on by default for images and slows large ones); <code>--pkg-types os,library</code>.</li>
+      <li><code>.trivyignore</code> holds one ID per line with optional <code>exp:2026-12-31</code> expiry; <code>.trivyignore.yaml</code> (passed with <code>--ignorefile</code>) separates vulnerabilities, misconfigurations, secrets and licences with statements; <code>--ignore-policy policy.rego</code> filters with OPA (package <code>trivy</code>, rule <code>ignore</code>); <code>--vex</code> applies VEX statements. Expiry dates are what make an ignore auditable.</li>
+      <li>Outputs a pipeline stores: <code>--format json|sarif|cyclonedx|spdx-json|template --output file</code>; <code>trivy image --format cyclonedx</code> is the SBOM, <code>trivy sbom</code> rescans one later, <code>trivy k8s</code> scans a live cluster, <code>trivy config</code> and <code>trivy fs</code> cover manifests and repos.</li>
+    </ul>
+
+    <h3>Hygiene that admission cannot give you</h3>
+    <p>Pin base images by digest (<code>FROM alpine@sha256:...</code>) and let a bot bump them; prefer distroless or Chainguard bases so the scanner has less to find and the attacker has no shell; multi-stage builds so build tools never ship; registry rules (immutable tags, a pull-through cache, an allow-list enforced by policy on <code>image</code> prefixes); dependency lockfiles committed and checked. OpenSSF Scorecard automates the repository side with named checks: Pinned-Dependencies, Token-Permissions, Branch-Protection, Signed-Releases, SBOM, Dangerous-Workflow, Vulnerabilities, Code-Review. When a task asks for "controls in the pipeline" beyond scanning, those names are the vocabulary.</p>
+  </div>
+</section>
+
+<section class="panel accent-y" id="provenance">
+  <div class="phdr"><h2>Provenance: SLSA, Tekton Chains and the verification policies</h2><span class="meta">levels, chains-config, IVP, policy-controller, Ratify</span></div>
+  <div class="pbody">
+    <h3>SLSA v1.0 Build track</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Level</th><th>Requirement</th><th>Stops</th></tr></thead>
+        <tbody>
+          <tr><td>Build L0</td><td>nothing</td><td>nothing</td></tr>
+          <tr><td>Build L1</td><td>provenance exists: the build platform generates a provenance attestation saying how the package was built (source, builder, parameters); consumers can read it</td><td>mistakes and documentation drift, not attackers</td></tr>
+          <tr><td>Build L2</td><td>hosted build platform generates and <em>signs</em> the provenance; the signing key is held by the platform, not the user</td><td>tampering after the build (forged or edited provenance)</td></tr>
+          <tr><td>Build L3</td><td>hardened build platform: builds isolated from each other and from user influence, signing material not accessible to the build steps, so the run itself cannot forge its provenance</td><td>tampering during the build</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>v1.0 has only the Build track; later versions add Source and build-environment tracks with the same shape. Provenance is an in-toto Statement with <code>predicateType: https://slsa.dev/provenance/v1</code> whose predicate has <code>buildDefinition</code> (<code>buildType</code>, <code>externalParameters</code>, <code>resolvedDependencies</code>) and <code>runDetails</code> (<code>builder.id</code>, metadata). Verification means checking the signature, the <code>builder.id</code> against the builders you trust, and the source in <code>externalParameters</code> against the repository you expect.</p>
+
+    <h3>Tekton Chains</h3>
+    <p>Chains watches TaskRuns and PipelineRuns, and on completion formats, signs and uploads provenance. Everything is in the <code>chains-config</code> ConfigMap in <code>tekton-chains</code>:</p>
+    <ul>
+      <li><code>artifacts.taskrun.format</code> / <code>artifacts.pipelinerun.format</code>: <code>in-toto</code> (alias <code>slsa/v1</code>, produces SLSA v0.2 provenance) or <code>slsa/v2alpha3</code> / <code>slsa/v2alpha4</code> (SLSA v1.0 provenance; <code>v2alpha4</code> reads type-hinted results from StepActions). New setups want <code>slsa/v2alpha3</code> or newer.</li>
+      <li><code>artifacts.*.storage</code>: <code>tekton</code> (as annotations on the run), <code>oci</code> (as attestations next to the image), <code>gcs</code>, <code>docdb</code>, <code>grafeas</code>, <code>archivista</code>; comma-separated for several. <code>artifacts.oci.storage: oci</code> is what makes <code>cosign verify-attestation</code> on the image find anything.</li>
+      <li><code>artifacts.*.signer</code>: <code>x509</code> (a <code>cosign.key</code> in the <code>signing-secrets</code> Secret, or keyless via <code>signers.x509.fulcio.enabled: true</code>) or <code>kms</code> (<code>signers.kms.kmsref</code>); <code>none</code> stores unsigned provenance.</li>
+      <li><code>transparency.enabled: true</code> uploads to Rekor (<code>transparency.url</code>); <code>manual</code> uploads only runs annotated <code>chains.tekton.dev/transparency-upload: "true"</code>.</li>
+      <li><strong>Type hinting</strong> is how Chains knows what was built: results named <code>IMAGE_URL</code> and <code>IMAGE_DIGEST</code> (or <code>*_IMAGE_URL</code>/<code>*_IMAGE_DIGEST</code> pairs, or an <code>*ARTIFACT_OUTPUTS</code> object result with <code>uri</code> and <code>digest</code>). A Task that pushes an image but emits no such result gets no OCI attestation, and the run is annotated <code>chains.tekton.dev/signed: "true"</code> anyway because the run payload itself was signed. That annotation is the first thing to read when "Chains did not sign my image"; the second is the controller log for a missing result or a registry auth error. <code>artifacts.pipelinerun.enable-deep-inspection: "true"</code> makes pipeline-level provenance include task-level results.</li>
+    </ul>
+
+    <h3>Verification at admission, three ways</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Engine</th><th>Object</th><th>The fields</th></tr></thead>
+        <tbody>
+          <tr><td>Kyverno</td><td><code>ImageValidatingPolicy</code> (<code>policies.kyverno.io/v1</code>)</td><td><code>matchImageReferences[].glob|expression</code>; <code>attestors[].cosign.key.data</code> or <code>.keyless.identities[].subject/issuer</code> (plus <code>subjectRegExp</code>/<code>issuerRegExp</code>), <code>.ctlog</code> for Rekor settings, or <code>.certificate</code>; <code>attestations[]</code> as <code>referrer.type</code> or <code>intoto.type</code>; <code>validations[].expression</code> using <code>images.containers.map(image, verifyImageSignatures(image, [attestors.x])).all(e, e &gt; 0)</code>, <code>verifyAttestationSignatures(image, attestations.sbom, [...])</code> and <code>extractPayload(image, attestations.sbom).bomFormat == 'CycloneDX'</code>; <code>mutateDigest: true</code> rewrites tags to digests, <code>verifyDigest</code> refuses tags, <code>required: true</code> fails images no rule covered; <code>credentials.secrets</code> because IVP does not read the pod's <code>imagePullSecrets</code></td></tr>
+          <tr><td>Sigstore policy-controller</td><td><code>ClusterImagePolicy</code> (<code>policy.sigstore.dev/v1beta1</code>)</td><td><code>images[].glob</code>; <code>authorities[]</code> with <code>key.data</code>, <code>keyless.identities[].issuer/subject</code> (+ <code>url</code> for Fulcio), or <code>static.action: pass|fail</code>; <code>attestations[]</code> with <code>predicateType</code> and a <code>policy</code> in cue or rego; <code>mode: enforce|warn</code>. Only namespaces labelled <code>policy.sigstore.dev/include: "true"</code> are checked; every matching policy must pass (AND), any one authority inside a policy suffices (OR); it also resolves tags to digests</td></tr>
+          <tr><td>Gatekeeper</td><td><code>Provider</code> (external data) + a ConstraintTemplate calling <code>external_data</code></td><td>Ratify (or cosign-gatekeeper-provider) runs in-cluster, verifies signatures and attestations against its own <code>Verifier</code> and <code>Store</code> config, and returns a verdict per image; the Constraint denies on failure. Same effect, one more moving part</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Digest pinning closes the last gap: verify the digest, then run the digest. Kyverno's <code>mutateDigest</code>, policy-controller's tag resolution and Argo CD's image updater writing digests into git all do it; a Deployment that still says <code>:v1</code> after admission means whoever moves the tag decides what runs.</p>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Sign this image and make the cluster refuse unsigned ones" is cosign plus one of the three objects above, with the registry name as the pods see it and the engine's insecure-registry setting if the lab registry is plain HTTP. "Generate provenance for this pipeline" is Chains configuration plus <code>IMAGE_URL</code>/<code>IMAGE_DIGEST</code> results in the Task. "Fail the build on CRITICAL-severity CVEs but not on unfixable ones" is <code>--severity CRITICAL --exit-code 1 --ignore-unfixed</code> with a dated ignore file for the exceptions. Each is graded on the artefact (a signature you can verify, an attestation you can download, a denied pod), so end by producing that artefact.</p></div>
+  </div>
+</section>
+
 <section class="panel accent-g" id="exercises">
   <div class="phdr"><h2>Exercises</h2><span class="meta">tick the dot when its check passes</span></div>
   <div class="pbody">
@@ -127,6 +207,229 @@ Error from server: admission webhook "ivpol.validate.kyverno.svc-fail" denied th
       <div class="verify"><b>verify:</b> against this: gate catches known-bad before publish; signature catches tampering and untrusted builders; admission catches bypassing the pipeline entirely; PSS catches dangerous runtime shape regardless of provenance; the operator catches CVEs discovered after ship. If your five lines cover those five distinct failure classes, this competency is done.</div>
     </div>
 
+    <div class="exercise" data-title="Verify a keyless signature properly">
+      <p>Keyless verification without identity flags is not verification: it asks "was this signed by anyone", which is a question with a useless answer. cosign refuses to do it. The second and third commands are the pair worth knowing: a wrong identity fails with the identity that is actually on the certificate printed in the error, which is how you find the right flags for an image you did not build.</p>
+      <div class="cb" data-lang="bash"><pre><code># no identity at all: cosign will not answer the question
+cosign verify ghcr.io/sigstore/cosign/cosign:v2.4.1 2&gt;&amp;1 | head -3
+# an identity that does not match: the error names the one that is actually on the certificate
+cosign verify ghcr.io/sigstore/cosign/cosign:v2.4.1 \
+  --certificate-identity-regexp='^https://github.com/sigstore/cosign/.*' \
+  --certificate-oidc-issuer=https://token.actions.githubusercontent.com 2&gt;&amp;1 | head -4
+# the identity the certificate really carries
+cosign verify ghcr.io/sigstore/cosign/cosign:v2.4.1 \
+  --certificate-identity=keyless@projectsigstore.iam.gserviceaccount.com \
+  --certificate-oidc-issuer=https://accounts.google.com 2&gt;&amp;1 | head -6</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ # no identity at all: cosign will not answer the question</b>
+<b>$ cosign verify ghcr.io/sigstore/cosign/cosign:v2.4.1 2&gt;&amp;1 | head -3</b>
+Error: --certificate-identity or --certificate-identity-regexp is required for verification in keyless mode
+error during command execution: --certificate-identity or --certificate-identity-regexp is required for verification in keyless mode
+<b>$ # an identity that does not match: the error names the one that is actually on the certificate</b>
+<b>$ cosign verify ghcr.io/sigstore/cosign/cosign:v2.4.1 \</b>
+<b>    --certificate-identity-regexp='^https://github.com/sigstore/cosign/.*' \</b>
+<b>    --certificate-oidc-issuer=https://token.actions.githubusercontent.com 2&gt;&amp;1 | head -4</b>
+Error: no matching signatures: error verifying bundle: empty key
+ none of the expected identities matched what was in the certificate, got subjects [keyless@projectsigstore.iam.gserviceaccount.com] with issuer https://accounts.google.com
+error during command execution: no matching signatures: error verifying bundle: empty key
+ none of the expected identities matched what was in the certificate, got subjects [keyless@projectsigstore.iam.gserviceaccount.com] with issuer https://accounts.google.com
+<b>$ # the identity the certificate really carries</b>
+<b>$ cosign verify ghcr.io/sigstore/cosign/cosign:v2.4.1 \</b>
+<b>    --certificate-identity=keyless@projectsigstore.iam.gserviceaccount.com \</b>
+<b>    --certificate-oidc-issuer=https://accounts.google.com 2&gt;&amp;1 | head -6</b>
+
+Verification for ghcr.io/sigstore/cosign/cosign:v2.4.1 --
+The following checks were performed on each of these signatures:
+  - The cosign claims were validated
+  - Existence of the claims in the transparency log was verified offline
+  - The code-signing certificate was verified using trusted certificate authority certificates</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the first command refuses with <code>--certificate-identity or --certificate-identity-regexp is required for verification in keyless mode</code>. The second fails with <code>none of the expected identities matched what was in the certificate, got subjects [keyless@projectsigstore.iam.gserviceaccount.com] with issuer https://accounts.google.com</code>, which hands you the answer. The third, using exactly that subject and issuer, prints <code>Verification for ...</code> and the list of checks performed. Note that this release is signed by a Google service account rather than a GitHub Actions workflow, which is why guessing the GitHub identity fails.</div>
+    </div>
+
+    <div class="exercise" data-title="Attest an SBOM and read it back">
+      <p>A signature says who built it. An attestation says what it contains, signed. Attach an SBOM as an attestation, look at the tree, and pull the predicate back out, because that round trip is the whole supply-chain story.</p>
+      <div class="cb" data-lang="bash"><pre><code># generate-key-pair prompts for a passphrase; an empty COSIGN_PASSWORD is what makes it non-interactive
+[ -f /tmp/cosign.key ] || COSIGN_PASSWORD='' cosign generate-key-pair --output-key-prefix /tmp/cosign
+skopeo copy --dest-tls-verify=false docker://ghcr.io/stefanprodan/podinfo:6.7.1 docker://localhost:5001/demo:v1
+trivy image --format cyclonedx --output /tmp/sbom.json localhost:5001/demo:v1
+COSIGN_PASSWORD='' cosign attest --yes --predicate /tmp/sbom.json --type cyclonedx --key /tmp/cosign.key --allow-insecure-registry localhost:5001/demo:v1
+cosign tree --allow-insecure-registry localhost:5001/demo:v1
+cosign verify-attestation --type cyclonedx --key /tmp/cosign.pub --allow-insecure-registry localhost:5001/demo:v1 | jq -r .payload | base64 -d | jq '{predicateType, components: (.predicate.components | length)}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ # generate-key-pair prompts for a passphrase; an empty COSIGN_PASSWORD is what makes it non-interactive</b>
+<b>$ [ -f /tmp/cosign.key ] || COSIGN_PASSWORD='' cosign generate-key-pair --output-key-prefix /tmp/cosign</b>
+Private key written to /tmp/cosign.key
+Public key written to /tmp/cosign.pub
+<b>$ skopeo copy --dest-tls-verify=false docker://ghcr.io/stefanprodan/podinfo:6.7.1 docker://localhost:5001/demo:v1</b>
+Getting image source signatures
+Copying blob sha256:7e517c53cd4ca936c3bc3d3dc66419278a680214f37444ad0ad1b8bd65968940
+Copying blob sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1
+Copying blob sha256:43c4264eed91be63b206e17d93e75256a6097070ce643c5e8f0379998b44f170
+Copying blob sha256:2bf70b2badb9fa00aa36d50d61c6b9cc094d7a18fb4a3c7a91ce950dd7202900
+Copying blob sha256:35d14af0e611499048effc4d39a2341345f96dd9103c8c186b7cc239a687de5c
+Copying blob sha256:31eaa2883f08a0ce854d061714a111f052444a3ba1b2323719cb12b872a0dbe3
+Copying blob sha256:47f87f374862e0c7555781b116554936999ad2e8e4c6a4e7417688ffe57d8b88
+Copying config sha256:c875de4397634b0dc138954cbe2c11b9d86d948b98b17bd9fc3227b3ad992eae
+Writing manifest to image destination
+<b>$ trivy image --format cyclonedx --output /tmp/sbom.json localhost:5001/demo:v1</b>
+2026-09-13T00:11:59-04:00	INFO	"--format cyclonedx" disables security scanning. Specify "--scanners vuln" explicitly if you want to include vulnerabilities in the "cyclonedx" report.
+2026-09-13T00:12:00-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
+2026-09-13T00:12:00-04:00	INFO	Number of language-specific files	num=2
+
+📣 Notices:
+  - Version 0.74.0 of Trivy is now available, current version is 0.73.0
+
+To suppress version checks, run Trivy scans with the --skip-version-check flag
+<b>$ COSIGN_PASSWORD='' cosign attest --yes --predicate /tmp/sbom.json --type cyclonedx --key /tmp/cosign.key --allow-insecure-registry localhost:5001/demo:v1</b>
+WARNING: Image reference localhost:5001/demo:v1 uses a tag, not a digest, to identify the image to sign.
+    This can lead you to sign a different image than the intended one. Please use a
+    digest (example.com/ubuntu@sha256:abc123...) rather than tag
+    (example.com/ubuntu:latest) for the input to cosign. The ability to refer to
+    images by tag will be removed in a future release.
+
+Using payload from: /tmp/sbom.json
+Signing artifact...
+<b>$ cosign tree --allow-insecure-registry localhost:5001/demo:v1</b>
+📦 Supply Chain Security Related artifacts for an image: localhost:5001/demo:v1
+└── 🔐 Signatures for an image tag: localhost:5001/demo:sha256-ed73e9871dfba28276b28daab3463cc2f9b3c15337dfe0445e8b0f79694e0cd6.sig
+   └── 🍒 sha256:a217ae5b0b2d194cf70785da9ff77db49a8040f86cd50d518766deecce261c91
+└── 🔗 https://cyclonedx.org/bom artifacts via OCI referrer: localhost:5001/demo@sha256:53833ef158bb16c0652edf40242d2f5a0da861f0b447271c5f55170da4a294da
+   └── 🍒 sha256:6ff7639af536922fe0b7b8d5ee81bcd56fc432099b04a2bfb5e96fc8ef167558
+└── 🔗 https://cyclonedx.org/bom artifacts via OCI referrer: localhost:5001/demo@sha256:c4ebc6c30e427e7656271ffaae5694e47c51831d2dfbcda1a306603877e4e620
+   └── 🍒 sha256:9f5427192055dde8d943dfcf0e35900cebacef1b820258a2d06a17da84b0ceb4
+<b>$ cosign verify-attestation --type cyclonedx --key /tmp/cosign.pub --allow-insecure-registry localhost:5001/demo:v1 | jq -r .payload | base64 -d | jq '{predicateType, components: (.predicate.components | length)}'</b>
+
+Verification for localhost:5001/demo:v1 --
+The following checks were performed on each of these signatures:
+  - The cosign claims were validated
+  - Existence of the claims in the transparency log was verified offline
+  - The signatures were verified against the specified public key
+{
+  "predicateType": "https://cyclonedx.org/bom",
+  "components": 114
+}</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the tree shows an attestation alongside the image, and the verified payload's <code>predicateType</code> is the CycloneDX one with the component list intact.</div>
+    </div>
+
+    <div class="exercise" data-title="Rewrite the tag to a digest">
+      <p>A tag is a mutable pointer, so verifying a tag and then running it is a race. <code>mutateDigest</code> makes the policy rewrite the pod spec to the digest it verified, which closes the gap in the object itself.</p>
+      <div class="cb" data-lang="bash"><pre><code>[ -f /tmp/cosign.pub ] || COSIGN_PASSWORD='' cosign generate-key-pair --output-key-prefix /tmp/cosign
+# Kyverno's verifier reads the legacy .sig tag, so the image needs a signature in that format
+DIGEST=$(skopeo inspect --tls-verify=false docker://localhost:5001/demo:v1 | jq -r .Digest)
+COSIGN_PASSWORD='' cosign sign --key /tmp/cosign.key --allow-http-registry -y --use-signing-config=false --new-bundle-format=false --tlog-upload=false localhost:5001/demo@$DIGEST
+kubectl apply -f - &lt;&lt;EOF
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata: { name: pin-digest }
+spec:
+  validationFailureAction: Enforce
+  rules:
+    - name: verify-and-pin
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: [default]
+      verifyImages:
+        - imageReferences: ["kind-registry:5000/demo:v1"]
+          mutateDigest: true
+          verifyDigest: false
+          required: false
+          attestors:
+            - entries:
+                - keys:
+                    publicKeys: |-
+$(sed 's/^/                      /' /tmp/cosign.pub)
+                    rekor:
+                      ignoreTlog: true
+                    ctlog:
+                      ignoreSCT: true
+EOF
+sleep 20
+kubectl -n default run pinned --image=kind-registry:5000/demo:v1 --restart=Never
+kubectl -n default get pod pinned -o jsonpath='{.spec.containers[0].image}{"\n"}'
+kubectl -n default delete pod pinned --ignore-not-found
+kubectl delete clusterpolicy pin-digest</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ [ -f /tmp/cosign.pub ] || COSIGN_PASSWORD='' cosign generate-key-pair --output-key-prefix /tmp/cosign</b>
+<b>$ # Kyverno's verifier reads the legacy .sig tag, so the image needs a signature in that format</b>
+<b>$ DIGEST=$(skopeo inspect --tls-verify=false docker://localhost:5001/demo:v1 | jq -r .Digest)</b>
+<b>$ COSIGN_PASSWORD='' cosign sign --key /tmp/cosign.key --allow-http-registry -y --use-signing-config=false --new-bundle-format=false --tlog-upload=false localhost:5001/demo@$DIGEST</b>
+Flag --new-bundle-format has been deprecated, this will be the only supported format in future versions
+Flag --tlog-upload has been deprecated, prefer using a --signing-config file with no transparency log services
+Signing artifact...
+Pushing signature to: localhost:5001/demo
+<b>$ kubectl apply -f - &lt;&lt;EOF</b>
+<b>apiVersion: kyverno.io/v1</b>
+<b>kind: ClusterPolicy</b>
+<b>metadata: { name: pin-digest }</b>
+<b>spec:</b>
+<b>  validationFailureAction: Enforce</b>
+<b>  rules:</b>
+<b>    - name: verify-and-pin</b>
+<b>      match:</b>
+<b>        any:</b>
+<b>          - resources:</b>
+<b>              kinds: [Pod]</b>
+<b>              namespaces: [default]</b>
+<b>      verifyImages:</b>
+<b>        - imageReferences: ["kind-registry:5000/demo:v1"]</b>
+<b>          mutateDigest: true</b>
+<b>          verifyDigest: false</b>
+<b>          required: false</b>
+<b>          attestors:</b>
+<b>            - entries:</b>
+<b>                - keys:</b>
+<b>                    publicKeys: |-</b>
+<b>$(sed 's/^/                      /' /tmp/cosign.pub)</b>
+<b>                    rekor:</b>
+<b>                      ignoreTlog: true</b>
+<b>                    ctlog:</b>
+<b>                      ignoreSCT: true</b>
+<b>EOF</b>
+Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
+clusterpolicy.kyverno.io/pin-digest created
+<b>$ sleep 20</b>
+<b>$ kubectl -n default run pinned --image=kind-registry:5000/demo:v1 --restart=Never</b>
+pod/pinned created
+<b>$ kubectl -n default get pod pinned -o jsonpath='{.spec.containers[0].image}{"\n"}'</b>
+kind-registry:5000/demo:v1@sha256:ed73e9871dfba28276b28daab3463cc2f9b3c15337dfe0445e8b0f79694e0cd6
+<b>$ kubectl -n default delete pod pinned --ignore-not-found</b>
+pod "pinned" deleted from default namespace
+<b>$ kubectl delete clusterpolicy pin-digest</b>
+Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
+clusterpolicy.kyverno.io "pin-digest" deleted</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the running pod's image is <code>...@sha256:...</code> even though you asked for a tag.</div>
+    </div>
+
+    <div class="exercise" data-title="Three ways to configure the same gate">
+      <p>A scanner gate is a policy decision expressed as flags, and each flag changes who gets blocked. Run the same scan three ways and watch the verdict move without the image changing at all.</p>
+      <div class="cb" data-lang="bash"><pre><code>trivy image -q --exit-code 1 --severity CRITICAL localhost:5001/demo:v1 &gt; /tmp/scan-strict.txt 2&gt;&amp;1; echo "strict exit: $?"
+trivy image -q --exit-code 1 --severity CRITICAL --ignore-unfixed localhost:5001/demo:v1 &gt; /tmp/scan-unfixed.txt 2&gt;&amp;1; echo "ignore-unfixed exit: $?"
+# every CRITICAL id, not just the first: suppressing one of three moves no exit code
+trivy image -q --severity CRITICAL --format json localhost:5001/demo:v1 | jq -r '[.Results[].Vulnerabilities // [] | .[].VulnerabilityID] | unique | .[]' &gt; /tmp/cves.txt
+cat /tmp/cves.txt
+sed 's/$/ exp:2020-01-01/' /tmp/cves.txt &gt; /tmp/.trivyignore
+trivy image -q --exit-code 1 --severity CRITICAL --ignorefile /tmp/.trivyignore localhost:5001/demo:v1 &gt; /tmp/scan-expired.txt 2&gt;&amp;1; echo "expired-ignore exit: $?"
+sed 's/$/ exp:2099-01-01/' /tmp/cves.txt &gt; /tmp/.trivyignore
+trivy image -q --exit-code 1 --severity CRITICAL --ignorefile /tmp/.trivyignore localhost:5001/demo:v1 &gt; /tmp/scan-live.txt 2&gt;&amp;1; echo "live-ignore exit: $?"
+tail -5 /tmp/scan-live.txt</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ trivy image -q --exit-code 1 --severity CRITICAL localhost:5001/demo:v1 &gt; /tmp/scan-strict.txt 2&gt;&amp;1; echo "strict exit: $?"</b>
+strict exit: 1
+<b>$ trivy image -q --exit-code 1 --severity CRITICAL --ignore-unfixed localhost:5001/demo:v1 &gt; /tmp/scan-unfixed.txt 2&gt;&amp;1; echo "ignore-unfixed exit: $?"</b>
+ignore-unfixed exit: 1
+<b>$ # every CRITICAL id, not just the first: suppressing one of three moves no exit code</b>
+<b>$ trivy image -q --severity CRITICAL --format json localhost:5001/demo:v1 | jq -r '[.Results[].Vulnerabilities // [] | .[].VulnerabilityID] | unique | .[]' &gt; /tmp/cves.txt</b>
+<b>$ cat /tmp/cves.txt</b>
+CVE-2025-68121
+CVE-2026-31789
+CVE-2026-33186
+<b>$ sed 's/$/ exp:2020-01-01/' /tmp/cves.txt &gt; /tmp/.trivyignore</b>
+<b>$ trivy image -q --exit-code 1 --severity CRITICAL --ignorefile /tmp/.trivyignore localhost:5001/demo:v1 &gt; /tmp/scan-expired.txt 2&gt;&amp;1; echo "expired-ignore exit: $?"</b>
+expired-ignore exit: 1
+<b>$ sed 's/$/ exp:2099-01-01/' /tmp/cves.txt &gt; /tmp/.trivyignore</b>
+<b>$ trivy image -q --exit-code 1 --severity CRITICAL --ignorefile /tmp/.trivyignore localhost:5001/demo:v1 &gt; /tmp/scan-live.txt 2&gt;&amp;1; echo "live-ignore exit: $?"</b>
+live-ignore exit: 0
+<b>$ tail -5 /tmp/scan-live.txt</b>
+└────────────────────────────────────────┴──────────┴─────────────────┴─────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)</code></pre></details></div>
+      <div class="verify"><b>verify:</b> four exit lines, the three CRITICAL ids the ignorefile is built from, and the last five lines of the final report. <code>strict</code> is 1. <code>ignore-unfixed</code> is still 1, because every CRITICAL here has a fixed version and nothing is dropped. The expired ignorefile is 1: an entry dated in the past no longer suppresses. The same file dated 2099 gives 0, and its report ends on the legend rather than a findings table. Redirecting each report to a file is deliberate: piping a scan into <code>head</code> or <code>tail</code> reports the exit code of the pager, not of trivy, and fifty lines of table hide the one number the gate is made of.</div>
+    </div>
+
   </div>
 </section>
 
@@ -147,6 +450,19 @@ Error from server: admission webhook "ivpol.validate.kyverno.svc-fail" denied th
 
     <details class="quiz"><summary>Distinguish SBOM, provenance and signature in one sentence each.</summary>
       <div class="answer"><p>SBOM: what is inside the artifact. Provenance: how and by whom it was built (a SLSA-style attestation). Signature: who vouches for these exact bytes. Three documents, one trust story; provenance and SBOMs are themselves usually signed attestations.</p></div></details>
+  
+
+    <details class="quiz"><summary>Keyless verification: which two flags are mandatory, and what does each pin?</summary>
+      <div class="answer"><p><code>--certificate-identity</code> (or <code>--certificate-identity-regexp</code>) pins the SAN in the Fulcio certificate: the signer's email or, for CI, the workflow URL such as <code>https://github.com/org/repo/.github/workflows/build.yaml@refs/heads/main</code>. <code>--certificate-oidc-issuer</code> pins who authenticated that identity, for example <code>https://token.actions.githubusercontent.com</code>. Without both, any Fulcio-issued certificate would verify, so cosign refuses to run.</p></div></details>
+
+    <details class="quiz"><summary>Tekton Chains signs the TaskRun (annotation <code>chains.tekton.dev/signed: "true"</code>) but <code>cosign verify-attestation</code> on the image finds nothing. Two configuration causes?</summary>
+      <div class="answer"><p>The Task does not emit type-hinted results (<code>IMAGE_URL</code> and <code>IMAGE_DIGEST</code>, or <code>*ARTIFACT_OUTPUTS</code>), so Chains has no image to attach provenance to; or <code>artifacts.taskrun.storage</code> / <code>artifacts.oci.storage</code> does not include <code>oci</code>, so the attestation went to the <code>tekton</code> backend (run annotations) only. Check the results on the run and the <code>chains-config</code> ConfigMap, then the controller log.</p></div></details>
+
+    <details class="quiz"><summary>What distinguishes SLSA Build L2 from L3, and which one does a signed provenance from a shared CI runner reach?</summary>
+      <div class="answer"><p>L2 requires a hosted platform to generate and sign the provenance with a key the user cannot access. L3 additionally requires the build to be isolated from other builds and from user-controlled steps so the run cannot influence its own provenance or reach the signing material. A shared runner where jobs can read each other's state or the signing credentials stops at L2; L3 needs ephemeral, isolated builders with the signer outside the job (Tekton Chains signing from its controller rather than inside the Task is the pattern).</p></div></details>
+
+    <details class="quiz"><summary>A Kyverno ImageValidatingPolicy fails on a private-registry image with an authentication error, although the pod's <code>imagePullSecrets</code> work. Why?</summary>
+      <div class="answer"><p>IVP does not read the pod's <code>imagePullSecrets</code> and the global registry credential helper flag does not apply to it; registry access must be declared in the policy's own <code>spec.credentials.secrets</code> (Secrets in Kyverno's namespace) or <code>credentials.providers</code> for cloud ambient auth. Kyverno fetches signatures from inside its pod, so network, scheme (<code>allowInsecureRegistry</code>) and credentials are all evaluated there.</p></div></details>
   </div>
 </section>
 
@@ -158,6 +474,10 @@ Error from server: admission webhook "ivpol.validate.kyverno.svc-fail" denied th
       <li><b>kyverno.io</b>: image verification policies (current kind and fields).</li>
       <li><b>slsa.dev</b>: the levels table, five minutes.</li>
       <li><b>Offline:</b> <code>cosign --help</code>, <code>trivy image --help</code>, <code>kubectl explain imagevalidatingpolicies.spec</code>; the last one is the version arbiter when docs and cluster disagree.</li>
+    
+      <li><b>docs.sigstore.dev/cosign/verifying/verify</b> (the identity flags, <code>--check-claims</code>, private CA options) and <b>/cosign/verifying/attestation</b> (cue and rego policies on predicates).</li>
+      <li><b>tekton.dev/docs/chains/config</b> (every <code>chains-config</code> key with its allowed values) and <b>/docs/chains/slsa-provenance</b> (type hints, deep inspection); <b>slsa.dev/spec/v1.0/levels</b> for the Build track.</li>
+      <li><b>kyverno.io/docs/policy-types/image-validating-policy</b> (attestors, attestations, <code>credentials</code>, the CEL functions) and <b>docs.sigstore.dev/policy-controller/overview</b> (ClusterImagePolicy, namespace label, AND/OR semantics).</li>
     </ul>
   </div>
 </section>

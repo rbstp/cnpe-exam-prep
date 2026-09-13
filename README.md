@@ -12,7 +12,7 @@ The lab is the machinery; [curriculum/](curriculum/index.html) is the study plan
 
 It is published at **[cnpe.rbstp.dev](https://cnpe.rbstp.dev)**. It is a self-contained site rather than a pile of markdown, so it also runs off disk: open `curriculum/index.html` in a browser (no server, no build step, `file://` is fine) or run `make study`.
 
-Code blocks have copy buttons, `/` jumps to any section by name, tool or concept, and exercises tick off as you verify them. Thirteen interactive figures can be driven directly, and drill mode replays all 148 self-check questions as flashcards weighted toward what you miss. [CNPE Quest](curriculum/game.html) turns the whole map into a role-playing game: five regions for the five domains, a town per section whose people teach the theory and the commands, a trial built from the section's own self-check cards, and a dungeon holding one of the lab's faults, fought with real `kubectl`, `argocd`, `flux`, `tkn` and `crossplane` commands against a simulated cluster. Progress lives in that browser's local storage, and **Export** and **Import** on the dashboard move it between browsers or machines. On the hosted site you can also **sign in with GitHub** from the header to keep a copy across machines: opt-in, off by default, identity-only (the OAuth scope is empty), and signed out the console never touches the network. See [docs/progress-sync.md](docs/progress-sync.md).
+Code blocks have copy buttons, `/` jumps to any section by name, tool or concept, and exercises tick off as you verify them. Thirteen interactive figures can be driven directly, and drill mode replays all 257 self-check questions as flashcards weighted toward what you miss. [CNPE Quest](curriculum/game.html) turns the whole map into a role-playing game: five regions for the five domains, a town per section whose people teach the theory and the commands, a trial built from the section's own self-check cards, and a dungeon holding one of the lab's faults, fought with real `kubectl`, `argocd`, `flux`, `tkn` and `crossplane` commands against a simulated cluster. Progress lives in that browser's local storage, and **Export** and **Import** on the dashboard move it between browsers or machines. On the hosted site you can also **sign in with GitHub** from the header to keep a copy across machines: opt-in, off by default, identity-only (the OAuth scope is empty), and signed out the console never touches the network. See [docs/progress-sync.md](docs/progress-sync.md).
 
 The study pages use a reading-first black-and-gold theme, dark by default with a full light theme (`t`). **Read / Practice / Recall** and the exercise index jump directly through the original continuous lesson; **Contents** provides the same access on mobile. Use `f` for focus view and **Aa** for larger reading text. Text size and theme stay local to the browser, outside progress sync. The quest uses the same page shell, navigation, charcoal-and-gold windows and dark/light switch, with an original 16-bit RPG presentation: pixel-art towns, staged battles, scene transitions, optional synthesized sound, click-to-travel and a quest journal (`q`). Desktop stats sit beside the game, while mobile uses a compact strip. It respects reduced motion and keeps quick help collapsed below the game.
 
@@ -43,7 +43,7 @@ The [dashboard](curriculum/index.html) maps every official competency to a secti
 | `mesh` | Second cluster with [Istio](https://istio.io/) ambient and [Flagger](https://flagger.app/) | Security (15%) |
 | `portal` | [Backstage](https://backstage.io/) on the host, with a software template that publishes to Gitea | Platform APIs (25%) |
 
-Versions as tested: Kubernetes 1.36.1, kind 0.32.0, Helm 4.2.2, Cilium 1.20.1, Argo CD 10.4.0 (chart), Crossplane 2.4.0 (chart), kube-prometheus-stack 88.5.3, Istio 1.30.3, Flux 2.9.4.
+Versions as tested: kind 0.33.0, Helm 4.2.2, Cilium 1.20.1, Argo CD 10.9.0 (chart), Crossplane 2.4.0 (chart), kube-prometheus-stack 88.5.3, Istio 1.30.3, Flux 2.9.4. `K8S_IMAGE` pins Kubernetes 1.37.0; the curriculum's September output was captured on 1.36.1, the pin in force before that bump. Only Kubernetes is pinned, by `K8S_IMAGE` in `lab.env`; `scripts/01-tools.sh` installs kind and the other CLIs from their latest release, so those numbers record what was tested rather than what you will get.
 
 Only the Kubernetes node image is pinned, by digest, in `lab.env`. Helm charts and the Tekton manifests float on purpose, so a fresh install gets whatever is current and the versions above will drift. That is the right trade for exam prep, because chart values and API versions moving under you is the thing the exam actually tests. When something breaks, `kubectl api-resources | grep <tool>` and `kubectl explain <kind>` are the fix. If you want reproducibility instead, pinning `--version` in `helmi` (`scripts/lib.sh`) is a one-line change.
 
@@ -201,9 +201,15 @@ make status          Clusters, endpoints, unhealthy pods, host load
 make break           Inject a random fault, then diagnose it under time pressure
 make break-answer    Reveal the last injected fault
 make break-fix       Auto-diagnose and repair whatever 'make break' injected
+make down-gitops     Remove one layer from the running cluster ('make gitops' puts it back)
+make down-cicd       ... and the same for cicd, api, obs, sec, spire and mesh
 make down            Delete both clusters (keeps git history + registry)
 make nuke            Delete everything including Gitea data
 ```
+
+Each section page of the study console ends with the `make down-<layer>` commands for
+whatever the next section does not need, so a laptop only ever runs the layers the
+section in front of you uses. A layer's CRDs stay behind; nothing else does.
 
 ## make validate
 

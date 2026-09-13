@@ -181,6 +181,99 @@ secret/pg-app   kubernetes.io/basic-auth   11     4m1s
   </div>
 </section>
 
+<section class="panel accent-c" id="controller-runtime">
+  <div class="phdr"><h2>Inside a controller: controller-runtime in one page</h2><span class="meta">manager · reconciler · For, Owns, Watches · predicates · requeue · leader election · the RBAC it needs</span></div>
+  <div class="pbody">
+    <p>You will not write Go on the exam, but every operator you diagnose is built on the same dozen concepts, and their names appear in logs, flags and Deployment manifests. Knowing them turns "the operator is weird" into "the cache is stale" or "it lost the lease".</p>
+
+    <h3>The pieces</h3>
+    <ul>
+      <li><strong>Manager</strong>: one process hosting shared informer caches, a client, metrics (<code>:8080</code>), health probes (<code>:8081</code>, <code>/healthz</code> and <code>/readyz</code>), an optional webhook server (<code>:9443</code>) and the controllers. Flags on the Deployment such as <code>--leader-elect</code>, <code>--metrics-bind-address</code>, <code>--health-probe-bind-address</code> and <code>--watch-namespace</code> are manager options.</li>
+      <li><strong>Controller</strong>: a work queue of <code>namespace/name</code> keys plus a <strong>Reconciler</strong> with one method, <code>Reconcile(ctx, req) (Result, error)</code>. It receives a key, never an event, which is the code-level reason reconciliation is level-based. <code>MaxConcurrentReconciles</code> (default 1) is why an operator handling hundreds of CRs can look slow.</li>
+      <li><strong>Builder</strong>: <code>For(&amp;MyKind{})</code> is the primary resource (its key is enqueued); <code>Owns(&amp;appsv1.Deployment{})</code> enqueues the <em>owner</em> when an owned object changes, found through <code>ownerReferences</code> with <code>controller: true</code>; <code>Watches(...)</code> with a handler maps any other object (a Secret the CR references) to the keys to reconcile. <code>Owns</code> is why deleting an operator's Deployment or Secret triggers an immediate rebuild and why <code>ownerReferences</code> is your map of what an operator manages.</li>
+      <li><strong>Predicates</strong> filter events before they hit the queue: <code>GenerationChangedPredicate</code> drops updates where <code>metadata.generation</code> did not change (status-only writes), <code>LabelChangedPredicate</code>, <code>AnnotationChangedPredicate</code>, and custom funcs. An operator that "ignores my label change" or "reconciles in a hot loop" usually has a predicate to blame or to add.</li>
+      <li><strong>Result</strong>: return <code>Result{}</code> when done, <code>Result{RequeueAfter: 5*time.Minute}</code> to poll an external system, or an <code>error</code> to retry with exponential backoff (the workqueue's rate limiter: 5 ms doubling up to about 16 minutes, with a global 10 per second budget). "Retrying in 1m4s" style log lines are that backoff.</li>
+      <li><strong>Cache</strong>: reads come from informers, so a write followed by an immediate read can return the old object (cache staleness); well-written reconcilers tolerate this by re-reading on the next pass rather than fighting it.</li>
+      <li><strong>Leader election</strong>: a <code>Lease</code> in the operator's namespace named by <code>LeaderElectionID</code>; <code>LeaseDuration</code> 15 s, <code>RenewDeadline</code> 10 s, <code>RetryPeriod</code> 2 s are the defaults. Extra replicas run but do nothing until they win. <code>kubectl get lease -n &lt;operator-ns&gt;</code> shows <code>holderIdentity</code>, which answers "which pod is actually reconciling".</li>
+    </ul>
+
+    <h3>The RBAC an operator needs, and what its absence looks like</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Rule</th><th>Why</th><th>Symptom when missing</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">its own CRD: get, list, watch, update, patch; plus &lt;plural&gt;/status and &lt;plural&gt;/finalizers</td><td>watch the primary resource, write status, manage finalizers</td><td>startup crash "failed to watch" or <code>Forbidden: ... cannot update resource "widgets/status"</code> in logs; CRs never gain status</td></tr>
+          <tr><td class="mono">every owned kind: create, update, patch, delete, get, list, watch</td><td><code>Owns()</code> needs to watch it and write it</td><td>CR stays Progressing; logs show <code>is forbidden: User "system:serviceaccount:ns:sa" cannot create ...</code></td></tr>
+          <tr><td class="mono">coordination.k8s.io leases: get, create, update</td><td>leader election</td><td>"error retrieving resource lock" and no replica ever becomes leader; nothing reconciles</td></tr>
+          <tr><td class="mono">events: create, patch</td><td><code>kubectl describe</code> output</td><td>silent: conditions update but no Events appear</td></tr>
+          <tr><td class="mono">the Secrets or ConfigMaps it reads across namespaces</td><td>integration inputs</td><td>a Forbidden that looks like the Secret is missing</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Kubebuilder generates these from <code>// +kubebuilder:rbac</code> markers into a ClusterRole; Helm and Ansible operators ship the same shape by hand. A namespaced install (<code>--watch-namespace</code>) can use Roles instead, which is the multi-tenant compromise (1.4).</p>
+
+    <h3>Admission webhooks inside operators</h3>
+    <p>Many operators register a <code>ValidatingWebhookConfiguration</code> and <code>MutatingWebhookConfiguration</code> for their own kinds (defaulting, cross-field checks CEL cannot do, conversion). They need a serving certificate: cert-manager's <code>cert-manager.io/inject-ca-from</code> annotation, or the operator generating a self-signed pair and patching <code>caBundle</code>. When the operator pod is down, <code>failurePolicy: Fail</code> on its webhook makes every write to its kinds fail with "failed calling webhook"; that includes the GitOps controller's own applies, and it is the first thing to check when a whole API group becomes read-only after an operator upgrade.</p>
+
+    <div class="callout reflex"><span class="tag">Reflex</span><p><code>kubectl -n &lt;op-ns&gt; get lease</code> (who leads), <code>kubectl -n &lt;op-ns&gt; logs deploy/&lt;op&gt; | grep -i -E 'forbidden|error'</code> (RBAC and backoff), <code>kubectl get validatingwebhookconfiguration -o wide</code> (a webhook that could be blocking), then the four-command diagnosis from the panel above. Restarting the operator is what you do after those, not before.</p></div>
+  </div>
+</section>
+
+<section class="panel accent-p" id="olm-levels-conventions">
+  <div class="phdr"><h2>Installing and judging operators</h2><span class="meta">OLM v0 vs v1 · capability levels with their tests · Helm, Ansible, Go · condition conventions · a stuck operator, step by step</span></div>
+  <div class="pbody">
+    <h3>OLM v0 and OLM v1</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Aspect</th><th>OLM v0 (classic)</th><th>OLM v1 (operator-controller, GA)</th></tr></thead>
+        <tbody>
+          <tr><td>Catalog</td><td class="mono">CatalogSource (index image)</td><td class="mono">ClusterCatalog { spec.source.type: Image, image.ref } with priority and availabilityMode; conditions Serving, Progressing</td></tr>
+          <tr><td>Install request</td><td class="mono">Subscription (package, channel, installPlanApproval Automatic|Manual) + OperatorGroup for the target namespaces</td><td class="mono">ClusterExtension { spec.namespace, spec.serviceAccount.name, spec.source.sourceType: Catalog, catalog.packageName, channels, version (semver range), upgradeConstraintPolicy }</td></tr>
+          <tr><td>What runs the install</td><td>OLM's own service account with broad rights; a <code>ClusterServiceVersion</code> per version; <code>InstallPlan</code> objects to approve</td><td>the ServiceAccount you name, with exactly the RBAC the bundle needs (least privilege is on you)</td></tr>
+          <tr><td>Upgrades</td><td>follow the channel's upgrade graph</td><td><code>CatalogProvided</code> (default: only successors the catalog declares) or <code>SelfCertified</code> (any version, including downgrades, at your risk); a <strong>CRD upgrade safety</strong> preflight blocks scope changes, removed stored versions, removed fields, new required fields, changed defaults or tightened bounds</td></tr>
+          <tr><td>Status</td><td class="mono">CSV phase Succeeded / Failed</td><td class="mono">conditions Installed and Progressing; status.install.bundle.name/version</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Outside OLM entirely, operators arrive as Helm charts or plain manifests, and then Flux's HelmRelease or an Argo CD Application <em>is</em> the lifecycle manager; the CRD upgrade caveats from 2.3 (<code>upgrade.crds</code> defaults to <code>Skip</code>) apply.</p>
+
+    <h3>Capability levels with the question that decides each</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Level</th><th>Name</th><th>Passes when</th><th>Ceiling for</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Basic Install</td><td>the CR alone provisions and configures the workload; readiness is written to <code>status</code></td><td></td></tr>
+          <tr><td>2</td><td>Seamless Upgrades</td><td>bumping the CR (or the operator) upgrades the operand without manual steps or downtime</td><td>Helm-based operators top out here</td></tr>
+          <tr><td>3</td><td>Full Lifecycle</td><td>backup and restore, failover, scaling members, reconfiguration flows are operator actions</td><td>Ansible operators usually reach this</td></tr>
+          <tr><td>4</td><td>Deep Insights</td><td>the operator exposes metrics, alerts and custom Events for operand and itself</td><td></td></tr>
+          <tr><td>5</td><td>Auto Pilot</td><td>auto-scaling, auto-healing, auto-tuning, anomaly detection from the operand's own signals</td><td>Go operators only, in practice</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The three SDK flavours differ in what the reconciler is: a Helm operator renders a chart from the CR's spec as values (no custom logic, level 1 to 2); an Ansible operator runs a playbook or role per reconcile (level 3 is reachable, slow loops); a Go operator is controller-runtime code (anything). A scenario asking "should we adopt this operator or run the database ourselves" wants the level named and matched to the need: a level 1 operator for a stateful service saves nothing on day 2.</p>
+
+    <h3>Status conditions, the convention in full</h3>
+    <ul>
+      <li><code>metav1.Condition</code>: <code>type</code> (CamelCase, or <code>domain/CamelCase</code> for third parties), <code>status</code> True/False/Unknown, <code>reason</code> (CamelCase, required, machine-readable), <code>message</code>, <code>lastTransitionTime</code> (changes only when status flips), <code>observedGeneration</code>. The list is <code>listType: map</code> keyed by <code>type</code>.</li>
+      <li>Type names describe an observed state (adjective or past participle: <code>Ready</code>, <code>Available</code>, <code>Succeeded</code>, <code>Degraded</code>), never a transition (<code>Deploying</code>). Long transitions are still states (<code>Resizing</code>, <code>Reconciling</code>) toggled True/False.</li>
+      <li>Polarity: <code>Ready=True</code> is normal-true; <code>Stalled=True</code> or <code>Degraded=True</code> is normal-false. You cannot summarise a resource's conditions without knowing each type's polarity, which is why <code>Ready</code> (long-running) or <code>Succeeded</code> (run-to-completion) as a summary condition is the convention.</li>
+      <li>Absent condition equals <code>Unknown</code>; a controller should write its conditions on the first pass even as Unknown so consumers know it is alive. kstatus (used by Flux, Argo CD's guidance, kubectl wait) reads <code>Ready</code>, <code>Reconciling</code> and <code>Stalled</code> plus <code>observedGeneration</code> to compute Current, InProgress or Failed.</li>
+    </ul>
+
+    <h3>Reading a stuck operator, in order</h3>
+    <ol>
+      <li><code>metadata.generation</code> vs <code>status.observedGeneration</code>: unequal means the controller has not processed your change; if it stays unequal, the controller is not running, not leading, or filtered your event.</li>
+      <li>Conditions: the <code>reason</code> of the False or Stalled one; kstatus-style <code>Stalled=True</code> means it will not retry until spec changes.</li>
+      <li>Events on the CR: <code>Warning</code> events carry the failed API call.</li>
+      <li>Owned objects via <code>ownerReferences</code>: which child is missing or unhealthy; its own events (quota, admission, image pull).</li>
+      <li>Operator pod: running, leader (<code>kubectl get lease</code>), logs with <code>Forbidden</code> (RBAC), <code>connection refused</code> (a dependency), or a backoff loop. Then the webhook configurations it registered.</li>
+      <li>Finalizers: a CR in Terminating with the operator's finalizer and no operator is the leak trade-off from the panel above; a CR with a finalizer from an operator that was uninstalled needs the operator back, or a deliberate finalizer removal accepting whatever external resource it leaves behind.</li>
+    </ol>
+
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"The database CR has been Progressing for twenty minutes" is graded on whether you find the actual cause: an RBAC Forbidden in the operator log, a NetworkPolicy blocking the init Job, a quota refusing the StatefulSet's pods, a webhook with no endpoints. Each leaves a different artefact (log line, Hubble drop, ReplicaSet event, webhook failure text). Naming the artefact and fixing that object is the task; deleting and recreating the CR is a level-based no-op that changes nothing.</p></div>
+  </div>
+</section>
+
 <section class="panel accent-g" id="exercises">
   <div class="phdr"><h2>Exercises</h2><span class="meta">tick the dot when its check passes</span></div>
   <div class="pbody">
@@ -251,6 +344,290 @@ pg     2m25s   2           2       Cluster in healthy state                     
       <div class="verify"><b>verify:</b> <code>kubectl api-resources --api-group=&lt;group&gt;</code> and a one-line answer each. The point is transferable fluency: an unfamiliar operator on the exam is the same four questions.</div>
     </div>
 
+    <div class="exercise" data-title="Find the leader">
+      <p>Two replicas of an operator do not reconcile in parallel; one holds a Lease and the other waits. The Lease is a plain object you can read, and it is the fastest way to answer "which pod is actually doing the work".</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n cnpg-system get lease
+kubectl -n cnpg-system get lease -o jsonpath='{range .items[*]}{.metadata.name} {.spec.holderIdentity}{"\n"}{end}'
+kubectl -n cnpg-system scale deploy cnpg-cloudnative-pg --replicas=2
+kubectl -n cnpg-system rollout status deploy cnpg-cloudnative-pg --timeout=120s
+kubectl -n cnpg-system get pods -l app.kubernetes.io/name=cloudnative-pg
+kubectl -n cnpg-system get lease -o jsonpath='{range .items[*]}{.metadata.name} {.spec.holderIdentity}{"\n"}{end}'
+kubectl -n cnpg-system scale deploy cnpg-cloudnative-pg --replicas=1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n cnpg-system get lease</b>
+NAME               HOLDER                                                                      AGE
+db9c8771.cnpg.io   cnpg-cloudnative-pg-7d855d69bb-9c82x_1bf08cef-9c4b-46ce-8407-5408ac771a1b   7h8m
+<b>$ kubectl -n cnpg-system get lease -o jsonpath='{range .items[*]}{.metadata.name} {.spec.holderIdentity}{"\n"}{end}'</b>
+db9c8771.cnpg.io cnpg-cloudnative-pg-7d855d69bb-9c82x_1bf08cef-9c4b-46ce-8407-5408ac771a1b
+<b>$ kubectl -n cnpg-system scale deploy cnpg-cloudnative-pg --replicas=2</b>
+deployment.apps/cnpg-cloudnative-pg scaled
+<b>$ kubectl -n cnpg-system rollout status deploy cnpg-cloudnative-pg --timeout=120s</b>
+Waiting for deployment "cnpg-cloudnative-pg" rollout to finish: 1 out of 2 new replicas have been updated...
+Waiting for deployment "cnpg-cloudnative-pg" rollout to finish: 1 of 2 updated replicas are available...
+deployment "cnpg-cloudnative-pg" successfully rolled out
+<b>$ kubectl -n cnpg-system get pods -l app.kubernetes.io/name=cloudnative-pg</b>
+NAME                                   READY   STATUS    RESTARTS   AGE
+cnpg-cloudnative-pg-7d855d69bb-4t22l   1/1     Running   0          26s
+cnpg-cloudnative-pg-7d855d69bb-9c82x   1/1     Running   0          5h52m
+<b>$ kubectl -n cnpg-system get lease -o jsonpath='{range .items[*]}{.metadata.name} {.spec.holderIdentity}{"\n"}{end}'</b>
+db9c8771.cnpg.io cnpg-cloudnative-pg-7d855d69bb-9c82x_1bf08cef-9c4b-46ce-8407-5408ac771a1b
+<b>$ kubectl -n cnpg-system scale deploy cnpg-cloudnative-pg --replicas=1</b>
+deployment.apps/cnpg-cloudnative-pg scaled</code></pre></details></div>
+      <div class="verify"><b>verify:</b> there is exactly one holder identity no matter how many replicas are running, and it matches one of the pod names.</div>
+    </div>
+
+    <div class="exercise" data-title="Read an operator's own permissions">
+      <p>An operator is a controller with a ServiceAccount, and everything it can do is in a ClusterRole you can read. The shape repeats across every operator: the CRD, its status, its finalizers, and the built-in kinds it composes.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n cnpg-system get sa
+kubectl get clusterrole -o name | grep -i cnpg
+kubectl get clusterrole cnpg-cloudnative-pg -o yaml | grep -B3 -A6 'postgresql.cnpg.io'
+kubectl get clusterrole cnpg-cloudnative-pg -o jsonpath='{range .rules[*]}{.apiGroups} {.resources} {.verbs}{"\n"}{end}' | head -20</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n cnpg-system get sa</b>
+NAME                  AGE
+cnpg-cloudnative-pg   81m
+default               81m
+<b>$ kubectl get clusterrole -o name | grep -i cnpg</b>
+clusterrole.rbac.authorization.k8s.io/cnpg-cloudnative-pg
+clusterrole.rbac.authorization.k8s.io/cnpg-cloudnative-pg-edit
+clusterrole.rbac.authorization.k8s.io/cnpg-cloudnative-pg-view
+<b>$ kubectl get clusterrole cnpg-cloudnative-pg -o yaml | grep -B3 -A6 'postgresql.cnpg.io'</b>
+  - get
+  - patch
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - clusterimagecatalogs
+  verbs:
+  - get
+  - list
+  - watch
+--
+  - update
+  - watch
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - backups
+  - clusters
+  - databaseroles
+  - databases
+  - poolers
+--
+  - update
+  - watch
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - failoverquorums
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - postgresql.cnpg.io
+  resources:
+  - backups/status
+  - databases/status
+  - publications/status
+<i>... 29 more lines</i>
+<b>$ kubectl get clusterrole cnpg-cloudnative-pg -o jsonpath='{range .rules[*]}{.apiGroups} {.resources} {.verbs}{"\n"}{end}' | head -20</b>
+[""] ["nodes"] ["get","list","watch"]
+["admissionregistration.k8s.io"] ["mutatingwebhookconfigurations","validatingwebhookconfigurations"] ["get","patch"]
+["postgresql.cnpg.io"] ["clusterimagecatalogs"] ["get","list","watch"]
+[""] ["configmaps","secrets","services"] ["create","delete","get","list","patch","update","watch"]
+[""] ["configmaps/status","secrets/status"] ["get","patch","update"]
+[""] ["events"] ["create","patch"]
+[""] ["persistentvolumeclaims","pods","pods/exec"] ["create","delete","get","list","patch","watch"]
+[""] ["pods/status"] ["get"]
+[""] ["serviceaccounts"] ["create","get","list","patch","update","watch"]
+["apps"] ["deployments"] ["create","delete","get","list","patch","update","watch"]
+["batch"] ["jobs"] ["create","delete","get","list","patch","watch"]
+["coordination.k8s.io"] ["leases"] ["create","get","list","update","watch"]
+["discovery.k8s.io"] ["endpointslices"] ["get","list","watch"]
+["monitoring.coreos.com"] ["podmonitors"] ["create","delete","get","list","patch","watch"]
+["policy"] ["poddisruptionbudgets"] ["create","delete","get","list","patch","update","watch"]
+["postgresql.cnpg.io"] ["backups","clusters","databaseroles","databases","poolers","publications","scheduledbackups","subscriptions"] ["create","delete","get","list","patch","update","watch"]
+["postgresql.cnpg.io"] ["failoverquorums"] ["create","delete","get","list","watch"]
+["postgresql.cnpg.io"] ["backups/status","databases/status","publications/status","scheduledbackups/status","subscriptions/status"] ["get","patch","update"]
+["postgresql.cnpg.io"] ["imagecatalogs"] ["get","list","watch"]
+["postgresql.cnpg.io"] ["clusters/finalizers","databaseroles/finalizers","poolers/finalizers"] ["update"]</code></pre></details></div>
+      <div class="verify"><b>verify:</b> you can point at the rule granting the CRD itself, the one granting <code>/status</code>, and the one granting <code>/finalizers</code>, and explain why an operator needs all three. Then say which built-in kinds this operator creates on your behalf.</div>
+    </div>
+
+    <div class="exercise" data-title="Take a permission away and read the log">
+      <p>A controller with a missing permission does not crash; it retries and complains. The Forbidden line in the log names the verb, the resource and the ServiceAccount, which is everything you need, and the object it was reconciling stays where it was.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f examples/crossplane/pg-cluster.yaml
+sleep 30
+# strip the resourceVersion or the restore comes back Conflict and the role stays broken
+kubectl get clusterrole cnpg-cloudnative-pg -o json | jq 'del(.metadata.resourceVersion,.metadata.uid,.metadata.creationTimestamp,.metadata.generation,.metadata.managedFields)' &gt; /tmp/cnpg-role.json
+kubectl get clusterrole cnpg-cloudnative-pg -o json | jq 'del(.rules[] | select(.resources | index("pods")))' | kubectl apply -f -
+kubectl -n team-a delete pod pg-1 --ignore-not-found
+sleep 60
+kubectl -n cnpg-system logs deploy/cnpg-cloudnative-pg --tail=200 | grep -i forbidden | head -5
+kubectl -n team-a get cluster pg -o jsonpath='{.status.phase}{"\n"}'
+kubectl replace -f /tmp/cnpg-role.json
+sleep 30
+kubectl -n team-a get cluster pg -o jsonpath='{.status.phase}{"\n"}'
+kubectl get clusterrole cnpg-cloudnative-pg -o json | jq '[.rules[] | select(.resources | index("pods"))] | length'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl apply -f examples/crossplane/pg-cluster.yaml</b>
+cluster.postgresql.cnpg.io/pg unchanged
+<b>$ sleep 30</b>
+<b>$ # strip the resourceVersion or the restore comes back Conflict and the role stays broken</b>
+<b>$ kubectl get clusterrole cnpg-cloudnative-pg -o json | jq 'del(.metadata.resourceVersion,.metadata.uid,.metadata.creationTimestamp,.metadata.generation,.metadata.managedFields)' &gt; /tmp/cnpg-role.json</b>
+<b>$ kubectl get clusterrole cnpg-cloudnative-pg -o json | jq 'del(.rules[] | select(.resources | index("pods")))' | kubectl apply -f -</b>
+clusterrole.rbac.authorization.k8s.io/cnpg-cloudnative-pg configured
+<b>$ kubectl -n team-a delete pod pg-1 --ignore-not-found</b>
+<b>$ sleep 60</b>
+<b>$ kubectl -n cnpg-system logs deploy/cnpg-cloudnative-pg --tail=200 | grep -i forbidden | head -5</b>
+{"level":"error","ts":"2026-09-13T12:40:40.616875436Z","logger":"controller-runtime.cache.UnhandledError","msg":"Failed to watch","reflector":"pkg/mod/k8s.io/client-go@v0.36.2/tools/cache/reflector.go:343","type":"*v1.PersistentVolumeClaim","error":"persistentvolumeclaims is forbidden: User \"system:serviceaccount:cnpg-system:cnpg-cloudnative-pg\" cannot watch resource \"persistentvolumeclaims\" in API group \"\" at the cluster scope","stacktrace":"k8s.io/apimachinery/pkg/util/runtime.logError\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/runtime/runtime.go:252\nk8s.io/apimachinery/pkg/util/runtime.handleError\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/runtime/runtime.go:243\nk8s.io/apimachinery/pkg/util/runtime.HandleErrorWithContext\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/runtime/runtime.go:229\nk8s.io/client-go/tools/cache.DefaultWatchErrorHandler\n\tpkg/mod/k8s.io/client-go@v0.36.2/tools/cache/reflector.go:227\nk8s.io/client-go/tools/cache.(*Reflector).RunWithContext.func1\n\tpkg/mod/k8s.io/client-go@v0.36.2/tools/cache/reflector.go:430\nk8s.io/apimachinery/pkg/util/wait.loopConditionUntilContext.func1\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/loop.go:53\nk8s.io/apimachinery/pkg/util/wait.loopConditionUntilContext\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/loop.go:54\nk8s.io/apimachinery/pkg/util/wait.DelayFunc.Until\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/delay.go:39\nk8s.io/client-go/tools/cache.(*Reflector).RunWithContext\n\tpkg/mod/k8s.io/client-go@v0.36.2/tools/cache/reflector.go:428\nk8s.io/client-go/tools/cache.(*controller).RunWithContext.(*Group).StartWithContext.func3\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/wait.go:63\nk8s.io/apimachinery/pkg/util/wait.(*Group).Start.func1\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/wait.go:72"}
+{"level":"error","ts":"2026-09-13T12:40:42.032375275Z","logger":"controller-runtime.cache.UnhandledError","msg":"Failed to watch","reflector":"pkg/mod/k8s.io/client-go@v0.36.2/tools/cache/reflector.go:343","type":"*v1.PersistentVolumeClaim","error":"failed to list *v1.PersistentVolumeClaim: persistentvolumeclaims is forbidden: User \"system:serviceaccount:cnpg-system:cnpg-cloudnative-pg\" cannot list resource \"persistentvolumeclaims\" in API group \"\" at the cluster scope","stacktrace":"k8s.io/apimachinery/pkg/util/runtime.logError\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/runtime/runtime.go:252\nk8s.io/apimachinery/pkg/util/runtime.handleError\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/runtime/runtime.go:243\nk8s.io/apimachinery/pkg/util/runtime.HandleErrorWithContext\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/runtime/runtime.go:229\nk8s.io/client-go/tools/cache.DefaultWatchErrorHandler\n\tpkg/mod/k8s.io/client-go@v0.36.2/tools/cache/reflector.go:227\nk8s.io/client-go/tools/cache.(*Reflector).RunWithContext.func1\n\tpkg/mod/k8s.io/client-go@v0.36.2/tools/cache/reflector.go:430\nk8s.io/apimachinery/pkg/util/wait.loopConditionUntilContext.func2\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/loop.go:87\nk8s.io/apimachinery/pkg/util/wait.loopConditionUntilContext\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/loop.go:88\nk8s.io/apimachinery/pkg/util/wait.DelayFunc.Until\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/delay.go:39\nk8s.io/client-go/tools/cache.(*Reflector).RunWithContext\n\tpkg/mod/k8s.io/client-go@v0.36.2/tools/cache/reflector.go:428\nk8s.io/client-go/tools/cache.(*controller).RunWithContext.(*Group).StartWithContext.func3\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/wait.go:63\nk8s.io/apimachinery/pkg/util/wait.(*Group).Start.func1\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/wait.go:72"}
+{"level":"error","ts":"2026-09-13T12:40:44.374596211Z","logger":"controller-runtime.cache.UnhandledError","msg":"Failed to watch","reflector":"pkg/mod/k8s.io/client-go@v0.36.2/tools/cache/reflector.go:343","type":"*v1.PersistentVolumeClaim","error":"failed to list *v1.PersistentVolumeClaim: persistentvolumeclaims is forbidden: User \"system:serviceaccount:cnpg-system:cnpg-cloudnative-pg\" cannot list resource \"persistentvolumeclaims\" in API group \"\" at the cluster scope","stacktrace":"k8s.io/apimachinery/pkg/util/runtime.logError\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/runtime/runtime.go:252\nk8s.io/apimachinery/pkg/util/runtime.handleError\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/runtime/runtime.go:243\nk8s.io/apimachinery/pkg/util/runtime.HandleErrorWithContext\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/runtime/runtime.go:229\nk8s.io/client-go/tools/cache.DefaultWatchErrorHandler\n\tpkg/mod/k8s.io/client-go@v0.36.2/tools/cache/reflector.go:227\nk8s.io/client-go/tools/cache.(*Reflector).RunWithContext.func1\n\tpkg/mod/k8s.io/client-go@v0.36.2/tools/cache/reflector.go:430\nk8s.io/apimachinery/pkg/util/wait.loopConditionUntilContext.func2\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/loop.go:87\nk8s.io/apimachinery/pkg/util/wait.loopConditionUntilContext\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/loop.go:88\nk8s.io/apimachinery/pkg/util/wait.DelayFunc.Until\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/delay.go:39\nk8s.io/client-go/tools/cache.(*Reflector).RunWithContext\n\tpkg/mod/k8s.io/client-go@v0.36.2/tools/cache/reflector.go:428\nk8s.io/client-go/tools/cache.(*controller).RunWithContext.(*Group).StartWithContext.func3\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/wait.go:63\nk8s.io/apimachinery/pkg/util/wait.(*Group).Start.func1\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/wait.go:72"}
+{"level":"error","ts":"2026-09-13T12:40:48.133726393Z","logger":"controller-runtime.cache.UnhandledError","msg":"Failed to watch","reflector":"pkg/mod/k8s.io/client-go@v0.36.2/tools/cache/reflector.go:343","type":"*v1.PersistentVolumeClaim","error":"failed to list *v1.PersistentVolumeClaim: persistentvolumeclaims is forbidden: User \"system:serviceaccount:cnpg-system:cnpg-cloudnative-pg\" cannot list resource \"persistentvolumeclaims\" in API group \"\" at the cluster scope","stacktrace":"k8s.io/apimachinery/pkg/util/runtime.logError\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/runtime/runtime.go:252\nk8s.io/apimachinery/pkg/util/runtime.handleError\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/runtime/runtime.go:243\nk8s.io/apimachinery/pkg/util/runtime.HandleErrorWithContext\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/runtime/runtime.go:229\nk8s.io/client-go/tools/cache.DefaultWatchErrorHandler\n\tpkg/mod/k8s.io/client-go@v0.36.2/tools/cache/reflector.go:227\nk8s.io/client-go/tools/cache.(*Reflector).RunWithContext.func1\n\tpkg/mod/k8s.io/client-go@v0.36.2/tools/cache/reflector.go:430\nk8s.io/apimachinery/pkg/util/wait.loopConditionUntilContext.func2\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/loop.go:87\nk8s.io/apimachinery/pkg/util/wait.loopConditionUntilContext\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/loop.go:88\nk8s.io/apimachinery/pkg/util/wait.DelayFunc.Until\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/delay.go:39\nk8s.io/client-go/tools/cache.(*Reflector).RunWithContext\n\tpkg/mod/k8s.io/client-go@v0.36.2/tools/cache/reflector.go:428\nk8s.io/client-go/tools/cache.(*controller).RunWithContext.(*Group).StartWithContext.func3\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/wait.go:63\nk8s.io/apimachinery/pkg/util/wait.(*Group).Start.func1\n\tpkg/mod/k8s.io/apimachinery@v0.36.2/pkg/util/wait/wait.go:72"}
+<b>$ kubectl -n team-a get cluster pg -o jsonpath='{.status.phase}{"\n"}'</b>
+Cluster is unrecoverable and needs manual intervention
+<b>$ kubectl replace -f /tmp/cnpg-role.json</b>
+clusterrole.rbac.authorization.k8s.io/cnpg-cloudnative-pg replaced
+<b>$ sleep 30</b>
+<b>$ kubectl -n team-a get cluster pg -o jsonpath='{.status.phase}{"\n"}'</b>
+Cluster is unrecoverable and needs manual intervention
+<b>$ kubectl get clusterrole cnpg-cloudnative-pg -o json | jq '[.rules[] | select(.resources | index("pods"))] | length'</b>
+1</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the log line quotes <code>system:serviceaccount:cnpg-system:cnpg-cloudnative-pg</code> with the verb and the resource it was denied, and the Cluster's phase does not move while the rule is missing. Nothing about the Cluster object is wrong; that is the whole lesson. <code>pg</code> never reaches a healthy phase in this lab anyway, because <code>team-a</code> is default-deny and initdb cannot reach the API server, so read the phase for movement rather than for a value. The last line must print 1: if the restore came back <code>Conflict</code>, the operator is still missing its permission and every later exercise on this page is running against a broken operator.</div>
+    </div>
+
+    <div class="exercise" data-title="Scale the webhook backend to zero">
+      <p>Most operators ship a validating webhook for their own CRs. Take the operator away and writes to those CRs stop, because the webhook has no endpoints and the failure policy is not forgiving.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get validatingwebhookconfiguration | grep -i cnpg
+kubectl get validatingwebhookconfiguration cnpg-validating-webhook-configuration -o jsonpath='{range .webhooks[*]}{.name} {.failurePolicy}{"\n"}{end}'
+# mutation runs before validation, so the refusal below names the mutating one
+kubectl get mutatingwebhookconfiguration | grep -i cnpg
+kubectl get mutatingwebhookconfiguration cnpg-mutating-webhook-configuration -o jsonpath='{range .webhooks[*]}{.name} {.failurePolicy}{"\n"}{end}'
+kubectl -n cnpg-system scale deploy cnpg-cloudnative-pg --replicas=0
+kubectl -n cnpg-system rollout status deploy cnpg-cloudnative-pg --timeout=60s || true
+kubectl -n team-a patch cluster pg --type merge -p '{"spec":{"instances":3}}'
+kubectl -n cnpg-system scale deploy cnpg-cloudnative-pg --replicas=1
+kubectl -n cnpg-system rollout status deploy cnpg-cloudnative-pg --timeout=180s
+kubectl -n team-a patch cluster pg --type merge -p '{"spec":{"instances":2}}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl get validatingwebhookconfiguration | grep -i cnpg</b>
+cnpg-validating-webhook-configuration           5          17h
+<b>$ kubectl get validatingwebhookconfiguration cnpg-validating-webhook-configuration -o jsonpath='{range .webhooks[*]}{.name} {.failurePolicy}{"\n"}{end}'</b>
+vbackup.cnpg.io Fail
+vcluster.cnpg.io Fail
+vscheduledbackup.cnpg.io Fail
+vdatabase.cnpg.io Fail
+vpooler.cnpg.io Fail
+<b>$ # mutation runs before validation, so the refusal below names the mutating one</b>
+<b>$ kubectl get mutatingwebhookconfiguration | grep -i cnpg</b>
+cnpg-mutating-webhook-configuration         4          17h
+<b>$ kubectl get mutatingwebhookconfiguration cnpg-mutating-webhook-configuration -o jsonpath='{range .webhooks[*]}{.name} {.failurePolicy}{"\n"}{end}'</b>
+mbackup.cnpg.io Fail
+mcluster.cnpg.io Fail
+mdatabase.cnpg.io Fail
+mscheduledbackup.cnpg.io Fail
+<b>$ kubectl -n cnpg-system scale deploy cnpg-cloudnative-pg --replicas=0</b>
+deployment.apps/cnpg-cloudnative-pg scaled
+<b>$ kubectl -n cnpg-system rollout status deploy cnpg-cloudnative-pg --timeout=60s || true</b>
+deployment "cnpg-cloudnative-pg" successfully rolled out
+<b>$ kubectl -n team-a patch cluster pg --type merge -p '{"spec":{"instances":3}}'</b>
+Error from server (InternalError): Internal error occurred: failed calling webhook "mcluster.cnpg.io": failed to call webhook: Post "https://cnpg-webhook-service.cnpg-system.svc:443/mutate-postgresql-cnpg-io-v1-cluster?timeout=10s": dial tcp 10.96.57.128:443: connect: connection refused
+<b>$ kubectl -n cnpg-system scale deploy cnpg-cloudnative-pg --replicas=1</b>
+deployment.apps/cnpg-cloudnative-pg scaled
+<b>$ kubectl -n cnpg-system rollout status deploy cnpg-cloudnative-pg --timeout=180s</b>
+Waiting for deployment "cnpg-cloudnative-pg" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "cnpg-cloudnative-pg" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "cnpg-cloudnative-pg" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "cnpg-cloudnative-pg" rollout to finish: 0 of 1 updated replicas are available...
+deployment "cnpg-cloudnative-pg" successfully rolled out
+<b>$ kubectl -n team-a patch cluster pg --type merge -p '{"spec":{"instances":2}}'</b>
+cluster.postgresql.cnpg.io/pg patched (no change)</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the patch is refused with <code>Internal error occurred: failed calling webhook "mcluster.cnpg.io" ... connection refused</code> while the operator is down, and goes through once it is back. The refusal names the mutating webhook, not the validating one, because mutation runs first; both configurations carry <code>failurePolicy: Fail</code>, which is what turns a scaled-down operator into a write outage on its own custom resources.</div>
+    </div>
+
+    <div class="exercise" data-title="Compare real conditions against the convention">
+      <p><code>metav1.Condition</code> gives every controller the same five fields and the same meaning for <code>status</code>. A real operator's condition types are domain-specific but the shape is not, and reading both together is how you learn to skim any operator's status.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n team-a get cluster pg -o jsonpath='{.status.conditions[*].type}{"\n"}'
+kubectl -n team-a get cluster pg -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, lastTransitionTime}'
+kubectl explain cluster.status.conditions
+kubectl explain cluster.status.conditions.reason</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n team-a get cluster pg -o jsonpath='{.status.conditions[*].type}{"\n"}'</b>
+Initialized ConsistentSystemID Ready
+<b>$ kubectl -n team-a get cluster pg -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, lastTransitionTime}'</b>
+{
+  "type": "Initialized",
+  "status": "True",
+  "reason": "BootstrapCompleted",
+  "lastTransitionTime": "2026-09-13T01:54:45Z"
+}
+{
+  "type": "ConsistentSystemID",
+  "status": "False",
+  "reason": "NotFound",
+  "lastTransitionTime": "2026-09-13T01:54:42Z"
+}
+{
+  "type": "Ready",
+  "status": "False",
+  "reason": "ClusterIsNotReady",
+  "lastTransitionTime": "2026-09-13T01:54:43Z"
+}
+<b>$ kubectl explain cluster.status.conditions</b>
+GROUP:      postgresql.cnpg.io
+KIND:       Cluster
+VERSION:    v1
+
+FIELD: conditions &lt;[]Object&gt;
+
+
+DESCRIPTION:
+    Conditions for cluster object
+    Condition contains details for one aspect of the current state of this API
+    Resource.
+    
+FIELDS:
+  lastTransitionTime	&lt;string&gt; -required-
+    lastTransitionTime is the last time the condition transitioned from one
+    status to another.
+    This should be when the underlying condition changed.  If that is not known,
+    then using the time when the API field changed is acceptable.
+
+  message	&lt;string&gt; -required-
+    message is a human readable message indicating details about the transition.
+    This may be an empty string.
+
+  observedGeneration	&lt;integer&gt;
+    observedGeneration represents the .metadata.generation that the condition
+    was set based upon.
+    For instance, if .metadata.generation is currently 12, but the
+    .status.conditions[x].observedGeneration is 9, the condition is out of date
+    with respect to the current state of the instance.
+
+  reason	&lt;string&gt; -required-
+    reason contains a programmatic identifier indicating the reason for the
+    condition's last transition.
+    Producers of specific condition types may define expected values and
+    meanings for this field,
+    and whether the values are considered a guaranteed API.
+    The value should be a CamelCase string.
+    This field may not be empty.
+
+  status	&lt;string&gt; -required-
+<i>... 5 more lines</i>
+<b>$ kubectl explain cluster.status.conditions.reason</b>
+GROUP:      postgresql.cnpg.io
+KIND:       Cluster
+VERSION:    v1
+
+FIELD: reason &lt;string&gt;
+
+
+DESCRIPTION:
+    reason contains a programmatic identifier indicating the reason for the
+    condition's last transition.
+    Producers of specific condition types may define expected values and
+    meanings for this field,
+    and whether the values are considered a guaranteed API.
+    The value should be a CamelCase string.
+    This field may not be empty.
+    </code></pre></details></div>
+      <div class="verify"><b>verify:</b> every condition on the live object carries the fields <code>kubectl explain</code> describes, and you can say which of them is the machine-readable one and which is for humans. A condition with no <code>reason</code> is a controller bug, not a state.</div>
+    </div>
+
   </div>
 </section>
 
@@ -271,6 +648,19 @@ pg     2m25s   2           2       Cluster in healthy state                     
 
     <details class="quiz"><summary>Name the five ways an operator integrates with the rest of a platform.</summary>
       <div class="answer"><p>Its CRs are delivered by GitOps; its metrics are scraped and alerted on; its connection Secrets are consumed by apps (or synced by ESO); its CRs are subject to policy at admission; and its API is fronted by a thinner developer-facing abstraction (Crossplane/kro/portal template). That list is the "integration" half of the competency.</p></div></details>
+  
+
+    <details class="quiz"><summary>An operator Deployment has three replicas and only one does work. How does it decide, and how do you see which?</summary>
+      <div class="answer"><p>Leader election on a Lease object in the operator's namespace (LeaderElectionID as the name; 15 s lease, 10 s renew deadline by default). <code>kubectl -n &lt;ns&gt; get lease &lt;id&gt; -o jsonpath='{.spec.holderIdentity}'</code> names the leading pod. Non-leaders run their caches but skip reconciling, so logs on the wrong pod show nothing.</p></div></details>
+
+    <details class="quiz"><summary>What does Owns() in a controller builder do, and what does it explain about operator behaviour you see in the cluster?</summary>
+      <div class="answer"><p>It watches the child kind and, when a child changes, enqueues the owner found through its controller ownerReference. That is why deleting an operator-created Deployment or Secret triggers an immediate recreation, why ownerReferences are the map of what an operator manages, and why the operator needs full RBAC on every owned kind.</p></div></details>
+
+    <details class="quiz"><summary>Install an operator with OLM v1 pinned to versions below 2.0 from channel stable. Which object, and what does upgradeConstraintPolicy: SelfCertified change?</summary>
+      <div class="answer"><p>A <code>ClusterExtension</code> with <code>spec.namespace</code>, <code>spec.serviceAccount.name</code> (an SA you created with the bundle's RBAC), and <code>spec.source.catalog: { packageName, channels: [stable], version: "&lt;2.0" }</code>. The default <code>CatalogProvided</code> allows only upgrades the catalog's graph declares; <code>SelfCertified</code> allows any version including downgrades, and the CRD upgrade safety preflight still runs unless disabled.</p></div></details>
+
+    <details class="quiz"><summary>Why should a condition be named Ready or Degraded rather than Deploying, and what is polarity?</summary>
+      <div class="answer"><p>Condition types describe an observed state (adjective or past participle), and a transition is expressed by toggling status, so <code>Reconciling=True</code> rather than a <code>Deploying</code> type. Polarity is whether True is the normal state (<code>Ready</code>) or the abnormal one (<code>Degraded</code>, <code>Stalled</code>); a consumer must know it per type, which is why a summary <code>Ready</code> condition exists.</p></div></details>
   </div>
 </section>
 
@@ -282,6 +672,10 @@ pg     2m25s   2           2       Cluster in healthy state                     
       <li><b>github.com/kubernetes/community</b>: the API conventions doc's conditions section, for what Reason/Message actually promise.</li>
       <li><b>cloudnative-pg.io</b>: the Cluster API reference, mostly to practise navigating a big operator's docs quickly.</li>
       <li><b>Offline:</b> <code>kubectl explain cluster.status.conditions</code>, <code>kubectl get &lt;res&gt; -o jsonpath='{.metadata.ownerReferences}'</code>, <code>kubectl api-resources --api-group=&lt;g&gt;</code>.</li>
+    
+      <li><b>book.kubebuilder.io: Watching Resources, Good Practices; pkg.go.dev controller-runtime builder and reconcile</b>: For/Owns/Watches, predicates, Result semantics, leader election options.</li>
+      <li><b>operator-framework.github.io/operator-controller (ClusterExtension, upgrade support, CRD upgrade safety)</b> and <b>sdk.operatorframework.io Operator Capability Levels</b>: the v1 API fields, the two upgrade policies, and the level definitions with their guiding questions.</li>
+      <li><b>github.com/kubernetes/community, api-conventions.md "Typical status properties"</b>: the metav1.Condition schema, polarity, and naming rules quoted above.</li>
     </ul>
   </div>
 </section>

@@ -76,7 +76,7 @@ spec:
 
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th></th><th>Crossplane</th><th>kro</th></tr></thead>
+        <thead><tr><th>Aspect</th><th>Crossplane</th><th>kro</th></tr></thead>
         <tbody>
           <tr><td>Files to write</td><td>XRD + Composition (+ providers, functions)</td><td>one ResourceGraphDefinition</td></tr>
           <tr><td>Wiring</td><td>patches / function pipeline</td><td>CEL references, ordering inferred</td></tr>
@@ -87,6 +87,23 @@ spec:
       </table>
     </div>
     <p>Both sentences are true: "same result, one file, no providers" and "no provider ecosystem, no connection secrets, alpha-grade stability". An exam answer may need either.</p>
+  
+
+    <h3>The RGD fields beyond the first manifest</h3>
+    <ul>
+      <li><strong>Schema markers.</strong> Simple Schema types (<code>string</code>, <code>integer</code>, <code>boolean</code>, objects, arrays) take validation markers after a pipe: <code>required=true</code>, <code>default=...</code>, <code>enum="a,b"</code>, <code>pattern="regex"</code>, <code>minimum=1 maximum=100</code>. They become OpenAPI validation on the generated CRD, so a bad instance is rejected by the API server, not by kro.</li>
+      <li><strong>Status.</strong> <code>schema.status</code> fields are CEL expressions over resources (<code>url: ${service.status.loadBalancer.ingress[0].hostname}</code>); kro infers their types and writes them onto the instance. That is your <code>ToCompositeFieldPath</code> equivalent.</li>
+      <li><strong><code>readyWhen</code>.</strong> A list of CEL conditions on the resource itself; dependents wait until all are true. Without it a resource counts as ready once it exists and its expressions resolve, which is why a Deployment that never becomes Available can still leave the instance looking fine unless you write <code>readyWhen: [${deployment.status.availableReplicas &gt; 0}]</code>.</li>
+      <li><strong><code>includeWhen</code>.</strong> Conditions that decide whether a resource is created at all (<code>${schema.spec.ingress.enabled}</code>), evaluated every reconcile; flipping the field later removes the resource.</li>
+      <li><strong><code>forEach</code></strong> turns one resource entry into a collection (one object per list element); <strong><code>externalRef</code></strong> reads an existing object without managing it.</li>
+      <li><strong>Ordering.</strong> The dependency graph is inferred from references; <code>kubectl get rgd &lt;name&gt; -o jsonpath='{.status.topologicalOrder}'</code> prints the computed order, creation follows it and deletion runs it backwards. A cycle (A reads B, B reads A) is rejected at RGD creation; break it by reading <code>schema.spec</code> instead.</li>
+      <li><strong>Scope.</strong> <code>schema.scope: Namespaced</code> (default) or <code>Cluster</code>. Namespaced instances can still create cluster-scoped objects (that is what the lab's Namespace example does), because kro tracks ownership with labels following the ApplySet convention rather than <code>ownerReferences</code>, which cannot cross scopes.</li>
+    </ul>
+
+    <h3>Conditions to read</h3>
+    <p>An RGD carries <code>GraphRevisionsResolved</code>, <code>GraphAccepted</code>, <code>KindReady</code> (the CRD exists), <code>ControllerReady</code> (the dynamic controller registered) and an aggregate <code>Ready</code>; <code>status.state</code> is <code>Active</code> only when the graph, kind and controller are all good, otherwise <code>Inactive</code> with the failing condition's message (typically a CEL type error or an unknown field, caught by kro's static analysis before anything is created). An instance carries <code>InstanceManaged</code>, <code>GraphResolved</code>, <code>ResourcesReady</code> and <code>Ready</code>, and <code>status.state</code> <code>ACTIVE</code>; RGD authors can replace the wire conditions with their own via <code>schema.status.conditions</code>. To freeze an instance for debugging, annotate it <code>kro.run/reconcile: suspended</code>.</p>
+
+    <div class="callout trap"><span class="tag">Trap</span><p>kro's controller needs RBAC for every kind an RGD creates. The Helm chart's <code>rbac.mode: unrestricted</code> grants everything; <code>aggregation</code> mode grants only what ClusterRoles labelled <code>rbac.kro.run/aggregate-to-controller: "true"</code> allow. In aggregation mode an RGD that templates a kind nobody granted goes <code>Active</code> and then every instance fails with <code>forbidden</code> from the kro ServiceAccount. Same shape as the Crossplane and Argo Workflows RBAC lessons, one namespace over.</p></div>
   </div>
 </section>
 
@@ -115,6 +132,58 @@ spec:
   </div>
 </section>
 
+<section class="panel accent-c" id="backstage">
+  <div class="phdr"><h2>Backstage as an exam object</h2><span class="meta">catalog-info.yaml, templates, the two plugins that matter</span></div>
+  <div class="pbody">
+    <p>Backstage is on the exam as an interface, not as a Node.js project: read a <code>catalog-info.yaml</code>, read or fix a software template, and explain what the portal does and does not do. The vocabulary is small and exact.</p>
+
+    <h3>Catalog kinds and their required fields</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th class="mono">kind</th><th>Models</th><th>Required in spec</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">Component</td><td>a service, website or library</td><td><code>type</code>, <code>lifecycle</code> (experimental/production/deprecated by convention), <code>owner</code></td></tr>
+          <tr><td class="mono">API</td><td>an interface a component provides or consumes</td><td><code>type</code> (openapi, asyncapi, graphql, grpc), <code>lifecycle</code>, <code>owner</code>, <code>definition</code></td></tr>
+          <tr><td class="mono">Resource</td><td>infrastructure a component depends on (database, bucket, cluster)</td><td><code>type</code>, <code>owner</code></td></tr>
+          <tr><td class="mono">System</td><td>a group of components and resources delivering a capability</td><td><code>owner</code></td></tr>
+          <tr><td class="mono">Domain</td><td>a business area grouping systems</td><td><code>owner</code></td></tr>
+          <tr><td class="mono">Group / User</td><td>the organisation; <code>owner</code> fields point here</td><td>Group: <code>type</code>, <code>children</code>; User: <code>memberOf</code></td></tr>
+          <tr><td class="mono">Location</td><td>a pointer to other descriptor files (<code>targets</code>)</td><td><code>targets</code> or <code>target</code></td></tr>
+          <tr><td class="mono">Template</td><td>a scaffolder template (apiVersion <code>scaffolder.backstage.io/v1beta3</code>)</td><td><code>type</code>, <code>parameters</code>, <code>steps</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="cb" data-lang="yaml"><pre><code>apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: payments-api
+  annotations:
+    backstage.io/techdocs-ref: dir:.            # TechDocs builds docs/ from this repo
+    backstage.io/kubernetes-id: payments-api     # Kubernetes plugin matches workloads by label
+    argocd/app-name: payments-api                # Argo CD plugin lookup
+spec:
+  type: service
+  lifecycle: production
+  owner: group:default/team-payments
+  system: payments
+  providesApis: [payments-v1]</code></pre></div>
+    <p>Entity references are <code>kind:namespace/name</code> (<code>group:default/team-payments</code>); the <code>default</code> namespace is assumed when omitted. Relations (<code>ownedBy</code>, <code>partOf</code>, <code>dependsOn</code>, <code>providesApi</code>) are derived from these spec fields; you never write them by hand.</p>
+
+    <h3>Software templates, the parts that break</h3>
+    <ul>
+      <li><strong><code>parameters</code></strong> is JSON Schema rendered as form steps. <code>ui:field</code> picks special widgets: <code>OwnerPicker</code>, <code>EntityPicker</code>, <code>RepoUrlPicker</code> (with <code>ui:options.allowedHosts</code>, which must list your git host or the form refuses it), <code>Secret</code> (read back as <code>${{ secrets.x }}</code>, never <code>parameters.x</code>).</li>
+      <li><strong><code>steps</code></strong> run in order in the scaffolder backend; each has <code>id</code>, <code>action</code>, <code>input</code>, optional <code>if</code>. Built-in actions: <code>fetch:template</code> (copy a skeleton, render <code>${{ values.x }}</code>), <code>fetch:plain</code>, <code>publish:github</code> / <code>publish:gitlab</code> / <code>publish:gitea</code> / <code>publish:bitbucket</code> (create the repo and push), <code>catalog:register</code> (register the new <code>catalog-info.yaml</code> by <code>repoContentsUrl</code> + <code>catalogInfoPath</code>), <code>catalog:write</code>, <code>debug:log</code>, <code>fs:rename</code>, <code>fs:delete</code>. The installed list is at <code>/create/actions</code> in the UI.</li>
+      <li><strong>Templating syntax.</strong> <code>${{ parameters.name }}</code> for inputs, <code>${{ steps['publish'].output.repoContentsUrl }}</code> for prior outputs, <code>output.links</code> for what the user sees at the end. Backstage's <code>${{ }}</code> is Nunjucks and is not the same as kro's <code>${}</code> or Helm's <code>{{ }}</code>; a template that fails to render is very often one of those confused.</li>
+      <li><strong>Failure points.</strong> Publish actions need an integration token in <code>app-config.yaml</code> (<code>integrations.github/gitlab/gitea</code>) with rights to create repos; <code>catalog:register</code> fails if the repo is created but the URL is not readable by the catalog; a template that succeeds but produces no Application is the ApplicationSet generator's filter, not Backstage.</li>
+    </ul>
+
+    <h3>Two plugins the exam vocabulary assumes</h3>
+    <p><strong>TechDocs</strong> builds MkDocs sites from a repo's <code>docs/</code> and <code>mkdocs.yml</code>, located by the <code>backstage.io/techdocs-ref</code> annotation (<code>dir:.</code> means "this repo"). <strong>The Kubernetes plugin</strong> shows pods, deployments and errors for a component by matching the <code>backstage.io/kubernetes-id</code> label on workloads (or a <code>backstage.io/kubernetes-label-selector</code> annotation), reading clusters listed under <code>kubernetes.clusterLocatorMethods</code> with a ServiceAccount token. Both are read-only views over things the platform already produces, which is the point of the next callout.</p>
+
+    <div class="callout model"><span class="tag">Mental model</span><p>The maturity model's <em>Interfaces</em> aspect runs Custom processes → Standard tooling → Self-service solutions → Integrated services. A portal that opens tickets is level 1 with a nicer font; a portal whose template commits to git and lets GitOps and controllers do the rest is level 3. The exam's "portal is an interface, not the platform" scenario is asking you to place a proposal on that ladder.</p></div>
+  </div>
+</section>
+
 <section class="panel accent-y" id="choosing">
   <div class="phdr"><h2>Choosing the engine</h2><span class="meta">the differentiators to reason from</span></div>
   <div class="pbody">
@@ -139,6 +208,21 @@ spec:
       <li><strong>Who is the audience?</strong> A developer writing YAML, a developer clicking a form, or another system.</li>
     </ol>
     <p>And when two engines both work, say so and pick the thinnest one. That answer style scores, because it is the TVP instinct from section 3.1 applied to your own tooling.</p>
+  
+
+    <h3>Engines the table leaves out</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Engine</th><th>Shape</th><th>Pick it when</th><th>Not when</th></tr></thead>
+        <tbody>
+          <tr><td>Helm chart</td><td>templating at install time, no controller</td><td>packaging one application's manifests with values</td><td>anything must keep converging or compose external APIs</td></tr>
+          <tr><td>tofu-controller (Flux)</td><td>a <code>Terraform</code> CR reconciled by Flux; <code>approvePlan</code> gates applies, drift detection is a mode</td><td>existing Terraform/OpenTofu modules and state that must become GitOps-driven</td><td>you would rather model the API in Kubernetes types (then Crossplane or kro)</td></tr>
+          <tr><td>KubeVela (OAM)</td><td>an <code>Application</code> of components, traits and policies with a delivery workflow</td><td>an application-centric abstraction across clusters with CUE-defined workflow steps</td><td>infrastructure-first APIs; Crossplane is the better fit</td></tr>
+          <tr><td>Cloud-vendor controllers (ACK, Config Connector, ASO)</td><td>one CRD per cloud resource type</td><td>one cloud, native resource fidelity, wrapped by kro or Crossplane for the abstraction</td><td>you need a single abstraction over several clouds</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Two more distinctions the drill should surface. <em>Crossplane vs a cloud controller</em>: the controller gives you the raw resource kinds; Crossplane (or kro) gives you the abstraction over them, so they compose rather than compete. <em>Argo Workflows vs Tekton</em>: both are on the official tool list and a task that names one wants that one; the general rule is CI pipelines on git events go to Tekton, parameterised orchestration on request or schedule goes to Argo Workflows.</p>
   </div>
 </section>
 
@@ -182,6 +266,570 @@ tenant-quota   requests.cpu: 0/2           22s</code></pre></details></div>
       <div class="verify"><b>verify:</b> defensible answers: (a) operator, long-lived lifecycle with domain logic; (b) Crossplane or kro, declarative expansion, no imperative steps; (c) CronWorkflow, scheduled run-to-completion; (d) Tekton, event-driven CI; (e) Backstage template feeding GitOps. If two engines both work, say so and pick the thinnest one.</div>
     </div>
 
+    <div class="exercise" data-title="Read the graph kro computed">
+      <p>You never write the ordering; kro infers it from the references between resources and publishes the result. Read it, then feed it a cycle and watch the rejection, because a cycle is the one authoring mistake the engine cannot work around.</p>
+      <div class="cb" data-lang="bash"><pre><code># the RGD is applied by hand earlier on this page; make the block stand on its own
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: kro.run/v1alpha1
+kind: ResourceGraphDefinition
+metadata: { name: tenantspace }
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: TenantSpace
+    spec:
+      team: string
+      cpu: string | default="1"
+  resources:
+    - id: ns
+      template:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: ${schema.spec.team}
+          labels:
+            tenant: ${schema.spec.team}
+    - id: quota
+      template:
+        apiVersion: v1
+        kind: ResourceQuota
+        metadata:
+          name: tenant-quota
+          namespace: ${ns.metadata.name}
+        spec:
+          hard:
+            requests.cpu: ${schema.spec.cpu}
+EOF
+sleep 20
+kubectl get rgd tenantspace -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
+kubectl get rgd tenantspace -o jsonpath='{.status.topologicalOrder}{"\n"}'
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: kro.run/v1alpha1
+kind: ResourceGraphDefinition
+metadata: { name: cyclic }
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: Cyclic
+    spec:
+      team: string
+  resources:
+    - id: first
+      template:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: first
+          namespace: default
+        data:
+          other: ${second.metadata.name}
+    - id: second
+      template:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: second
+          namespace: default
+        data:
+          other: ${first.metadata.name}
+EOF
+kubectl get rgd cyclic -o jsonpath='{.status.state}{"\n"}'; kubectl get rgd cyclic -o jsonpath='{.status.conditions}' 2&gt;/dev/null | jq '.[] | {type, status, message}'
+kubectl delete rgd cyclic --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ # the RGD is applied by hand earlier on this page; make the block stand on its own</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: kro.run/v1alpha1</b>
+<b>kind: ResourceGraphDefinition</b>
+<b>metadata: { name: tenantspace }</b>
+<b>spec:</b>
+<b>  schema:</b>
+<b>    apiVersion: v1alpha1</b>
+<b>    kind: TenantSpace</b>
+<b>    spec:</b>
+<b>      team: string</b>
+<b>      cpu: string | default="1"</b>
+<b>  resources:</b>
+<b>    - id: ns</b>
+<b>      template:</b>
+<b>        apiVersion: v1</b>
+<b>        kind: Namespace</b>
+<b>        metadata:</b>
+<b>          name: ${schema.spec.team}</b>
+<b>          labels:</b>
+<b>            tenant: ${schema.spec.team}</b>
+<b>    - id: quota</b>
+<b>      template:</b>
+<b>        apiVersion: v1</b>
+<b>        kind: ResourceQuota</b>
+<b>        metadata:</b>
+<b>          name: tenant-quota</b>
+<b>          namespace: ${ns.metadata.name}</b>
+<b>        spec:</b>
+<b>          hard:</b>
+<b>            requests.cpu: ${schema.spec.cpu}</b>
+<b>EOF</b>
+resourcegraphdefinition.kro.run/tenantspace unchanged
+<b>$ sleep 20</b>
+<b>$ kubectl get rgd tenantspace -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+{
+  "type": "ResourceGraphAccepted",
+  "status": "True",
+  "reason": "Valid",
+  "message": "resource graph and schema are valid"
+}
+{
+  "type": "KindReady",
+  "status": "True",
+  "reason": "Ready",
+  "message": "kind TenantSpace has been accepted and ready"
+}
+{
+  "type": "ControllerReady",
+  "status": "True",
+  "reason": "Running",
+  "message": "controller is running"
+}
+{
+  "type": "Ready",
+  "status": "True",
+  "reason": "Ready",
+  "message": ""
+}
+<b>$ kubectl get rgd tenantspace -o jsonpath='{.status.topologicalOrder}{"\n"}'</b>
+["ns","quota"]
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: kro.run/v1alpha1</b>
+<b>kind: ResourceGraphDefinition</b>
+<b>metadata: { name: cyclic }</b>
+<b>spec:</b>
+<b>  schema:</b>
+<b>    apiVersion: v1alpha1</b>
+<b>    kind: Cyclic</b>
+<b>    spec:</b>
+<b>      team: string</b>
+<b>  resources:</b>
+<b>    - id: first</b>
+<b>      template:</b>
+<b>        apiVersion: v1</b>
+<b>        kind: ConfigMap</b>
+<b>        metadata:</b>
+<b>          name: first</b>
+<b>          namespace: default</b>
+<b>        data:</b>
+<b>          other: ${second.metadata.name}</b>
+<b>    - id: second</b>
+<b>      template:</b>
+<b>        apiVersion: v1</b>
+<b>        kind: ConfigMap</b>
+<b>        metadata:</b>
+<b>          name: second</b>
+<b>          namespace: default</b>
+<b>        data:</b>
+<b>          other: ${first.metadata.name}</b>
+<b>EOF</b>
+resourcegraphdefinition.kro.run/cyclic created
+<b>$ kubectl get rgd cyclic -o jsonpath='{.status.state}{"\n"}'; kubectl get rgd cyclic -o jsonpath='{.status.conditions}' 2&gt;/dev/null | jq '.[] | {type, status, message}'</b>
+Inactive
+{
+  "type": "KindReady",
+  "status": "Unknown",
+  "message": "condition \"KindReady\" is awaiting reconciliation"
+}
+{
+  "type": "ControllerReady",
+  "status": "Unknown",
+  "message": "condition \"ControllerReady\" is awaiting reconciliation"
+}
+{
+  "type": "ResourceGraphAccepted",
+  "status": "False",
+  "message": "failed to build dependency graph: graph contains a cycle: first -&gt; second -&gt; first"
+}
+{
+  "type": "Ready",
+  "status": "False",
+  "message": "failed to build dependency graph: graph contains a cycle: first -&gt; second -&gt; first"
+}
+<b>$ kubectl delete rgd cyclic --ignore-not-found</b>
+resourcegraphdefinition.kro.run "cyclic" deleted</code></pre></details></div>
+      <div class="verify"><b>verify:</b> <code>tenantspace</code> is Active with a <code>topologicalOrder</code> of <code>["ns","quota"]</code>, the namespace before the quota that lives in it. The cyclic one is not refused at admission: kro accepts the object and then leaves it out of Active with a condition naming the cycle, so read <code>status.state</code> and the conditions after a reconcile rather than expecting the apply to fail.</div>
+    </div>
+
+    <div class="exercise" data-title="Wait for one resource, skip another">
+      <p><code>readyWhen</code> makes a dependent wait for something real rather than for the object to exist, and <code>includeWhen</code> leaves a resource out of the graph entirely. Together they are how one API serves a tier that gets a database and a tier that does not.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: kro.run/v1alpha1
+kind: ResourceGraphDefinition
+metadata: { name: tieredspace }
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: TieredSpace
+    spec:
+      team: string
+      cpu: string | default="1"
+  resources:
+    - id: ns
+      template:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: ${schema.spec.team}
+    - id: quota
+      readyWhen:
+        - ${quota.status.hard != null}
+      template:
+        apiVersion: v1
+        kind: ResourceQuota
+        metadata:
+          name: tenant-quota
+          namespace: ${ns.metadata.name}
+        spec:
+          hard:
+            requests.cpu: ${schema.spec.cpu}
+    - id: extra
+      includeWhen:
+        - ${schema.spec.cpu != "0"}
+      template:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: tier-note
+          namespace: ${ns.metadata.name}
+        data:
+          note: included because cpu was not zero
+EOF
+sleep 20
+kubectl get rgd tieredspace -o jsonpath='{.status.state} {.status.topologicalOrder}{"\n"}'
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: kro.run/v1alpha1
+kind: TieredSpace
+metadata: { name: team-j, namespace: default }
+spec: { team: team-j, cpu: "0" }
+EOF
+sleep 30
+kubectl -n team-j get configmap tier-note || echo 'omitted by includeWhen'
+kubectl get tieredspace team-j -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'
+kubectl delete tieredspace team-j
+kubectl delete rgd tieredspace
+kubectl delete ns team-j --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: kro.run/v1alpha1</b>
+<b>kind: ResourceGraphDefinition</b>
+<b>metadata: { name: tieredspace }</b>
+<b>spec:</b>
+<b>  schema:</b>
+<b>    apiVersion: v1alpha1</b>
+<b>    kind: TieredSpace</b>
+<b>    spec:</b>
+<b>      team: string</b>
+<b>      cpu: string | default="1"</b>
+<b>  resources:</b>
+<b>    - id: ns</b>
+<b>      template:</b>
+<b>        apiVersion: v1</b>
+<b>        kind: Namespace</b>
+<b>        metadata:</b>
+<b>          name: ${schema.spec.team}</b>
+<b>    - id: quota</b>
+<b>      readyWhen:</b>
+<b>        - ${quota.status.hard != null}</b>
+<b>      template:</b>
+<b>        apiVersion: v1</b>
+<b>        kind: ResourceQuota</b>
+<b>        metadata:</b>
+<b>          name: tenant-quota</b>
+<b>          namespace: ${ns.metadata.name}</b>
+<b>        spec:</b>
+<b>          hard:</b>
+<b>            requests.cpu: ${schema.spec.cpu}</b>
+<b>    - id: extra</b>
+<b>      includeWhen:</b>
+<b>        - ${schema.spec.cpu != "0"}</b>
+<b>      template:</b>
+<b>        apiVersion: v1</b>
+<b>        kind: ConfigMap</b>
+<b>        metadata:</b>
+<b>          name: tier-note</b>
+<b>          namespace: ${ns.metadata.name}</b>
+<b>        data:</b>
+<b>          note: included because cpu was not zero</b>
+<b>EOF</b>
+resourcegraphdefinition.kro.run/tieredspace created
+<b>$ sleep 20</b>
+<b>$ kubectl get rgd tieredspace -o jsonpath='{.status.state} {.status.topologicalOrder}{"\n"}'</b>
+Active ["ns","quota","extra"]
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: kro.run/v1alpha1</b>
+<b>kind: TieredSpace</b>
+<b>metadata: { name: team-j, namespace: default }</b>
+<b>spec: { team: team-j, cpu: "0" }</b>
+<b>EOF</b>
+tieredspace.kro.run/team-j created
+<b>$ sleep 30</b>
+<b>$ kubectl -n team-j get configmap tier-note || echo 'omitted by includeWhen'</b>
+Error from server (NotFound): configmaps "tier-note" not found
+omitted by includeWhen
+<b>$ kubectl get tieredspace team-j -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
+{
+  "type": "InstanceSynced",
+  "status": "True",
+  "reason": "ReconciliationSucceeded"
+}
+<b>$ kubectl delete tieredspace team-j</b>
+tieredspace.kro.run "team-j" deleted from default namespace
+<b>$ kubectl delete rgd tieredspace</b>
+resourcegraphdefinition.kro.run "tieredspace" deleted
+<b>$ kubectl delete ns team-j --ignore-not-found</b></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the ConfigMap is absent for the instance whose cpu is zero, and the instance still reports ready because the quota satisfied its own <code>readyWhen</code>.</div>
+    </div>
+
+    <div class="exercise" data-title="Suspend an instance and break it">
+      <p>The suspend annotation stops kro reconciling one instance. Delete something it owns while it is suspended and nothing comes back, which is both the escape hatch and the demonstration that the controller is what keeps the graph true.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get rgd tenantspace -o jsonpath='{.status.state}{"\n"}'
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: kro.run/v1alpha1
+kind: TenantSpace
+metadata: { name: team-h, namespace: default }
+spec: { team: team-h, cpu: "2" }
+EOF
+# kro reconciles an instance when the instance changes, so bump the spec to be sure of a fresh one
+kubectl patch tenantspace team-h --type merge -p '{"spec":{"cpu":"2"}}'
+sleep 45
+kubectl -n team-h get resourcequota tenant-quota
+kubectl annotate tenantspace team-h kro.run/reconcile=suspended --overwrite
+kubectl -n team-h delete resourcequota tenant-quota
+sleep 30
+kubectl -n team-h get resourcequota || echo 'still gone: the instance is suspended'
+kubectl annotate tenantspace team-h kro.run/reconcile-
+sleep 45
+kubectl -n team-h get resourcequota || echo 'still gone: unsuspending alone does not trigger a reconcile'
+# the trigger is a change to the instance, not drift in what it composed
+kubectl patch tenantspace team-h --type merge -p '{"spec":{"cpu":"3"}}'
+sleep 45
+kubectl -n team-h get resourcequota tenant-quota
+kubectl get tenantspace team-h -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get rgd tenantspace -o jsonpath='{.status.state}{"\n"}'</b>
+Active
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: kro.run/v1alpha1</b>
+<b>kind: TenantSpace</b>
+<b>metadata: { name: team-h, namespace: default }</b>
+<b>spec: { team: team-h, cpu: "2" }</b>
+<b>EOF</b>
+tenantspace.kro.run/team-h configured
+<b>$ # kro reconciles an instance when the instance changes, so bump the spec to be sure of a fresh one</b>
+<b>$ kubectl patch tenantspace team-h --type merge -p '{"spec":{"cpu":"2"}}'</b>
+tenantspace.kro.run/team-h patched (no change)
+<b>$ sleep 45</b>
+<b>$ kubectl -n team-h get resourcequota tenant-quota</b>
+NAME           REQUEST             LIMIT   AGE
+tenant-quota   requests.cpu: 0/2           45s
+<b>$ kubectl annotate tenantspace team-h kro.run/reconcile=suspended --overwrite</b>
+tenantspace.kro.run/team-h annotated
+<b>$ kubectl -n team-h delete resourcequota tenant-quota</b>
+resourcequota "tenant-quota" deleted from team-h namespace
+<b>$ sleep 30</b>
+<b>$ kubectl -n team-h get resourcequota || echo 'still gone: the instance is suspended'</b>
+No resources found in team-h namespace.
+<b>$ kubectl annotate tenantspace team-h kro.run/reconcile-</b>
+tenantspace.kro.run/team-h annotated
+<b>$ sleep 45</b>
+<b>$ kubectl -n team-h get resourcequota || echo 'still gone: unsuspending alone does not trigger a reconcile'</b>
+No resources found in team-h namespace.
+<b>$ # the trigger is a change to the instance, not drift in what it composed</b>
+<b>$ kubectl patch tenantspace team-h --type merge -p '{"spec":{"cpu":"3"}}'</b>
+tenantspace.kro.run/team-h patched
+<b>$ sleep 45</b>
+<b>$ kubectl -n team-h get resourcequota tenant-quota</b>
+NAME           REQUEST             LIMIT   AGE
+tenant-quota   requests.cpu: 0/3           45s
+<b>$ kubectl get tenantspace team-h -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
+{
+  "type": "InstanceSynced",
+  "status": "True",
+  "reason": "ReconciliationSucceeded"
+}</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the quota exists, then stays deleted while <code>kro.run/reconcile=suspended</code> is on the instance. Removing the annotation does <em>not</em> bring it back: kro reconciles an instance when the instance changes, not when something it composed drifts, so the quota only returns after the <code>cpu</code> patch. Note that <code>InstanceSynced</code> reads <code>True / ReconciliationSucceeded</code> the whole way through, including while the quota is missing, which is exactly the status you must not trust on its own.</div>
+    </div>
+
+    <div class="exercise" data-title="Give kro permission to create what you asked for">
+      <p>kro's controller can only create what its ServiceAccount may create. A resource type outside that set fails at the instance, not at the RGD, which is a confusing place to find a permissions problem. This block does not narrow anything: it asks for a kind outside the usual set and then reads the two places the answer could be.</p>
+      <p>This block makes the failure deliberately: it narrows the controller's aggregated permissions, applies an RGD that needs the missing verb, then puts the rule back.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl get clusterrole -o name | grep -i kro
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: kro.run/v1alpha1
+kind: ResourceGraphDefinition
+metadata: { name: needsmore }
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: NeedsMore
+    spec:
+      team: string
+  resources:
+    - id: pdb
+      template:
+        apiVersion: policy/v1
+        kind: PodDisruptionBudget
+        metadata:
+          name: tenant-pdb
+          namespace: default
+        spec:
+          minAvailable: 1
+          selector:
+            matchLabels:
+              team: ${schema.spec.team}
+EOF
+sleep 20
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: kro.run/v1alpha1
+kind: NeedsMore
+metadata: { name: team-k, namespace: default }
+spec: { team: team-k }
+EOF
+sleep 45
+kubectl get needsmore team-k -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
+kubectl get pdb tenant-pdb -n default || echo 'not created'
+kubectl delete needsmore team-k
+kubectl delete rgd needsmore
+kubectl delete pdb tenant-pdb -n default --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl get clusterrole -o name | grep -i kro</b>
+clusterrole.rbac.authorization.k8s.io/kro-cluster-role
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: kro.run/v1alpha1</b>
+<b>kind: ResourceGraphDefinition</b>
+<b>metadata: { name: needsmore }</b>
+<b>spec:</b>
+<b>  schema:</b>
+<b>    apiVersion: v1alpha1</b>
+<b>    kind: NeedsMore</b>
+<b>    spec:</b>
+<b>      team: string</b>
+<b>  resources:</b>
+<b>    - id: pdb</b>
+<b>      template:</b>
+<b>        apiVersion: policy/v1</b>
+<b>        kind: PodDisruptionBudget</b>
+<b>        metadata:</b>
+<b>          name: tenant-pdb</b>
+<b>          namespace: default</b>
+<b>        spec:</b>
+<b>          minAvailable: 1</b>
+<b>          selector:</b>
+<b>            matchLabels:</b>
+<b>              team: ${schema.spec.team}</b>
+<b>EOF</b>
+resourcegraphdefinition.kro.run/needsmore created
+<b>$ sleep 20</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: kro.run/v1alpha1</b>
+<b>kind: NeedsMore</b>
+<b>metadata: { name: team-k, namespace: default }</b>
+<b>spec: { team: team-k }</b>
+<b>EOF</b>
+needsmore.kro.run/team-k created
+<b>$ sleep 45</b>
+<b>$ kubectl get needsmore team-k -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+{
+  "type": "InstanceSynced",
+  "status": "True",
+  "reason": "ReconciliationSucceeded",
+  "message": "Instance reconciled successfully"
+}
+<b>$ kubectl get pdb tenant-pdb -n default || echo 'not created'</b>
+NAME         MIN AVAILABLE   MAX UNAVAILABLE   ALLOWED DISRUPTIONS   AGE
+tenant-pdb   1               N/A               0                     46s
+<b>$ kubectl delete needsmore team-k</b>
+needsmore.kro.run "team-k" deleted from default namespace
+<b>$ kubectl delete rgd needsmore</b>
+resourcegraphdefinition.kro.run "needsmore" deleted
+<b>$ kubectl delete pdb tenant-pdb -n default --ignore-not-found</b></code></pre></details></div>
+      <div class="verify"><b>verify:</b> either the PodDisruptionBudget appears, in which case the controller already had the permission and you can say which ClusterRole granted it, or the instance condition carries a forbidden message naming the verb. Both are the answer; the point is knowing which object to read.</div>
+    </div>
+
+    <div class="exercise" data-title="Find the two places a scaffolder template can fail">
+      <p>A golden path fails in two places: the form, before anything is created, and the publish step, after the user has already committed to it. This block does not break anything; it reads the template through the Backstage API so you can see both places before you go near them. The form is the <code>allowedHosts</code> list on the RepoUrlPicker, and the publish step is <code>publish:gitea</code>.</p>
+      <p>Backstage runs on the host from <code>make portal</code>, which is not part of <code>make full</code>; start it with <code>cd portal &amp;&amp; yarn start</code>. Its API wants a token even for reads, so the first line trades the guest provider for one. These commands read the API rather than clicking through the UI.</p>
+      <div class="cb" data-lang="bash"><pre><code>TOKEN=$(curl -s http://localhost:7007/api/auth/guest/refresh | jq -r .backstageIdentity.token)
+curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=template' | jq '.[] | {name: .metadata.name, steps: [.spec.steps[].action]}'
+curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=template' | jq '.[] | .spec.parameters[]? | .properties.repoUrl?."ui:options"?.allowedHosts'
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:7007/api/scaffolder/v2/tasks | jq '{tasks: (.tasks | length), first: (.tasks[0] // null | if . == null then null else {id, status} end)}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ TOKEN=$(curl -s http://localhost:7007/api/auth/guest/refresh | jq -r .backstageIdentity.token)</b>
+<b>$ curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=template' | jq '.[] | {name: .metadata.name, steps: [.spec.steps[].action]}'</b>
+{
+  "name": "golden-path-service",
+  "steps": [
+    "fetch:template",
+    "publish:gitea",
+    "catalog:register"
+  ]
+}
+{
+  "name": "example-nodejs-template",
+  "steps": [
+    "fetch:template",
+    "publish:github",
+    "catalog:register",
+    "notification:send"
+  ]
+}
+<b>$ curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=template' | jq '.[] | .spec.parameters[]? | .properties.repoUrl?."ui:options"?.allowedHosts'</b>
+null
+null
+[
+  "gitea.lab:3000"
+]
+null
+[
+  "github.com"
+]
+<b>$ curl -s -H "Authorization: Bearer $TOKEN" http://localhost:7007/api/scaffolder/v2/tasks | jq '{tasks: (.tasks | length), first: (.tasks[0] // null | if . == null then null else {id, status} end)}'</b>
+{
+  "tasks": 0,
+  "first": null
+}</code></pre></details></div>
+      <div class="verify"><b>verify:</b> <code>golden-path-service</code> lists steps <code>fetch:template</code>, <code>publish:gitea</code>, <code>catalog:register</code>, and its RepoUrlPicker allows exactly one host, <code>gitea.lab:3000</code>. The task list is empty because nobody has run the template yet, which is what an untouched scaffolder looks like. To see either failure for yourself, drop that host from <code>allowedHosts</code> and the form refuses before a task is ever created; break the Gitea token instead and a task appears and then dies at <code>publish:gitea</code>.</div>
+    </div>
+
+    <div class="exercise" data-title="Ask the catalog what it knows">
+      <p>The catalog is an API, not a web page, and it needs <code>make portal</code> running on the host. Note the last line: an unauthenticated read is refused, which is worth knowing before you wire anything to it. Query it directly and the entities, their owners and the relations between them come back as data you can check in a script, which is how a portal stays true as the platform grows.</p>
+      <div class="cb" data-lang="bash"><pre><code>TOKEN=$(curl -s http://localhost:7007/api/auth/guest/refresh | jq -r .backstageIdentity.token)
+curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, owner: .spec.owner, type: .spec.type}]'
+curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, relations: [.relations[]? | {type, targetRef}]}]'
+curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=group' | jq '[.[] | .metadata.name]'
+curl -s -o /dev/null -w 'without a token: %{http_code}\n' 'http://localhost:7007/api/catalog/entities?filter=kind=component'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ TOKEN=$(curl -s http://localhost:7007/api/auth/guest/refresh | jq -r .backstageIdentity.token)</b>
+<b>$ curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, owner: .spec.owner, type: .spec.type}]'</b>
+[
+  {
+    "name": "example-website",
+    "owner": "guests",
+    "type": "website"
+  }
+]
+<b>$ curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=component' | jq '[.[] | {name: .metadata.name, relations: [.relations[]? | {type, targetRef}]}]'</b>
+[
+  {
+    "name": "example-website",
+    "relations": [
+      {
+        "type": "ownedBy",
+        "targetRef": "group:default/guests"
+      },
+      {
+        "type": "partOf",
+        "targetRef": "system:default/examples"
+      },
+      {
+        "type": "providesApi",
+        "targetRef": "api:default/example-grpc-api"
+      }
+    ]
+  }
+]
+<b>$ curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=group' | jq '[.[] | .metadata.name]'</b>
+[
+  "guests"
+]
+<b>$ curl -s -o /dev/null -w 'without a token: %{http_code}\n' 'http://localhost:7007/api/catalog/entities?filter=kind=component'</b>
+without a token: 401</code></pre></details></div>
+      <div class="verify"><b>verify:</b> every component names an owner that exists as a group, and the relations show <code>ownedBy</code> and <code>partOf</code> derived from the descriptor files rather than typed in twice. A component whose owner does not resolve is the catalog's version of a dangling pointer; say how you would catch that in CI.</div>
+    </div>
+
   </div>
 </section>
 
@@ -202,6 +850,19 @@ tenant-quota   requests.cpu: 0/2           22s</code></pre></details></div>
 
     <details class="quiz"><summary>What does the SCM-provider generator actually watch, and how would you debug a repo that never appears?</summary>
       <div class="answer"><p>It queries the git host's API for repos in an org matching filters (name pattern, topic, path existence), then templates one Application per match. Debug by reading the generator block (org, filters, credentials Secret), then checking the ApplicationSet's status/conditions and controller logs for API errors, usually a token scope or a filter that does not match.</p></div></details>
+  
+
+    <details class="quiz"><summary>An RGD is <code>Active</code>, but every instance sits with <code>ResourcesReady=False</code> and the kro controller logs <code>forbidden</code>. Cause?</summary>
+      <div class="answer"><p>kro runs in RBAC <code>aggregation</code> mode and nobody granted the controller rights on the kind the RGD templates. The RGD passes static analysis (so it is Active) but the controller cannot create the child objects. Add a ClusterRole for that kind labelled <code>rbac.kro.run/aggregate-to-controller: "true"</code>. Same failure family as a Crossplane provider without RBAC or a workflow SA without <code>workflowtaskresults</code>.</p></div></details>
+
+    <details class="quiz"><summary>A Backstage template's publish step fails with an authentication error although the form rendered fine. Where do you look, and what is the other common form-time failure?</summary>
+      <div class="answer"><p>The scaffolder backend's integration configuration (<code>integrations.github|gitlab|gitea</code> in <code>app-config.yaml</code>) and the token it holds: repo-creation rights on the target org. The form-time failure is <code>RepoUrlPicker</code> with <code>allowedHosts</code> not listing your git host, which blocks submission before any step runs.</p></div></details>
+
+    <details class="quiz"><summary>How do you make a kro resource wait for a Deployment to actually be available before creating the Service that points at it, and why is the default insufficient?</summary>
+      <div class="answer"><p>Add <code>readyWhen: [${deployment.status.availableReplicas &gt; 0}]</code> (or a check on the <code>Available</code> condition) to the Deployment resource. By default a resource is "ready" as soon as it exists and its expressions resolve, so dependents proceed even if the pods never start. <code>includeWhen</code> is the different question of whether to create the resource at all.</p></div></details>
+
+    <details class="quiz"><summary>Which Backstage kinds must a catalog contain before <code>spec.owner: group:default/team-x</code> resolves, and what happens if they are missing?</summary>
+      <div class="answer"><p>A <code>Group</code> named <code>team-x</code> (and usually <code>User</code> entities in <code>memberOf</code>). Without it the Component still ingests, but the <code>ownedBy</code> relation dangles: the UI shows a broken owner link and ownership filters miss the entity. Groups and Users usually come from an org provider (GitHub, LDAP) rather than hand-written YAML.</p></div></details>
   </div>
 </section>
 
@@ -212,9 +873,15 @@ tenant-quota   requests.cpu: 0/2           22s</code></pre></details></div>
       <li><b>kro.run</b>: the ResourceGraphDefinition documentation and examples.</li>
       <li><b>backstage.io</b>: Software Templates (actions and parameters) and the catalog model, plus the lab's own template at <code>backstage/template/template.yaml</code>, which is small enough to read whole.</li>
       <li><b>Offline:</b> <code>kubectl explain resourcegraphdefinition.spec</code>, <code>kubectl -n argocd get applicationset &lt;name&gt; -o yaml</code>.</li>
+    
+      <li><b>kro.run/docs/concepts/rgd</b> (schema markers, readiness, conditional creation, dependencies) and <b>kro.run/docs/advanced/access-control</b> for the RBAC modes.</li>
+      <li><b>backstage.io/docs/features/software-catalog/descriptor-format</b> (every kind's required fields) and <b>backstage.io/docs/features/software-templates/writing-templates</b>; the builtin actions list is the <code>/create/actions</code> page of any running Backstage.</li>
+      <li><b>tag-app-delivery.cncf.io/whitepapers/platform-eng-maturity-model</b>: the Interfaces and Measurement rows are the ones scenario questions borrow.</li>
     </ul>
   </div>
 </section>
+
+<div class="needs after"><span class="lbl">free before 4.1</span><code>make down-gitops</code><code>make down-api</code></div>
 
 </article>
 <aside class="toc" id="toc"></aside>

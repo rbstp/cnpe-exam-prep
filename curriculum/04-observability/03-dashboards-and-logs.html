@@ -86,6 +86,68 @@
   </div>
 </section>
 
+<section class="panel accent-c" id="provisioning">
+  <div class="phdr"><h2>Provisioning, field by field</h2><span class="meta">datasource and dashboard files, sidecar knobs, the Grafana Operator</span></div>
+  <div class="pbody">
+    <h3>Grafana's own provisioning format</h3>
+    <p>Files under <code>provisioning/datasources/*.yaml</code> and <code>provisioning/dashboards/*.yaml</code> start with <code>apiVersion: 1</code>. A datasource entry has <code>name</code>, <code>type</code> (<code>prometheus</code>, <code>loki</code>, <code>jaeger</code>, <code>tempo</code>), <code>url</code>, <code>access: proxy</code>, an optional stable <code>uid</code> (dashboards reference datasources by uid, so set it or every exported dashboard breaks on import), <code>isDefault</code>, <code>editable: false</code> to stop UI drift, and two maps: <code>jsonData</code> for settings (<code>httpMethod: POST</code>, <code>timeInterval</code>, Loki's <code>derivedFields</code> that turn a trace ID in a log line into a Tempo/Jaeger link, and <code>alertmanagerUid</code>) and <code>secureJsonData</code> for credentials, which Grafana encrypts at rest. <code>deleteDatasources</code> removes entries by name before applying. A dashboard provider entry names a <code>folder</code>, <code>type: file</code> and <code>options.path</code>, plus <code>foldersFromFilesStructure</code>, <code>allowUiUpdates</code> (default false: the file wins) and <code>disableDeletion</code>.</p>
+    <p>In kube-prometheus-stack the sidecar generates those provider files for you: ConfigMaps labelled <code>grafana_dashboard: "1"</code> land in the default folder unless annotated <code>grafana_folder: &lt;name&gt;</code>; ConfigMaps or Secrets labelled <code>grafana_datasource: "1"</code> are datasource files. The sidecar watches every namespace by default (<code>sidecar.dashboards.searchNamespace</code>), so a dashboard shipped with a team's Helm chart appears in the platform Grafana without anyone in <code>monitoring</code> touching anything.</p>
+
+    <h3>The Grafana Operator, when the exam gives you CRDs</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th class="mono">Kind (grafana.integreatly.org/v1beta1)</th><th>Holds</th><th>Field to watch</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">Grafana</td><td>an instance (or an external one via <code>spec.external.url</code> plus admin credentials)</td><td>its labels are what every other kind selects with <code>instanceSelector</code></td></tr>
+          <tr><td class="mono">GrafanaDashboard</td><td>one dashboard from <code>json</code>, <code>gzipJson</code>, <code>url</code>, <code>configMapRef</code>, <code>jsonnet</code> or <code>grafanaCom.id</code></td><td><code>instanceSelector</code>, <code>folder</code>/<code>folderRef</code>, <code>resyncPeriod</code>, <code>datasources[]</code> to rewrite <code>${DS_PROMETHEUS}</code> inputs</td></tr>
+          <tr><td class="mono">GrafanaDatasource</td><td>one datasource in the same shape as the provisioning file (<code>datasource.jsonData</code>, <code>secureJsonData</code>, <code>valuesFrom</code> for Secret refs)</td><td><code>instanceSelector</code>; <code>allowCrossNamespaceImport: true</code> on the Grafana when the datasource lives elsewhere</td></tr>
+          <tr><td class="mono">GrafanaFolder</td><td>a folder, optionally with <code>parentFolderRef</code> and <code>permissions</code></td><td>dashboards point at it by <code>folderRef</code></td></tr>
+          <tr><td class="mono">GrafanaAlertRuleGroup / GrafanaContactPoint / GrafanaNotificationPolicy / GrafanaMuteTiming</td><td>Grafana-managed alerting as code</td><td>irrelevant if Prometheus rules are the model, but a task may hand you one</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The failure that recurs: a <code>GrafanaDashboard</code> whose <code>instanceSelector.matchLabels</code> matches no <code>Grafana</code> object is accepted and does nothing; its <code>status</code> stays empty. Same selector story as ServiceMonitors, one CRD family over. In every model, the JSON is the artefact: export with "export for sharing externally" off so datasource uids stay literal, keep <code>id: null</code> and a stable <code>uid</code> in the JSON, and template with <code>label_values(kube_pod_info, namespace)</code> variables rather than hardcoding a tenant.</p>
+  </div>
+</section>
+
+<section class="panel accent-p" id="loki-deeper">
+  <div class="phdr"><h2>Loki under the hood, and LogQL past the first five constructs</h2><span class="meta">components, labels vs structured metadata, parsers, shippers, retention</span></div>
+  <div class="pbody">
+    <h3>Components and deployment modes</h3>
+    <p>The write path is <em>distributor</em> (validates, hashes each stream to a ring position) → <em>ingester</em> (builds chunks in memory, flushes to object storage) with a quorum of replicas acknowledging. The read path is <em>query-frontend</em> (splits and queues) → <em>query-scheduler</em> → <em>querier</em> (asks ingesters for recent data, then the store). The <em>compactor</em> merges index files and applies retention; the <em>ruler</em> evaluates alerting and recording rules; the <em>index gateway</em> serves index lookups. Everything persists to one object store (S3, GCS, Azure, MinIO) with the TSDB index shipped alongside the chunks. Three deployment shapes: single binary (<code>-target=all</code>), simple scalable (<code>read</code>, <code>write</code>, <code>backend</code> targets, the Helm default at scale) and full microservices. "Loki is up but returns nothing" in the SSD shape is usually the write path (shipper cannot push, ingester ring unhealthy) rather than the read path.</p>
+
+    <h3>Labels, cardinality, structured metadata</h3>
+    <p>Every unique label set is a stream, every stream has its own chunks and index entries, and Loki caps streams per tenant (<code>max_streams_per_user</code>) and labels per stream (15 by default). Labels should be low-cardinality and long-lived: <code>namespace</code>, <code>app</code>, <code>container</code>, <code>level</code> at most. Anything high-cardinality that you still want to filter on quickly (pod name, trace ID, request ID) belongs in <em>structured metadata</em>, per-line key-value pairs stored with the chunk and queryable with the same label-filter syntax, without creating streams. The OTLP endpoint (<code>/otlp/v1/logs</code>) maps resource attributes such as <code>service.name</code> and <code>k8s.namespace.name</code> to index labels and the rest to structured metadata automatically; the docs now recommend moving <code>k8s.pod.name</code> off the index label list.</p>
+
+    <h3>LogQL you have not used yet</h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th class="mono">Construct</th><th>Example</th><th>Note</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">| pattern</td><td><code>| pattern "&lt;ip&gt; - - &lt;_&gt; \"&lt;method&gt; &lt;path&gt; &lt;_&gt;\" &lt;status&gt;"</code></td><td>fast field extraction for fixed-format lines; <code>&lt;_&gt;</code> skips</td></tr>
+          <tr><td class="mono">| regexp</td><td><code>| regexp "(?P&lt;user&gt;\\w+) logged in"</code></td><td>named groups become labels; slowest parser</td></tr>
+          <tr><td class="mono">| json a="b.c"</td><td>extract only named paths</td><td>bare <code>| json</code> flattens everything, which explodes label counts on wide events</td></tr>
+          <tr><td class="mono">| line_format / | label_format</td><td><code>| line_format "{{.method}} {{.status}}"</code></td><td>Go templates; reshape the line before further filters</td></tr>
+          <tr><td class="mono">| __error__=""</td><td>drop lines the parser could not read</td><td>parse failures are not dropped by default; they get an <code>__error__</code> label</td></tr>
+          <tr><td class="mono">| unwrap duration</td><td><code>quantile_over_time(0.95, {app="api"} | logfmt | unwrap duration [5m]) by (path)</code></td><td>turns an extracted number into samples; <code>unwrap duration_seconds(x)</code> and <code>bytes(x)</code> convert units</td></tr>
+          <tr><td class="mono">count_over_time / bytes_rate / absent_over_time</td><td><code>absent_over_time({job="backup"} |= "completed" [25h])</code></td><td>the "the nightly job did not log success" alert</td></tr>
+          <tr><td class="mono">offset</td><td><code>count_over_time({app="x"}[5m] offset 1w)</code></td><td>inside the range brackets, unlike PromQL's position</td></tr>
+          <tr><td class="mono">| drop / | keep</td><td><code>| keep status, path</code></td><td>trim labels before an aggregation</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Two syntax facts that cost minutes: label matchers in the stream selector are fully anchored regexes, line filters (<code>|~</code>) are not; and the log range must come immediately after the pipeline, so <code>rate({a="b"} |= "x" [5m])</code> is right and <code>rate({a="b"}[5m] |= "x")</code> is a parse error.</p>
+
+    <h3>Shippers, retention, rules</h3>
+    <ul>
+      <li><strong>Promtail is end-of-life</strong> (LTS ended February 2026, EOL 2 March 2026). <strong>Alloy</strong> is the replacement: <code>discovery.kubernetes</code> → <code>loki.source.kubernetes</code> (or <code>loki.source.file</code> with a hostPath mount) → <code>loki.process</code> (stages: <code>stage.json</code>, <code>stage.labels</code>, <code>stage.drop</code>) → <code>loki.write</code>. <code>alloy convert --source-format=promtail</code> translates an old config. The <strong>OpenTelemetry Collector</strong> with a <code>filelog</code> receiver and an <code>otlphttp</code> exporter to Loki's <code>/otlp</code> endpoint, and <strong>Fluent Bit</strong> with its <code>loki</code> output, are the other two shippers a task may hand you; all three are DaemonSets that tail <code>/var/log/pods</code> and enrich with Kubernetes metadata.</li>
+      <li><strong>Retention</strong> is the compactor's job: <code>compactor.retention_enabled: true</code> plus <code>limits_config.retention_period</code> (global) or per-tenant/per-stream <code>retention_stream</code> overrides. Without the compactor flag, data is kept forever regardless of the period.</li>
+      <li><strong>The ruler</strong> takes Prometheus-format rule groups whose <code>expr</code> is LogQL, from local files or object storage (<code>ruler.storage</code>), and sends alerts to <code>ruler.alertmanager_url</code>; recording rules can <code>remote_write</code> the resulting series into Prometheus so metrics derived from logs join the normal dashboards.</li>
+    </ul>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Find the pod that logged X in the last hour" is a stream selector plus <code>|=</code>; "count errors per service over time" is <code>sum by (app) (count_over_time(... |= "error" [5m]))</code>; "p95 latency from access logs" is <code>logfmt</code> or <code>pattern</code>, <code>unwrap</code>, <code>quantile_over_time</code>. Recognising which of the three you are being asked for is most of the time saved.</p></div>
+  </div>
+</section>
+
 <section class="panel accent-g" id="exercises">
   <div class="phdr"><h2>Exercises</h2><span class="meta">tick the dot when its check passes</span></div>
   <div class="pbody">
@@ -151,6 +213,447 @@ configmap/team-cpu-dashboard created</code></pre></details></div>
       <div class="verify"><b>verify:</b> there is no single right answer; having <em>an</em> answer with a reason is the skill the "actionable insights" wording points at.</div>
     </div>
 
+    <div class="exercise" data-title="Link a log line to its trace">
+      <p>A derived field turns a trace id in a log line into a link to the trace. It is a regex and a datasource uid in a provisioning file, and it is what joins the two halves of an investigation without a copy and paste.</p>
+      <div class="cb" data-lang="bash"><pre><code># port 3000 on this host is Backstage, not Grafana: a curl there returns HTML and jq says 'Invalid numeric literal'
+# and the derived field needs a Jaeger datasource with the uid it points at
+kubectl -n monitoring delete cm loki-datasource --ignore-not-found
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jaeger-datasource
+  namespace: monitoring
+  labels: { grafana_datasource: "1" }
+data:
+  jaeger.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Jaeger
+        type: jaeger
+        uid: jaeger-lab
+        access: proxy
+        url: http://jaeger.tracing.svc:16686
+EOF
+kubectl -n monitoring get cm -l grafana_datasource=1 -o name
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-datasource-linked
+  namespace: monitoring
+  labels: { grafana_datasource: "1" }
+data:
+  loki.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        type: loki
+        uid: loki-lab
+        access: proxy
+        url: http://loki.monitoring.svc:3100
+        editable: false
+        jsonData:
+          derivedFields:
+            - name: TraceID
+              matcherRegex: "trace_id=(\\w+)"
+              url: "$${__value.raw}"
+              datasourceUid: jaeger-lab
+EOF
+kubectl -n monitoring wait --for=condition=available deploy/prometheus-grafana --timeout=180s
+sleep 45
+GF_PW=$(kubectl -n monitoring get secret prometheus-grafana -o jsonpath='{.data.admin-password}' | base64 -d)
+kubectl -n monitoring port-forward --address 127.0.0.1 svc/prometheus-grafana 3300:80 &amp; PF1=$!
+sleep 5
+curl -s -u admin:admin 127.0.0.1:3300/api/datasources | jq '[.[] | {name, uid, type}]'
+curl -s -u admin:admin 127.0.0.1:3300/api/datasources/uid/loki-lab | jq '.jsonData'
+kill $PF1
+kubectl -n monitoring delete cm jaeger-datasource
+kubectl -n monitoring delete cm loki-datasource-linked --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # port 3000 on this host is Backstage, not Grafana: a curl there returns HTML and jq says 'Invalid numeric literal'</b>
+<b>$ # and the derived field needs a Jaeger datasource with the uid it points at</b>
+<b>$ kubectl -n monitoring delete cm loki-datasource --ignore-not-found</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: ConfigMap</b>
+<b>metadata:</b>
+<b>  name: jaeger-datasource</b>
+<b>  namespace: monitoring</b>
+<b>  labels: { grafana_datasource: "1" }</b>
+<b>data:</b>
+<b>  jaeger.yaml: |</b>
+<b>    apiVersion: 1</b>
+<b>    datasources:</b>
+<b>      - name: Jaeger</b>
+<b>        type: jaeger</b>
+<b>        uid: jaeger-lab</b>
+<b>        access: proxy</b>
+<b>        url: http://jaeger.tracing.svc:16686</b>
+<b>EOF</b>
+configmap/jaeger-datasource created
+<b>$ kubectl -n monitoring get cm -l grafana_datasource=1 -o name</b>
+configmap/jaeger-datasource
+configmap/loki-datasource-linked
+configmap/prometheus-kube-prometheus-grafana-datasource
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: ConfigMap</b>
+<b>metadata:</b>
+<b>  name: loki-datasource-linked</b>
+<b>  namespace: monitoring</b>
+<b>  labels: { grafana_datasource: "1" }</b>
+<b>data:</b>
+<b>  loki.yaml: |</b>
+<b>    apiVersion: 1</b>
+<b>    datasources:</b>
+<b>      - name: Loki</b>
+<b>        type: loki</b>
+<b>        uid: loki-lab</b>
+<b>        access: proxy</b>
+<b>        url: http://loki.monitoring.svc:3100</b>
+<b>        editable: false</b>
+<b>        jsonData:</b>
+<b>          derivedFields:</b>
+<b>            - name: TraceID</b>
+<b>              matcherRegex: "trace_id=(\\w+)"</b>
+<b>              url: "$${__value.raw}"</b>
+<b>              datasourceUid: jaeger-lab</b>
+<b>EOF</b>
+configmap/loki-datasource-linked unchanged
+<b>$ kubectl -n monitoring wait --for=condition=available deploy/prometheus-grafana --timeout=180s</b>
+deployment.apps/prometheus-grafana condition met
+<b>$ sleep 45</b>
+<b>$ GF_PW=$(kubectl -n monitoring get secret prometheus-grafana -o jsonpath='{.data.admin-password}' | base64 -d)</b>
+<b>$ kubectl -n monitoring port-forward --address 127.0.0.1 svc/prometheus-grafana 3300:80 &amp; PF1=$!</b>
+<b>$ sleep 5</b>
+Forwarding from 127.0.0.1:3300 -&gt; 3000
+<b>$ curl -s -u admin:admin 127.0.0.1:3300/api/datasources | jq '[.[] | {name, uid, type}]'</b>
+Handling connection for 3300
+[
+  {
+    "name": "Alertmanager",
+    "uid": "alertmanager",
+    "type": "alertmanager"
+  },
+  {
+    "name": "Jaeger",
+    "uid": "jaeger-lab",
+    "type": "jaeger"
+  },
+  {
+    "name": "Loki",
+    "uid": "loki-lab",
+    "type": "loki"
+  },
+  {
+    "name": "Prometheus",
+    "uid": "prometheus",
+    "type": "prometheus"
+  }
+]
+<b>$ curl -s -u admin:admin 127.0.0.1:3300/api/datasources/uid/loki-lab | jq '.jsonData'</b>
+Handling connection for 3300
+{
+  "derivedFields": [
+    {
+      "datasourceUid": "jaeger-lab",
+      "matcherRegex": "trace_id=(\\w+)",
+      "name": "TraceID",
+      "url": "${__value.raw}"
+    }
+  ]
+}
+<b>$ kill $PF1</b>
+<b>$ kubectl -n monitoring delete cm jaeger-datasource</b>
+configmap "jaeger-datasource" deleted from monitoring namespace
+<b>$ kubectl -n monitoring delete cm loki-datasource-linked --ignore-not-found</b>
+configmap "loki-datasource-linked" deleted from monitoring namespace</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the datasource exists with the uid you chose and its <code>jsonData</code> carries the derived field. Open a log line in Explore and the TraceID appears as a link; if the link is dead, the target uid is wrong, not the regex.</div>
+    </div>
+
+    <div class="exercise" data-title="Put a dashboard in a folder">
+      <p>A dashboard ConfigMap lands in the General folder unless you say otherwise, and General is where dashboards go to be lost. One annotation fixes it, and it is the difference between a dashboard people find and one they rebuild.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-overview
+  namespace: monitoring
+  labels: { grafana_dashboard: "1" }
+  annotations: { grafana_folder: "Platform" }
+data:
+  platform-overview.json: |
+    {
+      "title": "Platform overview",
+      "uid": "platform-overview",
+      "schemaVersion": 39,
+      "panels": [
+        {"type": "timeseries", "title": "API server requests", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+         "targets": [{"expr": "sum(rate(apiserver_request_total[5m]))"}]}
+      ]
+    }
+EOF
+sleep 60
+# port 3000 here is Backstage; Grafana answers on 3300
+GF_PW=$(kubectl -n monitoring get secret prometheus-grafana -o jsonpath='{.data.admin-password}' | base64 -d)
+kubectl -n monitoring port-forward --address 127.0.0.1 svc/prometheus-grafana 3300:80 &amp; PF1=$!
+sleep 5
+curl -s -u admin:admin 127.0.0.1:3300/api/search?query=Platform%20overview | jq '.[] | {title, folderTitle, uid}'
+# the sidecar only honours the annotation when it is told which one to read
+kubectl -n monitoring get deploy prometheus-grafana -o jsonpath='{range .spec.template.spec.containers[?(@.name=="grafana-sc-dashboard")].env[*]}{.name}={.value}{"\n"}{end}' | grep -i -E 'folder|provider'
+kill $PF1
+kubectl -n monitoring delete cm platform-overview</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: v1</b>
+<b>kind: ConfigMap</b>
+<b>metadata:</b>
+<b>  name: platform-overview</b>
+<b>  namespace: monitoring</b>
+<b>  labels: { grafana_dashboard: "1" }</b>
+<b>  annotations: { grafana_folder: "Platform" }</b>
+<b>data:</b>
+<b>  platform-overview.json: |</b>
+<b>    {</b>
+<b>      "title": "Platform overview",</b>
+<b>      "uid": "platform-overview",</b>
+<b>      "schemaVersion": 39,</b>
+<b>      "panels": [</b>
+<b>        {"type": "timeseries", "title": "API server requests", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},</b>
+<b>         "targets": [{"expr": "sum(rate(apiserver_request_total[5m]))"}]}</b>
+<b>      ]</b>
+<b>    }</b>
+<b>EOF</b>
+configmap/platform-overview created
+<b>$ sleep 60</b>
+<b>$ # port 3000 here is Backstage; Grafana answers on 3300</b>
+<b>$ GF_PW=$(kubectl -n monitoring get secret prometheus-grafana -o jsonpath='{.data.admin-password}' | base64 -d)</b>
+<b>$ kubectl -n monitoring port-forward --address 127.0.0.1 svc/prometheus-grafana 3300:80 &amp; PF1=$!</b>
+<b>$ sleep 5</b>
+Forwarding from 127.0.0.1:3300 -&gt; 3000
+<b>$ curl -s -u admin:admin 127.0.0.1:3300/api/search?query=Platform%20overview | jq '.[] | {title, folderTitle, uid}'</b>
+Handling connection for 3300
+{
+  "title": "Platform overview",
+  "folderTitle": null,
+  "uid": "platform-overview"
+}
+<b>$ # the sidecar only honours the annotation when it is told which one to read</b>
+<b>$ kubectl -n monitoring get deploy prometheus-grafana -o jsonpath='{range .spec.template.spec.containers[?(@.name=="grafana-sc-dashboard")].env[*]}{.name}={.value}{"\n"}{end}' | grep -i -E 'folder|provider'</b>
+FOLDER=/tmp/dashboards
+<b>$ kill $PF1</b>
+<b>$ kubectl -n monitoring delete cm platform-overview</b>
+configmap "platform-overview" deleted from monitoring namespace</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the dashboard is imported and <code>/api/search</code> finds it by title, but <code>folderTitle</code> is <code>null</code>: it landed at the top level, not in Platform. The annotation is not wrong, it is unread. The sidecar's environment carries only <code>FOLDER=/tmp/dashboards</code> and no <code>FOLDER_ANNOTATION</code>, so no annotation on any ConfigMap can place a dashboard in a folder on this install. Set <code>sidecar.dashboards.folderAnnotation</code> and <code>sidecar.dashboards.provider.foldersFromFilesStructure</code> in the chart values and the same ConfigMap lands in Platform. A convention that depends on a setting nobody enabled is the most common way dashboards end up in one flat list.</div>
+    </div>
+
+    <div class="exercise" data-title="Four LogQL shapes on real logs">
+      <p>LogQL beyond a plain filter is where the marks are: parse a line into fields, turn a field into a number, notice an absence, and find the lines your parser could not handle.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring port-forward svc/loki 3100:3100 &amp; PF1=$!
+sleep 5
+curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query={namespace="team-a"} | pattern `&lt;ip&gt; - - &lt;_&gt; "&lt;method&gt; &lt;uri&gt; &lt;_&gt;" &lt;status&gt; &lt;size&gt;`' --data-urlencode 'limit=5' | jq '.data.result[0].values[0]'
+curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query=quantile_over_time(0.95, {namespace="team-a"} | pattern `&lt;_&gt; &lt;_&gt; &lt;_&gt; &lt;_&gt; "&lt;_&gt; &lt;_&gt; &lt;_&gt;" &lt;status&gt; &lt;size&gt; ` | unwrap size [5m]) by (status)' | jq '.data.result'
+curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query=absent_over_time({namespace="default", pod="does-not-exist"}[5m])' | jq '.data.result'
+curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query={namespace="team-a"} | logfmt --strict | __error__ != ""' --data-urlencode 'limit=5' | jq '.data.result[0].stream'
+kill $PF1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl -n monitoring port-forward svc/loki 3100:3100 &amp; PF1=$!</b>
+<b>$ sleep 5</b>
+Forwarding from 127.0.0.1:3100 -&gt; 3100
+Forwarding from [::1]:3100 -&gt; 3100
+<b>$ curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query={namespace="team-a"} | pattern `&lt;ip&gt; - - &lt;_&gt; "&lt;method&gt; &lt;uri&gt; &lt;_&gt;" &lt;status&gt; &lt;size&gt;`' --data-urlencode 'limit=5' | jq '.data.result[0].values[0]'</b>
+Handling connection for 3100
+[
+  "1789307349067886028",
+  "10.244.2.200 - - [13/Sep/2026:13:49:09 +0000] \"GET / HTTP/1.1\" 200 615 \"-\" \"kube-probe/1.36\" \"-\"\n"
+]
+<b>$ curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query=quantile_over_time(0.95, {namespace="team-a"} | pattern `&lt;_&gt; &lt;_&gt; &lt;_&gt; &lt;_&gt; "&lt;_&gt; &lt;_&gt; &lt;_&gt;" &lt;status&gt; &lt;size&gt; ` | unwrap size [5m]) by (status)' | jq '.data.result'</b>
+Handling connection for 3100
+[
+  {
+    "metric": {
+      "status": "200"
+    },
+    "values": [
+      [
+        1789303754,
+        "615"
+      ],
+      [
+        1789303768,
+        "615"
+      ],
+      [
+        1789303782,
+        "615"
+      ],
+      [
+        1789303796,
+        "615"
+      ],
+      [
+        1789303810,
+        "615"
+      ],
+      [
+        1789303824,
+        "615"
+      ],
+      [
+        1789303838,
+        "615"
+      ],
+      [
+        1789303852,
+        "615"
+      ],
+      [
+<i>... 1002 more lines</i>
+<b>$ curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query=absent_over_time({namespace="default", pod="does-not-exist"}[5m])' | jq '.data.result'</b>
+Handling connection for 3100
+[
+  {
+    "metric": {
+      "namespace": "default",
+      "pod": "does-not-exist"
+    },
+    "values": [
+      [
+        1789303754,
+        "1"
+      ],
+      [
+        1789303768,
+        "1"
+      ],
+      [
+        1789303782,
+        "1"
+      ],
+      [
+        1789303796,
+        "1"
+      ],
+      [
+        1789303810,
+        "1"
+      ],
+      [
+        1789303824,
+        "1"
+      ],
+      [
+        1789303838,
+        "1"
+      ],
+      [
+        1789303852,
+        "1"
+      ],
+<i>... 1003 more lines</i>
+<b>$ curl -sG localhost:3100/loki/api/v1/query_range --data-urlencode 'query={namespace="team-a"} | logfmt --strict | __error__ != ""' --data-urlencode 'limit=5' | jq '.data.result[0].stream'</b>
+Handling connection for 3100
+{
+  "__error__": "LogfmtParserErr",
+  "__error_details__": "logfmt syntax error at pos 47 : unexpected '\"'",
+  "app": "demo",
+  "container": "web",
+  "detected_level": "unknown",
+  "instance": "team-a/staging-demo-66955f8974-l48bx:web",
+  "job": "loki.source.kubernetes.pods",
+  "namespace": "team-a",
+  "pod": "staging-demo-66955f8974-l48bx",
+  "service_name": "demo"
+}
+<b>$ kill $PF1</b></code></pre></details></div>
+      <div class="verify"><b>verify:</b> the pattern parser produces labelled fields, <code>unwrap</code> turns size into a number you can take a quantile of, <code>absent_over_time</code> returns a series for the pod that does not exist, and <code>logfmt --strict</code> plus <code>__error__ != ""</code> returns the nginx access lines, which are not logfmt at all. The <code>--strict</code> flag is the point: plain <code>logfmt</code> in Loki 3 skips what it cannot parse and sets no <code>__error__</code>, so the same query without it comes back empty and you conclude, wrongly, that every line parsed.</div>
+    </div>
+
+    <div class="exercise" data-title="Translate a promtail config">
+      <p>Alloy replaced promtail, and every migration task is the same shape: take the old config, run the converter, read what it produced. The command lives in the Alloy image.</p>
+      <div class="cb" data-lang="bash"><pre><code>cat &gt; /tmp/promtail.yaml &lt;&lt;'EOF'
+server:
+  http_listen_port: 9080
+clients:
+  - url: http://loki.monitoring.svc:3100/loki/api/v1/push
+scrape_configs:
+  - job_name: kubernetes-pods
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+EOF
+POD=$(kubectl -n monitoring get pod -l app.kubernetes.io/name=alloy -o jsonpath='{.items[0].metadata.name}')
+kubectl -n monitoring cp /tmp/promtail.yaml "$POD":/tmp/promtail.yaml
+kubectl -n monitoring exec "$POD" -- alloy convert --source-format=promtail /tmp/promtail.yaml</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ cat &gt; /tmp/promtail.yaml &lt;&lt;'EOF'</b>
+<b>server:</b>
+<b>  http_listen_port: 9080</b>
+<b>clients:</b>
+<b>  - url: http://loki.monitoring.svc:3100/loki/api/v1/push</b>
+<b>scrape_configs:</b>
+<b>  - job_name: kubernetes-pods</b>
+<b>    kubernetes_sd_configs:</b>
+<b>      - role: pod</b>
+<b>    relabel_configs:</b>
+<b>      - source_labels: [__meta_kubernetes_namespace]</b>
+<b>        target_label: namespace</b>
+<b>EOF</b>
+<b>$ POD=$(kubectl -n monitoring get pod -l app.kubernetes.io/name=alloy -o jsonpath='{.items[0].metadata.name}')</b>
+<b>$ kubectl -n monitoring cp /tmp/promtail.yaml "$POD":/tmp/promtail.yaml</b>
+<b>$ kubectl -n monitoring exec "$POD" -- alloy convert --source-format=promtail /tmp/promtail.yaml</b>
+discovery.kubernetes "kubernetes_pods" {
+	role = "pod"
+
+	selectors {
+		role  = "pod"
+		field = "spec.nodeName=" + coalesce(sys.env("HOSTNAME"), constants.hostname)
+	}
+}
+
+discovery.relabel "kubernetes_pods" {
+	targets = discovery.kubernetes.kubernetes_pods.targets
+
+	rule {
+		source_labels = ["__meta_kubernetes_namespace"]
+		target_label  = "namespace"
+	}
+}
+
+loki.source.file "kubernetes_pods" {
+	targets    = discovery.relabel.kubernetes_pods.output
+	forward_to = [loki.write.default.receiver]
+
+	file_match {
+		enabled = true
+	}
+	legacy_positions_file = "/var/log/positions.yaml"
+}
+
+loki.write "default" {
+	endpoint {
+		url = "http://loki.monitoring.svc:3100/loki/api/v1/push"
+	}
+	external_labels = {}
+}</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the converter prints Alloy components: a discovery block, a relabel block, a source block and a write block, wired by references.</div>
+    </div>
+
+    <div class="exercise" data-title="Ask Loki how long it keeps anything">
+      <p>Retention in Loki is a compactor setting, and it is off by default in more distributions than people expect. Read it before you promise a week of logs to an audit.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring get cm loki -o yaml | grep -A6 -E 'compactor|retention'
+kubectl -n monitoring get cm loki -o jsonpath='{.data.config\.yaml}' | grep -E 'retention_enabled|retention_period|delete_request' || echo 'no retention keys in the rendered config'
+kubectl -n monitoring get pvc -l app.kubernetes.io/name=loki</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring get cm loki -o yaml | grep -A6 -E 'compactor|retention'</b>
+      compactor_grpc_address: 'loki.monitoring.svc.cluster.local:9095'
+      path_prefix: /var/loki
+      replication_factor: 1
+      storage:
+        filesystem:
+          chunks_directory: /var/loki/chunks
+          rules_directory: /var/loki/rules
+<b>$ kubectl -n monitoring get cm loki -o jsonpath='{.data.config\.yaml}' | grep -E 'retention_enabled|retention_period|delete_request' || echo 'no retention keys in the rendered config'</b>
+no retention keys in the rendered config
+<b>$ kubectl -n monitoring get pvc -l app.kubernetes.io/name=loki</b>
+NAME             STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE
+storage-loki-0   Bound    pvc-4589502f-0ed6-4923-9993-473e891d6ebf   10Gi       RWO            standard       &lt;unset&gt;                 123m</code></pre></details></div>
+      <div class="verify"><b>verify:</b> you can say whether <code>retention_enabled</code> is set on this install and what would delete old chunks if it is not. "The disk fills up" is a legitimate answer, and it is the one that matters for capacity planning.</div>
+    </div>
+
   </div>
 </section>
 
@@ -171,6 +674,16 @@ configmap/team-cpu-dashboard created</code></pre></details></div>
 
     <details class="quiz"><summary>Turn "alert me when payments start failing" into a LogQL-based rule, conceptually.</summary>
       <div class="answer"><p>A metric query over logs: <code>sum(rate({namespace="payments"} |= "payment_failed" [5m])) &gt; 0.1</code>, evaluated by Loki's ruler (or mirrored into Prometheus via a recording pipeline). Same alerting mechanics as 4.2; the only difference is where the series comes from.</p></div></details>
+  
+
+    <details class="quiz"><summary>A dashboard imported from a ConfigMap shows "datasource not found" on every panel. What did the export get wrong, and what is the durable fix?</summary>
+      <div class="answer"><p>The JSON was exported "for sharing externally", so datasources are <code>${DS_PROMETHEUS}</code> inputs (or reference a uid that does not exist here). Fix by provisioning the datasource with a stable <code>uid</code> and exporting with the sharing option off so the uid is literal, or with the Grafana Operator's <code>GrafanaDashboard.spec.datasources[]</code> mapping <code>inputName</code> to <code>datasourceName</code>.</p></div></details>
+
+    <details class="quiz"><summary>Why is a trace ID a bad Loki label but a good candidate for structured metadata, and how do you still search it quickly?</summary>
+      <div class="answer"><p>A label defines a stream; a unique value per request means a stream per request, which blows up the index and chunk count. Structured metadata attaches key-values to individual lines without creating streams and remains filterable with label-filter syntax (<code>| trace_id="abc"</code>). Alloy and the OTLP ingest path put high-cardinality attributes there by default.</p></div></details>
+
+    <details class="quiz"><summary>Your shipper is a Promtail DaemonSet from an older tutorial. Why is that a problem in 2026, and what replaces it?</summary>
+      <div class="answer"><p>Promtail reached end-of-life on 2 March 2026: no patches, no security fixes. Grafana Alloy replaces it (<code>discovery.kubernetes</code>, <code>loki.source.kubernetes</code>, <code>loki.process</code>, <code>loki.write</code>), and <code>alloy convert --source-format=promtail</code> migrates the configuration. An OpenTelemetry Collector with the <code>filelog</code> receiver or Fluent Bit are the vendor-neutral alternatives.</p></div></details>
   </div>
 </section>
 
@@ -181,6 +694,10 @@ configmap/team-cpu-dashboard created</code></pre></details></div>
       <li><b>grafana.com/docs</b>: provisioning (datasources and dashboards), dashboard variables, and the LogQL reference.</li>
       <li>The Explore UI's query builder doubles as LogQL documentation under time pressure.</li>
       <li><b>Offline:</b> <code>stern --help</code>, <code>kubectl logs --previous</code>, and the Grafana panel inspector (it shows the exact query and the raw response).</li>
+    
+      <li><b>grafana.com/docs/grafana/latest/administration/provisioning</b>: datasource and dashboard provider file formats (<code>uid</code>, <code>jsonData</code>, <code>secureJsonData</code>, <code>foldersFromFilesStructure</code>); <b>grafana.github.io/grafana-operator/docs/api</b> for the CRD fields.</li>
+      <li><b>grafana.com/docs/loki/latest/query/log_queries</b> and <b>/query/metric_queries</b>: parsers, <code>__error__</code>, <code>unwrap</code>; <b>/get-started/labels</b> for the structured-metadata guidance.</li>
+      <li><b>grafana.com/docs/alloy/latest/set-up/migrate/from-promtail</b>: the EOL statement and the component mapping.</li>
     </ul>
   </div>
 </section>

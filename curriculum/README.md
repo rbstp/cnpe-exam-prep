@@ -31,10 +31,24 @@ GitHub will not render it in place; clone the repo (or use raw + a local browser
 - `assets/cnpe.d.ts` + `jsconfig.json` (+ `tools/browser-checks/tsconfig.json`): JSDoc-based type checking for all of the above JS via `tsc --noEmit` (`make typecheck` from the repo root); the compiled quest files are excluded there, being checked at their TypeScript source; the `.d.ts` documents the shapes the scripts share — the section manifest, the drill bank, the `cnpe:v2` progress store and the `CNPE_*` window globals — and CI runs the check on every PR. It is a check only: the browser still loads the plain `.js` files and nothing is compiled
 
 Most command blocks carry a collapsed **output** drawer underneath: the real result of that
-command, so the sections read self-contained even away from a running cluster. Every command block
-in the curriculum was run, and its output captured, against a freshly built lab on
-**August 26, 2026** (the date each drawer carries). Expand a drawer only after predicting what
-it should say; the lab's tool versions float, so details may drift from what your lab prints.
+command, so the sections read self-contained even away from a running cluster. Each drawer is
+dated with the day it was captured against the lab. The original blocks carry
+**August 26, 2026**, bar one on the 27th; the 163 exercises added in September carry **September 12** or
+**September 13, 2026**, and were captured on Kubernetes 1.36.1, the `K8S_IMAGE` pin in force at
+the time, before it moved to 1.37.0. Expand a drawer only after predicting what it should say; the lab's tool versions
+float, so details may drift from what your lab prints.
+
+The cluster those September drawers were captured against reported:
+
+```
+$ kubectl version
+Client Version: v1.36.4
+Kustomize Version: v5.8.1
+Server Version: v1.36.1
+```
+
+No drawer is a placeholder: every one holds output that a real cluster produced. (Manifest
+fragments in the theory panels are shown without a drawer; there is nothing to run.)
 
 Press `/` in any page to jump to a section by name, tool or concept, `g` for a drill session, `q` for the quest,
 `t` to switch dark / light (dark by default) and `?` for the shortcuts.
@@ -92,6 +106,11 @@ opening an exercise from the index expands it. Reading links keep browser histor
 single-file console a link such as `#2.2/application` names the lesson and the topic, so
 a copied link or one opened in another tab lands in the same place without resetting an
 open lesson's interactive models.
+
+Each page opens with a **needs** chip naming the `make` targets its exercises want, and
+ten of them close with a **free before x.y** chip: the layers the next section does not
+need, and the `make down-<layer>` that removes each one. Both chips copy on click, and
+the ten are only the transitions where something can actually be freed.
 
 **Contents** opens the navigation at narrower widths. **Aa** switches reading copy
 between 18px and 21px and stores the choice in `cnpe:reading-size`, apart from `cnpe:v2`,
