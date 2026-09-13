@@ -11,7 +11,7 @@ It was worked in two passes: insert each item as an exercise with a **placeholde
 then run it against the lab and replace the placeholder with the real output.
 
 **Outcome: 169 exercises landed, 9 were dropped.** Every drawer on the site now holds real output;
-none are pending. The output for these 170 was captured on 2026-09-12 against Kubernetes 1.36.1,
+none are pending. The output for these 169 was captured on 2026-09-12 against Kubernetes 1.36.1,
 before the lab's `K8S_IMAGE` pin moved to 1.37.0. The nine dropped items are struck through in
 the list below, each with its reason. Four were dropped because they restart the API server and
 crashloop every controller in the cluster for minutes (encryption at rest, the PodSecurity

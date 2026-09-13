@@ -482,15 +482,17 @@ spec:
   selector: { matchLabels: { app: crasher } }
 EOF
 sleep 30
+# --pod-selector keeps the drain to this exercise's pods; without it you evict the lab off this node
 kubectl get pdb crasher -o jsonpath='{.status.disruptionsAllowed}{"\n"}'
-kubectl drain cnpe-worker2 --ignore-daemonsets --delete-emptydir-data --timeout=60s
+kubectl drain cnpe-worker2 --pod-selector app=crasher --ignore-daemonsets --delete-emptydir-data --timeout=60s
 kubectl patch pdb crasher --type merge -p '{"spec":{"unhealthyPodEvictionPolicy":"AlwaysAllow"}}'
-kubectl drain cnpe-worker2 --ignore-daemonsets --delete-emptydir-data --timeout=60s
+kubectl drain cnpe-worker2 --pod-selector app=crasher --ignore-daemonsets --delete-emptydir-data --timeout=60s
 kubectl uncordon cnpe-worker2
 kubectl delete deployment crasher
 kubectl delete pdb crasher</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get pdb -A -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,ALLOWED:.status.disruptionsAllowed</b>
 NS                  NAME                            ALLOWED
 gatekeeper-system   gatekeeper-controller-manager   0
+team-a              pg-primary                      0
 tracing             otel-collector                  1
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: apps/v1</b>
@@ -518,97 +520,67 @@ tracing             otel-collector                  1
 deployment.apps/crasher created
 poddisruptionbudget.policy/crasher created
 <b>$ sleep 30</b>
+<b>$ # --pod-selector keeps the drain to this exercise's pods; without it you evict the lab off this node</b>
 <b>$ kubectl get pdb crasher -o jsonpath='{.status.disruptionsAllowed}{"\n"}'</b>
 0
-<b>$ kubectl drain cnpe-worker2 --ignore-daemonsets --delete-emptydir-data --timeout=60s</b>
+<b>$ kubectl drain cnpe-worker2 --pod-selector app=crasher --ignore-daemonsets --delete-emptydir-data --timeout=60s</b>
 node/cnpe-worker2 cordoned
-Warning: ignoring DaemonSet-managed Pods: kube-system/cilium-lxtrm, kube-system/kube-proxy-cwbj8, monitoring/prometheus-prometheus-node-exporter-v9slj, spire/spire-agent-lgqdw, spire/spire-spiffe-csi-driver-9n9zq
-evicting pod argo/argo-workflows-workflow-controller-6fdd59bf75-ndwk5
-evicting pod default/crasher-7857b795db-wg6q8
-evicting pod argo-rollouts/argo-rollouts-dashboard-769cf7b9d4-27h26
-evicting pod monitoring/prometheus-grafana-8f4f87ff4-hpqr7
-evicting pod monitoring/loki-gateway-75fdc66c6f-959xv
-evicting pod argo-rollouts/argo-rollouts-7f8f6559c9-dpd2k
-evicting pod tekton-pipelines/tekton-pipelines-webhook-5568b6-k4c4k
-evicting pod tekton-pipelines/tekton-triggers-controller-7c58c64549-vt8bw
-evicting pod argo/argo-workflows-server-5d466c6cbf-6xcdx
-evicting pod trivy-system/trivy-operator-6c644c5f6d-zj9n4
-evicting pod vpa/vpa-updater-57dc7f8b46-wvsgq
-evicting pod argocd/argocd-application-controller-0
-evicting pod kube-system/sealed-secrets-7fc797b545-n97qp
-evicting pod kro/kro-7b49bdb574-w2sbz
-evicting pod argocd/argocd-applicationset-controller-756c899f6-lk5xm
-evicting pod crossplane-system/provider-helm-fdbfef781539-95cd7787f-wkhtj
-evicting pod opentelemetry-operator-system/opentelemetry-operator-fc8b8557f-9l5sz
-evicting pod crossplane-system/provider-kubernetes-17261e579786-767c5b99b7-clblb
-evicting pod tekton-pipelines/tekton-dashboard-58997b9fd9-z9hml
-evicting pod crossplane-system/crossplane-867fc94669-7n7ts
-evicting pod tracing/jaeger-66dd489c78-hk2cr
-evicting pod external-secrets/external-secrets-cert-controller-b88bd7b49-nrwb6
-evicting pod default/demo-5765f7b4bd-q5z4p
-evicting pod default/crasher-7857b795db-k6zrz
-evicting pod spire/spire-server-0
-evicting pod tekton-pipelines/tekton-events-controller-7bf458d4c-7xm4t
-evicting pod flux-system/helm-controller-66b87ccf5b-wgjbw
-evicting pod kube-system/coredns-5b49dd88c6-ffgkk
-evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
-evicting pod default/demo-5765f7b4bd-hjnnk
-evicting pod kyverno/kyverno-background-controller-578fbb987b-m9d5x
-evicting pod kube-system/metrics-server-97d8bf855-wpk4m
-evicting pod vpa/vpa-admission-controller-f5b47c5c9-t4n8t
-evicting pod monitoring/loki-0
-evicting pod vpa/vpa-recommender-8746fd98d-44pkh
-error when evicting pods/"crasher-7857b795db-k6zrz" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
-I0912 12:38:43.019004  116658 request.go:752] "Waited before sending request" delay="1.000019523s" reason="client-side throttling, not priority and fairness" verb="POST" URL="https://127.0.0.1:44987/api/v1/namespaces/kube-system/pods/coredns-5b49dd88c6-ffgkk/eviction"
-error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
-<i>... 102 more lines</i>
+evicting pod default/crasher-7857b795db-hbpzj
+evicting pod default/crasher-7857b795db-854th
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+error when evicting pods/"crasher-7857b795db-854th" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-hbpzj
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-854th
+error when evicting pods/"crasher-7857b795db-854th" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-hbpzj
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-854th
+error when evicting pods/"crasher-7857b795db-854th" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-hbpzj
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-854th
+error when evicting pods/"crasher-7857b795db-854th" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-hbpzj
+evicting pod default/crasher-7857b795db-854th
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+error when evicting pods/"crasher-7857b795db-854th" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-hbpzj
+evicting pod default/crasher-7857b795db-854th
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+error when evicting pods/"crasher-7857b795db-854th" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-hbpzj
+evicting pod default/crasher-7857b795db-854th
+error when evicting pods/"crasher-7857b795db-854th" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-854th
+evicting pod default/crasher-7857b795db-hbpzj
+error when evicting pods/"crasher-7857b795db-854th" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-854th
+evicting pod default/crasher-7857b795db-hbpzj
+error when evicting pods/"crasher-7857b795db-854th" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+evicting pod default/crasher-7857b795db-854th
+evicting pod default/crasher-7857b795db-hbpzj
+error when evicting pods/"crasher-7857b795db-hbpzj" -n "default" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
+<i>... 19 more lines</i>
 <b>$ kubectl patch pdb crasher --type merge -p '{"spec":{"unhealthyPodEvictionPolicy":"AlwaysAllow"}}'</b>
 poddisruptionbudget.policy/crasher patched
-<b>$ kubectl drain cnpe-worker2 --ignore-daemonsets --delete-emptydir-data --timeout=60s</b>
+<b>$ kubectl drain cnpe-worker2 --pod-selector app=crasher --ignore-daemonsets --delete-emptydir-data --timeout=60s</b>
 node/cnpe-worker2 already cordoned
-Warning: ignoring DaemonSet-managed Pods: kube-system/cilium-lxtrm, kube-system/kube-proxy-cwbj8, monitoring/prometheus-prometheus-node-exporter-v9slj, spire/spire-agent-lgqdw, spire/spire-spiffe-csi-driver-9n9zq
-evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
-evicting pod default/crasher-7857b795db-wg6q8
-evicting pod default/crasher-7857b795db-k6zrz
-error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
-pod/crasher-7857b795db-wg6q8 evicted
-pod/crasher-7857b795db-k6zrz evicted
-evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
-error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
-evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
-error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
-evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
-error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
-evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
-error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
-evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
-error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
-evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
-error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
-evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
-error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
-evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
-error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
-evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
-error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
-evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
-error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
-evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
-error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system" (will retry after 5s): Cannot evict pod as it would violate the pod's disruption budget.
-evicting pod gatekeeper-system/gatekeeper-controller-manager-6b665d555d-8v6hj
-There are pending pods in node "cnpe-worker2" when an error occurred: error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system": global timeout reached: 1m0s
-pod/gatekeeper-controller-manager-6b665d555d-8v6hj
-error: unable to drain node "cnpe-worker2" due to error: error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system": global timeout reached: 1m0s, continuing command...
-There are pending nodes to be drained:
- cnpe-worker2
-error when evicting pods/"gatekeeper-controller-manager-6b665d555d-8v6hj" -n "gatekeeper-system": global timeout reached: 1m0s
+evicting pod default/crasher-7857b795db-hbpzj
+evicting pod default/crasher-7857b795db-854th
+pod/crasher-7857b795db-854th evicted
+pod/crasher-7857b795db-hbpzj evicted
+node/cnpe-worker2 drained
 <b>$ kubectl uncordon cnpe-worker2</b>
 node/cnpe-worker2 uncordoned
 <b>$ kubectl delete deployment crasher</b>
 deployment.apps "crasher" deleted from default namespace
 <b>$ kubectl delete pdb crasher</b>
 poddisruptionbudget.policy "crasher" deleted from default namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the first drain times out quoting the budget by name, and the second walks past the crash-looping pods. Uncordon the node afterwards, or every later exercise on this page schedules onto one worker and you will blame the scheduler.</div>
+      <div class="verify"><b>verify:</b> <code>disruptionsAllowed</code> is 0, and the first drain refuses both pods with <code>Cannot evict pod as it would violate the pod's disruption budget</code> until it times out. After <code>unhealthyPodEvictionPolicy: AlwaysAllow</code> the same command evicts both and prints <code>node/cnpe-worker2 drained</code>. Note the <code>--pod-selector</code>: without it this drain empties the node, and half the lab is on it.</div>
     </div>
 
     <div class="exercise" data-title="Do the allocatable arithmetic">

@@ -30,7 +30,7 @@ GitHub will not render it in place; clone the repo (or use raw + a local browser
 - `src/`: the console's TypeScript, two directories each with its own strict `tsconfig.json` (target ES2017, plain scripts rather than modules, so each file compiles to the one global-assigning script the pages load): `src/game/` is the quest, `src/console/` is `merge.js` and `syntax.js`, the two DOM-free modules whose tests run in bare node. `make typecheck` checks them alongside the JS, `make ts` writes the compiled files, and `make ts-check` (CI) fails when a committed file drifts from its source
 - `assets/cnpe.d.ts` + `jsconfig.json` (+ `tools/browser-checks/tsconfig.json`): JSDoc-based type checking for all of the above JS via `tsc --noEmit` (`make typecheck` from the repo root); the compiled quest files are excluded there, being checked at their TypeScript source; the `.d.ts` documents the shapes the scripts share — the section manifest, the drill bank, the `cnpe:v2` progress store and the `CNPE_*` window globals — and CI runs the check on every PR. It is a check only: the browser still loads the plain `.js` files and nothing is compiled
 
-Every command block carries a collapsed **output** drawer underneath: the real result of that
+Most command blocks carry a collapsed **output** drawer underneath: the real result of that
 command, so the sections read self-contained even away from a running cluster. Each drawer is
 dated with the day it was captured against a freshly built lab. The original blocks carry
 **August 26, 2026**; the 169 exercises added in September carry **September 12, 2026** and were
@@ -47,7 +47,7 @@ Kustomize Version: v5.8.1
 Server Version: v1.36.1
 ```
 
-No drawer is a placeholder: every one holds output that a real cluster produced.
+No drawer is a placeholder: every one holds output that a real cluster produced. (Manifest fragments in the theory panels are shown without a drawer; there is nothing to run.)
 [`docs/curriculum-command-queue.md`](../docs/curriculum-command-queue.md) records the queue that
 produced the September exercises, including the nine items that were dropped and why.
 

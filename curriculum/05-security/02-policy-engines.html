@@ -626,12 +626,13 @@ namespace "policy-exception" deleted</code></pre></details></div>
 
     <div class="exercise" data-title="Test policies without a cluster">
       <p>The Kyverno CLI runs policies against manifests in CI, which is where a policy should fail first. A test file asserts the outcome per resource, so a policy change that breaks a team's manifests is caught before it merges.</p>
-      <div class="cb" data-lang="bash"><pre><code>mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"
+      <div class="cb" data-lang="bash"><pre><code>START=$PWD   # the cd below would otherwise follow you into every later command
+mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"
 URL=$(curl -s https://api.github.com/repos/kyverno/kyverno/releases/latest | jq -r '.assets[] | select(.name | startswith("kyverno-cli_") and endswith("_linux_x86_64.tar.gz")) | .browser_download_url'); echo "$URL"
 rm -rf /tmp/kyverno-cli &amp;&amp; mkdir -p /tmp/kyverno-cli &amp;&amp; curl -sL "$URL" | tar xz -C /tmp/kyverno-cli &amp;&amp; install /tmp/kyverno-cli/kyverno "$HOME/.local/bin/"
 kyverno version | head -2
 rm -rf /tmp/kyverno-test &amp;&amp; mkdir -p /tmp/kyverno-test &amp;&amp; cd /tmp/kyverno-test
-cp /home/rbstp/git/cnpe-exam-prep/examples/kyverno/require-resources.yaml policy.yaml
+cp "$REPO_ROOT"/examples/kyverno/require-resources.yaml policy.yaml
 cat &gt; good-pod.yaml &lt;&lt;'EOF'
 apiVersion: v1
 kind: Pod
@@ -669,7 +670,9 @@ results:
     kind: Pod
     result: fail
 EOF
-kyverno test .</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"</b>
+kyverno test .
+cd "$START"</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ START=$PWD   # the cd below would otherwise follow you into every later command</b>
+<b>$ mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"</b>
 <b>$ URL=$(curl -s https://api.github.com/repos/kyverno/kyverno/releases/latest | jq -r '.assets[] | select(.name | startswith("kyverno-cli_") and endswith("_linux_x86_64.tar.gz")) | .browser_download_url'); echo "$URL"</b>
 https://github.com/kyverno/kyverno/releases/download/v1.19.1/kyverno-cli_v1.19.1_linux_x86_64.tar.gz
 <b>$ rm -rf /tmp/kyverno-cli &amp;&amp; mkdir -p /tmp/kyverno-cli &amp;&amp; curl -sL "$URL" | tar xz -C /tmp/kyverno-cli &amp;&amp; install /tmp/kyverno-cli/kyverno "$HOME/.local/bin/"</b>
@@ -677,7 +680,7 @@ https://github.com/kyverno/kyverno/releases/download/v1.19.1/kyverno-cli_v1.19.1
 Version: 1.19.1
 Time: 2026-09-10T05:20:21Z
 <b>$ rm -rf /tmp/kyverno-test &amp;&amp; mkdir -p /tmp/kyverno-test &amp;&amp; cd /tmp/kyverno-test</b>
-<b>$ cp /home/rbstp/git/cnpe-exam-prep/examples/kyverno/require-resources.yaml policy.yaml</b>
+<b>$ cp "$REPO_ROOT"/examples/kyverno/require-resources.yaml policy.yaml</b>
 <b>$ cat &gt; good-pod.yaml &lt;&lt;'EOF'</b>
 <b>apiVersion: v1</b>
 <b>kind: Pod</b>
@@ -738,7 +741,8 @@ Loading test  ( kyverno-test.yaml ) ...
 │────│───────────────────────────│──────│─────────────────────│────────│────────│
 
 
-Test Summary: 2 tests passed and 0 tests failed</code></pre></details></div>
+Test Summary: 2 tests passed and 0 tests failed
+<b>$ cd "$START"</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> <code>kyverno apply</code> passes one pod and fails the other, and <code>kyverno test</code> reports both assertions met.</div>
     </div>
 
@@ -941,7 +945,8 @@ assign.mutations.gatekeeper.sh "always-pull-if-unset" deleted</code></pre></deta
 
     <div class="exercise" data-title="Run the constraints in CI">
       <p><code>gator test</code> evaluates Gatekeeper constraints against manifests on a laptop or a build agent. Same policies, same answers, no cluster, which is what makes policy-as-code reviewable.</p>
-      <div class="cb" data-lang="bash"><pre><code>mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"
+      <div class="cb" data-lang="bash"><pre><code>START=$PWD   # the cd below would otherwise follow you into every later command
+mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"
 URL=$(curl -s https://api.github.com/repos/open-policy-agent/gatekeeper/releases/latest | jq -r '.assets[] | select(.name | startswith("gator-") and endswith("-linux-amd64.tar.gz")) | .browser_download_url'); echo "$URL"
 rm -rf /tmp/gator-bin &amp;&amp; mkdir -p /tmp/gator-bin &amp;&amp; curl -sL "$URL" | tar xz -C /tmp/gator-bin &amp;&amp; install /tmp/gator-bin/gator "$HOME/.local/bin/"
 gator version
@@ -986,7 +991,9 @@ metadata: { name: floating }
 spec:
   containers: [{ name: c, image: nginx:latest }]
 EOF
-gator test -f manifests/ -f policies/; echo "exit code: $?"</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"</b>
+gator test -f manifests/ -f policies/; echo "exit code: $?"
+cd "$START"</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ START=$PWD   # the cd below would otherwise follow you into every later command</b>
+<b>$ mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"</b>
 <b>$ URL=$(curl -s https://api.github.com/repos/open-policy-agent/gatekeeper/releases/latest | jq -r '.assets[] | select(.name | startswith("gator-") and endswith("-linux-amd64.tar.gz")) | .browser_download_url'); echo "$URL"</b>
 https://github.com/open-policy-agent/gatekeeper/releases/download/v3.23.1/gator-v3.23.1-linux-amd64.tar.gz
 <b>$ rm -rf /tmp/gator-bin &amp;&amp; mkdir -p /tmp/gator-bin &amp;&amp; curl -sL "$URL" | tar xz -C /tmp/gator-bin &amp;&amp; install /tmp/gator-bin/gator "$HOME/.local/bin/"</b>
@@ -1050,7 +1057,8 @@ Platform:      linux/amd64
 <b>EOF</b>
 <b>$ gator test -f manifests/ -f policies/; echo "exit code: $?"</b>
 v1/Pod floating: ["no-latest-anywhere"] Message: "image uses the latest tag: nginx:latest"
-exit code: 1</code></pre></details></div>
+exit code: 1
+<b>$ cd "$START"</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> the floating pod is reported as a violation with your message and the pinned one is not.</div>
     </div>
 

@@ -529,7 +529,8 @@ flux-system	14s (x13 over 12m)	Normal 	ArtifactUpToDate  	HelmChart/flux-demo-po
 
     <div class="exercise" data-title="Exempt one object from pruning">
       <p>Pruning is what makes a Kustomization authoritative, and sometimes one object must survive a delete in git anyway. The exemption is an annotation on the object, which means the escape hatch lives in the manifests, not in the controller.</p>
-      <div class="cb" data-lang="bash"><pre><code>rm -rf /tmp/platform-prune-flux &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune-flux &amp;&amp; cd /tmp/platform-prune-flux
+      <div class="cb" data-lang="bash"><pre><code>START=$PWD   # the cd below would otherwise follow you into every later command
+rm -rf /tmp/platform-prune-flux &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune-flux &amp;&amp; cd /tmp/platform-prune-flux
 kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune=disabled --overwrite
 git rm demo-app/base/deployment.yaml
 sed -i '/deployment.yaml/d' demo-app/base/kustomization.yaml
@@ -540,7 +541,9 @@ kubectl -n flux-demo get deploy demo
 flux events --for Kustomization/demo-flux | tail -10
 cd /tmp/platform-prune-flux &amp;&amp; git revert --no-edit HEAD &amp;&amp; git push
 flux reconcile kustomization demo-flux --with-source
-kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune-</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ rm -rf /tmp/platform-prune-flux &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune-flux &amp;&amp; cd /tmp/platform-prune-flux</b>
+kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune-
+cd "$START"</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ START=$PWD   # the cd below would otherwise follow you into every later command</b>
+<b>$ rm -rf /tmp/platform-prune-flux &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune-flux &amp;&amp; cd /tmp/platform-prune-flux</b>
 Cloning into '/tmp/platform-prune-flux'...
 <b>$ kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune=disabled --overwrite</b>
 deployment.apps/demo annotated
@@ -548,53 +551,54 @@ deployment.apps/demo annotated
 rm 'demo-app/base/deployment.yaml'
 <b>$ sed -i '/deployment.yaml/d' demo-app/base/kustomization.yaml</b>
 <b>$ git commit -am 'remove the deployment from git' &amp;&amp; git push</b>
-[main 93548ad] remove the deployment from git
+[main 793d5b3] remove the deployment from git
  2 files changed, 40 deletions(-)
  delete mode 100644 demo-app/base/deployment.yaml
 To http://gitea.lab:3000/lab/platform.git
-   0b07ed8..93548ad  main -&gt; main
+   83a41e2..793d5b3  main -&gt; main
 <b>$ flux reconcile kustomization demo-flux --with-source</b>
 ► annotating GitRepository platform in flux-system namespace
 ✔ GitRepository annotated
 ◎ waiting for GitRepository reconciliation
-✔ fetched revision main@sha1:93548ad825c11e1c719a0818388e6c409c14d684
+✔ fetched revision main@sha1:793d5b378e2e11c0eb62f8f322a7f6acb0846077
 ► annotating Kustomization demo-flux in flux-system namespace
 ✔ Kustomization annotated
 ◎ waiting for Kustomization reconciliation
-✔ applied revision main@sha1:93548ad825c11e1c719a0818388e6c409c14d684
+✔ applied revision main@sha1:793d5b378e2e11c0eb62f8f322a7f6acb0846077
 <b>$ sleep 20</b>
 <b>$ kubectl -n flux-demo get deploy demo</b>
 NAME   READY   UP-TO-DATE   AVAILABLE   AGE
-demo   2/2     2            2           12m
+demo   2/2     2            2           5h34m
 <b>$ flux events --for Kustomization/demo-flux | tail -10</b>
-8m33s                  	Normal	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 908.296542ms, next run in 1m0s                                                   	
-7m34s                  	Normal	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 870.608906ms, next run in 1m0s                                                   	
-6m35s                  	Normal	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 790.965807ms, next run in 1m0s                                                   	
-5m31s                  	Normal	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 996.611327ms, next run in 1m0s                                                   	
-4m49s                  	Normal	NewArtifact            	GitRepository/platform 	stored artifact for commit 'drop the service'                                                               	
-4m48s                  	Normal	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 1.197086752s, next run in 1m0s                                                   	
-4m48s                  	Normal	Progressing            	Kustomization/demo-flux	Service/flux-demo/demo deleted                                                                              	
-3m47s                  	Normal	Progressing            	Kustomization/demo-flux	Service/flux-demo/demo created                                                                              	
-23s                    	Normal	Progressing            	Kustomization/demo-flux	Deployment/flux-demo/demo skipped                                                                           	
-22s (x7 over 3m49s)    	Normal	ReconciliationSucceeded	Kustomization/demo-flux	(combined from similar events): Reconciliation finished in 814.683331ms, next run in 1m0s                   	
+5h34m                 	Normal 	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 1.695245538s, next run in 1m0s                                                                                        	
+5h33m                 	Normal 	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 403.342017ms, next run in 1m0s                                                                                        	
+5h32m                 	Normal 	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 522.080036ms, next run in 1m0s                                                                                        	
+5h31m                 	Normal 	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 1.613648954s, next run in 1m0s                                                                                        	
+5h30m                 	Normal 	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 1.983666745s, next run in 1m0s                                                                                        	
+5h29m                 	Normal 	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 442.161038ms, next run in 1m0s                                                                                        	
+5h28m                 	Normal 	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 269.029392ms, next run in 1m0s                                                                                        	
+5h27m                 	Normal 	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 669.242058ms, next run in 1m0s                                                                                        	
+3m47s (x85 over 6h20m)	Normal 	GitOperationSucceeded  	GitRepository/platform 	no changes since last reconciliation: observed revision 'main@sha1:83a41e21322e15eff2307bc1e9d5c89e33226d0d'                                     	
+2m24s (x32 over 5h26m)	Normal 	ReconciliationSucceeded	Kustomization/demo-flux	(combined from similar events): Reconciliation finished in 435.434931ms, next run in 1m0s                                                        	
 <b>$ cd /tmp/platform-prune-flux &amp;&amp; git revert --no-edit HEAD &amp;&amp; git push</b>
-[main 75be58c] Revert "remove the deployment from git"
- Date: Sat Sep 12 22:08:17 2026 -0400
+[main dfe88a6] Revert "remove the deployment from git"
+ Date: Sun Sep 13 07:15:13 2026 -0400
  2 files changed, 40 insertions(+)
  create mode 100644 demo-app/base/deployment.yaml
 To http://gitea.lab:3000/lab/platform.git
-   93548ad..75be58c  main -&gt; main
+   793d5b3..dfe88a6  main -&gt; main
 <b>$ flux reconcile kustomization demo-flux --with-source</b>
 ► annotating GitRepository platform in flux-system namespace
 ✔ GitRepository annotated
 ◎ waiting for GitRepository reconciliation
-✔ fetched revision main@sha1:75be58cd7311d1b51ebfdc2779e1e44897cf4bd3
+✔ fetched revision main@sha1:dfe88a660f9591488e000cc24ba120ac1186b7b1
 ► annotating Kustomization demo-flux in flux-system namespace
 ✔ Kustomization annotated
 ◎ waiting for Kustomization reconciliation
-✔ applied revision main@sha1:75be58cd7311d1b51ebfdc2779e1e44897cf4bd3
+✔ applied revision main@sha1:dfe88a660f9591488e000cc24ba120ac1186b7b1
 <b>$ kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune-</b>
-deployment.apps/demo annotated</code></pre></details></div>
+deployment.apps/demo annotated
+<b>$ cd "$START"</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> the Deployment is still running after a reconcile that removed it from git, and the events say the object was skipped rather than deleted. Put the manifest back and remove the annotation before moving on; the later exercises on this page assume git and the cluster agree.</div>
     </div>
 
