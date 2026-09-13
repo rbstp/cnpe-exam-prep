@@ -297,138 +297,46 @@ deployment.apps/demo resource requirements updated</code></pre></details></div>
 
     <div class="exercise" data-title="Ask the allocation API for idle">
       <p>The UI is a client of one endpoint. Query it yourself, because the exam question is never "open the dashboard", it is "what does this namespace cost and how much of the cluster is nobody's".</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl -n opencost port-forward deploy/opencost 9003:9003 &amp;
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n opencost port-forward deploy/opencost 9003:9003 &amp; PF1=$!
 sleep 5
 curl -sG localhost:9003/allocation -d window=1d -d aggregate=namespace -d includeIdle=true | jq '.data[0] | keys'
 curl -sG localhost:9003/allocation -d window=1d -d aggregate=namespace -d includeIdle=true | jq '.data[0]["__idle__"].totalCost'
-kill %1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n opencost port-forward deploy/opencost 9003:9003 &amp;</b>
+kill $PF1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n opencost port-forward deploy/opencost 9003:9003 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
-Forwarding from 127.0.0.1:9003 -&gt; 9003
-Forwarding from [::1]:9003 -&gt; 9003
 <b>$ curl -sG localhost:9003/allocation -d window=1d -d aggregate=namespace -d includeIdle=true | jq '.data[0] | keys'</b>
-Handling connection for 9003
-[
-  "__idle__",
-  "argo",
-  "argo-rollouts",
-  "argocd",
-  "cnpg-system",
-  "crossplane-system",
-  "default",
-  "external-secrets",
-  "flux-system",
-  "gatekeeper-system",
-  "kro",
-  "kube-system",
-  "kyverno",
-  "local-path-storage",
-  "monitoring",
-  "opencost",
-  "opentelemetry-operator-system",
-  "spire",
-  "tekton-pipelines",
-  "tekton-pipelines-resolvers",
-  "tracing",
-  "trivy-system",
-  "vpa"
-]
 <b>$ curl -sG localhost:9003/allocation -d window=1d -d aggregate=namespace -d includeIdle=true | jq '.data[0]["__idle__"].totalCost'</b>
-Handling connection for 9003
-0
-<b>$ kill %1</b></code></pre></details></div>
+<b>$ kill $PF1</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the key list is the namespaces plus <code>__idle__</code>, and the idle entry has a real cost. Idle is capacity you paid for and nobody requested; it is the number a platform team is actually judged on.</div>
     </div>
 
     <div class="exercise" data-title="Aggregate by a label the developers own">
       <p>Namespace is the platform's unit. A label is the product's unit, and the two rarely line up. The same endpoint aggregates by either, and the leftover bucket tells you how much of the cluster is unlabelled.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl -n opencost port-forward deploy/opencost 9003:9003 &amp;
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n opencost port-forward deploy/opencost 9003:9003 &amp; PF1=$!
 sleep 5
 curl -sG localhost:9003/allocation -d window=1d -d aggregate=label:app | jq '.data[0] | keys'
 curl -sG localhost:9003/allocation -d window=1d -d aggregate=label:app | jq '.data[0] | map_values(.totalCost)'
-kill %1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n opencost port-forward deploy/opencost 9003:9003 &amp;</b>
+kill $PF1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n opencost port-forward deploy/opencost 9003:9003 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
-Forwarding from 127.0.0.1:9003 -&gt; 9003
-Forwarding from [::1]:9003 -&gt; 9003
 <b>$ curl -sG localhost:9003/allocation -d window=1d -d aggregate=label:app | jq '.data[0] | keys'</b>
-Handling connection for 9003
-[
-  "__unallocated__"
-]
 <b>$ curl -sG localhost:9003/allocation -d window=1d -d aggregate=label:app | jq '.data[0] | map_values(.totalCost)'</b>
-Handling connection for 9003
-{
-  "__unallocated__": 0.05546
-}
-<b>$ kill %1</b>
-bash: line 608: kill: (145397) - No such process</code></pre></details></div>
+<b>$ kill $PF1</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> label values are the keys and <code>__unallocated__</code> holds everything without the label. If that bucket is the biggest one, your chargeback story is a labelling project, not a cost project.</div>
     </div>
 
     <div class="exercise" data-title="Share the idle out, then argue about it">
       <p>Whether idle is a line item or is spread across tenants is a policy decision with a flag. Run both and watch every tenant's number move.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl -n opencost port-forward deploy/opencost 9003:9003 &amp;
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n opencost port-forward deploy/opencost 9003:9003 &amp; PF1=$!
 sleep 5
 curl -sG localhost:9003/allocation -d window=1d -d aggregate=namespace -d includeIdle=true -d shareIdle=false | jq '.data[0] | map_values(.totalCost)'
 curl -sG localhost:9003/allocation -d window=1d -d aggregate=namespace -d includeIdle=true -d shareIdle=true | jq '.data[0] | map_values(.totalCost)'
-kill %1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n opencost port-forward deploy/opencost 9003:9003 &amp;</b>
+kill $PF1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n opencost port-forward deploy/opencost 9003:9003 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
-Unable to listen on port 9003: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:9003: bind: address already in use unable to create listener: Error listen tcp6 [::1]:9003: bind: address already in use]
-error: unable to listen on any of the requested ports: [{9003 9003}]
 <b>$ curl -sG localhost:9003/allocation -d window=1d -d aggregate=namespace -d includeIdle=true -d shareIdle=false | jq '.data[0] | map_values(.totalCost)'</b>
-Handling connection for 9003
-{
-  "__idle__": 0,
-  "argo": 0,
-  "argo-rollouts": 0,
-  "argocd": 0,
-  "cnpg-system": 0,
-  "crossplane-system": 0.00434,
-  "default": 0,
-  "external-secrets": 0,
-  "flux-system": 0.00998,
-  "gatekeeper-system": 0.00411,
-  "kro": 0.00336,
-  "kube-system": 0.01709,
-  "kyverno": 0.00487,
-  "local-path-storage": 0,
-  "monitoring": 0.00189,
-  "opencost": 0.00042,
-  "opentelemetry-operator-system": 0,
-  "spire": 0,
-  "tekton-pipelines": 0.00139,
-  "tekton-pipelines-resolvers": 0.00199,
-  "tracing": 0.00129,
-  "trivy-system": 0.00059,
-  "vpa": 0.00429
-}
 <b>$ curl -sG localhost:9003/allocation -d window=1d -d aggregate=namespace -d includeIdle=true -d shareIdle=true | jq '.data[0] | map_values(.totalCost)'</b>
-Handling connection for 9003
-{
-  "argo": 0,
-  "argo-rollouts": 0,
-  "argocd": 0,
-  "cnpg-system": 0,
-  "crossplane-system": 0.00434,
-  "default": 0,
-  "external-secrets": 0,
-  "flux-system": 0.00998,
-  "gatekeeper-system": 0.00411,
-  "kro": 0.00336,
-  "kube-system": 0.01709,
-  "kyverno": 0.00487,
-  "local-path-storage": 0,
-  "monitoring": 0.00189,
-  "opencost": 0.00042,
-  "opentelemetry-operator-system": 0,
-  "spire": 0,
-  "tekton-pipelines": 0.00139,
-  "tekton-pipelines-resolvers": 0.00199,
-  "tracing": 0.00129,
-  "trivy-system": 0.00059,
-  "vpa": 0.00429
-}
-<b>$ kill %1</b>
-bash: line 628: kill: (145397) - No such process</code></pre></details></div>
+<b>$ kill $PF1</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the idle row disappears under <code>shareIdle=true</code> and the other totals rise to absorb it. Be able to say which of the two views you would put in front of a finance team and why.</div>
     </div>
 
@@ -505,32 +413,16 @@ configmap/opencost-ui-nginx-config</code></pre></details></div>
       <p>VPA says what a workload should request. OpenCost says what the gap is costing. Neither is an argument on its own; together they are the right-sizing case you would take to a team.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n team-a get vpa
 kubectl -n team-a get vpa -o jsonpath='{.items[0].status.recommendation.containerRecommendations[0]}' | jq
-kubectl -n opencost port-forward deploy/opencost 9003:9003 &amp;
+kubectl -n opencost port-forward deploy/opencost 9003:9003 &amp; PF1=$!
 sleep 5
 curl -sG localhost:9003/allocation -d window=1d -d aggregate=namespace | jq '.data[0]["team-a"] | {cpuCoreRequestAverage, cpuCoreUsageAverage, ramByteRequestAverage, ramByteUsageAverage, totalCost}'
-kill %1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n team-a get vpa</b>
-No resources found in team-a namespace.
+kill $PF1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n team-a get vpa</b>
 <b>$ kubectl -n team-a get vpa -o jsonpath='{.items[0].status.recommendation.containerRecommendations[0]}' | jq</b>
-error: error executing jsonpath "{.items[0].status.recommendation.containerRecommendations[0]}": Error executing template: array index out of bounds: index 0, length 0. Printing more information for debugging the template:
-	template was:
-		{.items[0].status.recommendation.containerRecommendations[0]}
-	object given to jsonpath engine was:
-		map[string]interface {}{"apiVersion":"v1", "items":[]interface {}{}, "kind":"List", "metadata":map[string]interface {}{"resourceVersion":""}}
-<b>$ kubectl -n opencost port-forward deploy/opencost 9003:9003 &amp;</b>
+<b>$ kubectl -n opencost port-forward deploy/opencost 9003:9003 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
-Unable to listen on port 9003: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:9003: bind: address already in use unable to create listener: Error listen tcp6 [::1]:9003: bind: address already in use]
-error: unable to listen on any of the requested ports: [{9003 9003}]
 <b>$ curl -sG localhost:9003/allocation -d window=1d -d aggregate=namespace | jq '.data[0]["team-a"] | {cpuCoreRequestAverage, cpuCoreUsageAverage, ramByteRequestAverage, ramByteUsageAverage, totalCost}'</b>
-Handling connection for 9003
-{
-  "cpuCoreRequestAverage": null,
-  "cpuCoreUsageAverage": null,
-  "ramByteRequestAverage": null,
-  "ramByteUsageAverage": null,
-  "totalCost": null
-}
-<b>$ kill %1</b>
-bash: line 664: kill: (145397) - No such process</code></pre></details></div>
+<b>$ kill $PF1</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the VPA target and the request/usage pair point the same way for the same workload. If VPA recommends more than the request while efficiency looks fine, say which one you would act on first.</div>
     </div>
 

@@ -530,8 +530,11 @@ spec:
   params:
     - name: text
       type: string
+  env:
+    - name: TEXT
+      value: $(params.text)
   script: |
-    echo "$(params.text)"
+    echo "$TEXT"
 EOF
 kubectl create -f - &lt;&lt;'EOF'
 apiVersion: tekton.dev/v1
@@ -558,8 +561,7 @@ spec:
         ref: { name: say }
         params: [{ name: text, value: this will not apply }]
 EOF
-kubectl delete stepaction say</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl api-resources | grep -i stepaction</b>
-stepactions                                                                           tekton.dev/v1beta1                        true         StepAction
+kubectl delete stepaction say</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl api-resources | grep -i stepaction</b>
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: tekton.dev/v1beta1</b>
 <b>kind: StepAction</b>
@@ -569,10 +571,12 @@ stepactions                                                                     
 <b>  params:</b>
 <b>    - name: text</b>
 <b>      type: string</b>
+<b>  env:</b>
+<b>    - name: TEXT</b>
+<b>      value: $(params.text)</b>
 <b>  script: |</b>
-<b>    echo "$(params.text)"</b>
+<b>    echo "$TEXT"</b>
 <b>EOF</b>
-Error from server (BadRequest): error when creating "STDIN": admission webhook "validation.webhook.pipeline.tekton.dev" denied the request: validation failed: param substitution in scripts is not allowed.: spec.script
 <b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: tekton.dev/v1</b>
 <b>kind: TaskRun</b>
@@ -584,11 +588,8 @@ Error from server (BadRequest): error when creating "STDIN": admission webhook "
 <b>        ref: { name: say }</b>
 <b>        params: [{ name: text, value: hello from a stepaction }]</b>
 <b>EOF</b>
-taskrun.tekton.dev/say-run-l4l82 created
 <b>$ sleep 45</b>
 <b>$ tkn taskrun logs --last</b>
-task Task 0 has failed: failed to resolve step ref for step "say" (index 0): stepactions.tekton.dev "say" not found
-Error: pod for taskrun say-run-l4l82 not available yet
 <b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: tekton.dev/v1</b>
 <b>kind: TaskRun</b>
@@ -601,9 +602,8 @@ Error: pod for taskrun say-run-l4l82 not available yet
 <b>        ref: { name: say }</b>
 <b>        params: [{ name: text, value: this will not apply }]</b>
 <b>EOF</b>
-Error from server (BadRequest): error when creating "STDIN": admission webhook "validation.webhook.pipeline.tekton.dev" denied the request: validation failed: image cannot be used with Ref: spec.taskSpec.steps[0].image
 <b>$ kubectl delete stepaction say</b>
-Error from server (NotFound): stepactions.tekton.dev "say" not found</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the referencing run prints the parameter, and the second create is rejected at admission with a message naming the fields that may not appear alongside <code>ref</code>. That list is worth memorising; it is short.</div>
     </div>
 
@@ -939,7 +939,6 @@ spec:
           params:
             - name: version
               value: ["1.35", "1.36", "1.37"]
-        params: [{ name: version, value: $(params.version) }]
         taskSpec:
           params: [{ name: version, type: string }]
           steps:
@@ -951,7 +950,7 @@ EOF
 sleep 75
 tkn taskrun list | head -6
 kubectl get pipelinerun fanout -o jsonpath='{.status.childReferences[*].name}{"\n"}'
-kubectl delete pipelinerun fanout</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+kubectl delete pipelinerun fanout</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: tekton.dev/v1</b>
 <b>kind: PipelineRun</b>
 <b>metadata: { name: fanout, namespace: default }</b>
@@ -963,7 +962,6 @@ kubectl delete pipelinerun fanout</code></pre><details class="out"><summary>outp
 <b>          params:</b>
 <b>            - name: version</b>
 <b>              value: ["1.35", "1.36", "1.37"]</b>
-<b>        params: [{ name: version, value: $(params.version) }]</b>
 <b>        taskSpec:</b>
 <b>          params: [{ name: version, type: string }]</b>
 <b>          steps:</b>
@@ -972,18 +970,11 @@ kubectl delete pipelinerun fanout</code></pre><details class="out"><summary>outp
 <b>              script: |</b>
 <b>                echo checking $(params.version)</b>
 <b>EOF</b>
-Error from server (BadRequest): error when creating "STDIN": admission webhook "validation.webhook.pipeline.tekton.dev" denied the request: validation failed: expected exactly one, got both: spec.pipelineSpec.tasks[0].matrix[version], spec.pipelineSpec.tasks[0].params[version]
 <b>$ sleep 75</b>
 <b>$ tkn taskrun list | head -6</b>
-NAME                   STARTED         DURATION   STATUS
-bigresult-hfh4k        2 minutes ago   8s         Failed
-skipper-j29jd-always   3 minutes ago   8s         Succeeded
-slow-rdfh2-sleeper     5 minutes ago   40s        Cancelled(TaskRunCancelled)
-say-run-l4l82          6 minutes ago   0s         Failed(TaskRunResolutionFailed)
 <b>$ kubectl get pipelinerun fanout -o jsonpath='{.status.childReferences[*].name}{"\n"}'</b>
-Error from server (NotFound): pipelineruns.tekton.dev "fanout" not found
 <b>$ kubectl delete pipelinerun fanout</b>
-Error from server (NotFound): pipelineruns.tekton.dev "fanout" not found</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> three TaskRuns exist, named <code>fanout-check-0</code> through <code>-2</code>, and the PipelineRun's child references list all three. One failure in a matrix fails the whole task; say what that means for a matrix over environments.</div>
     </div>
 

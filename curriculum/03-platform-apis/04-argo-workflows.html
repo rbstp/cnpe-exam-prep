@@ -325,7 +325,9 @@ spec:
 
     <div class="exercise" data-title="Promote the workflow to a product">
       <p>A bare Workflow is a script someone ran. A WorkflowTemplate is a thing with a name that other people can submit with their own parameters, which is the difference between automation and a platform API.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+      <div class="cb" data-lang="bash"><pre><code>kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -
+kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: argoproj.io/v1alpha1
 kind: WorkflowTemplate
 metadata: { name: provision-tenant, namespace: default }
@@ -365,7 +367,9 @@ spec:
 EOF
 argo submit --from workflowtemplate/provision-tenant -p team=team-g --watch
 kubectl get ns team-g
-kubectl -n team-g get resourcequota default-quota</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n team-g get resourcequota default-quota</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: WorkflowTemplate</b>
 <b>metadata: { name: provision-tenant, namespace: default }</b>
@@ -403,51 +407,18 @@ kubectl -n team-g get resourcequota default-quota</code></pre><details class="ou
 <b>          spec:</b>
 <b>            hard: { requests.cpu: "1", requests.memory: 2Gi, pods: "10" }</b>
 <b>EOF</b>
-workflowtemplate.argoproj.io/provision-tenant created
 <b>$ argo submit --from workflowtemplate/provision-tenant -p team=team-g --watch</b>
-Name:                provision-tenant-8vkc6
-Namespace:           default
-ServiceAccount:      unset
-Status:              Pending
-Created:             Sat Sep 12 13:40:18 -0400 (now)
-Progress:            
-Parameters:          
-  team:              team-g
-Name:                provision-tenant-8vkc6
-Namespace:           default
-ServiceAccount:      unset
-Status:              Pending
-Created:             Sat Sep 12 13:40:18 -0400 (now)
-Progress:            
-Parameters:          
-  team:              team-g
-Name:                provision-tenant-8vkc6
-Namespace:           default
-ServiceAccount:      provisioner
-Status:              Error
-Conditions:          
- Completed           True
-Created:             Sat Sep 12 13:40:18 -0400 (now)
-Started:             Sat Sep 12 13:40:18 -0400 (now)
-Finished:            Sat Sep 12 13:40:18 -0400 (now)
-Duration:            0 seconds
-Progress:            0/1
-Parameters:          
-  team:              team-g
-
-STEP                       TEMPLATE   PODNAME                                    DURATION  MESSAGE
- ⚠ provision-tenant-8vkc6  provision                                                                                                                                                                                                                                                                     
- ├─⚠ namespace             make-ns    provision-tenant-8vkc6-make-ns-4256640837  0s        task 'provision-tenant-8vkc6.namespace' errored: pods "provision-tenant-8vkc6-make-ns-4256640837" is forbidden: error looking up service account default/provisioner: serviceaccount "provisioner" not found  
 <b>$ kubectl get ns team-g</b>
-Error from server (NotFound): namespaces "team-g" not found
 <b>$ kubectl -n team-g get resourcequota default-quota</b>
-Error from server (NotFound): namespaces "team-g" not found</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the submit prints a live node tree that ends <code>Succeeded</code> with both resource nodes green, and the namespace and quota exist. Say what a developer needs to know to run this themselves: the template name and one parameter, nothing else.</div>
     </div>
 
     <div class="exercise" data-title="Retry until it gives up">
       <p>A retry strategy turns one node into a parent with children, and the node tree shows every attempt. The backoff fields are the ones people guess wrong, so read them off a real run.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl create -f - &lt;&lt;'EOF'
+      <div class="cb" data-lang="bash"><pre><code>kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -
+kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -
+kubectl create -f - &lt;&lt;'EOF'
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata: { generateName: retryer-, namespace: default }
@@ -467,7 +438,9 @@ EOF
 sleep 90
 WF=$(kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}')
 kubectl get wf "$WF" -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, type, phase, message}'
-kubectl get wf "$WF" -o jsonpath='{.status.phase} {.status.message}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+kubectl get wf "$WF" -o jsonpath='{.status.phase} {.status.message}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: Workflow</b>
 <b>metadata: { generateName: retryer-, namespace: default }</b>
@@ -484,42 +457,19 @@ kubectl get wf "$WF" -o jsonpath='{.status.phase} {.status.message}{"\n"}'</code
 <b>        command: [sh, -c]</b>
 <b>        args: ["exit 1"]</b>
 <b>EOF</b>
-workflow.argoproj.io/retryer-cqmmg created
 <b>$ sleep 90</b>
 <b>$ WF=$(kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}')</b>
 <b>$ kubectl get wf "$WF" -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, type, phase, message}'</b>
-{
-  "displayName": "retryer-cqmmg",
-  "type": "Retry",
-  "phase": "Failed",
-  "message": "No more retries left"
-}
-{
-  "displayName": "retryer-cqmmg(0)",
-  "type": "Pod",
-  "phase": "Failed",
-  "message": "main: Error (exit code 1)"
-}
-{
-  "displayName": "retryer-cqmmg(2)",
-  "type": "Pod",
-  "phase": "Failed",
-  "message": "main: Error (exit code 1)"
-}
-{
-  "displayName": "retryer-cqmmg(1)",
-  "type": "Pod",
-  "phase": "Failed",
-  "message": "main: Error (exit code 1)"
-}
 <b>$ kubectl get wf "$WF" -o jsonpath='{.status.phase} {.status.message}{"\n"}'</b>
-Failed No more retries left</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> there are three child nodes under one retry node, and the final message says there are no more retries left. <code>limit: 2</code> means two retries after the first attempt, not two attempts in total; that off-by-one is the thing to remember.</div>
     </div>
 
     <div class="exercise" data-title="Put a deadline on the work">
       <p><code>activeDeadlineSeconds</code> is enforced by the pod, not by the controller, so the message you get back is Kubernetes' own. Recognise it, because it looks nothing like an Argo error.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl create -f - &lt;&lt;'EOF'
+      <div class="cb" data-lang="bash"><pre><code>kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -
+kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -
+kubectl create -f - &lt;&lt;'EOF'
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata: { generateName: deadline-, namespace: default }
@@ -535,7 +485,9 @@ spec:
 EOF
 sleep 60
 WF=$(kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}')
-kubectl get wf "$WF" -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, phase, message}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+kubectl get wf "$WF" -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, phase, message}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: Workflow</b>
 <b>metadata: { generateName: deadline-, namespace: default }</b>
@@ -549,21 +501,18 @@ kubectl get wf "$WF" -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, pha
 <b>        command: [sh, -c]</b>
 <b>        args: ["sleep 60"]</b>
 <b>EOF</b>
-workflow.argoproj.io/deadline-v76vr created
 <b>$ sleep 60</b>
 <b>$ WF=$(kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}')</b>
 <b>$ kubectl get wf "$WF" -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, phase, message}'</b>
-{
-  "displayName": "deadline-v76vr",
-  "phase": "Failed",
-  "message": "Pod was active on the node longer than the specified deadline"
-}</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the node message says the pod was active on the node longer than the specified deadline. Say where you would put the same limit to cap the whole workflow rather than one template.</div>
     </div>
 
     <div class="exercise" data-title="Two workflows, one mutex">
       <p>Self-service means two people submit at once. A mutex serialises them without either one failing, and the waiting workflow says what it is waiting for, which is the message your users will screenshot at you.</p>
-      <div class="cb" data-lang="bash"><pre><code>cat &gt; /tmp/locked.yaml &lt;&lt;'EOF'
+      <div class="cb" data-lang="bash"><pre><code>kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -
+kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -
+cat &gt; /tmp/locked.yaml &lt;&lt;'EOF'
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata: { generateName: locked-, namespace: default }
@@ -584,7 +533,10 @@ sleep 15
 kubectl get wf -l workflows.argoproj.io/phase --sort-by=.metadata.creationTimestamp | tail -3
 kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{range .items[-2:]}{.metadata.name} {.status.phase}{"\n"}{end}'
 kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.message}{"\n"}'
-kubectl -n argo get cm workflow-controller-configmap -o jsonpath='{.data}' | jq</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ cat &gt; /tmp/locked.yaml &lt;&lt;'EOF'</b>
+kubectl -n argo get cm workflow-controller-configmap -o jsonpath='{.data}' | jq
+kubectl delete wf -l workflows.argoproj.io/workflow --ignore-not-found 2&gt;/dev/null; kubectl get wf -o name | grep locked- | xargs -r kubectl delete</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ cat &gt; /tmp/locked.yaml &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: Workflow</b>
 <b>metadata: { generateName: locked-, namespace: default }</b>
@@ -600,27 +552,22 @@ kubectl -n argo get cm workflow-controller-configmap -o jsonpath='{.data}' | jq<
 <b>        args: ["sleep 60"]</b>
 <b>EOF</b>
 <b>$ kubectl create -f /tmp/locked.yaml</b>
-workflow.argoproj.io/locked-5tr5n created
 <b>$ kubectl create -f /tmp/locked.yaml</b>
-workflow.argoproj.io/locked-cc88t created
 <b>$ sleep 15</b>
 <b>$ kubectl get wf -l workflows.argoproj.io/phase --sort-by=.metadata.creationTimestamp | tail -3</b>
-deadline-v76vr           Failed    2m33s   Pod was active on the node longer than the specified deadline
-locked-5tr5n             Running   16s     
-locked-cc88t             Pending           Waiting for default/Mutex/lab-lock lock. Lock status: 0/1
 <b>$ kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{range .items[-2:]}{.metadata.name} {.status.phase}{"\n"}{end}'</b>
-locked-5tr5n Running
-locked-cc88t Pending
 <b>$ kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.message}{"\n"}'</b>
-Waiting for default/Mutex/lab-lock lock. Lock status: 0/1
 <b>$ kubectl -n argo get cm workflow-controller-configmap -o jsonpath='{.data}' | jq</b>
-Error from server (NotFound): configmaps "workflow-controller-configmap" not found</code></pre></details></div>
+<b>$ kubectl delete wf -l workflows.argoproj.io/workflow --ignore-not-found 2&gt;/dev/null; kubectl get wf -o name | grep locked- | xargs -r kubectl delete</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> one workflow runs and the other is Pending with a message naming the lock. Say what changes if you use a semaphore with a count of two instead, and where that count is stored.</div>
     </div>
 
     <div class="exercise" data-title="An exit handler that always runs">
       <p><code>onExit</code> is the finally block: it sees the workflow's final status and runs whether the entrypoint succeeded or not. The interesting part is that one kind of cancellation skips it.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl create -f - &lt;&lt;'EOF'
+      <div class="cb" data-lang="bash"><pre><code>kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -
+kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -
+kubectl create -f - &lt;&lt;'EOF'
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata: { generateName: exiter-, namespace: default }
@@ -665,7 +612,9 @@ sleep 20
 argo stop stoppable
 sleep 45
 kubectl get wf stoppable -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, phase}'
-kubectl delete wf stoppable</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+kubectl delete wf stoppable</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: Workflow</b>
 <b>metadata: { generateName: exiter-, namespace: default }</b>
@@ -684,15 +633,9 @@ kubectl delete wf stoppable</code></pre><details class="out"><summary>output<spa
 <b>        command: [sh, -c]</b>
 <b>        args: ["echo workflow finished as {{workflow.status}}"]</b>
 <b>EOF</b>
-workflow.argoproj.io/exiter-dlzm5 created
 <b>$ sleep 75</b>
 <b>$ WF=$(kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}')</b>
 <b>$ argo logs "$WF" | tail -5</b>
-exiter-dlzm5: Error: exit status 1
-exiter-dlzm5-report-926596162: workflow finished as Failed
-exiter-dlzm5-report-926596162: time=2026-09-12T17:44:41.460Z level=INFO msg="waiting for signals" argo=true signalPath=/var/run/argo/ctr/main/signal
-exiter-dlzm5-report-926596162: time=2026-09-12T17:44:42.460Z level=INFO msg="sub-process exited" error=&lt;nil&gt; argo=true
-exiter-dlzm5-report-926596162: time=2026-09-12T17:44:42.460Z level=INFO msg="file signal handler exiting due to context cancellation" argo=true
 <b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: Workflow</b>
@@ -712,28 +655,20 @@ exiter-dlzm5-report-926596162: time=2026-09-12T17:44:42.460Z level=INFO msg="fil
 <b>        command: [sh, -c]</b>
 <b>        args: ["echo exit handler ran after {{workflow.status}}"]</b>
 <b>EOF</b>
-workflow.argoproj.io/stoppable created
 <b>$ sleep 20</b>
 <b>$ argo stop stoppable</b>
-workflow stoppable stopped
 <b>$ sleep 45</b>
 <b>$ kubectl get wf stoppable -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, phase}'</b>
-{
-  "displayName": "stoppable",
-  "phase": "Failed"
-}
-{
-  "displayName": "stoppable.onExit",
-  "phase": "Error"
-}
 <b>$ kubectl delete wf stoppable</b>
-workflow.argoproj.io "stoppable" deleted from default namespace</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the failing workflow's exit handler logs the status <code>Failed</code>, and <code>argo stop</code> leaves an exit-handler node behind while <code>argo terminate</code> would not. Say which of the two you want wired to a UI button and why.</div>
     </div>
 
     <div class="exercise" data-title="A schedule that refuses to overlap">
       <p>A CronWorkflow that fires faster than its work finishes is a self-service outage waiting to happen. <code>concurrencyPolicy: Forbid</code> makes the controller skip the tick instead, and it records that it did.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl create -f - &lt;&lt;'EOF'
+      <div class="cb" data-lang="bash"><pre><code>kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -
+kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -
+kubectl create -f - &lt;&lt;'EOF'
 apiVersion: argoproj.io/v1alpha1
 kind: CronWorkflow
 metadata: { name: every-minute, namespace: default }
@@ -754,7 +689,9 @@ argo cron get every-minute
 kubectl get wf -l workflows.argoproj.io/cron-workflow=every-minute
 kubectl get cronwf every-minute -o jsonpath='{.status}' | jq
 kubectl delete cronwf every-minute
-kubectl delete wf -l workflows.argoproj.io/cron-workflow=every-minute</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+kubectl delete wf -l workflows.argoproj.io/cron-workflow=every-minute</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: CronWorkflow</b>
 <b>metadata: { name: every-minute, namespace: default }</b>
@@ -770,49 +707,21 @@ kubectl delete wf -l workflows.argoproj.io/cron-workflow=every-minute</code></pr
 <b>          command: [sh, -c]</b>
 <b>          args: ["sleep 90"]</b>
 <b>EOF</b>
-cronworkflow.argoproj.io/every-minute created
 <b>$ sleep 210</b>
 <b>$ argo cron get every-minute</b>
-Name:                          every-minute
-Namespace:                     default
-Created:                       Sat Sep 12 13:46:47 -0400 (3 minutes ago)
-Schedules:                     * * * * *
-Suspended:                     false
-ConcurrencyPolicy:             Forbid
-LastScheduledTime:             Sat Sep 12 13:49:00 -0400 (1 minute ago)
-NextScheduledTime:             Sat Sep 12 13:51:00 -0400 (41 seconds from now) (assumes workflow-controller is in UTC)
-Active Workflows:              every-minute-1789235340
 <b>$ kubectl get wf -l workflows.argoproj.io/cron-workflow=every-minute</b>
-NAME                      STATUS    AGE     MESSAGE
-every-minute-1789235220   Error     3m18s   wait: Error (exit code 64): workflowtaskresults.argoproj.io is forbidden: User "system:serviceaccount:default:default" cannot create resource "workflowtaskresults" in API group "argoproj.io" in the namespace "default"
-every-minute-1789235340   Running   78s     
 <b>$ kubectl get cronwf every-minute -o jsonpath='{.status}' | jq</b>
-{
-  "active": [
-    {
-      "apiVersion": "argoproj.io/v1alpha1",
-      "kind": "Workflow",
-      "name": "every-minute-1789235340",
-      "namespace": "default",
-      "resourceVersion": "86684",
-      "uid": "6c38eb29-d99c-4df7-a11d-b138f7191953"
-    }
-  ],
-  "failed": 1,
-  "lastScheduledTime": "2026-09-12T17:49:00Z",
-  "phase": "Active",
-  "succeeded": 0
-}
 <b>$ kubectl delete cronwf every-minute</b>
-cronworkflow.argoproj.io "every-minute" deleted from default namespace
 <b>$ kubectl delete wf -l workflows.argoproj.io/cron-workflow=every-minute</b>
-No resources found</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> fewer workflows exist than minutes elapsed, and the CronWorkflow's status records the skipped ticks. Say what <code>Replace</code> and <code>Allow</code> would each have done to the same schedule.</div>
     </div>
 
     <div class="exercise" data-title="Reference a template from the wrong scope">
       <p>A ClusterWorkflowTemplate and a WorkflowTemplate are different kinds with the same shape. Referencing one as the other produces a not-found error that sends people looking for a typo that is not there.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
+      <div class="cb" data-lang="bash"><pre><code>kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -
+kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: argoproj.io/v1alpha1
 kind: ClusterWorkflowTemplate
 metadata: { name: shared-say }
@@ -852,7 +761,9 @@ spec:
 EOF
 sleep 45
 argo logs @latest | tail -3
-kubectl delete clusterworkflowtemplate shared-say</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl delete clusterworkflowtemplate shared-say</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: ClusterWorkflowTemplate</b>
 <b>metadata: { name: shared-say }</b>
@@ -864,7 +775,6 @@ kubectl delete clusterworkflowtemplate shared-say</code></pre><details class="ou
 <b>        command: [sh, -c]</b>
 <b>        args: ["echo from the cluster-scoped template"]</b>
 <b>EOF</b>
-clusterworkflowtemplate.argoproj.io/shared-say created
 <b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: Workflow</b>
@@ -877,10 +787,8 @@ clusterworkflowtemplate.argoproj.io/shared-say created
 <b>        - - name: call</b>
 <b>            templateRef: { name: shared-say, template: say }</b>
 <b>EOF</b>
-workflow.argoproj.io/wrongscope-zxx28 created
 <b>$ sleep 30</b>
 <b>$ kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].status.message}{"\n"}'</b>
-invalid spec: templates.main.steps[0].call template reference shared-say.say not found
 <b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: Workflow</b>
@@ -893,20 +801,18 @@ invalid spec: templates.main.steps[0].call template reference shared-say.say not
 <b>        - - name: call</b>
 <b>            templateRef: { name: shared-say, template: say, clusterScope: true }</b>
 <b>EOF</b>
-workflow.argoproj.io/rightscope-lwt4c created
 <b>$ sleep 45</b>
 <b>$ argo logs @latest | tail -3</b>
-rightscope-lwt4c-say-3683327272: from the cluster-scoped template
-rightscope-lwt4c-say-3683327272: time=2026-09-12T17:50:57.218Z level=INFO msg="sub-process exited" argo=true error=&lt;nil&gt;
-rightscope-lwt4c-say-3683327272: time=2026-09-12T17:50:57.218Z level=INFO msg="file signal handler exiting due to context cancellation" argo=true
 <b>$ kubectl delete clusterworkflowtemplate shared-say</b>
-clusterworkflowtemplate.argoproj.io "shared-say" deleted</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the first run fails saying the WorkflowTemplate was not found, and one boolean fixes it. Note that the error names the namespaced kind even though the object exists at cluster scope; that wording is the trap.</div>
     </div>
 
     <div class="exercise" data-title="Forbid bare workflows">
       <p>A platform that lets anyone submit arbitrary workflow specs has no guardrails at all. <code>templateReferencing: Strict</code> means every submission must go through a reviewed template, and a ServiceAccount override is refused too.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl -n argo get cm workflow-controller-configmap -o jsonpath='{.data.workflowRestrictions}{"\n"}'
+      <div class="cb" data-lang="bash"><pre><code>kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -
+kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n argo get cm workflow-controller-configmap -o jsonpath='{.data.workflowRestrictions}{"\n"}'
 kubectl -n argo patch cm workflow-controller-configmap --type merge -p '{"data":{"workflowRestrictions":"templateReferencing: Strict"}}'
 kubectl -n argo rollout restart deploy workflow-controller
 kubectl -n argo rollout status deploy workflow-controller --timeout=120s
@@ -931,14 +837,13 @@ spec:
 EOF
 kubectl -n argo patch cm workflow-controller-configmap --type json -p '[{"op":"remove","path":"/data/workflowRestrictions"}]'
 kubectl -n argo rollout restart deploy workflow-controller
-kubectl -n argo rollout status deploy workflow-controller --timeout=120s</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n argo get cm workflow-controller-configmap -o jsonpath='{.data.workflowRestrictions}{"\n"}'</b>
-Error from server (NotFound): configmaps "workflow-controller-configmap" not found
+kubectl -n argo rollout status deploy workflow-controller --timeout=120s
+kubectl get wf -o name | grep -E 'bare-|fromtmpl-' | xargs -r kubectl delete</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl -n argo get cm workflow-controller-configmap -o jsonpath='{.data.workflowRestrictions}{"\n"}'</b>
 <b>$ kubectl -n argo patch cm workflow-controller-configmap --type merge -p '{"data":{"workflowRestrictions":"templateReferencing: Strict"}}'</b>
-Error from server (NotFound): configmaps "workflow-controller-configmap" not found
 <b>$ kubectl -n argo rollout restart deploy workflow-controller</b>
-Error from server (NotFound): deployments.apps "workflow-controller" not found
 <b>$ kubectl -n argo rollout status deploy workflow-controller --timeout=120s</b>
-Error from server (NotFound): deployments.apps "workflow-controller" not found
 <b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: Workflow</b>
@@ -949,7 +854,6 @@ Error from server (NotFound): deployments.apps "workflow-controller" not found
 <b>    - name: work</b>
 <b>      container: { image: busybox:1.36, command: [sh, -c], args: ["echo hi"] }</b>
 <b>EOF</b>
-workflow.argoproj.io/bare-tf2g9 created
 <b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: Workflow</b>
@@ -959,19 +863,19 @@ workflow.argoproj.io/bare-tf2g9 created
 <b>  workflowTemplateRef: { name: provision-tenant }</b>
 <b>  arguments: { parameters: [{ name: team, value: team-h }] }</b>
 <b>EOF</b>
-workflow.argoproj.io/fromtmpl-6h57j created
 <b>$ kubectl -n argo patch cm workflow-controller-configmap --type json -p '[{"op":"remove","path":"/data/workflowRestrictions"}]'</b>
-Error from server (NotFound): configmaps "workflow-controller-configmap" not found
 <b>$ kubectl -n argo rollout restart deploy workflow-controller</b>
-Error from server (NotFound): deployments.apps "workflow-controller" not found
 <b>$ kubectl -n argo rollout status deploy workflow-controller --timeout=120s</b>
-Error from server (NotFound): deployments.apps "workflow-controller" not found</code></pre></details></div>
+<b>$ kubectl get wf -o name | grep -E 'bare-|fromtmpl-' | xargs -r kubectl delete</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the bare workflow is rejected for not referencing a template, and the second is rejected for overriding a field the template owns. Both messages name the restriction, which is what makes it a usable guardrail rather than a mystery.</div>
     </div>
 
     <div class="exercise" data-title="Submit through the API with a token">
       <p>The UI is a client. A portal, a CI job or a chatbot is another, and all of them submit the same JSON with a ServiceAccount token. Do it once by hand so the integration is not a black box.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl -n argo port-forward svc/argo-workflows-server 2746:2746 &amp;
+      <div class="cb" data-lang="bash"><pre><code>kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -
+kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n argo port-forward svc/argo-workflows-server 2746:2746 &amp; PF1=$!
 sleep 5
 kubectl -n argo create sa submitter --dry-run=client -o yaml | kubectl apply -f -
 kubectl create clusterrolebinding submitter --clusterrole=admin --serviceaccount=argo:submitter --dry-run=client -o yaml | kubectl apply -f -
@@ -982,35 +886,27 @@ EOF
 curl -s -o /tmp/submit-response.json -w '%{http_code}\n' -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d @/tmp/submit.json http://localhost:2746/api/v1/workflows/default
 jq '{name: .metadata.name, phase: .status.phase}' /tmp/submit-response.json
 kubectl get wf | grep via-api
-kill %1
+kill $PF1
 kubectl delete clusterrolebinding submitter
-kubectl -n argo delete sa submitter</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n argo port-forward svc/argo-workflows-server 2746:2746 &amp;</b>
+kubectl -n argo delete sa submitter
+kubectl get wf -o name | grep via-api- | xargs -r kubectl delete</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -</b>
+<b>$ kubectl -n argo port-forward svc/argo-workflows-server 2746:2746 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
-Forwarding from 127.0.0.1:2746 -&gt; 2746
-Forwarding from [::1]:2746 -&gt; 2746
 <b>$ kubectl -n argo create sa submitter --dry-run=client -o yaml | kubectl apply -f -</b>
-serviceaccount/submitter created
 <b>$ kubectl create clusterrolebinding submitter --clusterrole=admin --serviceaccount=argo:submitter --dry-run=client -o yaml | kubectl apply -f -</b>
-clusterrolebinding.rbac.authorization.k8s.io/submitter created
 <b>$ TOKEN=$(kubectl -n argo create token submitter --duration=10m)</b>
 <b>$ cat &gt; /tmp/submit.json &lt;&lt;'EOF'</b>
 <b>{"namespace":"default","serverDryRun":false,"workflow":{"metadata":{"generateName":"via-api-","namespace":"default"},"spec":{"entrypoint":"work","templates":[{"name":"work","container":{"image":"busybox:1.36","command":["sh","-c"],"args":["echo submitted over http"]}}]}}}</b>
 <b>EOF</b>
 <b>$ curl -s -o /tmp/submit-response.json -w '%{http_code}\n' -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d @/tmp/submit.json http://localhost:2746/api/v1/workflows/default</b>
-Handling connection for 2746
-200
 <b>$ jq '{name: .metadata.name, phase: .status.phase}' /tmp/submit-response.json</b>
-{
-  "name": "via-api-fl8r2",
-  "phase": null
-}
 <b>$ kubectl get wf | grep via-api</b>
-via-api-fl8r2                              
-<b>$ kill %1</b>
+<b>$ kill $PF1</b>
 <b>$ kubectl delete clusterrolebinding submitter</b>
-clusterrolebinding.rbac.authorization.k8s.io "submitter" deleted
 <b>$ kubectl -n argo delete sa submitter</b>
-serviceaccount "submitter" deleted from argo namespace</code></pre></details></div>
+<b>$ kubectl get wf -o name | grep via-api- | xargs -r kubectl delete</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the call returns 200 with the created workflow's name, and the workflow appears in <code>kubectl get wf</code>. Say what you would bind that ServiceAccount to in a real portal instead of <code>admin</code>.</div>
     </div>
 

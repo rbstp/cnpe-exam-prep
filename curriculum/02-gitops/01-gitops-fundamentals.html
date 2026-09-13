@@ -391,16 +391,10 @@ demo-oci	13403b5@sha256:9e73f795	False    	True 	stored artifact for digest '134
       <p>Before you debug either engine, know what it has been told to look at. The two answers live in completely different places: a labelled Secret for Argo CD, a set of source objects for Flux.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd get secret -l argocd.argoproj.io/secret-type=repository -o name
 kubectl -n argocd get secret -l argocd.argoproj.io/secret-type=repository -o jsonpath='{range .items[*]}{.data.url}{"\n"}{end}' | base64 -d
-flux get sources all -A</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n argocd get secret -l argocd.argoproj.io/secret-type=repository -o name</b>
-secret/gitea-repo
+flux get sources all -A</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n argocd get secret -l argocd.argoproj.io/secret-type=repository -o name</b>
 <b>$ kubectl -n argocd get secret -l argocd.argoproj.io/secret-type=repository -o jsonpath='{range .items[*]}{.data.url}{"\n"}{end}' | base64 -d</b>
-http://gitea.lab:3000/lab/platform.git
 <b>$ flux get sources all -A</b>
-NAMESPACE  	NAME                  	REVISION               	SUSPENDED	READY	MESSAGE                                              
-flux-system	ocirepository/demo-oci	13403b5@sha256:9e73f795	False    	True 	stored artifact for digest '13403b5@sha256:9e73f795'	
-
-NAMESPACE  	NAME                  	REVISION          	SUSPENDED	READY	MESSAGE                                           
-flux-system	gitrepository/platform	main@sha1:c9d06625	False    	True 	stored artifact for revision 'main@sha1:c9d06625'	</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> both lists name the same Gitea repo, reached by two different mechanisms. If a task says "the engine cannot see the repo", this is the first command, not the last.</div>
     </div>
 
@@ -408,51 +402,10 @@ flux-system	gitrepository/platform	main@sha1:c9d06625	False    	True 	stored art
       <p>Argo CD renders a chart and applies the manifests; there is no Helm release object afterwards. Flux's HelmRelease runs Helm properly and leaves one. The difference decides whether <code>helm rollback</code> is even available to you.</p>
       <div class="cb" data-lang="bash"><pre><code>helm list -A
 kubectl get secret -A -l owner=helm -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name | head -20
-kubectl -n flux-demo get helmrelease 2&gt;/dev/null || echo 'no HelmRelease yet: do the 2.3 HelmRelease exercise first'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ helm list -A</b>
-NAME                  	NAMESPACE                    	REVISION	UPDATED                                	STATUS  	CHART                         	APP VERSION
-alloy                 	monitoring                   	1       	2026-09-12 12:19:09.014408679 -0400 EDT	deployed	alloy-1.12.1                  	v1.19.2    
-argo-rollouts         	argo-rollouts                	1       	2026-09-12 12:05:54.475414389 -0400 EDT	deployed	argo-rollouts-2.43.1          	v1.10.0    
-argo-workflows        	argo                         	1       	2026-09-12 12:06:25.781711744 -0400 EDT	deployed	argo-workflows-2.0.6          	v4.1.3     
-argocd                	argocd                       	1       	2026-09-12 12:04:51.496439111 -0400 EDT	deployed	argo-cd-10.9.0                	v3.5.2     
-cilium                	kube-system                  	1       	2026-09-12 12:01:09.99350553 -0400 EDT 	deployed	cilium-1.20.1                 	1.20.1     
-cnpg                  	cnpg-system                  	1       	2026-09-12 12:10:49.574605551 -0400 EDT	deployed	cloudnative-pg-0.29.0         	1.30.0     
-crossplane            	crossplane-system            	1       	2026-09-12 12:09:24.109133606 -0400 EDT	deployed	crossplane-2.4.0              	2.4.0      
-external-secrets      	external-secrets             	1       	2026-09-12 12:23:29.510671619 -0400 EDT	deployed	external-secrets-2.10.0       	v2.10.0    
-gatekeeper            	gatekeeper-system            	1       	2026-09-12 12:22:06.110081521 -0400 EDT	deployed	gatekeeper-3.23.1             	v3.23.1    
-kro                   	kro                          	1       	2026-09-12 12:11:27.734664027 -0400 EDT	deployed	kro-0.4.1                     	0.4.1      
-kyverno               	kyverno                      	1       	2026-09-12 12:21:08.710870711 -0400 EDT	deployed	kyverno-3.9.1                 	v1.19.1    
-loki                  	monitoring                   	1       	2026-09-12 12:17:41.669392647 -0400 EDT	deployed	loki-7.3.0                    	3.6.12     
-metrics-server        	kube-system                  	1       	2026-09-12 12:03:26.895790811 -0400 EDT	deployed	metrics-server-3.14.0         	0.9.0      
-opencost              	opencost                     	1       	2026-09-12 12:19:53.964802702 -0400 EDT	deployed	opencost-2.5.31               	1.121.2    
-opentelemetry-operator	opentelemetry-operator-system	1       	2026-09-12 12:17:10.624476606 -0400 EDT	deployed	opentelemetry-operator-0.122.0	0.158.0    
-prometheus            	monitoring                   	1       	2026-09-12 12:12:19.96567103 -0400 EDT 	deployed	kube-prometheus-stack-90.1.1  	v0.93.1    
-sealed-secrets        	kube-system                  	1       	2026-09-12 12:23:06.564537766 -0400 EDT	deployed	sealed-secrets-2.20.0         	0.40.0     
-spire                 	spire                        	1       	2026-09-12 12:24:25.95337979 -0400 EDT 	deployed	spire-0.30.2                  	1.15.3     
-spire-crds            	spire                        	1       	2026-09-12 12:24:23.769464303 -0400 EDT	deployed	spire-crds-0.6.1              	0.0.1      
-trivy-operator        	trivy-system                 	1       	2026-09-12 12:09:00.99100555 -0400 EDT 	deployed	trivy-operator-0.36.0         	0.34.0     
-vpa                   	vpa                          	1       	2026-09-12 12:04:00.559266457 -0400 EDT	deployed	vpa-5.0.1                     	1.7.1      
+kubectl -n flux-demo get helmrelease 2&gt;/dev/null || echo 'no HelmRelease yet: do the 2.3 HelmRelease exercise first'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ helm list -A</b>
 <b>$ kubectl get secret -A -l owner=helm -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name | head -20</b>
-NS                              NAME
-argo-rollouts                   sh.helm.release.v1.argo-rollouts.v1
-argo                            sh.helm.release.v1.argo-workflows.v1
-argocd                          sh.helm.release.v1.argocd.v1
-cnpg-system                     sh.helm.release.v1.cnpg.v1
-crossplane-system               sh.helm.release.v1.crossplane.v1
-external-secrets                sh.helm.release.v1.external-secrets.v1
-gatekeeper-system               sh.helm.release.v1.gatekeeper.v1
-kro                             sh.helm.release.v1.kro.v1
-kube-system                     sh.helm.release.v1.cilium.v1
-kube-system                     sh.helm.release.v1.metrics-server.v1
-kube-system                     sh.helm.release.v1.sealed-secrets.v1
-kyverno                         sh.helm.release.v1.kyverno.v1
-monitoring                      sh.helm.release.v1.alloy.v1
-monitoring                      sh.helm.release.v1.loki.v1
-monitoring                      sh.helm.release.v1.prometheus.v1
-opencost                        sh.helm.release.v1.opencost.v1
-opentelemetry-operator-system   sh.helm.release.v1.opentelemetry-operator.v1
-spire                           sh.helm.release.v1.spire-crds.v1
-spire                           sh.helm.release.v1.spire.v1
-<b>$ kubectl -n flux-demo get helmrelease 2&gt;/dev/null || echo 'no HelmRelease yet: do the 2.3 HelmRelease exercise first'</b></code></pre></details></div>
+<b>$ kubectl -n flux-demo get helmrelease 2&gt;/dev/null || echo 'no HelmRelease yet: do the 2.3 HelmRelease exercise first'</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the charts Argo CD deployed are absent from <code>helm list</code> while anything Flux installed through a HelmRelease is present. State what you would use instead of <code>helm rollback</code> on the Argo CD side.</div>
     </div>
 
@@ -460,11 +413,10 @@ spire                           sh.helm.release.v1.spire.v1
       <p>Argo CD has to recognise its own objects on a cluster full of other people's. Since 3.x it does that with an annotation rather than a label, which matters the moment you copy a manifest between applications and it starts fighting for ownership.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.application\.resourceTrackingMethod}{"\n"}'
 kubectl -n team-a get deploy staging-demo -o jsonpath='{.metadata.annotations}' | jq 'with_entries(select(.key | startswith("argocd")))'
-kubectl -n team-a get deploy staging-demo -o jsonpath='{.metadata.labels}' | jq</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.application\.resourceTrackingMethod}{"\n"}'</b>
+kubectl -n team-a get deploy staging-demo -o jsonpath='{.metadata.labels}' | jq</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n argocd get cm argocd-cm -o jsonpath='{.data.application\.resourceTrackingMethod}{"\n"}'</b>
 <b>$ kubectl -n team-a get deploy staging-demo -o jsonpath='{.metadata.annotations}' | jq 'with_entries(select(.key | startswith("argocd")))'</b>
-Error from server (NotFound): deployments.apps "staging-demo" not found
 <b>$ kubectl -n team-a get deploy staging-demo -o jsonpath='{.metadata.labels}' | jq</b>
-Error from server (NotFound): deployments.apps "staging-demo" not found</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the annotation names the application, the group/kind and the destination namespace in one string. Be able to say what happens to an object that carries a tracking id for an application that no longer exists.</div>
     </div>
 

@@ -407,7 +407,9 @@ staging-demo   3/3     3            3           55s
 
     <div class="exercise" data-title="Read the operation, not just the health">
       <p>Sync status and health are summaries. <code>operationState</code> is the record of the last attempt, with a result code per resource, and it is where a failed sync explains itself. Capture it clean, then break one resource and read it again.</p>
-      <div class="cb" data-lang="bash"><pre><code>argocd app sync demo-staging --timeout 120 || true
+      <div class="cb" data-lang="bash"><pre><code>ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web
+argocd app sync demo-staging --timeout 120 || true
 kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.status} {.message}{"\n"}{end}'
 kubectl -n team-a delete deploy staging-demo --cascade=orphan
 kubectl apply -f - &lt;&lt;'EOF'
@@ -425,12 +427,11 @@ EOF
 argocd app sync demo-staging --timeout 120 || true
 kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.status} {.message}{"\n"}{end}'
 kubectl -n team-a delete deploy staging-demo
-argocd app sync demo-staging --timeout 120</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ argocd app sync demo-staging --timeout 120 || true</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T12:48:42-04:00"}
+argocd app sync demo-staging --timeout 120</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')</b>
+<b>$ argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web</b>
+<b>$ argocd app sync demo-staging --timeout 120 || true</b>
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.status} {.message}{"\n"}{end}'</b>
-Error from server (NotFound): applications.argoproj.io "demo-staging" not found
 <b>$ kubectl -n team-a delete deploy staging-demo --cascade=orphan</b>
-Error from server (NotFound): deployments.apps "staging-demo" not found
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: apps/v1</b>
 <b>kind: Deployment</b>
@@ -443,70 +444,61 @@ Error from server (NotFound): deployments.apps "staging-demo" not found
 <b>    spec:</b>
 <b>      containers: [{ name: web, image: nginx:1.27-alpine }]</b>
 <b>EOF</b>
-Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "web" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "web" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "web" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "web" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
-deployment.apps/staging-demo created
 <b>$ argocd app sync demo-staging --timeout 120 || true</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T12:48:52-04:00"}
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.status} {.message}{"\n"}{end}'</b>
-Error from server (NotFound): applications.argoproj.io "demo-staging" not found
 <b>$ kubectl -n team-a delete deploy staging-demo</b>
-deployment.apps "staging-demo" deleted from team-a namespace
 <b>$ argocd app sync demo-staging --timeout 120</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T12:49:02-04:00"}</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the clean run ends <code>Succeeded</code> with every resource <code>Synced</code>, and the broken one ends <code>Failed</code> with a <code>SyncFailed</code> line naming the immutable selector. The per-resource message is the sentence you would paste into an incident channel.</div>
     </div>
 
     <div class="exercise" data-title="Ask for a repo the project forbids">
       <p>An AppProject is the boundary between what a tenant may ask for and what the platform allows. When it refuses, the Application does not fail to sync, it fails to be valid, and the difference tells you where to look.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd get appproject default -o jsonpath='{.spec.sourceRepos}{"\n"}'
+      <div class="cb" data-lang="bash"><pre><code>ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web
+kubectl -n argocd get appproject default -o jsonpath='{.spec.sourceRepos}{"\n"}'
 kubectl -n argocd patch appproject default --type merge -p '{"spec":{"sourceRepos":["http://gitea.lab:3000/lab/platform.git"]}}'
 argocd app set demo-staging --repo http://gitea.lab:3000/lab/other.git
 sleep 15
 kubectl -n argocd get app demo-staging -o jsonpath='{.status.conditions}' | jq
 argocd app set demo-staging --repo http://gitea.lab:3000/lab/platform.git
 kubectl -n argocd patch appproject default --type merge -p '{"spec":{"sourceRepos":["*"]}}'
-kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n argocd get appproject default -o jsonpath='{.spec.sourceRepos}{"\n"}'</b>
-["*"]
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')</b>
+<b>$ argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web</b>
+<b>$ kubectl -n argocd get appproject default -o jsonpath='{.spec.sourceRepos}{"\n"}'</b>
 <b>$ kubectl -n argocd patch appproject default --type merge -p '{"spec":{"sourceRepos":["http://gitea.lab:3000/lab/platform.git"]}}'</b>
-appproject.argoproj.io/default patched
 <b>$ argocd app set demo-staging --repo http://gitea.lab:3000/lab/other.git</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T12:49:11-04:00"}
 <b>$ sleep 15</b>
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.conditions}' | jq</b>
-Error from server (NotFound): applications.argoproj.io "demo-staging" not found
 <b>$ argocd app set demo-staging --repo http://gitea.lab:3000/lab/platform.git</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T12:49:36-04:00"}
 <b>$ kubectl -n argocd patch appproject default --type merge -p '{"spec":{"sourceRepos":["*"]}}'</b>
-appproject.argoproj.io/default patched
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status}{"\n"}'</b>
-Error from server (NotFound): applications.argoproj.io "demo-staging" not found</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the condition is <code>InvalidSpecError</code> and the message says the repo is not permitted in the project. Restore both the repo and the project's <code>sourceRepos</code>, then confirm the application is Synced again.</div>
     </div>
 
     <div class="exercise" data-title="Delete the Application, keep the workload">
       <p>Cascading deletion is a finalizer, not a law. Removing an Application without cascade leaves every object it managed running and unowned, which is exactly what you want during a migration and exactly what you must not do by accident.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd get app demo-staging -o jsonpath='{.metadata.finalizers}{"\n"}'
+      <div class="cb" data-lang="bash"><pre><code>ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web
+kubectl -n argocd get app demo-staging -o jsonpath='{.metadata.finalizers}{"\n"}'
 argocd app delete demo-staging --cascade=false -y
 sleep 10
 kubectl -n argocd get app demo-staging || echo 'application gone'
 kubectl -n team-a get deploy staging-demo
 kubectl apply -f examples/argocd-appset.yaml
 sleep 20
-kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status} {.status.health.status}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.metadata.finalizers}{"\n"}'</b>
-Error from server (NotFound): applications.argoproj.io "demo-staging" not found
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status} {.status.health.status}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')</b>
+<b>$ argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web</b>
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.metadata.finalizers}{"\n"}'</b>
 <b>$ argocd app delete demo-staging --cascade=false -y</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T12:49:45-04:00"}
 <b>$ sleep 10</b>
 <b>$ kubectl -n argocd get app demo-staging || echo 'application gone'</b>
-Error from server (NotFound): applications.argoproj.io "demo-staging" not found
-application gone
 <b>$ kubectl -n team-a get deploy staging-demo</b>
-Error from server (NotFound): deployments.apps "staging-demo" not found
 <b>$ kubectl apply -f examples/argocd-appset.yaml</b>
-applicationset.argoproj.io/demo-envs created
 <b>$ sleep 20</b>
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status} {.status.health.status}{"\n"}'</b>
-Synced Progressing</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the Deployment keeps serving with the Application gone, and re-applying the ApplicationSet adopts it back without recreating it. Name the field that would have taken the workload down with the app.</div>
     </div>
 
@@ -515,18 +507,19 @@ Synced Progressing</code></pre></details></div>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd annotate app demo-staging argocd.argoproj.io/refresh=hard --overwrite
 sleep 10
 kubectl -n argocd get app demo-staging -o jsonpath='{.metadata.annotations}' | jq
-kubectl -n argocd get app demo-staging -o jsonpath='{.status.reconciledAt}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n argocd annotate app demo-staging argocd.argoproj.io/refresh=hard --overwrite</b>
-application.argoproj.io/demo-staging annotated
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.reconciledAt}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n argocd annotate app demo-staging argocd.argoproj.io/refresh=hard --overwrite</b>
 <b>$ sleep 10</b>
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.metadata.annotations}' | jq</b>
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.reconciledAt}{"\n"}'</b>
-2026-09-12T16:50:17Z</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the annotation is gone by the time you read it back and <code>reconciledAt</code> has moved. The controller consumes the annotation as its signal, which is why you never see it in a healthy application.</div>
     </div>
 
     <div class="exercise" data-title="Make pruning ask first">
       <p>Automatic pruning is the feature that deletes production when someone deletes a file. <code>Prune=confirm</code> turns the delete into a request that waits for a human, and the sync sits there saying so.</p>
-      <div class="cb" data-lang="bash"><pre><code>rm -rf /tmp/platform-prune &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune &amp;&amp; cd /tmp/platform-prune
+      <div class="cb" data-lang="bash"><pre><code>ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web
+rm -rf /tmp/platform-prune &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune &amp;&amp; cd /tmp/platform-prune
 argocd app set demo-staging --sync-option Prune=confirm
 git rm demo-app/base/service.yaml
 sed -i '/service.yaml/d' demo-app/base/kustomization.yaml
@@ -538,40 +531,22 @@ sleep 20
 kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}'
 cd /tmp/platform-prune &amp;&amp; git revert --no-edit HEAD &amp;&amp; git push
 argocd app set demo-staging --sync-option Prune=false
-argocd app sync demo-staging --timeout 120</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ rm -rf /tmp/platform-prune &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune &amp;&amp; cd /tmp/platform-prune</b>
-Cloning into '/tmp/platform-prune'...
+argocd app sync demo-staging --timeout 120</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')</b>
+<b>$ argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web</b>
+<b>$ rm -rf /tmp/platform-prune &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune &amp;&amp; cd /tmp/platform-prune</b>
 <b>$ argocd app set demo-staging --sync-option Prune=confirm</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T13:25:20-04:00"}
 <b>$ git rm demo-app/base/service.yaml</b>
-rm 'demo-app/base/service.yaml'
 <b>$ sed -i '/service.yaml/d' demo-app/base/kustomization.yaml</b>
 <b>$ git commit -am 'drop the service' &amp;&amp; git push</b>
-[main fe84d00] drop the service
- 2 files changed, 8 deletions(-)
- delete mode 100644 demo-app/base/service.yaml
-To http://gitea.lab:3000/lab/platform.git
-   8a8142c..fe84d00  main -&gt; main
 <b>$ argocd app sync demo-staging --prune --timeout 60 || true</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T13:25:30-04:00"}
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{.status.operationState.message}{"\n"}'</b>
-Succeeded
-successfully synced (all tasks run)
 <b>$ kubectl -n argocd annotate app demo-staging argocd.argoproj.io/deletion-approved="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite</b>
-application.argoproj.io/demo-staging annotated
 <b>$ sleep 20</b>
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}'</b>
-Succeeded
 <b>$ cd /tmp/platform-prune &amp;&amp; git revert --no-edit HEAD &amp;&amp; git push</b>
-[main 0649716] Revert "drop the service"
- Date: Sat Sep 12 13:25:51 2026 -0400
- 2 files changed, 8 insertions(+)
- create mode 100644 demo-app/base/service.yaml
-To http://gitea.lab:3000/lab/platform.git
-   fe84d00..0649716  main -&gt; main
 <b>$ argocd app set demo-staging --sync-option Prune=false</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T13:26:01-04:00"}
 <b>$ argocd app sync demo-staging --timeout 120</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T13:26:10-04:00"}</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the operation stalls with a message about confirming the pruning, and only the approval annotation lets it finish. Put the Service back and clear the sync option before moving on.</div>
     </div>
 
@@ -586,31 +561,25 @@ argocd account can-i sync applications 'default/demo-staging' --auth-token "$TOK
 argocd proj role add-policy default deployer --action sync --permission allow --object 'default/demo-staging'
 TOKEN=$(argocd proj role create-token default deployer -t)
 argocd account can-i sync applications 'default/demo-staging' --auth-token "$TOKEN"
-argocd proj role delete default deployer</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ ARGO_PW=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)</b>
+argocd proj role delete default deployer</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ ARGO_PW=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)</b>
 <b>$ argocd login "$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')" --username admin --password "$ARGO_PW" --insecure --grpc-web</b>
-{"level":"fatal","msg":"error dial proxy: dial tcp :443: connect: connection refused","time":"2026-09-12T12:52:23-04:00"}
 <b>$ argocd proj role create default deployer</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T12:52:33-04:00"}
 <b>$ argocd proj role add-policy default deployer --action get --permission allow --object 'default/demo-staging'</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T12:52:42-04:00"}
 <b>$ TOKEN=$(argocd proj role create-token default deployer -t)</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T12:52:51-04:00"}
 <b>$ argocd account can-i sync applications 'default/demo-staging' --auth-token "$TOKEN"</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T12:53:00-04:00"}
 <b>$ argocd proj role add-policy default deployer --action sync --permission allow --object 'default/demo-staging'</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T12:53:10-04:00"}
 <b>$ TOKEN=$(argocd proj role create-token default deployer -t)</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T12:53:19-04:00"}
 <b>$ argocd account can-i sync applications 'default/demo-staging' --auth-token "$TOKEN"</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T12:53:28-04:00"}
 <b>$ argocd proj role delete default deployer</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T12:53:38-04:00"}</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the same question answers <code>no</code> and then <code>yes</code> with one policy line between them, and the token has to be reissued to pick up the change. That reissue is the part people forget.</div>
     </div>
 
     <div class="exercise" data-title="Deliver one notification">
       <p>Notifications are a controller reading annotations on the Application and a service definition in a ConfigMap. Wire one to something you can watch, and read the controller's log rather than hoping.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd patch cm argocd-notifications-cm --type merge -p '{"data":{"service.webhook.sink":"url: http://sink.default.svc.cluster.local\nheaders:\n- name: Content-Type\n  value: application/json","template.app-synced":"webhook:\n  sink:\n    method: POST\n    body: |\n      {\"app\": \"{{.app.metadata.name}}\", \"phase\": \"{{.app.status.operationState.phase}}\"}","trigger.on-sync-succeeded":"- send: [app-synced]\n  when: app.status.operationState.phase in [\"Succeeded\"]"}}'
+      <div class="cb" data-lang="bash"><pre><code>ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web
+kubectl -n argocd patch cm argocd-notifications-cm --type merge -p '{"data":{"service.webhook.sink":"url: http://sink.default.svc.cluster.local\nheaders:\n- name: Content-Type\n  value: application/json","template.app-synced":"webhook:\n  sink:\n    method: POST\n    body: |\n      {\"app\": \"{{.app.metadata.name}}\", \"phase\": \"{{.app.status.operationState.phase}}\"}","trigger.on-sync-succeeded":"- send: [app-synced]\n  when: app.status.operationState.phase in [\"Succeeded\"]"}}'
 kubectl -n default create deployment sink --image=kennethreitz/httpbin
 kubectl -n default expose deployment sink --port=80 --target-port=80
 kubectl -n argocd annotate app demo-staging notifications.argoproj.io/subscribe.on-sync-succeeded.sink="" --overwrite
@@ -621,29 +590,21 @@ sleep 20
 kubectl -n argocd logs deploy/argocd-notifications-controller --tail=30
 kubectl -n default delete deployment sink
 kubectl -n default delete svc sink
-kubectl -n argocd annotate app demo-staging notifications.argoproj.io/subscribe.on-sync-succeeded.sink-</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n argocd patch cm argocd-notifications-cm --type merge -p '{"data":{"service.webhook.sink":"url: http://sink.default.svc.cluster.local\nheaders:\n- name: Content-Type\n  value: application/json","template.app-synced":"webhook:\n  sink:\n    method: POST\n    body: |\n      {\"app\": \"{{.app.metadata.name}}\", \"phase\": \"{{.app.status.operationState.phase}}\"}","trigger.on-sync-succeeded":"- send: [app-synced]\n  when: app.status.operationState.phase in [\"Succeeded\"]"}}'</b>
-Error from server (NotFound): configmaps "argocd-notifications-cm" not found
+kubectl -n argocd annotate app demo-staging notifications.argoproj.io/subscribe.on-sync-succeeded.sink-</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')</b>
+<b>$ argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web</b>
+<b>$ kubectl -n argocd patch cm argocd-notifications-cm --type merge -p '{"data":{"service.webhook.sink":"url: http://sink.default.svc.cluster.local\nheaders:\n- name: Content-Type\n  value: application/json","template.app-synced":"webhook:\n  sink:\n    method: POST\n    body: |\n      {\"app\": \"{{.app.metadata.name}}\", \"phase\": \"{{.app.status.operationState.phase}}\"}","trigger.on-sync-succeeded":"- send: [app-synced]\n  when: app.status.operationState.phase in [\"Succeeded\"]"}}'</b>
 <b>$ kubectl -n default create deployment sink --image=kennethreitz/httpbin</b>
-deployment.apps/sink created
 <b>$ kubectl -n default expose deployment sink --port=80 --target-port=80</b>
-service/sink exposed
 <b>$ kubectl -n argocd annotate app demo-staging notifications.argoproj.io/subscribe.on-sync-succeeded.sink="" --overwrite</b>
-application.argoproj.io/demo-staging annotated
 <b>$ kubectl -n argocd rollout restart deploy argocd-notifications-controller</b>
-Error from server (NotFound): deployments.apps "argocd-notifications-controller" not found
 <b>$ kubectl -n argocd rollout status deploy argocd-notifications-controller</b>
-Error from server (NotFound): deployments.apps "argocd-notifications-controller" not found
 <b>$ argocd app sync demo-staging --timeout 120</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T12:53:48-04:00"}
 <b>$ sleep 20</b>
 <b>$ kubectl -n argocd logs deploy/argocd-notifications-controller --tail=30</b>
-error: error from server (NotFound): deployments.apps "argocd-notifications-controller" not found in namespace "argocd"
 <b>$ kubectl -n default delete deployment sink</b>
-deployment.apps "sink" deleted from default namespace
 <b>$ kubectl -n default delete svc sink</b>
-service "sink" deleted from default namespace
 <b>$ kubectl -n argocd annotate app demo-staging notifications.argoproj.io/subscribe.on-sync-succeeded.sink-</b>
-application.argoproj.io/demo-staging annotated</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the controller log records the trigger firing and the delivery to the webhook service. If it records a template error instead, that is the more common failure and the message names the field.</div>
     </div>
 

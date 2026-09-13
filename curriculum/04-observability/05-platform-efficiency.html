@@ -221,10 +221,10 @@ kubectl -n monitoring create configmap ksm-customresource --from-file=config.yam
 kubectl -n monitoring patch deploy prometheus-kube-state-metrics --type json -p '[{"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"crs","configMap":{"name":"ksm-customresource"}}},{"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"crs","mountPath":"/etc/ksm"}},{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--custom-resource-state-config-file=/etc/ksm/config.yaml"}]'
 kubectl -n monitoring rollout status deploy prometheus-kube-state-metrics --timeout=180s
 sleep 60
-kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;
+kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!
 sleep 5
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query={__name__=~"kube_customresource_appenvironment.*"}' | jq '.data.result[] | {name: .metric.__name__, labels: .metric, value: .value[1]}'
-kill %1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ cat &gt; /tmp/crs.yaml &lt;&lt;'EOF'</b>
+kill $PF1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ cat &gt; /tmp/crs.yaml &lt;&lt;'EOF'</b>
 <b>spec:</b>
 <b>  resources:</b>
 <b>    - groupVersionKind:</b>
@@ -247,41 +247,37 @@ kill %1</code></pre><details class="out"><summary>output<span class="when">captu
 <b>              list: ["True", "False", "Unknown"]</b>
 <b>EOF</b>
 <b>$ kubectl -n monitoring create configmap ksm-customresource --from-file=config.yaml=/tmp/crs.yaml --dry-run=client -o yaml | kubectl apply -f -</b>
-configmap/ksm-customresource created
 <b>$ kubectl -n monitoring patch deploy prometheus-kube-state-metrics --type json -p '[{"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"crs","configMap":{"name":"ksm-customresource"}}},{"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"crs","mountPath":"/etc/ksm"}},{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--custom-resource-state-config-file=/etc/ksm/config.yaml"}]'</b>
-The request is invalid: the server rejected our request due to an error in our request
 <b>$ kubectl -n monitoring rollout status deploy prometheus-kube-state-metrics --timeout=180s</b>
-deployment "prometheus-kube-state-metrics" successfully rolled out
 <b>$ sleep 60</b>
-<b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
+<b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
-Unable to listen on port 9090: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:9090: bind: address already in use unable to create listener: Error listen tcp6 [::1]:9090: bind: address already in use]
-error: unable to listen on any of the requested ports: [{9090 9090}]
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query={__name__=~"kube_customresource_appenvironment.*"}' | jq '.data.result[] | {name: .metric.__name__, labels: .metric, value: .value[1]}'</b>
-<b>$ kill %1</b>
-bash: line 271: kill: (257111) - No such process</code></pre></details></div>
+<b>$ kill $PF1</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> a <code>kube_customresource_appenvironment_*</code> series exists for each AppEnvironment, carrying its name and readiness. That is a platform SLI you did not have to write a controller for.</div>
     </div>
 
     <div class="exercise" data-title="Measure one lead time by hand">
       <p>Lead time for change is a subtraction: when was the commit authored, when did it reach the cluster. Do it once by hand for a real revision so the number means something before you automate it.</p>
-      <div class="cb" data-lang="bash"><pre><code>SHA=$(kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.revision}')
+      <div class="cb" data-lang="bash"><pre><code>ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web
+SHA=$(kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.revision}')
 echo "revision: $SHA"
 git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-leadtime 2&gt;/dev/null || true
 git -C /tmp/platform-leadtime fetch --all
 git -C /tmp/platform-leadtime log -1 --format=%cI "$SHA"
 argocd app history demo-staging
-kubectl -n argocd get app demo-staging -o jsonpath='{range .status.history[*]}{.revision} {.deployedAt}{"\n"}{end}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ SHA=$(kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.revision}')</b>
+kubectl -n argocd get app demo-staging -o jsonpath='{range .status.history[*]}{.revision} {.deployedAt}{"\n"}{end}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')</b>
+<b>$ argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web</b>
+<b>$ SHA=$(kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.revision}')</b>
 <b>$ echo "revision: $SHA"</b>
-revision: 06497163fb84e3a441d3bfe056c04addafd663fc
 <b>$ git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-leadtime 2&gt;/dev/null || true</b>
 <b>$ git -C /tmp/platform-leadtime fetch --all</b>
 <b>$ git -C /tmp/platform-leadtime log -1 --format=%cI "$SHA"</b>
-2026-09-12T13:25:51-04:00
 <b>$ argocd app history demo-staging</b>
-{"level":"fatal","msg":"Failed to establish connection to 172.18.0.9:443: error dial proxy: dial tcp 172.18.0.9:443: connect: no route to host","time":"2026-09-12T14:30:25-04:00"}
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{range .status.history[*]}{.revision} {.deployedAt}{"\n"}{end}'</b>
-c9d066255db33d9c2085a7804b3bcd55f5ec6918 2026-09-12T16:50:06Z</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> you can subtract the commit timestamp from the deployed-at timestamp for the same sha and say the number out loud. Then say which part of that interval your platform is responsible for and which part is the developer waiting for a review.</div>
     </div>
 
@@ -289,74 +285,37 @@ c9d066255db33d9c2085a7804b3bcd55f5ec6918 2026-09-12T16:50:06Z</code></pre></deta
       <p>A suspended Kustomization is a promise the platform has stopped keeping, and nothing alerts on it by default. The gauge Flux exports makes it one query, and that query belongs on the platform dashboard.</p>
       <div class="cb" data-lang="bash"><pre><code>flux suspend kustomization demo-flux
 sleep 60
-kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;
+kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!
 sleep 5
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=count(gotk_resource_info{customresource_kind="Kustomization", suspended="true"})' | jq '.data.result'
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=gotk_resource_info{suspended="true"}' | jq '.data.result[] | .metric'
-kill %1
-flux resume kustomization demo-flux</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ flux suspend kustomization demo-flux</b>
-✗ Kustomization demo-flux not found in flux-system namespace
+kill $PF1
+flux resume kustomization demo-flux</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ flux suspend kustomization demo-flux</b>
 <b>$ sleep 60</b>
-<b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
+<b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
-Forwarding from 127.0.0.1:9090 -&gt; 9090
-Forwarding from [::1]:9090 -&gt; 9090
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=count(gotk_resource_info{customresource_kind="Kustomization", suspended="true"})' | jq '.data.result'</b>
-Handling connection for 9090
-[]
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=gotk_resource_info{suspended="true"}' | jq '.data.result[] | .metric'</b>
-Handling connection for 9090
-<b>$ kill %1</b>
-bash: line 327: kill: (257111) - No such process
+<b>$ kill $PF1</b>
 <b>$ flux resume kustomization demo-flux</b>
-✗ Kustomization object 'demo-flux' not found in flux-system namespace</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the count is 1 while the Kustomization is suspended and the series names it. This needs the Flux PodMonitor from 4.1; if the query is empty, that is the reason, not the suspension.</div>
     </div>
 
     <div class="exercise" data-title="Count pipeline runs that worked">
       <p>Deployment frequency starts as a counter on the CI controller. <code>increase</code> over a day is the honest form of the number, and knowing which label carries the outcome is the whole exercise.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;
+      <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!
 sleep 5
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=tekton_pipelines_controller_pipelinerun_total' | jq '.data.result[] | {status: .metric.status, value: .value[1]}'
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=increase(tekton_pipelines_controller_pipelinerun_total{status="success"}[24h])' | jq '.data.result[] | .value[1]'
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=sum by (status) (increase(tekton_pipelines_controller_pipelinerun_total[24h]))' | jq '.data.result[] | {status: .metric.status, value: .value[1]}'
-kill %1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
+kill $PF1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
-Unable to listen on port 9090: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:9090: bind: address already in use unable to create listener: Error listen tcp6 [::1]:9090: bind: address already in use]
-error: unable to listen on any of the requested ports: [{9090 9090}]
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=tekton_pipelines_controller_pipelinerun_total' | jq '.data.result[] | {status: .metric.status, value: .value[1]}'</b>
-Handling connection for 9090
-{
-  "status": "cancelled",
-  "value": "1"
-}
-{
-  "status": "failed",
-  "value": "2"
-}
-{
-  "status": "success",
-  "value": "1"
-}
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=increase(tekton_pipelines_controller_pipelinerun_total{status="success"}[24h])' | jq '.data.result[] | .value[1]'</b>
-Handling connection for 9090
-"0"
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=sum by (status) (increase(tekton_pipelines_controller_pipelinerun_total[24h]))' | jq '.data.result[] | {status: .metric.status, value: .value[1]}'</b>
-Handling connection for 9090
-{
-  "status": "cancelled",
-  "value": "0"
-}
-{
-  "status": "failed",
-  "value": "0"
-}
-{
-  "status": "success",
-  "value": "0"
-}
-<b>$ kill %1</b>
-bash: line 355: kill: (257111) - No such process</code></pre></details></div>
+<b>$ kill $PF1</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the counter has a label separating successes from failures and the increase over a day is a plausible number. Say why <code>increase</code> and not the raw counter, and what a counter reset would do to each.</div>
     </div>
 

@@ -325,11 +325,11 @@ spec:
 EOF
 sleep 45
 kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | sed -n '/inhibit_rules/,/^[a-z]/p'
-kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-alertmanager 9093:9093 &amp;
+kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-alertmanager 9093:9093 &amp; PF1=$!
 sleep 5
 curl -s localhost:9093/api/v2/alerts | jq '[.[] | {alertname: .labels.alertname, state: .status.state, inhibitedBy: .status.inhibitedBy}]'
-kill %1
-kubectl -n default delete alertmanagerconfig inhibit-demo</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kill $PF1
+kubectl -n default delete alertmanagerconfig inhibit-demo</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1alpha1</b>
 <b>kind: AlertmanagerConfig</b>
 <b>metadata: { name: inhibit-demo, namespace: default, labels: { release: prometheus } }</b>
@@ -346,58 +346,14 @@ kubectl -n default delete alertmanagerconfig inhibit-demo</code></pre><details c
 <b>        - { name: severity, value: warning }</b>
 <b>      equal: [namespace]</b>
 <b>EOF</b>
-alertmanagerconfig.monitoring.coreos.com/inhibit-demo created
 <b>$ sleep 45</b>
 <b>$ kubectl -n monitoring get secret alertmanager-prometheus-kube-prometheus-alertmanager-generated -o jsonpath='{.data.alertmanager\.yaml\.gz}' | base64 -d | gunzip | sed -n '/inhibit_rules/,/^[a-z]/p'</b>
-inhibit_rules:
-- target_matchers:
-  - severity =~ warning|info
-  source_matchers:
-  - severity = critical
-  equal:
-  - namespace
-  - alertname
-- target_matchers:
-  - severity = info
-  source_matchers:
-  - severity = warning
-  equal:
-  - namespace
-  - alertname
-- target_matchers:
-  - severity = info
-  source_matchers:
-  - alertname = InfoInhibitor
-  equal:
-  - namespace
-- target_matchers:
-  - alertname = InfoInhibitor
-- target_matchers:
-  - severity="warning"
-  - namespace="default"
-  source_matchers:
-  - alertname="Watchdog"
-  - namespace="default"
-  equal:
-  - namespace
-receivers:
-<b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-alertmanager 9093:9093 &amp;</b>
+<b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-alertmanager 9093:9093 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
-Forwarding from 127.0.0.1:9093 -&gt; 9093
-Forwarding from [::1]:9093 -&gt; 9093
 <b>$ curl -s localhost:9093/api/v2/alerts | jq '[.[] | {alertname: .labels.alertname, state: .status.state, inhibitedBy: .status.inhibitedBy}]'</b>
-Handling connection for 9093
-[
-  {
-    "alertname": "Watchdog",
-    "state": "active",
-    "inhibitedBy": []
-  }
-]
-<b>$ kill %1</b>
-bash: line 363: kill: (235591) - No such process
+<b>$ kill $PF1</b>
 <b>$ kubectl -n default delete alertmanagerconfig inhibit-demo</b>
-alertmanagerconfig.monitoring.coreos.com "inhibit-demo" deleted from default namespace</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the rendered config carries the rule, and any alert it suppresses shows <code>inhibitedBy</code> naming the source alert's fingerprint. An empty <code>equal</code> would inhibit across namespaces; say why that is almost always wrong.</div>
     </div>
 
@@ -564,12 +520,12 @@ spec:
             summary: "burning the error budget 14.4x faster than allowed"
 EOF
 sleep 120
-kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;
+kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!
 sleep 5
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=job:request_error_ratio:rate5m' | jq '.data.result[0].value[1]'
 curl -s localhost:9090/api/v1/rules | jq '.data.groups[] | select(.name=="sli") | .rules[] | {name: (.name // .alert), type, health, state}'
-kill %1
-kubectl -n monitoring delete prometheusrule burn-rate</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kill $PF1
+kubectl -n monitoring delete prometheusrule burn-rate</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1</b>
 <b>kind: PrometheusRule</b>
 <b>metadata: { name: burn-rate, namespace: monitoring, labels: { release: prometheus } }</b>
@@ -598,18 +554,14 @@ kubectl -n monitoring delete prometheusrule burn-rate</code></pre><details class
 <b>          annotations:</b>
 <b>            summary: "burning the error budget 14.4x faster than allowed"</b>
 <b>EOF</b>
-prometheusrule.monitoring.coreos.com/burn-rate unchanged
 <b>$ sleep 120</b>
-<b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
+<b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
-Unable to listen on port 9090: Listeners failed to create with the following errors: [unable to create listener: Error listen tcp4 127.0.0.1:9090: bind: address already in use unable to create listener: Error listen tcp6 [::1]:9090: bind: address already in use]
-error: unable to listen on any of the requested ports: [{9090 9090}]
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=job:request_error_ratio:rate5m' | jq '.data.result[0].value[1]'</b>
 <b>$ curl -s localhost:9090/api/v1/rules | jq '.data.groups[] | select(.name=="sli") | .rules[] | {name: (.name // .alert), type, health, state}'</b>
-<b>$ kill %1</b>
-bash: line 62: kill: (243793) - No such process
+<b>$ kill $PF1</b>
 <b>$ kubectl -n monitoring delete prometheusrule burn-rate</b>
-prometheusrule.monitoring.coreos.com "burn-rate" deleted from monitoring namespace</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> both recording rules are healthy and the alert is inactive on a quiet cluster. Say what the 14.4 is doing in that expression and what the second window buys you that the first one does not.</div>
     </div>
 
@@ -668,69 +620,15 @@ No resources found
     <div class="exercise" data-title="Find how Prometheus knows where to send alerts">
       <p>Prometheus does not notify anyone; it posts to Alertmanager, and the discovery for that is in the Prometheus object rather than anywhere in your rules. On a cluster with alerts that never arrive, this is the second thing to check after the rule itself.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.alerting}' | jq
-kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;
+kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!
 sleep 5
 curl -s localhost:9090/api/v1/alertmanagers | jq '{active: [.data.activeAlertmanagers[].url], dropped: [.data.droppedAlertmanagers[].url]}'
-kill %1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.alerting}' | jq</b>
-{
-  "alertmanagers": [
-    {
-      "apiVersion": "v2",
-      "name": "prometheus-kube-prometheus-alertmanager",
-      "namespace": "monitoring",
-      "pathPrefix": "/",
-      "port": "http-web"
-    }
-  ]
-}
-<b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
+kill $PF1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.alerting}' | jq</b>
+<b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
-Forwarding from 127.0.0.1:9090 -&gt; 9090
-Forwarding from [::1]:9090 -&gt; 9090
 <b>$ curl -s localhost:9090/api/v1/alertmanagers | jq '{active: [.data.activeAlertmanagers[].url], dropped: [.data.droppedAlertmanagers[].url]}'</b>
-Handling connection for 9090
-{
-  "active": [
-    "http://10.244.1.185:9093/api/v2/alerts"
-  ],
-  "dropped": [
-    "http://10.244.1.185:8080/api/v2/alerts",
-    "http://10.244.1.185:9094/api/v2/alerts",
-    "http://10.244.1.185:9094/api/v2/alerts",
-    "http://10.244.1.185:8081/api/v2/alerts",
-    "http://10.244.1.170:3000/api/v2/alerts",
-    "http://10.244.1.170:9094/api/v2/alerts",
-    "http://10.244.1.170:9094/api/v2/alerts",
-    "http://10.244.1.170:6060/api/v2/alerts",
-    "http://10.244.2.54:3100/api/v2/alerts",
-    "http://10.244.2.54:9095/api/v2/alerts",
-    "http://10.244.2.54:7946/api/v2/alerts",
-    "http://10.244.1.222:12345/api/v2/alerts",
-    "http://10.244.2.54:7946/api/v2/alerts",
-    "http://10.244.2.54:3100/api/v2/alerts",
-    "http://10.244.2.54:9095/api/v2/alerts",
-    "http://10.244.1.117:9090/api/v2/alerts",
-    "http://10.244.1.117:8080/api/v2/alerts",
-    "http://10.244.1.117:8081/api/v2/alerts",
-    "http://10.244.1.117:9090/api/v2/alerts",
-    "http://10.244.1.117:8080/api/v2/alerts",
-    "http://10.244.1.117:8081/api/v2/alerts",
-    "http://10.244.1.27:10250/api/v2/alerts",
-    "http://10.244.1.158:8080/api/v2/alerts",
-    "http://10.244.1.158:8081/api/v2/alerts",
-    "http://172.18.0.3:9100/api/v2/alerts",
-    "http://172.18.0.4:9100/api/v2/alerts",
-    "http://172.18.0.5:9100/api/v2/alerts",
-    "http://10.244.1.39:8080/api/v2/alerts",
-    "http://10.244.1.185:9094/api/v2/alerts",
-    "http://10.244.1.185:9094/api/v2/alerts",
-    "http://10.244.1.185:9093/api/v2/alerts",
-    "http://10.244.1.185:8080/api/v2/alerts",
-    "http://10.244.1.185:8081/api/v2/alerts",
-    "http://10.244.2.93:9115/api/v2/alerts",
-<i>... 6 more lines</i>
-<b>$ kill %1</b>
-bash: line 98: kill: (243793) - No such process</code></pre></details></div>
+<b>$ kill $PF1</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the spec names the Alertmanager Service and port, and the API confirms at least one active endpoint. An empty active list with healthy rules is the whole diagnosis for "it says firing but nobody was paged".</div>
     </div>
 

@@ -605,12 +605,8 @@ sleep 10
 kubectl -n team-c delete resourcequota tenant-quota
 kubectl patch appenvironment team-c-dev --type merge -p '{"metadata":{"annotations":{"nudge":"now"}}}'
 sleep 30
-kubectl -n team-c get resourcequota</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl api-resources | grep -E 'usages.*protection.crossplane.io'</b>
-clusterusages                                                                         protection.crossplane.io/v1beta1          false        ClusterUsage
-usages                                                                                protection.crossplane.io/v1beta1          true         Usage
+kubectl -n team-c get resourcequota</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl api-resources | grep -E 'usages.*protection.crossplane.io'</b>
 <b>$ kubectl -n team-c get resourcequota</b>
-NAME           REQUEST                                     LIMIT   AGE
-tenant-quota   requests.cpu: 0/4, requests.memory: 0/8Gi           140m
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: protection.crossplane.io/v1beta1</b>
 <b>kind: Usage</b>
@@ -622,22 +618,15 @@ tenant-quota   requests.cpu: 0/4, requests.memory: 0/8Gi           140m
 <b>    kind: ResourceQuota</b>
 <b>    resourceRef: { name: tenant-quota }</b>
 <b>EOF</b>
-usage.protection.crossplane.io/protect-team-c-quota created
 <b>$ sleep 10</b>
 <b>$ kubectl -n team-c delete resourcequota tenant-quota</b>
-resourcequota "tenant-quota" deleted from team-c namespace
 <b>$ kubectl -n team-c delete usage protect-team-c-quota</b>
-Warning: deleting cluster-scoped resources, not scoped to the provided namespace
-Warning: apiextensions.crossplane.io Usage is deprecated; migrate to protection.crossplane.io Usage or ClusterUsage
-Error from server (NotFound): usages.apiextensions.crossplane.io "protect-team-c-quota" not found
 <b>$ sleep 10</b>
 <b>$ kubectl -n team-c delete resourcequota tenant-quota</b>
-Error from server (NotFound): resourcequotas "tenant-quota" not found
 <b>$ kubectl patch appenvironment team-c-dev --type merge -p '{"metadata":{"annotations":{"nudge":"now"}}}'</b>
-appenvironment.platform.lab.local/team-c-dev patched
 <b>$ sleep 30</b>
 <b>$ kubectl -n team-c get resourcequota</b>
-No resources found in team-c namespace.</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the first delete is refused by an admission webhook quoting your reason, and the second succeeds once the Usage is gone. The composition puts the quota back, which is the other half of the argument for protecting it.</div>
     </div>
 
@@ -730,14 +719,11 @@ spec:
     - port: metrics
 EOF
 sleep 60
-kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;
+kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!
 sleep 5
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=up{job=~".*provider.*"}' | jq '.data.result[] | {metric: .metric.pod, value: .value[1]}'
 curl -sG localhost:9090/api/v1/query --data-urlencode 'query=crossplane_managed_resource_ready' | jq '.data.result | length'
-kill %1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n crossplane-system get pods -l pkg.crossplane.io/provider -o wide</b>
-NAME                                                READY   STATUS    RESTARTS   AGE   IP            NODE          NOMINATED NODE   READINESS GATES
-provider-helm-fdbfef781539-95cd7787f-frv7f          1/1     Running   0          78m   10.244.1.26   cnpe-worker   &lt;none&gt;           &lt;none&gt;
-provider-kubernetes-17261e579786-767c5b99b7-prjsb   1/1     Running   0          78m   10.244.1.52   cnpe-worker   &lt;none&gt;           &lt;none&gt;
+kill $PF1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n crossplane-system get pods -l pkg.crossplane.io/provider -o wide</b>
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: monitoring.coreos.com/v1</b>
 <b>kind: PodMonitor</b>
@@ -749,26 +735,13 @@ provider-kubernetes-17261e579786-767c5b99b7-prjsb   1/1     Running   0         
 <b>  podMetricsEndpoints:</b>
 <b>    - port: metrics</b>
 <b>EOF</b>
-podmonitor.monitoring.coreos.com/crossplane-providers created
 <b>$ sleep 60</b>
-<b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp;</b>
+<b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
-Forwarding from 127.0.0.1:9090 -&gt; 9090
-Forwarding from [::1]:9090 -&gt; 9090
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=up{job=~".*provider.*"}' | jq '.data.result[] | {metric: .metric.pod, value: .value[1]}'</b>
-Handling connection for 9090
-{
-  "metric": "provider-helm-fdbfef781539-95cd7787f-frv7f",
-  "value": "1"
-}
-{
-  "metric": "provider-kubernetes-17261e579786-767c5b99b7-prjsb",
-  "value": "1"
-}
 <b>$ curl -sG localhost:9090/api/v1/query --data-urlencode 'query=crossplane_managed_resource_ready' | jq '.data.result | length'</b>
-Handling connection for 9090
-4
-<b>$ kill %1</b></code></pre></details></div>
+<b>$ kill $PF1</b>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the provider pods appear as up targets and the readiness gauge returns series. If the port name in the PodMonitor does not match the container's port name, you get zero targets and no error anywhere; check the pod spec before you doubt Prometheus.</div>
     </div>
 

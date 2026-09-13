@@ -444,7 +444,7 @@ sleep 20
 kubectl -n default run pinned --image=kind-registry:5000/demo:v1 --restart=Never
 kubectl -n default get pod pinned -o jsonpath='{.spec.containers[0].image}{"\n"}'
 kubectl -n default delete pod pinned --ignore-not-found
-kubectl delete clusterpolicy pin-digest</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;EOF</b>
+kubectl delete clusterpolicy pin-digest</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;EOF</b>
 <b>apiVersion: kyverno.io/v1</b>
 <b>kind: ClusterPolicy</b>
 <b>metadata: { name: pin-digest }</b>
@@ -468,19 +468,12 @@ kubectl delete clusterpolicy pin-digest</code></pre><details class="out"><summar
 <b>                    publicKeys: |-</b>
 <b>$(cat /tmp/cosign.pub | sed 's/^/                      /')</b>
 <b>EOF</b>
-cat: /tmp/cosign.pub: No such file or directory
-Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
-Error from server: error when creating "STDIN": admission webhook "validate-policy.kyverno.svc" denied the request: spec.rules[0].verifyImages[0].attestors[0].entries[0].keys: Invalid value: {"signatureAlgorithm":"sha256"}: A public key, kms key or secret is required
 <b>$ sleep 20</b>
 <b>$ kubectl -n default run pinned --image=kind-registry:5000/demo:v1 --restart=Never</b>
-pod/pinned created
 <b>$ kubectl -n default get pod pinned -o jsonpath='{.spec.containers[0].image}{"\n"}'</b>
-kind-registry:5000/demo:v1
 <b>$ kubectl -n default delete pod pinned --ignore-not-found</b>
-pod "pinned" deleted from default namespace
 <b>$ kubectl delete clusterpolicy pin-digest</b>
-Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
-Error from server (NotFound): clusterpolicies.kyverno.io "pin-digest" not found</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the running pod's image is <code>...@sha256:...</code> even though you asked for a tag. Say what this protects against that verification alone does not, and what it costs a team that relies on moving tags.</div>
     </div>
 
@@ -713,21 +706,9 @@ kubectl -n sigstore-demo delete pod signed unsigned --ignore-not-found
 kubectl delete clusterimagepolicy demo-signed-only
 kubectl delete ns sigstore-demo
 helm uninstall policy-controller -n cosign-system
-kubectl delete ns cosign-system</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ helm repo add sigstore https://sigstore.github.io/helm-charts</b>
-"sigstore" has been added to your repositories
+kubectl delete ns cosign-system</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ helm repo add sigstore https://sigstore.github.io/helm-charts</b>
 <b>$ helm repo update sigstore</b>
-Hang tight while we grab the latest from your chart repositories...
-...Successfully got an update from the "sigstore" chart repository
-Update Complete. ⎈Happy Helming!⎈
 <b>$ helm upgrade --install policy-controller sigstore/policy-controller -n cosign-system --create-namespace --wait --timeout 5m</b>
-Release "policy-controller" does not exist. Installing it now.
-NAME: policy-controller
-LAST DEPLOYED: Sat Sep 12 16:57:01 2026
-NAMESPACE: cosign-system
-STATUS: deployed
-REVISION: 1
-DESCRIPTION: Install complete
-TEST SUITE: None
 <b>$ kubectl apply -f - &lt;&lt;EOF</b>
 <b>apiVersion: policy.sigstore.dev/v1beta1</b>
 <b>kind: ClusterImagePolicy</b>
@@ -740,35 +721,18 @@ TEST SUITE: None
 <b>        data: |-</b>
 <b>$(cat /tmp/cosign.pub | sed 's/^/          /')</b>
 <b>EOF</b>
-cat: /tmp/cosign.pub: No such file or directory
-Error from server (BadRequest): error when creating "STDIN": admission webhook "validating.clusterimagepolicy.sigstore.dev" denied the request: validation failed: expected exactly one, got neither: spec.authorities[0].key.data, spec.authorities[0].key.kms, spec.authorities[0].key.secretref
 <b>$ kubectl create ns sigstore-demo --dry-run=client -o yaml | kubectl apply -f -</b>
-namespace/sigstore-demo created
 <b>$ kubectl label ns sigstore-demo policy.sigstore.dev/include=true --overwrite</b>
-namespace/sigstore-demo labeled
 <b>$ sleep 30</b>
 <b>$ COSIGN_PASSWORD='' cosign sign --yes --key /tmp/cosign.key --allow-insecure-registry localhost:5001/demo:v1</b>
-WARNING: Image reference localhost:5001/demo:v1 uses a tag, not a digest, to identify the image to sign.
-    This can lead you to sign a different image than the intended one. Please use a
-    digest (example.com/ubuntu@sha256:abc123...) rather than tag
-    (example.com/ubuntu:latest) for the input to cosign. The ability to refer to
-    images by tag will be removed in a future release.
-
-Error: signing [localhost:5001/demo:v1]: recursively signing: signing digest: getting keypair and token: getting signer: reading key: open /tmp/cosign.key: no such file or directory
-error during command execution: signing [localhost:5001/demo:v1]: recursively signing: signing digest: getting keypair and token: getting signer: reading key: open /tmp/cosign.key: no such file or directory
 <b>$ kubectl -n sigstore-demo run signed --image=kind-registry:5000/demo:v1 --restart=Never</b>
-Error from server (BadRequest): admission webhook "policy.sigstore.dev" denied the request: validation failed: invalid value: kind-registry:5000/demo:v1 must be an image digest: spec.containers[0].image
 <b>$ kubectl -n sigstore-demo run unsigned --image=kind-registry:5000/demo:fake --restart=Never</b>
-Error from server (BadRequest): admission webhook "policy.sigstore.dev" denied the request: validation failed: invalid value: kind-registry:5000/demo:fake must be an image digest: spec.containers[0].image
 <b>$ kubectl -n sigstore-demo delete pod signed unsigned --ignore-not-found</b>
 <b>$ kubectl delete clusterimagepolicy demo-signed-only</b>
-Error from server (NotFound): clusterimagepolicies.policy.sigstore.dev "demo-signed-only" not found
 <b>$ kubectl delete ns sigstore-demo</b>
-namespace "sigstore-demo" deleted
 <b>$ helm uninstall policy-controller -n cosign-system</b>
-release "policy-controller" uninstalled
 <b>$ kubectl delete ns cosign-system</b>
-namespace "cosign-system" deleted</code></pre></details></div>
+<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the signed image is admitted in the labelled namespace and the unsigned one is refused by a webhook that is not Kyverno's. Say what you would do if both controllers were configured with different keys for the same image, and which of them decides.</div>
     </div>
 
