@@ -46,7 +46,7 @@
     <p>If they differ, the controller has not yet processed your latest edit, and whatever status says describes a <em>previous</em> spec. Checking this first avoids diagnosing stale information, and almost nobody does it. <code>metadata.generation</code> increments on spec changes only, <em>provided the CRD has the status subresource</em>. Without it, status writes bump generation too, and <code>observedGeneration</code> tells you nothing. That is one more reason the subresource is not optional for a real API (section 3.2).</p>
 
     <h3>3 · Owner references</h3>
-    <p>Operator-created resources carry <code>ownerReferences</code> pointing at their parent. This answers "what keeps recreating this thing", drives cascade deletion (foreground, background, or orphan), and lets you reconstruct an operator's whole object tree without documentation. Note the rules: an owner must be in the same namespace (or be cluster-scoped), and a namespaced object cannot own a cluster-scoped one, the constraint that shapes Crossplane's design in 3.5.</p>
+    <p>Operator-created resources carry <code>ownerReferences</code> pointing at their parent. This answers "what keeps recreating this thing", drives cascade deletion (foreground, background, or orphan), and lets you reconstruct an operator's whole object tree without documentation. Note the rules: an owner must be in the same namespace (or be cluster-scoped), and a namespaced object cannot own a cluster-scoped one, the constraint behind Crossplane's design in 3.5.</p>
 
     <h3>4 · Finalizers</h3>
     <p>A deletion sticks in <em>Terminating</em> while a finalizer is present, because the controller is doing teardown work, or is dead and cannot. A stuck namespace or CR almost always means "find whose finalizer, and why its controller is not running". Removing the finalizer by hand is the last resort, and it leaks whatever the teardown was supposed to clean up (external volumes, cloud resources, DNS records). Accept that trade knowingly before you do it.</p>
@@ -210,7 +210,7 @@ secret/pg-app   kubernetes.io/basic-auth   11     4m1s
         </tbody>
       </table>
     </div>
-    <p>Kubebuilder generates these from <code>// +kubebuilder:rbac</code> markers into a ClusterRole; Helm and Ansible operators ship the same shape by hand. A namespaced install (<code>--watch-namespace</code>) can use Roles instead, which is the multi-tenant compromise (1.4).</p>
+    <p>Kubebuilder generates these from <code>// +kubebuilder:rbac</code> markers into a ClusterRole; Helm and Ansible operators ship the same rules by hand. A namespaced install (<code>--watch-namespace</code>) can use Roles instead, which is the multi-tenant compromise (1.4).</p>
 
     <h3>Admission webhooks inside operators</h3>
     <p>Many operators register a <code>ValidatingWebhookConfiguration</code> and <code>MutatingWebhookConfiguration</code> for their own kinds (defaulting, cross-field checks CEL cannot do, conversion). They need a serving certificate: cert-manager's <code>cert-manager.io/inject-ca-from</code> annotation, or the operator generating a self-signed pair and patching <code>caBundle</code>. When the operator pod is down, <code>failurePolicy: Fail</code> on its webhook makes every write to its kinds fail with "failed calling webhook"; that includes the GitOps controller's own applies, and it is the first thing to check when a whole API group becomes read-only after an operator upgrade.</p>
@@ -375,7 +375,7 @@ deployment.apps/cnpg-cloudnative-pg scaled</code></pre></details></div>
     </div>
 
     <div class="exercise" data-title="Read an operator's own permissions">
-      <p>An operator is a controller with a ServiceAccount, and everything it can do is in a ClusterRole you can read. The shape repeats across every operator: the CRD, its status, its finalizers, and the built-in kinds it composes.</p>
+      <p>An operator is a controller with a ServiceAccount, and everything it can do is in a ClusterRole you can read. The same pattern repeats across every operator: the CRD, its status, its finalizers, and the built-in kinds it composes.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n cnpg-system get sa
 kubectl get clusterrole -o name | grep -i cnpg
 kubectl get clusterrole cnpg-cloudnative-pg -o yaml | grep -B3 -A6 'postgresql.cnpg.io'
@@ -541,7 +541,7 @@ cluster.postgresql.cnpg.io/pg patched (no change)</code></pre></details></div>
     </div>
 
     <div class="exercise" data-title="Compare real conditions against the convention">
-      <p><code>metav1.Condition</code> gives every controller the same five fields and the same meaning for <code>status</code>. A real operator's condition types are domain-specific but the shape is not, and reading both together is how you learn to skim any operator's status.</p>
+      <p><code>metav1.Condition</code> gives every controller the same five fields and the same meaning for <code>status</code>. A real operator's condition types are domain-specific but the fields are not, and reading both together is how you learn to skim any operator's status.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n team-a get cluster pg -o jsonpath='{.status.conditions[*].type}{"\n"}'
 kubectl -n team-a get cluster pg -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, lastTransitionTime}'
 kubectl explain cluster.status.conditions
@@ -644,7 +644,7 @@ DESCRIPTION:
       <div class="answer"><p>Because reconciliation is level-based: the controller observes that a pod is missing and creates one, with no memory of the event. If you need a different outcome, change the spec (or the underlying cause); the loop will faithfully restore whatever the spec says forever.</p></div></details>
 
     <details class="quiz"><summary>An operator's CRs apply fine and nothing happens at all. Two checks?</summary>
-      <div class="answer"><p>Is the controller running (and did it win leader election)? And does its RBAC cover your namespace and your kind? A Forbidden in the controller's logs is the classic silent failure. Only after both: is the CR shaped in a way the controller ignores (a selector, a class field, a paused annotation)?</p></div></details>
+      <div class="answer"><p>Is the controller running (and did it win leader election)? And does its RBAC cover your namespace and your kind? A Forbidden in the controller's logs is the classic silent failure. Only after both: is the CR written in a way the controller ignores (a selector, a class field, a paused annotation)?</p></div></details>
 
     <details class="quiz"><summary>Name the five ways an operator integrates with the rest of a platform.</summary>
       <div class="answer"><p>Its CRs are delivered by GitOps; its metrics are scraped and alerted on; its connection Secrets are consumed by apps (or synced by ESO); its CRs are subject to policy at admission; and its API is fronted by a thinner developer-facing abstraction (Crossplane/kro/portal template). That list is the "integration" half of the competency.</p></div></details>

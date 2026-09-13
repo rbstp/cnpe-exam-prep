@@ -218,7 +218,7 @@ module.exports = async function (h) {
         hop: Math.round(hop.getBoundingClientRect().width),
         arr: Math.round(arr.getBoundingClientRect().width),
         inner: Math.round(inner),
-        // the arrow is a spine: its centre has to be the box's centre
+        // the arrow is a vertical line: its centre has to be the box's centre
         hopMid: Math.round(hop.getBoundingClientRect().left + hop.getBoundingClientRect().width / 2),
         arrMid: Math.round(arr.getBoundingClientRect().left + arr.getBoundingClientRect().width / 2)
       };

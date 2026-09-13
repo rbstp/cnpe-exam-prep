@@ -83,7 +83,7 @@ group("yaml and json");
   // just as well for a json routed to the shell one.
   ok(spans(S.highlight("a: 1", "json")).includes("key"), "json takes the yaml pass");
   // Quotes are shielded before any language pass, so a json key is a string,
-  // never a key. Always has been; pinning the shape, not fixing it.
+  // never a key. Always has been; pinning the behaviour, not fixing it.
   const j = S.highlight('{\n  "a": 1\n}', "json");
   ok(spans(j).join() === "str", 'a quoted json key lands as a string: ' + spans(j).join());
   ok(strip(j) === '{\n  "a": 1\n}', "round trip");

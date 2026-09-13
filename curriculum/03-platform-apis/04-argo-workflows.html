@@ -48,7 +48,7 @@
           <tr><td class="mono">container</td><td>runs an image</td><td>anything with a CLI</td></tr>
           <tr><td class="mono">script</td><td>inline code with an interpreter; its stdout becomes a result</td><td>validation, small glue, computed values</td></tr>
           <tr><td class="mono">resource</td><td>create/apply/patch/delete a Kubernetes object, optionally waiting on a success condition</td><td><strong>the provisioning workhorse</strong></td></tr>
-          <tr><td class="mono">dag</td><td>tasks with <code>dependencies</code></td><td>the shape to default to</td></tr>
+          <tr><td class="mono">dag</td><td>tasks with <code>dependencies</code></td><td>the one to default to</td></tr>
           <tr><td class="mono">steps</td><td>sequential groups (<code>-</code> parallel within a group, <code>- -</code> serial between groups)</td><td>simple linear flows</td></tr>
           <tr><td class="mono">suspend</td><td>pauses until resumed (manually or after a duration)</td><td>approval gates</td></tr>
         </tbody>
@@ -74,7 +74,7 @@
 <section class="panel accent-r" id="rbac">
   <div class="phdr"><h2>RBAC is the part that actually fails</h2><span class="meta">and the Argo-specific wrinkle</span></div>
   <div class="pbody">
-    <p>Workflow pods run as a ServiceAccount, and a <code>resource</code> template creating namespaces needs cluster-scoped rights that <code>default</code> does not have. The exam-shaped skill is wiring SA → Role/ClusterRole → binding → <code>spec.serviceAccountName</code>, and then recognising a <em>Forbidden</em> error inside a workflow node as an RBAC problem rather than a workflow problem.</p>
+    <p>Workflow pods run as a ServiceAccount, and a <code>resource</code> template creating namespaces needs cluster-scoped rights that <code>default</code> does not have. The skill the exam wants is wiring SA → Role/ClusterRole → binding → <code>spec.serviceAccountName</code>, and then recognising a <em>Forbidden</em> error inside a workflow node as an RBAC problem rather than a workflow problem.</p>
 
     <div class="callout trap">
       <span class="tag">The one nobody guesses</span>
@@ -239,7 +239,7 @@ time=2026-08-27T03:31:18.375Z level=WARN msg="Non-transient error" argo=true err
     </div>
     <p>Two other silent stalls: a Workflow in a namespace the controller does not watch (this lab: only <code>argo</code> and <code>default</code>) shows no status at all, and a Workflow whose SA lacks <code>pods</code> permissions in <code>server</code> auth mode fails at the server, not in a node. <code>argo retry</code> resumes a failed Workflow from the failed nodes; <code>argo resubmit</code> starts a fresh one; <code>argo stop</code> runs exit handlers, <code>argo terminate</code> does not.</p>
 
-    <div class="callout exam"><span class="tag">How this gets tested</span><p>Expect tasks of the shape "make this workflow retry up to three times with backoff", "notify on completion regardless of outcome", "run this nightly and never overlap", or "expose this Workflow so a user can submit it with a parameter". Each maps to one field above: <code>retryStrategy</code>, <code>onExit</code>, <code>CronWorkflow</code> with <code>concurrencyPolicy: Forbid</code>, and promotion to a <code>WorkflowTemplate</code>. Verify by reading <code>status.nodes</code>, not the UI's colour.</p></div>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>Expect tasks like "make this workflow retry up to three times with backoff", "notify on completion regardless of outcome", "run this nightly and never overlap", or "expose this Workflow so a user can submit it with a parameter". Each maps to one field above: <code>retryStrategy</code>, <code>onExit</code>, <code>CronWorkflow</code> with <code>concurrencyPolicy: Forbid</code>, and promotion to a <code>WorkflowTemplate</code>. Verify by reading <code>status.nodes</code>, not the UI's colour.</p></div>
   </div>
 </section>
 
@@ -869,7 +869,7 @@ No resources found</code></pre></details></div>
     </div>
 
     <div class="exercise" data-title="Reference a template from the wrong scope">
-      <p>A ClusterWorkflowTemplate and a WorkflowTemplate are different kinds with the same shape. Referencing one as the other produces a not-found error that sends people looking for a typo that is not there.</p>
+      <p>A ClusterWorkflowTemplate and a WorkflowTemplate are different kinds with identical fields. Referencing one as the other produces a not-found error that sends people looking for a typo that is not there.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -
 kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f - &lt;&lt;'EOF'
@@ -1175,7 +1175,7 @@ workflow.argoproj.io "via-api-8tft9" deleted from default namespace</code></pre>
       <div class="answer"><p>When the desired state must stay true indefinitely; a workflow runs once and forgets. Use a controller/operator, or a declarative composition engine (Crossplane, kro) whose CR keeps reconciling. Workflows are for sequences with an end.</p></div></details>
 
     <details class="quiz"><summary>Two DAG tasks with no <code>dependencies</code>: what happens, and how do you gate one on a condition?</summary>
-      <div class="answer"><p>They run in parallel. Gate with <code>dependencies</code> for ordering and <code>when</code> for conditions (evaluated against parameters or a previous task's result). A validation node that everything depends on is the standard "fail before side effects" shape.</p></div></details>
+      <div class="answer"><p>They run in parallel. Gate with <code>dependencies</code> for ordering and <code>when</code> for conditions (evaluated against parameters or a previous task's result). A validation node that everything depends on is the standard "fail before side effects" pattern.</p></div></details>
 
     <details class="quiz"><summary>What turns a Workflow into a self-service product?</summary>
       <div class="answer"><p>Promotion to a WorkflowTemplate with typed, documented, defaulted parameters, a submit surface (UI, CLI, portal, or a Backstage action), input validation before side effects, and an auditable record of who requested what. Same content, packaged as an interface.</p></div></details>

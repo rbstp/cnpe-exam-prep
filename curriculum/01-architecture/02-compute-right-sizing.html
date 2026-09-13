@@ -127,7 +127,7 @@
         <tbody>
           <tr><td class="mono">HPA</td><td>replica count</td><td>live metrics (Resource, Pods, Object, External)</td><td>needs metrics-server; percentage targets are relative to <em>requests</em></td></tr>
           <tr><td class="mono">VPA</td><td>the requests themselves</td><td>historical usage</td><td>fights an HPA on the same resource; <code>updateMode: Off</code> makes it advisory</td></tr>
-          <tr><td class="mono">Cluster Autoscaler / Karpenter</td><td>node count / node shape</td><td>unschedulable pods</td><td>reacts to <em>Pending</em> pods, so it is downstream of requests too</td></tr>
+          <tr><td class="mono">Cluster Autoscaler / Karpenter</td><td>node count / node size</td><td>unschedulable pods</td><td>reacts to <em>Pending</em> pods, so it is downstream of requests too</td></tr>
           <tr><td class="mono">KEDA</td><td>replicas, including 0</td><td>queue depth, topic lag, cron, any external source</td><td>a <code>ScaledObject</code> generates an HPA underneath; it is the thing that produces those "External" metrics, and the only way to scale to zero</td></tr>
         </tbody>
       </table>
@@ -163,7 +163,7 @@
       <table>
         <thead><tr><th>Aspect</th><th>Cluster Autoscaler</th><th>Karpenter</th></tr></thead>
         <tbody>
-          <tr><td>Unit it manages</td><td>pre-configured node groups (cloud VM groups); picks the group via an expander (<code>least-waste</code> default, <code>priority</code>, <code>most-pods</code>, <code>random</code>)</td><td><code>NodePool</code> constraints (instance families, zones, arch, <code>karpenter.sh/capacity-type</code> spot/on-demand) and per-node <code>NodeClaim</code>s; auto-provisions the cheapest fitting shape</td></tr>
+          <tr><td>Unit it manages</td><td>pre-configured node groups (cloud VM groups); picks the group via an expander (<code>least-waste</code> default, <code>priority</code>, <code>most-pods</code>, <code>random</code>)</td><td><code>NodePool</code> constraints (instance families, zones, arch, <code>karpenter.sh/capacity-type</code> spot/on-demand) and per-node <code>NodeClaim</code>s; auto-provisions the cheapest instance that fits</td></tr>
           <tr><td>Scale-down</td><td>node unneeded for <code>--scale-down-unneeded-time</code> (10m default) below <code>--scale-down-utilization-threshold</code> (0.5)</td><td><code>spec.disruption.consolidationPolicy</code>: <code>WhenEmpty</code>, <code>WhenEmptyOrUnderutilized</code>; <code>consolidateAfter</code> (or <code>Never</code>); can replace a node with a cheaper one</td></tr>
           <tr><td>Lifecycle</td><td>autoscaling only</td><td>also drift (re-create nodes when NodePool or AMI changes) and expiry (<code>expireAfter</code>, default 720h)</td></tr>
           <tr><td>Rate limiting</td><td>flags</td><td><code>spec.disruption.budgets</code> (default <code>nodes: 10%</code>, optional cron <code>schedule</code>/<code>duration</code> and <code>reasons</code>); <code>spec.limits</code> caps total CPU/memory a pool may own</td></tr>
@@ -196,7 +196,7 @@
 
     <h3>Node sizing rules of thumb</h3>
     <ul>
-      <li>Default cap is 110 pods per node (<code>maxPods</code>); DaemonSets cost one pod and their requests on every node, so many small nodes multiply that overhead, while few huge nodes widen the blast radius of a node failure and make bin-packing lumpier. Two to three zones with at least one spare node's worth of headroom per zone is the usual middle.</li>
+      <li>Default cap is 110 pods per node (<code>maxPods</code>); DaemonSets cost one pod and their requests on every node, so many small nodes multiply that overhead, while few huge nodes make a single node failure cost far more and make bin-packing lumpier. Two to three zones with at least one spare node's worth of headroom per zone is the usual middle.</li>
       <li>Request-heavy, bursty workloads pack better on larger nodes; Guaranteed pods (requests equal limits) pack worst because nothing can borrow their slack.</li>
       <li>Spot or preemptible capacity belongs in its own NodePool with a taint, for replaceable workloads with a PDB, never for anything holding a single-writer volume.</li>
     </ul>

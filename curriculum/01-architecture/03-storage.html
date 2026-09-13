@@ -92,7 +92,7 @@
     <p><code>volumeClaimTemplates</code> gives every replica its own PVC, named <code>&lt;template&gt;-&lt;sts&gt;-&lt;ordinal&gt;</code>. Deleting the StatefulSet does <em>not</em> delete those PVCs (unless you set <code>persistentVolumeClaimRetentionPolicy</code>, which newer versions offer), so scaling back up reattaches the old data. That retention is deliberate and it is the entire reason StatefulSets exist rather than "a Deployment with a volume": stable identity, stable storage, ordered rollout.</p>
     <p>And the part GitOps cannot do for you: <strong>data</strong>. "Delete the namespace and the controller rebuilds it" restores manifests, never the contents of a PV. Three things fill that gap. CSI snapshots give point-in-time copies within a cluster. A backup tool (Velero is the common one) snapshots volumes and exports object state for anything that must survive the cluster itself. Database operators bring their own backup story where one exists. Being able to say which of those three you are relying on is the whole DR answer.</p>
 
-    <p>Snapshots round out the vocabulary: <code>VolumeSnapshotClass</code>, <code>VolumeSnapshot</code>, <code>VolumeSnapshotContent</code>. They follow the same three-object shape as class/claim/volume, and they are how a CSI driver exposes point-in-time copies. local-path has no snapshotter, so this lab teaches the nouns and CloudNativePG teaches the backup story instead.</p>
+    <p>Snapshots round out the vocabulary: <code>VolumeSnapshotClass</code>, <code>VolumeSnapshot</code>, <code>VolumeSnapshotContent</code>. They follow the same three-object pattern as class/claim/volume, and they are how a CSI driver exposes point-in-time copies. local-path has no snapshotter, so this lab teaches the nouns and CloudNativePG teaches the backup story instead.</p>
   </div>
 </section>
 
@@ -579,7 +579,7 @@ persistentvolumeclaim "noclass" deleted from default namespace</code></pre></det
     <details class="quiz"><summary>An expansion to 500Gi failed because the backend has no capacity and the PVC keeps retrying. Can you back out?</summary>
       <div class="answer"><p>Yes: RecoverVolumeExpansionFailure is GA since 1.34, so edit the request down to any value still above <code>status.capacity</code> (never below it; shrinking is impossible). Watch <code>status.allocatedResourceStatuses</code> and events. Before 1.34 the recovery was the manual dance of Retain, delete the PVC, clear <code>claimRef</code>, recreate.</p></div></details>
 
-    <details class="quiz"><summary>Restore a database volume from last night's snapshot into a new PVC. What is the manifest shape and what must be true first?</summary>
+    <details class="quiz"><summary>Restore a database volume from last night's snapshot into a new PVC. What does the manifest look like and what must be true first?</summary>
       <div class="answer"><p>A PVC whose <code>dataSource</code> is <code>{ kind: VolumeSnapshot, name: &lt;snap&gt;, apiGroup: snapshot.storage.k8s.io }</code>, in the same namespace, with a StorageClass from the same CSI driver and a size at least the snapshot's restore size. The VolumeSnapshot must show <code>status.readyToUse: true</code>; a not-ready snapshot leaves the PVC Pending with a provisioner event saying so.</p></div></details>
 
     <details class="quiz"><summary>How do you change a volume's IOPS tier without recreating it?</summary>
