@@ -343,14 +343,52 @@ kubectl run dnsdead --image=busybox:1.28 --restart=Never -it --rm --command -- n
 kubectl -n kube-system get endpointslices -l kubernetes.io/service-name=kube-dns
 kubectl -n kube-system scale deploy coredns --replicas=2
 kubectl -n kube-system rollout status deploy coredns --timeout=180s
-kubectl run dnsalive --image=busybox:1.28 --restart=Never -it --rm --command -- nslookup kubernetes.default</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n kube-system scale deploy coredns --replicas=0</b>
+kubectl run dnsalive --image=busybox:1.28 --restart=Never -it --rm --command -- nslookup kubernetes.default</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n kube-system scale deploy coredns --replicas=0</b>
+deployment.apps/coredns scaled
 <b>$ until [ -z "$(kubectl -n kube-system get endpointslices -l kubernetes.io/service-name=kube-dns -o jsonpath='{.items[*].endpoints[*].addresses}')" ]; do sleep 5; done; echo 'kube-dns has no endpoints'</b>
+kube-dns has no endpoints
 <b>$ kubectl run dnsdead --image=busybox:1.28 --restart=Never -it --rm --command -- nslookup kubernetes.default || true</b>
+Server:    10.96.0.10
+Address 1: 10.96.0.10
+
+nslookup: can't resolve 'kubernetes.default'
+Unable to use a TTY - input is not a terminal or the right kind of file
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+warning: couldn't attach to pod/dnsdead, falling back to streaming logs: unable to upgrade connection: container dnsdead not found in pod dnsdead_default
+Server:    10.96.0.10
+Address 1: 10.96.0.10
+
+nslookup: can't resolve 'kubernetes.default'
+pod "dnsdead" deleted from default namespace
+pod default/dnsdead terminated (Error)
 <b>$ kubectl -n kube-system get endpointslices -l kubernetes.io/service-name=kube-dns</b>
+NAME             ADDRESSTYPE   PORTS     ENDPOINTS   AGE
+kube-dns-6x2kw   IPv4          &lt;unset&gt;   &lt;unset&gt;     8h
 <b>$ kubectl -n kube-system scale deploy coredns --replicas=2</b>
+deployment.apps/coredns scaled
 <b>$ kubectl -n kube-system rollout status deploy coredns --timeout=180s</b>
+Waiting for deployment "coredns" rollout to finish: 0 out of 2 new replicas have been updated...
+Waiting for deployment "coredns" rollout to finish: 0 out of 2 new replicas have been updated...
+Waiting for deployment "coredns" rollout to finish: 0 of 2 updated replicas are available...
+Waiting for deployment "coredns" rollout to finish: 1 of 2 updated replicas are available...
+deployment "coredns" successfully rolled out
 <b>$ kubectl run dnsalive --image=busybox:1.28 --restart=Never -it --rm --command -- nslookup kubernetes.default</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Server:    10.96.0.10
+Address 1: 10.96.0.10 kube-dns.kube-system.svc.cluster.local
+
+Name:      kubernetes.default
+Address 1: 10.96.0.1 kubernetes.default.svc.cluster.local
+Unable to use a TTY - input is not a terminal or the right kind of file
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+warning: couldn't attach to pod/dnsalive, falling back to streaming logs: unable to upgrade connection: container dnsalive not found in pod dnsalive_default
+Server:    10.96.0.10
+Address 1: 10.96.0.10 kube-dns.kube-system.svc.cluster.local
+
+Name:      kubernetes.default
+Address 1: 10.96.0.1 kubernetes.default.svc.cluster.local
+pod "dnsalive" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the failing lookup times out against the Service address while the address itself is still configured in the pod, and the EndpointSlice is empty. That combination, resolver configured and no endpoints, is the signature to recognise.</div>
     </div>
 
@@ -399,12 +437,72 @@ configmap "blocked-cm" deleted from default namespace</code></pre></details></di
 kubectl debug node/cnpe-worker -it --image=nicolaka/netshoot:latest --profile=netadmin -- ip link
 kubectl get pods -o name | grep node-debugger
 kubectl delete pod -l app.kubernetes.io/managed-by=kubectl-debug --ignore-not-found
-kubectl get pods -o name | grep node-debugger | xargs -r kubectl delete</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl debug node/cnpe-worker -it --image=busybox:1.36 --profile=sysadmin -- chroot /host sh -c 'ls /etc/kubernetes; cat /var/lib/kubelet/config.yaml | head -10'</b>
+kubectl get pods -o name | grep node-debugger | xargs -r kubectl delete</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl debug node/cnpe-worker -it --image=busybox:1.36 --profile=sysadmin -- chroot /host sh -c 'ls /etc/kubernetes; cat /var/lib/kubelet/config.yaml | head -10'</b>
+Creating debugging pod node-debugger-cnpe-worker-xf265 with container debugger on node cnpe-worker.
+Unable to use a TTY - input is not a terminal or the right kind of file
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+warning: couldn't attach to pod/node-debugger-cnpe-worker-xf265, falling back to streaming logs: unable to upgrade connection: container debugger not found in pod node-debugger-cnpe-worker-xf265_default
+kubelet.conf  manifests  pki
+apiVersion: kubelet.config.k8s.io/v1beta1
+authentication:
+  anonymous:
+    enabled: false
+  webhook:
+    cacheTTL: 0s
+    enabled: true
+  x509:
+    clientCAFile: /etc/kubernetes/pki/ca.crt
+authorization:
 <b>$ kubectl debug node/cnpe-worker -it --image=nicolaka/netshoot:latest --profile=netadmin -- ip link</b>
+Creating debugging pod node-debugger-cnpe-worker-shgmz with container debugger on node cnpe-worker.
+Unable to use a TTY - input is not a terminal or the right kind of file
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+warning: couldn't attach to pod/node-debugger-cnpe-worker-shgmz, falling back to streaming logs: unable to upgrade connection: rpc error: code = InvalidArgument desc = tty and stderr cannot both be true
+1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+2: eth0@if22: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default 
+    link/ether f6:bf:03:f1:53:11 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+3: cilium_net@cilium_host: &lt;BROADCAST,MULTICAST,NOARP,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default 
+    link/ether fe:c6:be:4f:67:f8 brd ff:ff:ff:ff:ff:ff
+4: cilium_host@cilium_net: &lt;BROADCAST,MULTICAST,NOARP,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether ea:a5:4a:b9:92:c8 brd ff:ff:ff:ff:ff:ff
+5: cilium_vxlan: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UNKNOWN mode DEFAULT group default 
+    link/ether 42:d4:ee:8f:5c:90 brd ff:ff:ff:ff:ff:ff
+7: lxc_health@if6: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 9a:27:33:7a:69:07 brd ff:ff:ff:ff:ff:ff link-netnsid 1
+11: lxcd355da451c82@if10: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 5a:10:28:1c:33:0a brd ff:ff:ff:ff:ff:ff link-netnsid 3
+15: lxcc6de2304ea73@if14: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether fa:37:7d:9f:b9:84 brd ff:ff:ff:ff:ff:ff link-netnsid 4
+17: lxce8009643b771@if16: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 02:2e:2b:d8:d7:87 brd ff:ff:ff:ff:ff:ff link-netnsid 5
+19: lxc39a31623cd62@if18: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 52:2a:68:71:5a:c5 brd ff:ff:ff:ff:ff:ff link-netnsid 6
+23: lxc3c34b6d00aee@if22: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 6e:ce:31:d4:84:18 brd ff:ff:ff:ff:ff:ff link-netnsid 2
+25: lxc462eb9990672@if24: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 1e:b9:db:d4:fd:3a brd ff:ff:ff:ff:ff:ff link-netnsid 8
+27: lxc9da17d5cb210@if26: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 56:d5:63:4a:8d:e3 brd ff:ff:ff:ff:ff:ff link-netnsid 9
+33: lxc6b7a1dc9d767@if32: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 12:eb:27:a0:a3:9d brd ff:ff:ff:ff:ff:ff link-netnsid 12
+35: lxc9281f9de561b@if34: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether ba:90:29:b4:b9:fe brd ff:ff:ff:ff:ff:ff link-netnsid 13
+37: lxc957282906d6f@if36: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether be:61:c4:6d:bc:19 brd ff:ff:ff:ff:ff:ff link-netnsid 14
+41: lxc54dcffdf2a27@if40: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether 32:20:ce:9c:c8:c6 brd ff:ff:ff:ff:ff:ff link-netnsid 16
+43: lxcee11a1eb7c67@if42: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+<i>... 55 more lines</i>
 <b>$ kubectl get pods -o name | grep node-debugger</b>
+pod/node-debugger-cnpe-worker-shgmz
+pod/node-debugger-cnpe-worker-xf265
 <b>$ kubectl delete pod -l app.kubernetes.io/managed-by=kubectl-debug --ignore-not-found</b>
-<b>$ kubectl get pods -o name | grep node-debugger | xargs -r kubectl delete</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+pod "node-debugger-cnpe-worker-shgmz" deleted from default namespace
+pod "node-debugger-cnpe-worker-xf265" deleted from default namespace
+<b>$ kubectl get pods -o name | grep node-debugger | xargs -r kubectl delete</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> the sysadmin profile can chroot into the host filesystem and the netadmin one can read the host's interfaces. Say which profile you would ask for to inspect iptables rules, and which one a restricted namespace would refuse.</div>
     </div>
 
@@ -417,15 +515,40 @@ kubectl -n default get pods -l app=probed
 POD=$(kubectl -n default get pod -l app=probed -o jsonpath='{.items[0].metadata.name}')
 kubectl -n default get pod "$POD" -o jsonpath='{.status.containerStatuses[0].lastState}' | jq
 kubectl -n default describe pod "$POD" | sed -n '/Events/,$p'
-kubectl -n default delete deployment probed</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n default create deployment probed --image=ghcr.io/stefanprodan/podinfo:6.7.1</b>
+kubectl -n default delete deployment probed</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n default create deployment probed --image=ghcr.io/stefanprodan/podinfo:6.7.1</b>
+deployment.apps/probed created
 <b>$ kubectl -n default patch deployment probed --type merge -p '{"spec":{"template":{"spec":{"containers":[{"name":"podinfo","image":"ghcr.io/stefanprodan/podinfo:6.7.1","livenessProbe":{"httpGet":{"path":"/healthz","port":9999},"initialDelaySeconds":5,"periodSeconds":5,"failureThreshold":2}}]}}}}'</b>
+deployment.apps/probed patched
 <b>$ sleep 90</b>
 <b>$ kubectl -n default get pods -l app=probed</b>
+NAME                      READY   STATUS    RESTARTS      AGE
+probed-5fcd4554f7-8qzz5   1/1     Running   4 (26s ago)   90s
 <b>$ POD=$(kubectl -n default get pod -l app=probed -o jsonpath='{.items[0].metadata.name}')</b>
 <b>$ kubectl -n default get pod "$POD" -o jsonpath='{.status.containerStatuses[0].lastState}' | jq</b>
+{
+  "terminated": {
+    "containerID": "containerd://9d61ffcbb66c2a6e74f31775c38f992f2a9b6769a2812941730d973b49fdf5d0",
+    "exitCode": 0,
+    "finishedAt": "2026-09-13T03:44:00Z",
+    "reason": "Completed",
+    "startedAt": "2026-09-13T03:43:46Z"
+  }
+}
 <b>$ kubectl -n default describe pod "$POD" | sed -n '/Events/,$p'</b>
+Events:
+  Type     Reason           Age                From               Message
+  ----     ------           ----               ----               -------
+  Warning  PolicyViolation  90s                kyverno-admission  policy require-resource-requests/ fail: every container must set cpu and memory requests
+  Normal   Scheduled        90s                default-scheduler  Successfully assigned default/probed-5fcd4554f7-8qzz5 to cnpe-worker
+  Warning  PolicyViolation  59s                kyverno-scan       policy require-resource-requests/ fail: every container must set cpu and memory requests
+  Warning  Unhealthy        30s (x8 over 80s)  kubelet            spec.containers{podinfo}: Liveness probe failed: Get "http://10.244.1.218:9999/healthz": dial tcp 10.244.1.218:9999: connect: connection refused
+  Normal   Killing          30s (x4 over 75s)  kubelet            spec.containers{podinfo}: Container podinfo failed liveness probe, will be restarted
+  Warning  BackOff          26s (x2 over 27s)  kubelet            spec.containers{podinfo}: Back-off restarting failed container podinfo in pod probed-5fcd4554f7-8qzz5_default(51a2ebe0-4fb8-4789-8b5a-595055e4ddd5)
+  Normal   Pulled           2s (x5 over 88s)   kubelet            spec.containers{podinfo}: Container image "ghcr.io/stefanprodan/podinfo:6.7.1" already present on machine and can be accessed by the pod
+  Normal   Created          1s (x5 over 88s)   kubelet            spec.containers{podinfo}: Container created
+  Normal   Started          1s (x5 over 87s)   kubelet            spec.containers{podinfo}: Container started
 <b>$ kubectl -n default delete deployment probed</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+deployment.apps "probed" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> <code>lastState.terminated</code> shows exit code 143 with reason Error or Completed, the events say the liveness probe failed, and the restart count climbs. Say how you would tell this apart from a crash the application itself caused.</div>
     </div>
 

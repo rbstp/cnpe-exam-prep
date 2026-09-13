@@ -361,16 +361,78 @@ kubectl get pod burst -o jsonpath='{.status.containerStatuses[0].allocatedResour
 kubectl get pod burst -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'
 kubectl patch pod burst --subresource resize --patch '{"spec":{"containers":[{"name":"burst","resources":{"requests":{"cpu":"64","memory":"64Mi"},"limits":{"cpu":"80","memory":"128Mi"}}}]}}'
 kubectl get pod burst -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
-kubectl delete pod burst</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl run burst --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"containers":[{"name":"burst","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"100m","memory":"64Mi"},"limits":{"cpu":"200m","memory":"128Mi"}}}]}}'</b>
+kubectl delete pod burst</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl run burst --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"containers":[{"name":"burst","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"100m","memory":"64Mi"},"limits":{"cpu":"200m","memory":"128Mi"}}}]}}'</b>
+pod/burst created
 <b>$ kubectl wait --for=condition=Ready pod/burst --timeout=90s</b>
+pod/burst condition met
 <b>$ kubectl get pod burst -o jsonpath='{.status.qosClass}{"\n"}'</b>
+Burstable
 <b>$ kubectl patch pod burst --subresource resize --patch '{"spec":{"containers":[{"name":"burst","resources":{"requests":{"cpu":"200m","memory":"64Mi"},"limits":{"cpu":"400m","memory":"128Mi"}}}]}}'</b>
+pod/burst patched
 <b>$ kubectl get pod burst -o jsonpath='{.status.containerStatuses[0].allocatedResources}{"\n"}{.status.containerStatuses[0].restartCount}{"\n"}'</b>
+{"cpu":"200m","memory":"64Mi"}
+0
 <b>$ kubectl get pod burst -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
+{
+  "type": "PodReadyToStartContainers",
+  "status": "True",
+  "reason": null
+}
+{
+  "type": "Initialized",
+  "status": "True",
+  "reason": null
+}
+{
+  "type": "Ready",
+  "status": "True",
+  "reason": null
+}
+{
+  "type": "ContainersReady",
+  "status": "True",
+  "reason": null
+}
+{
+  "type": "PodScheduled",
+  "status": "True",
+  "reason": null
+}
 <b>$ kubectl patch pod burst --subresource resize --patch '{"spec":{"containers":[{"name":"burst","resources":{"requests":{"cpu":"64","memory":"64Mi"},"limits":{"cpu":"80","memory":"128Mi"}}}]}}'</b>
+Error from server (Forbidden): pods "burst" is forbidden: node didn't have enough allocatable resources: cpu, requested: 64000, allocatable: 16000
 <b>$ kubectl get pod burst -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+{
+  "type": "PodReadyToStartContainers",
+  "status": "True",
+  "reason": null,
+  "message": null
+}
+{
+  "type": "Initialized",
+  "status": "True",
+  "reason": null,
+  "message": null
+}
+{
+  "type": "Ready",
+  "status": "True",
+  "reason": null,
+  "message": null
+}
+{
+  "type": "ContainersReady",
+  "status": "True",
+  "reason": null,
+  "message": null
+}
+{
+  "type": "PodScheduled",
+  "status": "True",
+  "reason": null,
+  "message": null
+}
 <b>$ kubectl delete pod burst</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+pod "burst" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the reachable resize lands with <code>restartCount</code> still 0 and <code>allocatedResources</code> updated, and the impossible one parks the pod on <code>PodResizePending</code> with reason <code>Infeasible</code> instead of failing the patch. The API accepts a request the node cannot satisfy; the condition is where the refusal shows up.</div>
     </div>
 

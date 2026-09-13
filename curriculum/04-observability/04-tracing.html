@@ -274,19 +274,134 @@ sleep 5
 curl -s 'http://localhost:16686/api/services' | jq
 curl -s 'http://localhost:16686/api/traces?service=err-service&amp;limit=10' | jq '.data | length'
 curl -s 'http://localhost:16686/api/traces?service=ok-service&amp;limit=10' | jq '.data | length'
-kill $PF1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n tracing get opentelemetrycollector otel -o jsonpath='{.spec.config.service.pipelines.traces}' | jq</b>
+kill $PF1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n tracing get opentelemetrycollector otel -o jsonpath='{.spec.config.service.pipelines.traces}' | jq</b>
+{
+  "exporters": [
+    "otlp/jaeger"
+  ],
+  "processors": [
+    "k8sattributes",
+    "batch"
+  ],
+  "receivers": [
+    "otlp"
+  ]
+}
 <b>$ kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"processors":{"tail_sampling":{"decision_wait":"10s","policies":[{"name":"errors","type":"status_code","status_code":{"status_codes":["ERROR"]}},{"name":"slow","type":"latency","latency":{"threshold_ms":500}}]}},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","tail_sampling","batch"],"exporters":["otlp/jaeger"]}}}}}}'</b>
+opentelemetrycollector.opentelemetry.io/otel patched
 <b>$ kubectl -n tracing rollout status deploy otel-collector --timeout=180s</b>
+Waiting for deployment spec update to be observed...
+Waiting for deployment "otel-collector" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "otel-collector" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "otel-collector" rollout to finish: 1 old replicas are pending termination...
+deployment "otel-collector" successfully rolled out
 <b>$ kubectl -n tracing run gen-ok --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service ok-service --traces 5</b>
+2026-09-13T02:48:38.126Z	INFO	traces/traces.go:53	starting gRPC exporter
+2026-09-13T02:48:38.126Z	INFO	grpclog/component.go:69	[core] original dial target is: "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T02:48:38.126Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel created for target "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T02:48:38.126Z	INFO	channelz/trace.go:200	[core] [Channel #1] parsed dial target is: resolver.Target{URL:url.URL{Scheme:"dns", Opaque:"", User:(*url.Userinfo)(nil), Host:"", Path:"/otel-collector.tracing.svc:4317", Fragment:"", RawQuery:"", RawPath:"", RawFragment:"", ForceQuery:false, OmitHost:false}}	{"grpc_log": true}
+2026-09-13T02:48:38.126Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel authority set to "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T02:48:38.126Z	INFO	traces/traces.go:125	generation of traces is limited	{"per-second": 1}
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+2026-09-13T02:48:40.127Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel Connectivity change to CONNECTING	{"grpc_log": true}
+2026-09-13T02:48:40.127Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel exiting idle mode	{"grpc_log": true}
+2026-09-13T02:48:40.179Z	INFO	channelz/trace.go:200	[core] [Channel #1] Resolver state updated: {
+  "Addresses": [
+    {
+      "Addr": "10.96.126.64:4317",
+      "ServerName": "",
+      "Attributes": null,
+      "BalancerAttributes": null,
+      "Metadata": null
+    }
+  ],
+  "Endpoints": [
+    {
+      "Addresses": [
+        {
+          "Addr": "10.96.126.64:4317",
+          "ServerName": "",
+          "Attributes": null,
+          "BalancerAttributes": null,
+          "Metadata": null
+        }
+      ],
+      "Attributes": null
+    }
+  ],
+  "ServiceConfig": null,
+  "Attributes": null
+} (resolver returned new addresses)	{"grpc_log": true}
+2026-09-13T02:48:40.179Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel switches to new LB policy "pick_first"	{"grpc_log": true}
+2026-09-13T02:48:40.179Z	INFO	grpclog/prefix_logger.go:42	[pick-first-leaf-lb] [pick-first-leaf-lb 0x103dd62a1200] Received new config {
+  "shuffleAddressList": false
+<i>... 45 more lines</i>
 <b>$ kubectl -n tracing run gen-err --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service err-service --status-code Error --traces 5</b>
+2026-09-13T02:48:58.224Z	INFO	traces/traces.go:53	starting gRPC exporter
+2026-09-13T02:48:58.224Z	INFO	grpclog/component.go:69	[core] original dial target is: "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T02:48:58.224Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel created for target "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T02:48:58.224Z	INFO	channelz/trace.go:200	[core] [Channel #1] parsed dial target is: resolver.Target{URL:url.URL{Scheme:"dns", Opaque:"", User:(*url.Userinfo)(nil), Host:"", Path:"/otel-collector.tracing.svc:4317", Fragment:"", RawQuery:"", RawPath:"", RawFragment:"", ForceQuery:false, OmitHost:false}}	{"grpc_log": true}
+2026-09-13T02:48:58.224Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel authority set to "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T02:48:58.224Z	INFO	traces/traces.go:125	generation of traces is limited	{"per-second": 1}
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+2026-09-13T02:49:00.226Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel Connectivity change to CONNECTING	{"grpc_log": true}
+2026-09-13T02:49:00.226Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel exiting idle mode	{"grpc_log": true}
+2026-09-13T02:49:00.228Z	INFO	channelz/trace.go:200	[core] [Channel #1] Resolver state updated: {
+  "Addresses": [
+    {
+      "Addr": "10.96.126.64:4317",
+      "ServerName": "",
+      "Attributes": null,
+      "BalancerAttributes": null,
+      "Metadata": null
+    }
+  ],
+  "Endpoints": [
+    {
+      "Addresses": [
+        {
+          "Addr": "10.96.126.64:4317",
+          "ServerName": "",
+          "Attributes": null,
+          "BalancerAttributes": null,
+          "Metadata": null
+        }
+      ],
+      "Attributes": null
+    }
+  ],
+  "ServiceConfig": null,
+  "Attributes": null
+} (resolver returned new addresses)	{"grpc_log": true}
+2026-09-13T02:49:00.228Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel switches to new LB policy "pick_first"	{"grpc_log": true}
+2026-09-13T02:49:00.228Z	INFO	grpclog/prefix_logger.go:42	[pick-first-leaf-lb] [pick-first-leaf-lb 0x1f1535208000] Received new config {
+  "shuffleAddressList": false
+<i>... 45 more lines</i>
 <b>$ sleep 30</b>
 <b>$ kubectl -n tracing port-forward svc/jaeger 16686:16686 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
+Forwarding from 127.0.0.1:16686 -&gt; 16686
+Forwarding from [::1]:16686 -&gt; 16686
 <b>$ curl -s 'http://localhost:16686/api/services' | jq</b>
+Handling connection for 16686
+{
+  "data": [
+    "err-service"
+  ],
+  "total": 1,
+  "limit": 0,
+  "offset": 0,
+  "errors": null
+}
 <b>$ curl -s 'http://localhost:16686/api/traces?service=err-service&amp;limit=10' | jq '.data | length'</b>
+Handling connection for 16686
+5
 <b>$ curl -s 'http://localhost:16686/api/traces?service=ok-service&amp;limit=10' | jq '.data | length'</b>
-<b>$ kill $PF1</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Handling connection for 16686
+0
+<b>$ kill $PF1</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> the error service's traces are in Jaeger and the clean ones are thinner or absent, depending on whether they tripped the latency policy. Say what <code>decision_wait</code> costs you and why a load balancer in front of two collectors breaks tail sampling.</div>
     </div>
 
@@ -307,23 +422,121 @@ curl -s 'http://localhost:16686/api/traces?service=unenriched&amp;limit=1' | jq 
 kubectl -n tracing logs deploy/otel-collector --tail=30 | grep -i -m3 forbidden
 kubectl apply -f /tmp/otel-crb.yaml
 kubectl -n tracing rollout restart deploy otel-collector
-kill $PF1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n tracing run gen-before --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service enriched --traces 3</b>
+kill $PF1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n tracing run gen-before --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service enriched --traces 3</b>
+2026-09-13T03:21:42.356Z	INFO	traces/traces.go:53	starting gRPC exporter
+2026-09-13T03:21:42.356Z	INFO	grpclog/component.go:69	[core] original dial target is: "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T03:21:42.356Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel created for target "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T03:21:42.356Z	INFO	channelz/trace.go:200	[core] [Channel #1] parsed dial target is: resolver.Target{URL:url.URL{Scheme:"dns", Opaque:"", User:(*url.Userinfo)(nil), Host:"", Path:"/otel-collector.tracing.svc:4317", Fragment:"", RawQuery:"", RawPath:"", RawFragment:"", ForceQuery:false, OmitHost:false}}	{"grpc_log": true}
+2026-09-13T03:21:42.356Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel authority set to "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T03:21:42.356Z	INFO	traces/traces.go:125	generation of traces is limited	{"per-second": 1}
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+2026-09-13T03:21:44.359Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel Connectivity change to CONNECTING	{"grpc_log": true}
+2026-09-13T03:21:44.359Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel exiting idle mode	{"grpc_log": true}
+2026-09-13T03:21:44.361Z	INFO	channelz/trace.go:200	[core] [Channel #1] Resolver state updated: {
+  "Addresses": [
+    {
+      "Addr": "10.96.126.64:4317",
+      "ServerName": "",
+      "Attributes": null,
+      "BalancerAttributes": null,
+      "Metadata": null
+    }
+  ],
+  "Endpoints": [
+    {
+      "Addresses": [
+        {
+          "Addr": "10.96.126.64:4317",
+          "ServerName": "",
+          "Attributes": null,
+          "BalancerAttributes": null,
+          "Metadata": null
+        }
+      ],
+      "Attributes": null
+    }
+  ],
+  "ServiceConfig": null,
+  "Attributes": null
+} (resolver returned new addresses)	{"grpc_log": true}
+2026-09-13T03:21:44.361Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel switches to new LB policy "pick_first"	{"grpc_log": true}
+2026-09-13T03:21:44.361Z	INFO	grpclog/prefix_logger.go:42	[pick-first-leaf-lb] [pick-first-leaf-lb 0x472e63f7320] Received new config {
+  "shuffleAddressList": false
+<i>... 45 more lines</i>
 <b>$ sleep 20</b>
 <b>$ kubectl -n tracing port-forward svc/jaeger 16686:16686 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
+Forwarding from 127.0.0.1:16686 -&gt; 16686
+Forwarding from [::1]:16686 -&gt; 16686
 <b>$ curl -s 'http://localhost:16686/api/traces?service=enriched&amp;limit=1' | jq '[.data[0].processes[].tags[] | select(.key | startswith("k8s"))]'</b>
+Handling connection for 16686
+jq: error (at &lt;stdin&gt;:0): Cannot iterate over null (null)
 <b>$ kubectl get clusterrolebinding otel-collector -o yaml &gt; /tmp/otel-crb.yaml 2&gt;/dev/null || kubectl get clusterrolebinding -o name | grep otel</b>
 <b>$ kubectl delete clusterrolebinding otel-collector --ignore-not-found</b>
 <b>$ kubectl -n tracing rollout restart deploy otel-collector</b>
+deployment.apps/otel-collector restarted
 <b>$ kubectl -n tracing rollout status deploy otel-collector --timeout=120s</b>
+Waiting for deployment spec update to be observed...
+Waiting for deployment "otel-collector" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "otel-collector" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "otel-collector" rollout to finish: 1 old replicas are pending termination...
+deployment "otel-collector" successfully rolled out
 <b>$ kubectl -n tracing run gen-after --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service unenriched --traces 3</b>
+2026-09-13T03:22:28.441Z	INFO	traces/traces.go:53	starting gRPC exporter
+2026-09-13T03:22:28.441Z	INFO	grpclog/component.go:69	[core] original dial target is: "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T03:22:28.441Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel created for target "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T03:22:28.441Z	INFO	channelz/trace.go:200	[core] [Channel #1] parsed dial target is: resolver.Target{URL:url.URL{Scheme:"dns", Opaque:"", User:(*url.Userinfo)(nil), Host:"", Path:"/otel-collector.tracing.svc:4317", Fragment:"", RawQuery:"", RawPath:"", RawFragment:"", ForceQuery:false, OmitHost:false}}	{"grpc_log": true}
+2026-09-13T03:22:28.441Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel authority set to "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T03:22:28.441Z	INFO	traces/traces.go:125	generation of traces is limited	{"per-second": 1}
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+2026-09-13T03:22:30.443Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel Connectivity change to CONNECTING	{"grpc_log": true}
+2026-09-13T03:22:30.443Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel exiting idle mode	{"grpc_log": true}
+2026-09-13T03:22:30.446Z	INFO	channelz/trace.go:200	[core] [Channel #1] Resolver state updated: {
+  "Addresses": [
+    {
+      "Addr": "10.96.126.64:4317",
+      "ServerName": "",
+      "Attributes": null,
+      "BalancerAttributes": null,
+      "Metadata": null
+    }
+  ],
+  "Endpoints": [
+    {
+      "Addresses": [
+        {
+          "Addr": "10.96.126.64:4317",
+          "ServerName": "",
+          "Attributes": null,
+          "BalancerAttributes": null,
+          "Metadata": null
+        }
+      ],
+      "Attributes": null
+    }
+  ],
+  "ServiceConfig": null,
+  "Attributes": null
+} (resolver returned new addresses)	{"grpc_log": true}
+2026-09-13T03:22:30.446Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel switches to new LB policy "pick_first"	{"grpc_log": true}
+2026-09-13T03:22:30.446Z	INFO	grpclog/prefix_logger.go:42	[pick-first-leaf-lb] [pick-first-leaf-lb 0x134c1bd7e000] Received new config {
+  "shuffleAddressList": false
+<i>... 45 more lines</i>
 <b>$ sleep 20</b>
 <b>$ curl -s 'http://localhost:16686/api/traces?service=unenriched&amp;limit=1' | jq '[.data[0].processes[].tags[] | select(.key | startswith("k8s"))]'</b>
+Handling connection for 16686
+jq: error (at &lt;stdin&gt;:0): Cannot iterate over null (null)
 <b>$ kubectl -n tracing logs deploy/otel-collector --tail=30 | grep -i -m3 forbidden</b>
+E0913 03:22:22.929342       1 reflector.go:204] "Failed to watch" err="failed to list *v1.Pod: pods is forbidden: User \"system:serviceaccount:tracing:otel-collector\" cannot list resource \"pods\" in API group \"\" at the cluster scope" logger="UnhandledError" reflector="k8s.io/client-go@v0.35.4/tools/cache/reflector.go:289" type="*v1.Pod"
+E0913 03:22:24.116700       1 reflector.go:204] "Failed to watch" err="failed to list *v1.Pod: pods is forbidden: User \"system:serviceaccount:tracing:otel-collector\" cannot list resource \"pods\" in API group \"\" at the cluster scope" logger="UnhandledError" reflector="k8s.io/client-go@v0.35.4/tools/cache/reflector.go:289" type="*v1.Pod"
+E0913 03:22:27.007385       1 reflector.go:204] "Failed to watch" err="failed to list *v1.Pod: pods is forbidden: User \"system:serviceaccount:tracing:otel-collector\" cannot list resource \"pods\" in API group \"\" at the cluster scope" logger="UnhandledError" reflector="k8s.io/client-go@v0.35.4/tools/cache/reflector.go:289" type="*v1.Pod"
 <b>$ kubectl apply -f /tmp/otel-crb.yaml</b>
+error: no objects passed to apply
 <b>$ kubectl -n tracing rollout restart deploy otel-collector</b>
-<b>$ kill $PF1</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+deployment.apps/otel-collector restarted
+<b>$ kill $PF1</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> the enriched spans carry <code>k8s.pod.name</code> and friends, the unenriched ones do not, and the collector log has a Forbidden line explaining why. Nothing fails; you just lose the ability to ask "which pod".</div>
     </div>
 
@@ -363,15 +576,79 @@ sleep 30
 kubectl -n tracing port-forward deploy/otel-collector 8889:8889 &amp; PF1=$!
 sleep 5
 curl -s localhost:8889/metrics | grep -E '^(traces_span_metrics|calls)' | head -10
-kill $PF1</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"connectors":{"spanmetrics":{"histogram":{"explicit":{"buckets":["100ms","500ms","1s"]}}}},"exporters":{"prometheus":{"endpoint":"0.0.0.0:8889"}},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","batch"],"exporters":["otlp/jaeger","spanmetrics"]},"metrics/spanmetrics":{"receivers":["spanmetrics"],"exporters":["prometheus"]}}}}}}'</b>
+kill $PF1</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n tracing patch opentelemetrycollector otel --type merge -p '{"spec":{"config":{"connectors":{"spanmetrics":{"histogram":{"explicit":{"buckets":["100ms","500ms","1s"]}}}},"exporters":{"prometheus":{"endpoint":"0.0.0.0:8889"}},"service":{"pipelines":{"traces":{"receivers":["otlp"],"processors":["k8sattributes","batch"],"exporters":["otlp/jaeger","spanmetrics"]},"metrics/spanmetrics":{"receivers":["spanmetrics"],"exporters":["prometheus"]}}}}}}'</b>
+opentelemetrycollector.opentelemetry.io/otel patched
 <b>$ kubectl -n tracing rollout status deploy otel-collector --timeout=180s</b>
+Waiting for deployment "otel-collector" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment spec update to be observed...
+Waiting for deployment spec update to be observed...
+Waiting for deployment "otel-collector" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "otel-collector" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "otel-collector" rollout to finish: 0 out of 1 new replicas have been updated...
+Waiting for deployment "otel-collector" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "otel-collector" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "otel-collector" rollout to finish: 1 old replicas are pending termination...
+deployment "otel-collector" successfully rolled out
 <b>$ kubectl -n tracing run gen-metrics --rm -i --restart=Never --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest -- traces --otlp-insecure --otlp-endpoint otel-collector.tracing.svc:4317 --service metered --traces 20</b>
+2026-09-13T03:23:08.558Z	INFO	traces/traces.go:53	starting gRPC exporter
+2026-09-13T03:23:08.558Z	INFO	grpclog/component.go:69	[core] original dial target is: "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T03:23:08.558Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel created for target "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T03:23:08.558Z	INFO	channelz/trace.go:200	[core] [Channel #1] parsed dial target is: resolver.Target{URL:url.URL{Scheme:"dns", Opaque:"", User:(*url.Userinfo)(nil), Host:"", Path:"/otel-collector.tracing.svc:4317", Fragment:"", RawQuery:"", RawPath:"", RawFragment:"", ForceQuery:false, OmitHost:false}}	{"grpc_log": true}
+2026-09-13T03:23:08.558Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel authority set to "otel-collector.tracing.svc:4317"	{"grpc_log": true}
+2026-09-13T03:23:08.558Z	INFO	traces/traces.go:125	generation of traces is limited	{"per-second": 1}
+All commands and output from this session will be recorded in container logs, including credentials and sensitive information passed through the command prompt.
+If you don't see a command prompt, try pressing enter.
+2026-09-13T03:23:10.559Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel Connectivity change to CONNECTING	{"grpc_log": true}
+2026-09-13T03:23:10.559Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel exiting idle mode	{"grpc_log": true}
+2026-09-13T03:23:10.562Z	INFO	channelz/trace.go:200	[core] [Channel #1] Resolver state updated: {
+  "Addresses": [
+    {
+      "Addr": "10.96.126.64:4317",
+      "ServerName": "",
+      "Attributes": null,
+      "BalancerAttributes": null,
+      "Metadata": null
+    }
+  ],
+  "Endpoints": [
+    {
+      "Addresses": [
+        {
+          "Addr": "10.96.126.64:4317",
+          "ServerName": "",
+          "Attributes": null,
+          "BalancerAttributes": null,
+          "Metadata": null
+        }
+      ],
+      "Attributes": null
+    }
+  ],
+  "ServiceConfig": null,
+  "Attributes": null
+} (resolver returned new addresses)	{"grpc_log": true}
+2026-09-13T03:23:10.562Z	INFO	channelz/trace.go:200	[core] [Channel #1] Channel switches to new LB policy "pick_first"	{"grpc_log": true}
+2026-09-13T03:23:10.562Z	INFO	grpclog/prefix_logger.go:42	[pick-first-leaf-lb] [pick-first-leaf-lb 0x6af722e0ab0] Received new config {
+  "shuffleAddressList": false
+<i>... 45 more lines</i>
 <b>$ sleep 30</b>
 <b>$ kubectl -n tracing port-forward deploy/otel-collector 8889:8889 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
+Forwarding from 127.0.0.1:8889 -&gt; 8889
+Forwarding from [::1]:8889 -&gt; 8889
 <b>$ curl -s localhost:8889/metrics | grep -E '^(traces_span_metrics|calls)' | head -10</b>
-<b>$ kill $PF1</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Handling connection for 8889
+traces_span_metrics_calls_total{collector_instance_id="e12e23aa-5f16-4d41-a030-ad9950fa106a",job="metered",otel_scope_name="spanmetricsconnector",otel_scope_schema_url="",otel_scope_version="",service_name="metered",span_kind="SPAN_KIND_CLIENT",span_name="lets-go",status_code="STATUS_CODE_UNSET"} 0
+traces_span_metrics_calls_total{collector_instance_id="e12e23aa-5f16-4d41-a030-ad9950fa106a",job="metered",otel_scope_name="spanmetricsconnector",otel_scope_schema_url="",otel_scope_version="",service_name="metered",span_kind="SPAN_KIND_SERVER",span_name="okey-dokey-0",status_code="STATUS_CODE_UNSET"} 0
+traces_span_metrics_duration_milliseconds_bucket{collector_instance_id="e12e23aa-5f16-4d41-a030-ad9950fa106a",job="metered",otel_scope_name="spanmetricsconnector",otel_scope_schema_url="",otel_scope_version="",service_name="metered",span_kind="SPAN_KIND_CLIENT",span_name="lets-go",status_code="STATUS_CODE_UNSET",le="100"} 20
+traces_span_metrics_duration_milliseconds_bucket{collector_instance_id="e12e23aa-5f16-4d41-a030-ad9950fa106a",job="metered",otel_scope_name="spanmetricsconnector",otel_scope_schema_url="",otel_scope_version="",service_name="metered",span_kind="SPAN_KIND_CLIENT",span_name="lets-go",status_code="STATUS_CODE_UNSET",le="500"} 20
+traces_span_metrics_duration_milliseconds_bucket{collector_instance_id="e12e23aa-5f16-4d41-a030-ad9950fa106a",job="metered",otel_scope_name="spanmetricsconnector",otel_scope_schema_url="",otel_scope_version="",service_name="metered",span_kind="SPAN_KIND_CLIENT",span_name="lets-go",status_code="STATUS_CODE_UNSET",le="1000"} 20
+traces_span_metrics_duration_milliseconds_bucket{collector_instance_id="e12e23aa-5f16-4d41-a030-ad9950fa106a",job="metered",otel_scope_name="spanmetricsconnector",otel_scope_schema_url="",otel_scope_version="",service_name="metered",span_kind="SPAN_KIND_CLIENT",span_name="lets-go",status_code="STATUS_CODE_UNSET",le="+Inf"} 20
+traces_span_metrics_duration_milliseconds_sum{collector_instance_id="e12e23aa-5f16-4d41-a030-ad9950fa106a",job="metered",otel_scope_name="spanmetricsconnector",otel_scope_schema_url="",otel_scope_version="",service_name="metered",span_kind="SPAN_KIND_CLIENT",span_name="lets-go",status_code="STATUS_CODE_UNSET"} 2.460000000000001
+traces_span_metrics_duration_milliseconds_count{collector_instance_id="e12e23aa-5f16-4d41-a030-ad9950fa106a",job="metered",otel_scope_name="spanmetricsconnector",otel_scope_schema_url="",otel_scope_version="",service_name="metered",span_kind="SPAN_KIND_CLIENT",span_name="lets-go",status_code="STATUS_CODE_UNSET"} 20
+traces_span_metrics_duration_milliseconds_bucket{collector_instance_id="e12e23aa-5f16-4d41-a030-ad9950fa106a",job="metered",otel_scope_name="spanmetricsconnector",otel_scope_schema_url="",otel_scope_version="",service_name="metered",span_kind="SPAN_KIND_SERVER",span_name="okey-dokey-0",status_code="STATUS_CODE_UNSET",le="100"} 20
+traces_span_metrics_duration_milliseconds_bucket{collector_instance_id="e12e23aa-5f16-4d41-a030-ad9950fa106a",job="metered",otel_scope_name="spanmetricsconnector",otel_scope_schema_url="",otel_scope_version="",service_name="metered",span_kind="SPAN_KIND_SERVER",span_name="okey-dokey-0",status_code="STATUS_CODE_UNSET",le="500"} 20
+<b>$ kill $PF1</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> the collector's own metrics endpoint serves call counts and duration buckets labelled by service and span name. Say what you would have to add for Prometheus to scrape that endpoint, and why a ServiceMonitor is the answer rather than a ScrapeConfig.</div>
     </div>
 
@@ -384,15 +661,49 @@ curl -s 'http://localhost:16686/api/operations?service=err-service' | jq '.data[
 kill $PF1
 kubectl -n tracing get cm -o name
 kubectl -n tracing get deploy jaeger -o jsonpath='{.spec.template.spec.containers[0].args}{"\n"}'
-kubectl -n tracing get deploy jaeger -o jsonpath='{.spec.template.spec.containers[0].env}' | jq</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n tracing port-forward svc/jaeger 16686:16686 &amp; PF1=$!</b>
+kubectl -n tracing get deploy jaeger -o jsonpath='{.spec.template.spec.containers[0].env}' | jq</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n tracing port-forward svc/jaeger 16686:16686 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
+Forwarding from 127.0.0.1:16686 -&gt; 16686
+Forwarding from [::1]:16686 -&gt; 16686
 <b>$ curl -s http://localhost:16686/api/services | jq</b>
+Handling connection for 16686
+{
+  "data": [
+    "err-service",
+    "jaeger",
+    "metered"
+  ],
+  "total": 3,
+  "limit": 0,
+  "offset": 0,
+  "errors": null
+}
 <b>$ curl -s 'http://localhost:16686/api/operations?service=err-service' | jq '.data[:5]'</b>
+Handling connection for 16686
+[
+  {
+    "name": "okey-dokey-0",
+    "spanKind": "server"
+  },
+  {
+    "name": "lets-go",
+    "spanKind": "client"
+  }
+]
 <b>$ kill $PF1</b>
 <b>$ kubectl -n tracing get cm -o name</b>
+configmap/kube-root-ca.crt
+configmap/otel-collector-3a402bbd
+configmap/otel-collector-a60f73e1
+configmap/otel-collector-fa2c2caf
 <b>$ kubectl -n tracing get deploy jaeger -o jsonpath='{.spec.template.spec.containers[0].args}{"\n"}'</b>
 <b>$ kubectl -n tracing get deploy jaeger -o jsonpath='{.spec.template.spec.containers[0].env}' | jq</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+[
+  {
+    "name": "COLLECTOR_OTLP_ENABLED",
+    "value": "true"
+  }
+]</code></pre></details></div>
       <div class="verify"><b>verify:</b> the service list matches what you have sent, and you can say where this Jaeger keeps its spans. On the lab that is memory, which is why a restart loses everything; say what you would change for a cluster anyone depends on.</div>
     </div>
 

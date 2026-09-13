@@ -426,7 +426,7 @@ kubectl patch validatingpolicy require-team-label --type merge -p '{"spec":{"aut
 sleep 20
 kubectl -n default create deployment unlabelled --image=nginx:1.27-alpine
 kubectl -n default delete deployment unlabelled --ignore-not-found
-kubectl delete validatingpolicy require-team-label</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl delete validatingpolicy require-team-label</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: policies.kyverno.io/v1alpha1</b>
 <b>kind: ValidatingPolicy</b>
 <b>metadata: { name: require-team-label }</b>
@@ -442,18 +442,26 @@ kubectl delete validatingpolicy require-team-label</code></pre><details class="o
 <b>    - expression: "has(object.metadata.labels) &amp;&amp; has(object.metadata.labels.team)"</b>
 <b>      message: "every pod must carry a team label"</b>
 <b>EOF</b>
+Warning: policies.kyverno.io/v1alpha1 ValidatingPolicy is deprecated; use policies.kyverno.io/v1 ValidatingPolicy
+validatingpolicy.policies.kyverno.io/require-team-label created
 <b>$ sleep 15</b>
 <b>$ kubectl -n default create deployment unlabelled --image=nginx:1.27-alpine</b>
+error: failed to create deployment: admission webhook "vpol.validate.kyverno.svc-fail" denied the request: Policy require-team-label failed: every pod must carry a team label
 <b>$ sleep 20</b>
 <b>$ kubectl -n default get deploy unlabelled -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+Error from server (NotFound): deployments.apps "unlabelled" not found
 <b>$ kubectl -n default get events --field-selector reason=FailedCreate | tail -3</b>
+No resources found in default namespace.
 <b>$ kubectl -n default delete deployment unlabelled</b>
+Error from server (NotFound): deployments.apps "unlabelled" not found
 <b>$ kubectl patch validatingpolicy require-team-label --type merge -p '{"spec":{"autogen":{"podControllers":{"controllers":["deployments"]}}}}'</b>
+validatingpolicy.policies.kyverno.io/require-team-label patched
 <b>$ sleep 20</b>
 <b>$ kubectl -n default create deployment unlabelled --image=nginx:1.27-alpine</b>
+error: failed to create deployment: admission webhook "vpol.validate.kyverno.svc-fail" denied the request: Policy require-team-label failed: every pod must carry a team label
 <b>$ kubectl -n default delete deployment unlabelled --ignore-not-found</b>
 <b>$ kubectl delete validatingpolicy require-team-label</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+validatingpolicy.policies.kyverno.io "require-team-label" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> without autogen the Deployment is created and its ReplicaSet fails in an event; with autogen the <code>kubectl create</code> itself is refused. Say which of those two a developer will open a ticket about, and which one they will fix themselves.</div>
     </div>
 
@@ -537,8 +545,46 @@ kubectl get policyreports -A | head
 kubectl -n default get policyreport -o jsonpath='{range .items[*].results[*]}{.policy} {.result} {.resources[*].name}{"\n"}{end}' | grep -i legacy
 kubectl -n default delete pod legacy --ignore-not-found
 kubectl -n policy-exception delete policyexception legacy-job
-kubectl delete ns policy-exception</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n kyverno get deploy kyverno-admission-controller -o jsonpath='{.spec.template.spec.containers[0].args}' | jq</b>
+kubectl delete ns policy-exception</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n kyverno get deploy kyverno-admission-controller -o jsonpath='{.spec.template.spec.containers[0].args}' | jq</b>
+[
+  "--caSecretName=kyverno-svc.kyverno.svc.kyverno-tls-ca",
+  "--tlsSecretName=kyverno-svc.kyverno.svc.kyverno-tls-pair",
+  "--tlsKeyAlgorithm=RSA",
+  "--backgroundServiceAccountName=system:serviceaccount:kyverno:kyverno-background-controller",
+  "--reportsServiceAccountName=system:serviceaccount:kyverno:kyverno-reports-controller",
+  "--servicePort=443",
+  "--webhookServerPort=9443",
+  "--resyncPeriod=15m",
+  "--crdWatcher=false",
+  "--disableMetrics=false",
+  "--otelConfig=prometheus",
+  "--metricsPort=8000",
+  "--admissionReports=true",
+  "--maxAdmissionReports=1000",
+  "--autoUpdateWebhooks=true",
+  "--excludeBootstrapResources=false",
+  "--enableConfigMapCaching=true",
+  "--controllerRuntimeMetricsAddress=:8080",
+  "--enableDeferredLoading=true",
+  "--dumpPayload=false",
+  "--forceFailurePolicyIgnore=false",
+  "--generateValidatingAdmissionPolicy=true",
+  "--generateMutatingAdmissionPolicy=false",
+  "--dumpPatches=false",
+  "--maxAPICallResponseLength=2000000",
+  "--apiCallTimeout=30s",
+  "--maxGlobalContextEntries=0",
+  "--loggingFormat=text",
+  "--v=2",
+  "--omitEvents=PolicyApplied,PolicySkipped",
+  "--enablePolicyException=true",
+  "--protectManagedResources=false",
+  "--allowInsecureRegistry=true",
+  "--registryCredentialHelpers=default,google,amazon,azure,github",
+  "--enableReporting=validate,mutate,mutateExisting,imageVerify,generate"
+]
 <b>$ kubectl create ns policy-exception --dry-run=client -o yaml | kubectl apply -f -</b>
+namespace/policy-exception created
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: policies.kyverno.io/v1alpha1</b>
 <b>kind: PolicyException</b>
@@ -551,14 +597,30 @@ kubectl delete ns policy-exception</code></pre><details class="out pending"><sum
 <b>    - name: only-the-legacy-pod</b>
 <b>      expression: "object.metadata.name == 'legacy'"</b>
 <b>EOF</b>
+Warning: policies.kyverno.io/v1alpha1 PolicyException is deprecated; use policies.kyverno.io/v1 PolicyException
+policyexception.policies.kyverno.io/legacy-job created
 <b>$ kubectl -n default run legacy --image=nginx:1.27-alpine --restart=Never</b>
+pod/legacy created
 <b>$ sleep 30</b>
 <b>$ kubectl get policyreports -A | head</b>
+NAMESPACE                       NAME                                   KIND          NAME                                                         PASS   FAIL   WARN   ERROR   SKIP   AGE
+argo-rollouts                   10922f54-dceb-40a3-9cc6-ffe96ebe06ea   Pod           argo-rollouts-dashboard-769cf7b9d4-6g72h                     0      1      0      0       0      8h
+argo-rollouts                   1764d448-b981-410e-b055-a778e8b4fbef   ReplicaSet    argo-rollouts-7f8f6559c9                                     0      1      0      0       0      8h
+argo-rollouts                   1bfd07a5-66de-4564-8e96-50cfebc13bcb   Deployment    argo-rollouts                                                0      2      0      0       0      8h
+argo-rollouts                   a3829fe7-dcbf-43f1-921a-48a9f7482002   Pod           argo-rollouts-7f8f6559c9-jg695                               0      1      0      0       0      7h38m
+argo-rollouts                   c6077b91-ee0d-43a5-805b-00c1fd9d955e   Pod           argo-rollouts-7f8f6559c9-trwxv                               0      1      0      0       0      7h38m
+argo-rollouts                   fd50ef2f-73ee-44e3-b6ec-4c2482a137d6   Deployment    argo-rollouts-dashboard                                      0      2      0      0       0      8h
+argo-rollouts                   fdc19c02-a61f-44ff-8fdd-2e8e41fc5732   ReplicaSet    argo-rollouts-dashboard-769cf7b9d4                           0      1      0      0       0      8h
+argo                            2cdf9d8d-1148-4d0b-babf-399ae19f0309   ReplicaSet    argo-workflows-workflow-controller-5d6bdc7dd8                0      1      0      0       0      23m
+argo                            3f8922ac-ffcd-4cd5-9a32-f30de4e0cfff   ReplicaSet    argo-workflows-server-5d466c6cbf                             0      1      0      0       0      8h
 <b>$ kubectl -n default get policyreport -o jsonpath='{range .items[*].results[*]}{.policy} {.result} {.resources[*].name}{"\n"}{end}' | grep -i legacy</b>
 <b>$ kubectl -n default delete pod legacy --ignore-not-found</b>
+pod "legacy" deleted from default namespace
 <b>$ kubectl -n policy-exception delete policyexception legacy-job</b>
+Warning: kyverno.io/v2 PolicyException is deprecated and will be removed in a future release; migrate to PolicyException (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
+Error from server (NotFound): policyexceptions.kyverno.io "legacy-job" not found
 <b>$ kubectl delete ns policy-exception</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+namespace "policy-exception" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> the report carries a <code>skip</code> result for the excepted resource rather than a pass or a fail, and the admission controller's flags say which namespaces may hold exceptions. If exceptions are disabled on this install, the flags are the evidence and that is the finding.</div>
     </div>
 

@@ -561,7 +561,8 @@ spec:
         ref: { name: say }
         params: [{ name: text, value: this will not apply }]
 EOF
-kubectl delete stepaction say</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl api-resources | grep -i stepaction</b>
+kubectl delete stepaction say</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl api-resources | grep -i stepaction</b>
+stepactions                                                                           tekton.dev/v1beta1                        true         StepAction
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: tekton.dev/v1beta1</b>
 <b>kind: StepAction</b>
@@ -577,6 +578,7 @@ kubectl delete stepaction say</code></pre><details class="out pending"><summary>
 <b>  script: |</b>
 <b>    echo "$TEXT"</b>
 <b>EOF</b>
+stepaction.tekton.dev/say created
 <b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: tekton.dev/v1</b>
 <b>kind: TaskRun</b>
@@ -588,8 +590,10 @@ kubectl delete stepaction say</code></pre><details class="out pending"><summary>
 <b>        ref: { name: say }</b>
 <b>        params: [{ name: text, value: hello from a stepaction }]</b>
 <b>EOF</b>
+taskrun.tekton.dev/say-run-cl79p created
 <b>$ sleep 45</b>
 <b>$ tkn taskrun logs --last</b>
+[say] hello from a stepaction
 <b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: tekton.dev/v1</b>
 <b>kind: TaskRun</b>
@@ -602,8 +606,9 @@ kubectl delete stepaction say</code></pre><details class="out pending"><summary>
 <b>        ref: { name: say }</b>
 <b>        params: [{ name: text, value: this will not apply }]</b>
 <b>EOF</b>
+Error from server (BadRequest): error when creating "STDIN": admission webhook "validation.webhook.pipeline.tekton.dev" denied the request: validation failed: image cannot be used with Ref: spec.taskSpec.steps[0].image
 <b>$ kubectl delete stepaction say</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+stepaction.tekton.dev "say" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the referencing run prints the parameter, and the second create is rejected at admission with a message naming the fields that may not appear alongside <code>ref</code>. That list is worth memorising; it is short.</div>
     </div>
 
@@ -950,7 +955,7 @@ EOF
 sleep 75
 tkn taskrun list | head -6
 kubectl get pipelinerun fanout -o jsonpath='{.status.childReferences[*].name}{"\n"}'
-kubectl delete pipelinerun fanout</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
+kubectl delete pipelinerun fanout</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: tekton.dev/v1</b>
 <b>kind: PipelineRun</b>
 <b>metadata: { name: fanout, namespace: default }</b>
@@ -970,11 +975,19 @@ kubectl delete pipelinerun fanout</code></pre><details class="out pending"><summ
 <b>              script: |</b>
 <b>                echo checking $(params.version)</b>
 <b>EOF</b>
+pipelinerun.tekton.dev/fanout created
 <b>$ sleep 75</b>
 <b>$ tkn taskrun list | head -6</b>
+NAME               STARTED         DURATION   STATUS
+fanout-check-1     1 minute ago    28s        Succeeded
+fanout-check-2     1 minute ago    29s        Succeeded
+fanout-check-0     1 minute ago    10s        Succeeded
+say-run-cl79p      2 minutes ago   10s        Succeeded
+provenance-lpwcp   5 hours ago     11s        Succeeded
 <b>$ kubectl get pipelinerun fanout -o jsonpath='{.status.childReferences[*].name}{"\n"}'</b>
+fanout-check-1 fanout-check-2 fanout-check-0
 <b>$ kubectl delete pipelinerun fanout</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+pipelinerun.tekton.dev "fanout" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> three TaskRuns exist, named <code>fanout-check-0</code> through <code>-2</code>, and the PipelineRun's child references list all three. One failure in a matrix fails the whole task; say what that means for a matrix over environments.</div>
     </div>
 

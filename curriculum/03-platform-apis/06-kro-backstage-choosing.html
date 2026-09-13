@@ -301,8 +301,10 @@ spec:
           other: ${first.metadata.name}
 EOF
 kubectl get rgd cyclic -o jsonpath='{.status.conditions}' 2&gt;/dev/null | jq '.[] | {type, status, message}'
-kubectl delete rgd cyclic --ignore-not-found</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl get rgd tenantspace -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+kubectl delete rgd cyclic --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get rgd tenantspace -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'</b>
+Error from server (NotFound): resourcegraphdefinitions.kro.run "tenantspace" not found
 <b>$ kubectl get rgd tenantspace -o jsonpath='{.status.topologicalOrder}{"\n"}'</b>
+Error from server (NotFound): resourcegraphdefinitions.kro.run "tenantspace" not found
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kro.run/v1alpha1</b>
 <b>kind: ResourceGraphDefinition</b>
@@ -333,9 +335,10 @@ kubectl delete rgd cyclic --ignore-not-found</code></pre><details class="out pen
 <b>        data:</b>
 <b>          other: ${first.metadata.name}</b>
 <b>EOF</b>
+resourcegraphdefinition.kro.run/cyclic created
 <b>$ kubectl get rgd cyclic -o jsonpath='{.status.conditions}' 2&gt;/dev/null | jq '.[] | {type, status, message}'</b>
 <b>$ kubectl delete rgd cyclic --ignore-not-found</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+resourcegraphdefinition.kro.run "cyclic" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> the working RGD is Active with an order that puts the namespace before the quota, and the cyclic one is refused with a message naming the cycle. Say how you would break that cycle without losing the value one resource needed from the other.</div>
     </div>
 
@@ -396,7 +399,7 @@ kubectl -n team-j get configmap tier-note || echo 'omitted by includeWhen'
 kubectl get tieredspace team-j -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'
 kubectl delete tieredspace team-j
 kubectl delete rgd tieredspace
-kubectl delete ns team-j --ignore-not-found</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl delete ns team-j --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kro.run/v1alpha1</b>
 <b>kind: ResourceGraphDefinition</b>
 <b>metadata: { name: tieredspace }</b>
@@ -438,21 +441,32 @@ kubectl delete ns team-j --ignore-not-found</code></pre><details class="out pend
 <b>        data:</b>
 <b>          note: included because cpu was not zero</b>
 <b>EOF</b>
+resourcegraphdefinition.kro.run/tieredspace created
 <b>$ sleep 20</b>
 <b>$ kubectl get rgd tieredspace -o jsonpath='{.status.state} {.status.topologicalOrder}{"\n"}'</b>
+Active ["ns","quota","extra"]
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kro.run/v1alpha1</b>
 <b>kind: TieredSpace</b>
 <b>metadata: { name: team-j, namespace: default }</b>
 <b>spec: { team: team-j, cpu: "0" }</b>
 <b>EOF</b>
+tieredspace.kro.run/team-j created
 <b>$ sleep 30</b>
 <b>$ kubectl -n team-j get configmap tier-note || echo 'omitted by includeWhen'</b>
+Error from server (NotFound): configmaps "tier-note" not found
+omitted by includeWhen
 <b>$ kubectl get tieredspace team-j -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
+{
+  "type": "InstanceSynced",
+  "status": "True",
+  "reason": "ReconciliationSucceeded"
+}
 <b>$ kubectl delete tieredspace team-j</b>
+tieredspace.kro.run "team-j" deleted from default namespace
 <b>$ kubectl delete rgd tieredspace</b>
-<b>$ kubectl delete ns team-j --ignore-not-found</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+resourcegraphdefinition.kro.run "tieredspace" deleted
+<b>$ kubectl delete ns team-j --ignore-not-found</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> the ConfigMap is absent for the instance whose cpu is zero, and the instance still reports ready because the quota satisfied its own <code>readyWhen</code>. Say what would happen to the instance if that condition never became true.</div>
     </div>
 
@@ -465,15 +479,24 @@ kubectl -n team-h get resourcequota || echo 'still gone: reconciliation is suspe
 kubectl annotate tenantspace team-h kro.run/reconcile-
 sleep 45
 kubectl -n team-h get resourcequota tenant-quota
-kubectl get tenantspace team-h -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl annotate tenantspace team-h kro.run/reconcile=suspended --overwrite</b>
+kubectl get tenantspace team-h -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl annotate tenantspace team-h kro.run/reconcile=suspended --overwrite</b>
+tenantspace.kro.run/team-h annotated
 <b>$ kubectl -n team-h delete resourcequota tenant-quota</b>
+resourcequota "tenant-quota" deleted from team-h namespace
 <b>$ sleep 45</b>
 <b>$ kubectl -n team-h get resourcequota || echo 'still gone: reconciliation is suspended'</b>
+No resources found in team-h namespace.
 <b>$ kubectl annotate tenantspace team-h kro.run/reconcile-</b>
+tenantspace.kro.run/team-h annotated
 <b>$ sleep 45</b>
 <b>$ kubectl -n team-h get resourcequota tenant-quota</b>
+Error from server (NotFound): resourcequotas "tenant-quota" not found
 <b>$ kubectl get tenantspace team-h -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+{
+  "type": "InstanceSynced",
+  "status": "True",
+  "reason": "ReconciliationSucceeded"
+}</code></pre></details></div>
       <div class="verify"><b>verify:</b> the quota stays deleted while the annotation is on and returns within one reconcile of removing it. Say when you would reach for this rather than deleting the instance, and what you would write in the ticket.</div>
     </div>
 

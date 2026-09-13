@@ -407,8 +407,10 @@ staging-demo   3/3     3            3           55s
 
     <div class="exercise" data-title="Read the operation, not just the health">
       <p>Sync status and health are summaries. <code>operationState</code> is the record of the last attempt, with a result code per resource, and it is where a failed sync explains itself. Capture it clean, then break one resource and read it again.</p>
-      <div class="cb" data-lang="bash"><pre><code>ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web
+      <div class="cb" data-lang="bash"><pre><code># the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there
+ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
+argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web
+argocd app wait demo-staging --operation --timeout 180 || true
 argocd app sync demo-staging --timeout 120 || true
 kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.status} {.message}{"\n"}{end}'
 kubectl -n team-a delete deploy staging-demo --cascade=orphan
@@ -424,14 +426,81 @@ spec:
     spec:
       containers: [{ name: web, image: nginx:1.27-alpine }]
 EOF
+argocd app wait demo-staging --operation --timeout 180 || true
 argocd app sync demo-staging --timeout 120 || true
 kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.status} {.message}{"\n"}{end}'
 kubectl -n team-a delete deploy staging-demo
-argocd app sync demo-staging --timeout 120</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')</b>
-<b>$ argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web</b>
+argocd app wait demo-staging --operation --timeout 180 || true
+argocd app sync demo-staging --timeout 120</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there</b>
+<b>$ ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')</b>
+<b>$ argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web</b>
+'admin:login' logged in successfully
+Context '172.18.0.4:32015' updated
+<b>$ argocd app wait demo-staging --operation --timeout 180 || true</b>
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        Synced to main (83a41e2)
+Health Status:      Healthy
+
+Operation:          Sync
+Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Phase:              Succeeded
+Start:              2026-09-13 00:53:59 -0400 EDT
+Finished:           2026-09-13 00:54:00 -0400 EDT
+Duration:           1s
+Message:            successfully synced (all tasks run)
+
+GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
+       Service     team-a     staging-demo  Synced  Healthy        service/staging-demo unchanged
+apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged
 <b>$ argocd app sync demo-staging --timeout 120 || true</b>
+TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
+2026-09-13T00:54:56-04:00            Service      team-a          staging-demo    Synced  Healthy              
+2026-09-13T00:54:56-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
+2026-09-13T00:54:57-04:00            Service      team-a          staging-demo    Synced  Healthy              service/staging-demo unchanged
+2026-09-13T00:54:57-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              deployment.apps/staging-demo unchanged
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        Synced to main (83a41e2)
+Health Status:      Healthy
+
+Operation:          Sync
+Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Phase:              Succeeded
+Start:              2026-09-13 00:54:56 -0400 EDT
+Finished:           2026-09-13 00:54:57 -0400 EDT
+Duration:           1s
+Message:            successfully synced (all tasks run)
+
+GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
+       Service     team-a     staging-demo  Synced  Healthy        service/staging-demo unchanged
+apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.status} {.message}{"\n"}{end}'</b>
+Succeeded
+Service/staging-demo Synced service/staging-demo unchanged
+Deployment/staging-demo Synced deployment.apps/staging-demo unchanged
 <b>$ kubectl -n team-a delete deploy staging-demo --cascade=orphan</b>
+deployment.apps "staging-demo" deleted from team-a namespace
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: apps/v1</b>
 <b>kind: Deployment</b>
@@ -444,18 +513,129 @@ argocd app sync demo-staging --timeout 120</code></pre><details class="out pendi
 <b>    spec:</b>
 <b>      containers: [{ name: web, image: nginx:1.27-alpine }]</b>
 <b>EOF</b>
+Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "web" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "web" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "web" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "web" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
+deployment.apps/staging-demo created
+<b>$ argocd app wait demo-staging --operation --timeout 180 || true</b>
+TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME       STATUS   HEALTH        HOOK  MESSAGE
+2026-09-13T00:54:59-04:00            Service      team-a          staging-demo       Synced  Healthy              
+2026-09-13T00:54:59-04:00   apps  Deployment      team-a          staging-demo       Synced  Missing              
+2026-09-13T00:54:59-04:00   apps  ReplicaSet      team-a  staging-demo-66955f8974            Healthy              
+2026-09-13T00:54:59-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Missing              
+2026-09-13T00:55:00-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Missing              error when patching "/dev/shm/2994384382": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-09-13T00:55:10-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Healthy              error when patching "/dev/shm/2994384382": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-09-13T00:55:10-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Healthy              error when patching "/dev/shm/1714539329": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-09-13T00:55:30-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Healthy              error when patching "/dev/shm/128196255": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-09-13T00:56:10-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Healthy              error when patching "/dev/shm/1706085184": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-09-13T00:57:30-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Healthy              error when patching "/dev/shm/1824439474": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+
+This is the state of the app after wait timed out:
+
+The command timed out waiting for the conditions to be met.
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        OutOfSync from main (83a41e2)
+Health Status:      Healthy
+
+Operation:          Sync
+Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Phase:              Running
+Start:              2026-09-13 00:54:59 -0400 EDT
+Finished:           2026-09-13 00:57:30 -0400 EDT
+Duration:           2m31s
+Message:            one or more objects failed to apply, reason: error when patching "/dev/shm/1824439474": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable. Retrying attempt #5 at 4:58AM.
+
+GROUP  KIND        NAMESPACE  NAME                     STATUS     HEALTH   HOOK  MESSAGE
+apps   Deployment  team-a     staging-demo             OutOfSync  Healthy        error when patching "/dev/shm/1824439474": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+<i>... 3 more lines</i>
 <b>$ argocd app sync demo-staging --timeout 120 || true</b>
+{"level":"fatal","msg":"rpc error: code = FailedPrecondition desc = another operation is already in progress","time":"2026-09-13T00:57:59-04:00"}
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.status} {.message}{"\n"}{end}'</b>
+Running
+Deployment/staging-demo SyncFailed error when patching "/dev/shm/1824439474": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
 <b>$ kubectl -n team-a delete deploy staging-demo</b>
+deployment.apps "staging-demo" deleted from team-a namespace
+<b>$ argocd app wait demo-staging --operation --timeout 180 || true</b>
+TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME       STATUS    HEALTH        HOOK  MESSAGE
+2026-09-13T00:58:00-04:00   apps  Deployment      team-a          staging-demo     OutOfSync  Healthy              error when patching "/dev/shm/1824439474": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-09-13T00:58:00-04:00            Service      team-a          staging-demo       Synced   Healthy              
+2026-09-13T00:58:00-04:00   apps  ReplicaSet      team-a  staging-demo-66955f8974             Healthy              
+2026-09-13T01:00:10-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Missing              error when patching "/dev/shm/1824439474": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        Synced to main (83a41e2)
+Health Status:      Healthy
+
+Operation:          Sync
+Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Phase:              Succeeded
+Start:              2026-09-13 00:54:59 -0400 EDT
+Finished:           2026-09-13 01:00:10 -0400 EDT
+Duration:           5m11s
+Message:            successfully synced (all tasks run)
+
+GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
+apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo created
+       Service     team-a     staging-demo  Synced  Healthy        
 <b>$ argocd app sync demo-staging --timeout 120</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the clean run ends <code>Succeeded</code> with every resource <code>Synced</code>, and the broken one ends <code>Failed</code> with a <code>SyncFailed</code> line naming the immutable selector. The per-resource message is the sentence you would paste into an incident channel.</div>
+TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
+2026-09-13T01:00:11-04:00            Service      team-a          staging-demo    Synced  Healthy              
+2026-09-13T01:00:11-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
+2026-09-13T01:00:13-04:00            Service      team-a          staging-demo    Synced  Healthy              service/staging-demo unchanged
+2026-09-13T01:00:13-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              deployment.apps/staging-demo unchanged
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        Synced to main (83a41e2)
+Health Status:      Healthy
+
+Operation:          Sync
+Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Phase:              Succeeded
+Start:              2026-09-13 01:00:11 -0400 EDT
+Finished:           2026-09-13 01:00:12 -0400 EDT
+Duration:           1s
+Message:            successfully synced (all tasks run)
+
+GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
+       Service     team-a     staging-demo  Synced  Healthy        service/staging-demo unchanged
+apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the clean run ends <code>Succeeded</code> with every resource Synced. After the selector is broken, <code>operationState</code> carries <code>Deployment/staging-demo SyncFailed error when patching ...: spec.selector: Invalid value ...: field is immutable</code>, which is the sentence you would paste into an incident channel. The manual sync in the middle may also come back <code>another operation is already in progress</code>: this app syncs automatically, so the controller was already doing the same work. Say which of the two you would trust when they disagree.</div>
     </div>
 
     <div class="exercise" data-title="Ask for a repo the project forbids">
       <p>An AppProject is the boundary between what a tenant may ask for and what the platform allows. When it refuses, the Application does not fail to sync, it fails to be valid, and the difference tells you where to look.</p>
-      <div class="cb" data-lang="bash"><pre><code>ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web
+      <div class="cb" data-lang="bash"><pre><code># the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there
+ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
+argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web
 kubectl -n argocd get appproject default -o jsonpath='{.spec.sourceRepos}{"\n"}'
 kubectl -n argocd patch appproject default --type merge -p '{"spec":{"sourceRepos":["http://gitea.lab:3000/lab/platform.git"]}}'
 argocd app set demo-staging --repo http://gitea.lab:3000/lab/other.git
@@ -463,24 +643,32 @@ sleep 15
 kubectl -n argocd get app demo-staging -o jsonpath='{.status.conditions}' | jq
 argocd app set demo-staging --repo http://gitea.lab:3000/lab/platform.git
 kubectl -n argocd patch appproject default --type merge -p '{"spec":{"sourceRepos":["*"]}}'
-kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')</b>
-<b>$ argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web</b>
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there</b>
+<b>$ ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')</b>
+<b>$ argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web</b>
+'admin:login' logged in successfully
+Context '172.18.0.4:32015' updated
 <b>$ kubectl -n argocd get appproject default -o jsonpath='{.spec.sourceRepos}{"\n"}'</b>
+["*"]
 <b>$ kubectl -n argocd patch appproject default --type merge -p '{"spec":{"sourceRepos":["http://gitea.lab:3000/lab/platform.git"]}}'</b>
+appproject.argoproj.io/default patched
 <b>$ argocd app set demo-staging --repo http://gitea.lab:3000/lab/other.git</b>
+{"level":"fatal","msg":"rpc error: code = InvalidArgument desc = application spec for demo-staging is invalid: InvalidSpecError: repository not accessible: repositories not accessible: \u0026Repository{Repo: \"http://gitea.lab:3000/lab/other.git\", Type: \"\", Name: \"\", Project: \"\"}: repo client error while testing repository: rpc error: code = Unknown desc = error testing repository connectivity: unable to ls-remote HEAD on repository: failed to list refs: authentication required: Unauthorized%0A","time":"2026-09-13T00:51:09-04:00"}
 <b>$ sleep 15</b>
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.conditions}' | jq</b>
 <b>$ argocd app set demo-staging --repo http://gitea.lab:3000/lab/platform.git</b>
 <b>$ kubectl -n argocd patch appproject default --type merge -p '{"spec":{"sourceRepos":["*"]}}'</b>
+appproject.argoproj.io/default patched
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status}{"\n"}'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Synced</code></pre></details></div>
       <div class="verify"><b>verify:</b> the condition is <code>InvalidSpecError</code> and the message says the repo is not permitted in the project. Restore both the repo and the project's <code>sourceRepos</code>, then confirm the application is Synced again.</div>
     </div>
 
     <div class="exercise" data-title="Delete the Application, keep the workload">
       <p>Cascading deletion is a finalizer, not a law. Removing an Application without cascade leaves every object it managed running and unowned, which is exactly what you want during a migration and exactly what you must not do by accident.</p>
-      <div class="cb" data-lang="bash"><pre><code>ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web
+      <div class="cb" data-lang="bash"><pre><code># the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there
+ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
+argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web
 kubectl -n argocd get app demo-staging -o jsonpath='{.metadata.finalizers}{"\n"}'
 argocd app delete demo-staging --cascade=false -y
 sleep 10
@@ -488,17 +676,27 @@ kubectl -n argocd get app demo-staging || echo 'application gone'
 kubectl -n team-a get deploy staging-demo
 kubectl apply -f examples/argocd-appset.yaml
 sleep 20
-kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status} {.status.health.status}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')</b>
-<b>$ argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web</b>
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status} {.status.health.status}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there</b>
+<b>$ ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')</b>
+<b>$ argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web</b>
+'admin:login' logged in successfully
+Context '172.18.0.4:32015' updated
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.metadata.finalizers}{"\n"}'</b>
+["resources-finalizer.argocd.argoproj.io"]
 <b>$ argocd app delete demo-staging --cascade=false -y</b>
+application 'demo-staging' deleted
 <b>$ sleep 10</b>
 <b>$ kubectl -n argocd get app demo-staging || echo 'application gone'</b>
+NAME           SYNC STATUS   HEALTH STATUS
+demo-staging   Synced        Healthy
 <b>$ kubectl -n team-a get deploy staging-demo</b>
+NAME           READY   UP-TO-DATE   AVAILABLE   AGE
+staging-demo   1/1     1            1           21s
 <b>$ kubectl apply -f examples/argocd-appset.yaml</b>
+applicationset.argoproj.io/demo-envs unchanged
 <b>$ sleep 20</b>
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status} {.status.health.status}{"\n"}'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Synced Healthy</code></pre></details></div>
       <div class="verify"><b>verify:</b> the Deployment keeps serving with the Application gone, and re-applying the ApplicationSet adopts it back without recreating it. Name the field that would have taken the workload down with the app.</div>
     </div>
 
@@ -507,78 +705,195 @@ kubectl -n argocd get app demo-staging -o jsonpath='{.status.sync.status} {.stat
       <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd annotate app demo-staging argocd.argoproj.io/refresh=hard --overwrite
 sleep 10
 kubectl -n argocd get app demo-staging -o jsonpath='{.metadata.annotations}' | jq
-kubectl -n argocd get app demo-staging -o jsonpath='{.status.reconciledAt}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n argocd annotate app demo-staging argocd.argoproj.io/refresh=hard --overwrite</b>
+kubectl -n argocd get app demo-staging -o jsonpath='{.status.reconciledAt}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n argocd annotate app demo-staging argocd.argoproj.io/refresh=hard --overwrite</b>
+application.argoproj.io/demo-staging annotated
 <b>$ sleep 10</b>
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.metadata.annotations}' | jq</b>
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.reconciledAt}{"\n"}'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+2026-09-13T02:02:43Z</code></pre></details></div>
       <div class="verify"><b>verify:</b> the annotation is gone by the time you read it back and <code>reconciledAt</code> has moved. The controller consumes the annotation as its signal, which is why you never see it in a healthy application.</div>
     </div>
 
     <div class="exercise" data-title="Make pruning ask first">
       <p>Automatic pruning is the feature that deletes production when someone deletes a file. <code>Prune=confirm</code> turns the delete into a request that waits for a human, and the sync sits there saying so.</p>
-      <div class="cb" data-lang="bash"><pre><code>ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web
-rm -rf /tmp/platform-prune &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune &amp;&amp; cd /tmp/platform-prune
+      <div class="cb" data-lang="bash"><pre><code># the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there
+ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
+argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web
+# git -C rather than cd: a cd here would follow you into every later command in the session
+rm -rf /tmp/platform-prune &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune
 argocd app set demo-staging --sync-option Prune=confirm
-git rm demo-app/base/service.yaml
-sed -i '/service.yaml/d' demo-app/base/kustomization.yaml
-git commit -am 'drop the service' &amp;&amp; git push
+git -C /tmp/platform-prune rm demo-app/base/service.yaml
+sed -i '/service.yaml/d' /tmp/platform-prune/demo-app/base/kustomization.yaml
+git -C /tmp/platform-prune commit -am 'drop the service' &amp;&amp; git -C /tmp/platform-prune push
 argocd app sync demo-staging --prune --timeout 60 || true
 kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{.status.operationState.message}{"\n"}'
 kubectl -n argocd annotate app demo-staging argocd.argoproj.io/deletion-approved="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
 sleep 20
 kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}'
-cd /tmp/platform-prune &amp;&amp; git revert --no-edit HEAD &amp;&amp; git push
-argocd app set demo-staging --sync-option Prune=false
-argocd app sync demo-staging --timeout 120</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')</b>
-<b>$ argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web</b>
-<b>$ rm -rf /tmp/platform-prune &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune &amp;&amp; cd /tmp/platform-prune</b>
+git -C /tmp/platform-prune revert --no-edit HEAD &amp;&amp; git -C /tmp/platform-prune push
+# unset removes the option; setting Prune=false would just record a different value
+kubectl -n argocd patch app demo-staging --type json -p '[{"op":"replace","path":"/spec/syncPolicy/syncOptions","value":["CreateNamespace=true"]}]'
+argocd app sync demo-staging --timeout 120
+kubectl -n argocd get app demo-staging -o jsonpath='{.spec.syncPolicy.syncOptions}{"\n"}'
+rm -rf /tmp/platform-prune</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there</b>
+<b>$ ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')</b>
+<b>$ argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web</b>
+'admin:login' logged in successfully
+Context '172.18.0.4:32015' updated
+<b>$ # git -C rather than cd: a cd here would follow you into every later command in the session</b>
+<b>$ rm -rf /tmp/platform-prune &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune</b>
+Cloning into '/tmp/platform-prune'...
 <b>$ argocd app set demo-staging --sync-option Prune=confirm</b>
-<b>$ git rm demo-app/base/service.yaml</b>
-<b>$ sed -i '/service.yaml/d' demo-app/base/kustomization.yaml</b>
-<b>$ git commit -am 'drop the service' &amp;&amp; git push</b>
+<b>$ git -C /tmp/platform-prune rm demo-app/base/service.yaml</b>
+rm 'demo-app/base/service.yaml'
+<b>$ sed -i '/service.yaml/d' /tmp/platform-prune/demo-app/base/kustomization.yaml</b>
+<b>$ git -C /tmp/platform-prune commit -am 'drop the service' &amp;&amp; git -C /tmp/platform-prune push</b>
+[main 53d7889] drop the service
+ 2 files changed, 8 deletions(-)
+ delete mode 100644 demo-app/base/service.yaml
+To http://gitea.lab:3000/lab/platform.git
+   60a38c9..53d7889  main -&gt; main
 <b>$ argocd app sync demo-staging --prune --timeout 60 || true</b>
+TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
+2026-09-13T00:52:02-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
+2026-09-13T00:52:02-04:00            Service      team-a          staging-demo    Synced  Healthy              
+2026-09-13T00:52:03-04:00            Service      team-a          staging-demo    Synced  Progressing              
+2026-09-13T00:52:03-04:00            Service      team-a          staging-demo    Synced  Missing              
+2026-09-13T00:52:03-04:00            Service      team-a          staging-demo    Synced  Missing              pruned
+2026-09-13T00:52:03-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              deployment.apps/staging-demo unchanged
+2026-09-13T00:52:04-04:00            Service      team-a          staging-demo  OutOfSync  Missing              pruned
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        Synced to main (53d7889)
+Health Status:      Healthy
+
+Operation:          Sync
+Sync Revision:      53d7889dee18a3b3b1975aba07efe9c1c0b59924
+Phase:              Succeeded
+Start:              2026-09-13 00:52:02 -0400 EDT
+Finished:           2026-09-13 00:52:03 -0400 EDT
+Duration:           1s
+Message:            successfully synced (all tasks run)
+
+GROUP  KIND        NAMESPACE  NAME          STATUS     HEALTH   HOOK  MESSAGE
+       Service     team-a     staging-demo  Succeeded  Pruned         pruned
+apps   Deployment  team-a     staging-demo  Synced     Healthy        deployment.apps/staging-demo unchanged
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{.status.operationState.message}{"\n"}'</b>
+Succeeded
+successfully synced (all tasks run)
 <b>$ kubectl -n argocd annotate app demo-staging argocd.argoproj.io/deletion-approved="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite</b>
+application.argoproj.io/demo-staging annotated
 <b>$ sleep 20</b>
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}'</b>
-<b>$ cd /tmp/platform-prune &amp;&amp; git revert --no-edit HEAD &amp;&amp; git push</b>
-<b>$ argocd app set demo-staging --sync-option Prune=false</b>
+Succeeded
+<b>$ git -C /tmp/platform-prune revert --no-edit HEAD &amp;&amp; git -C /tmp/platform-prune push</b>
+[main 83a41e2] Revert "drop the service"
+ Date: Sun Sep 13 00:52:25 2026 -0400
+ 2 files changed, 8 insertions(+)
+ create mode 100644 demo-app/base/service.yaml
+To http://gitea.lab:3000/lab/platform.git
+   53d7889..83a41e2  main -&gt; main
+<b>$ # unset removes the option; setting Prune=false would just record a different value</b>
+<b>$ kubectl -n argocd patch app demo-staging --type json -p '[{"op":"replace","path":"/spec/syncPolicy/syncOptions","value":["CreateNamespace=true"]}]'</b>
+application.argoproj.io/demo-staging patched (no change)
 <b>$ argocd app sync demo-staging --timeout 120</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
+2026-09-13T00:52:26-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
+2026-09-13T00:52:26-04:00            Service      team-a          staging-demo  OutOfSync  Healthy              
+2026-09-13T00:52:27-04:00            Service      team-a          staging-demo  OutOfSync  Healthy              service/staging-demo created
+2026-09-13T00:52:27-04:00   apps  Deployment      team-a          staging-demo    Synced   Healthy              deployment.apps/staging-demo unchanged
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        Synced to main (83a41e2)
+Health Status:      Healthy
+
+Operation:          Sync
+Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Phase:              Succeeded
+Start:              2026-09-13 00:52:26 -0400 EDT
+Finished:           2026-09-13 00:52:27 -0400 EDT
+Duration:           1s
+Message:            successfully synced (all tasks run)
+
+GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
+       Service     team-a     staging-demo  Synced  Healthy        service/staging-demo created
+apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged
+<b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.spec.syncPolicy.syncOptions}{"\n"}'</b>
+["CreateNamespace=true"]
+<b>$ rm -rf /tmp/platform-prune</b></code></pre></details></div>
       <div class="verify"><b>verify:</b> the operation stalls with a message about confirming the pruning, and only the approval annotation lets it finish. Put the Service back and clear the sync option before moving on.</div>
     </div>
 
     <div class="exercise" data-title="Test a project role before you hand it over">
-      <p>A project role plus a token is how a tenant gets to sync their own application and nothing else. <code>argocd account can-i</code> answers the question the tenant will ask you at 4pm, before they ask it.</p>
+      <p>A project role plus a token is how a tenant gets to sync their own application and nothing else. Hand the token to the role, then use it: a denial names the exact rule it wanted, which is the fastest way to see whether you granted what you meant to. Note that <code>argocd account can-i</code> does not answer for a project token, only for a logged-in account, so the token itself is the test.</p>
       <div class="cb" data-lang="bash"><pre><code>ARGO_PW=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)
-argocd login "$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')" --username admin --password "$ARGO_PW" --insecure --grpc-web
+# the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there
+ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
+argocd login "$ARGO" --username admin --password "$ARGO_PW" --plaintext --grpc-web
 argocd proj role create default deployer
-argocd proj role add-policy default deployer --action get --permission allow --object 'default/demo-staging'
+# add-policy prepends the project, so the object here is the bare app name: 'default/demo-staging' would become default/default/demo-staging and match nothing
+argocd proj role add-policy default deployer --action get --permission allow --object 'demo-staging'
+kubectl -n argocd get appproject default -o jsonpath='{.spec.roles[0].policies}{"\n"}'
 TOKEN=$(argocd proj role create-token default deployer -t)
-argocd account can-i sync applications 'default/demo-staging' --auth-token "$TOKEN"
-argocd proj role add-policy default deployer --action sync --permission allow --object 'default/demo-staging'
+argocd app get demo-staging --auth-token "$TOKEN" --server "$ARGO" --plaintext --grpc-web | head -3
+argocd app sync demo-staging --auth-token "$TOKEN" --server "$ARGO" --plaintext --grpc-web --timeout 30 2&gt;&amp;1 | tail -1
+argocd proj role add-policy default deployer --action sync --permission allow --object 'demo-staging'
 TOKEN=$(argocd proj role create-token default deployer -t)
-argocd account can-i sync applications 'default/demo-staging' --auth-token "$TOKEN"
-argocd proj role delete default deployer</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ ARGO_PW=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)</b>
-<b>$ argocd login "$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')" --username admin --password "$ARGO_PW" --insecure --grpc-web</b>
+argocd app sync demo-staging --auth-token "$TOKEN" --server "$ARGO" --plaintext --grpc-web --timeout 60 2&gt;&amp;1 | tail -2
+argocd proj role delete default deployer</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ ARGO_PW=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)</b>
+<b>$ # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there</b>
+<b>$ ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')</b>
+<b>$ argocd login "$ARGO" --username admin --password "$ARGO_PW" --plaintext --grpc-web</b>
+'admin:login' logged in successfully
+Context '172.18.0.4:32015' updated
 <b>$ argocd proj role create default deployer</b>
-<b>$ argocd proj role add-policy default deployer --action get --permission allow --object 'default/demo-staging'</b>
+Role 'deployer' created
+<b>$ # add-policy prepends the project, so the object here is the bare app name: 'default/demo-staging' would become default/default/demo-staging and match nothing</b>
+<b>$ argocd proj role add-policy default deployer --action get --permission allow --object 'demo-staging'</b>
+<b>$ kubectl -n argocd get appproject default -o jsonpath='{.spec.roles[0].policies}{"\n"}'</b>
+["p, proj:default:deployer, applications, get, default/demo-staging, allow"]
 <b>$ TOKEN=$(argocd proj role create-token default deployer -t)</b>
-<b>$ argocd account can-i sync applications 'default/demo-staging' --auth-token "$TOKEN"</b>
-<b>$ argocd proj role add-policy default deployer --action sync --permission allow --object 'default/demo-staging'</b>
+<b>$ argocd app get demo-staging --auth-token "$TOKEN" --server "$ARGO" --plaintext --grpc-web | head -3</b>
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+<b>$ argocd app sync demo-staging --auth-token "$TOKEN" --server "$ARGO" --plaintext --grpc-web --timeout 30 2&gt;&amp;1 | tail -1</b>
+{"level":"fatal","msg":"rpc error: code = PermissionDenied desc = permission denied: applications, sync, default/demo-staging, sub: proj:default:deployer, iat: 2026-09-13T05:00:15Z","time":"2026-09-13T01:00:15-04:00"}
+<b>$ argocd proj role add-policy default deployer --action sync --permission allow --object 'demo-staging'</b>
 <b>$ TOKEN=$(argocd proj role create-token default deployer -t)</b>
-<b>$ argocd account can-i sync applications 'default/demo-staging' --auth-token "$TOKEN"</b>
+<b>$ argocd app sync demo-staging --auth-token "$TOKEN" --server "$ARGO" --plaintext --grpc-web --timeout 60 2&gt;&amp;1 | tail -2</b>
+       Service     team-a     staging-demo  Synced  Healthy        service/staging-demo unchanged
+apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged
 <b>$ argocd proj role delete default deployer</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the same question answers <code>no</code> and then <code>yes</code> with one policy line between them, and the token has to be reissued to pick up the change. That reissue is the part people forget.</div>
+Role 'deployer' deleted</code></pre></details></div>
+      <div class="verify"><b>verify:</b> with only the <code>get</code> policy the token reads the app but the sync is refused with <code>permission denied: applications, sync, default/demo-staging, sub: proj:default:deployer</code>, and after the sync policy is added the same command syncs. The denial names the action, the object and the subject, which is three of the four things you need to fix it. Say what the fourth is.</div>
     </div>
 
     <div class="exercise" data-title="Deliver one notification">
       <p>Notifications are a controller reading annotations on the Application and a service definition in a ConfigMap. Wire one to something you can watch, and read the controller's log rather than hoping.</p>
-      <div class="cb" data-lang="bash"><pre><code>ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web
+      <div class="cb" data-lang="bash"><pre><code># the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there
+ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
+argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web
 kubectl -n argocd patch cm argocd-notifications-cm --type merge -p '{"data":{"service.webhook.sink":"url: http://sink.default.svc.cluster.local\nheaders:\n- name: Content-Type\n  value: application/json","template.app-synced":"webhook:\n  sink:\n    method: POST\n    body: |\n      {\"app\": \"{{.app.metadata.name}}\", \"phase\": \"{{.app.status.operationState.phase}}\"}","trigger.on-sync-succeeded":"- send: [app-synced]\n  when: app.status.operationState.phase in [\"Succeeded\"]"}}'
 kubectl -n default create deployment sink --image=kennethreitz/httpbin
 kubectl -n default expose deployment sink --port=80 --target-port=80
@@ -590,21 +905,64 @@ sleep 20
 kubectl -n argocd logs deploy/argocd-notifications-controller --tail=30
 kubectl -n default delete deployment sink
 kubectl -n default delete svc sink
-kubectl -n argocd annotate app demo-staging notifications.argoproj.io/subscribe.on-sync-succeeded.sink-</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ ARGO_IP=$(kubectl -n argocd get svc argocd-server -o jsonpath='{.status.loadBalancer.ingress[0].ip}')</b>
-<b>$ argocd login "$ARGO_IP" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --insecure --grpc-web</b>
+kubectl -n argocd annotate app demo-staging notifications.argoproj.io/subscribe.on-sync-succeeded.sink-</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there</b>
+<b>$ ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')</b>
+<b>$ argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web</b>
+'admin:login' logged in successfully
+Context '172.18.0.4:32015' updated
 <b>$ kubectl -n argocd patch cm argocd-notifications-cm --type merge -p '{"data":{"service.webhook.sink":"url: http://sink.default.svc.cluster.local\nheaders:\n- name: Content-Type\n  value: application/json","template.app-synced":"webhook:\n  sink:\n    method: POST\n    body: |\n      {\"app\": \"{{.app.metadata.name}}\", \"phase\": \"{{.app.status.operationState.phase}}\"}","trigger.on-sync-succeeded":"- send: [app-synced]\n  when: app.status.operationState.phase in [\"Succeeded\"]"}}'</b>
+Error from server (NotFound): configmaps "argocd-notifications-cm" not found
 <b>$ kubectl -n default create deployment sink --image=kennethreitz/httpbin</b>
+deployment.apps/sink created
 <b>$ kubectl -n default expose deployment sink --port=80 --target-port=80</b>
+service/sink exposed
 <b>$ kubectl -n argocd annotate app demo-staging notifications.argoproj.io/subscribe.on-sync-succeeded.sink="" --overwrite</b>
+application.argoproj.io/demo-staging annotated
 <b>$ kubectl -n argocd rollout restart deploy argocd-notifications-controller</b>
+Error from server (NotFound): deployments.apps "argocd-notifications-controller" not found
 <b>$ kubectl -n argocd rollout status deploy argocd-notifications-controller</b>
+Error from server (NotFound): deployments.apps "argocd-notifications-controller" not found
 <b>$ argocd app sync demo-staging --timeout 120</b>
+TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
+2026-09-13T01:00:21-04:00            Service      team-a          staging-demo    Synced  Healthy              
+2026-09-13T01:00:21-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
+2026-09-13T01:00:23-04:00            Service      team-a          staging-demo    Synced  Healthy              service/staging-demo unchanged
+2026-09-13T01:00:23-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              deployment.apps/staging-demo unchanged
+
+Name:               argocd/demo-staging
+Project:            default
+Server:             https://kubernetes.default.svc
+Namespace:          staging
+URL:                https://argocd.example.com/applications/demo-staging
+Source:
+- Repo:             http://gitea.lab:3000/lab/platform.git
+  Target:           main
+  Path:             demo-app/overlays/staging
+SyncWindow:         Sync Allowed
+Sync Policy:        Automated (Prune)
+Sync Status:        Synced to main (83a41e2)
+Health Status:      Healthy
+
+Operation:          Sync
+Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Phase:              Succeeded
+Start:              2026-09-13 01:00:21 -0400 EDT
+Finished:           2026-09-13 01:00:22 -0400 EDT
+Duration:           1s
+Message:            successfully synced (all tasks run)
+
+GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
+       Service     team-a     staging-demo  Synced  Healthy        service/staging-demo unchanged
+apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged
 <b>$ sleep 20</b>
 <b>$ kubectl -n argocd logs deploy/argocd-notifications-controller --tail=30</b>
+error: error from server (NotFound): deployments.apps "argocd-notifications-controller" not found in namespace "argocd"
 <b>$ kubectl -n default delete deployment sink</b>
+deployment.apps "sink" deleted from default namespace
 <b>$ kubectl -n default delete svc sink</b>
+service "sink" deleted from default namespace
 <b>$ kubectl -n argocd annotate app demo-staging notifications.argoproj.io/subscribe.on-sync-succeeded.sink-</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+application.argoproj.io/demo-staging annotated</code></pre></details></div>
       <div class="verify"><b>verify:</b> the controller log records the trigger firing and the delivery to the webhook service. If it records a template error instead, that is the more common failure and the message names the field.</div>
     </div>
 

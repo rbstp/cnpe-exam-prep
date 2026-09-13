@@ -494,7 +494,7 @@ kubectl argo rollouts promote demo -n team-a
 kubectl argo rollouts status demo -n team-a --timeout 120s
 kubectl -n team-a delete analysisrun --all
 kubectl -n team-a delete analysistemplate undecided
-kubectl -n team-a apply -f examples/rollouts/canary.yaml</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n team-a apply -f examples/rollouts/canary.yaml</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: AnalysisTemplate</b>
 <b>metadata: { name: undecided, namespace: team-a }</b>
@@ -515,18 +515,48 @@ kubectl -n team-a apply -f examples/rollouts/canary.yaml</code></pre><details cl
 <b>                    command: ["sh", "-c", "echo no verdict here"]</b>
 <b>            backoffLimit: 0</b>
 <b>EOF</b>
+analysistemplate.argoproj.io/undecided unchanged
 <b>$ kubectl -n team-a patch rollout demo --type merge -p '{"spec":{"strategy":{"canary":{"analysis":{"templates":[{"templateName":"undecided"}],"startingStep":0,"args":null}}}}}'</b>
+rollout.argoproj.io/demo patched (no change)
 <b>$ kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.26-alpine -n team-a</b>
+rollout "demo" image updated
 <b>$ sleep 90</b>
 <b>$ kubectl -n team-a get analysisrun -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{"\n"}{end}'</b>
+demo-5cfc49f565-7 Error
 <b>$ kubectl argo rollouts status demo -n team-a --timeout 10s || true</b>
+Healthy
 <b>$ kubectl argo rollouts get rollout demo -n team-a --no-color | head -20</b>
+Name:            demo
+Namespace:       team-a
+Status:          ✔ Healthy
+Strategy:        Canary
+  Step:          5/5
+  SetWeight:     100
+  ActualWeight:  100
+Images:          ghcr.io/nginxinc/nginx-unprivileged:1.26-alpine (stable)
+Replicas:
+  Desired:       4
+  Current:       4
+  Updated:       4
+  Ready:         4
+  Available:     4
+
+NAME                             KIND         STATUS        AGE  INFO
+⟳ demo                           Rollout      ✔ Healthy     68m  
+├──# revision:8                                                  
+│  └──⧉ demo-dff9796f6           ReplicaSet   ✔ Healthy     52m  stable
+│     ├──□ demo-dff9796f6-x8b2r  Pod          ✔ Running     52m  ready:1/1
 <b>$ kubectl argo rollouts promote demo -n team-a</b>
+rollout 'demo' promoted
 <b>$ kubectl argo rollouts status demo -n team-a --timeout 120s</b>
+Healthy
 <b>$ kubectl -n team-a delete analysisrun --all</b>
+analysisrun.argoproj.io "demo-5cfc49f565-7" deleted from team-a namespace
 <b>$ kubectl -n team-a delete analysistemplate undecided</b>
+analysistemplate.argoproj.io "undecided" deleted from team-a namespace
 <b>$ kubectl -n team-a apply -f examples/rollouts/canary.yaml</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+analysistemplate.argoproj.io/success-rate unchanged
+rollout.argoproj.io/demo configured</code></pre></details></div>
       <div class="verify"><b>verify:</b> the AnalysisRun ends <code>Inconclusive</code>, the Rollout is paused rather than aborted, and a promote is what moves it. Restore the original analysis from <code>examples/rollouts/canary.yaml</code> before the next exercise.</div>
     </div>
 
@@ -567,7 +597,7 @@ kubectl -n team-a get analysisrun -o jsonpath='{.items[-1:].status.metricResults
 kubectl argo rollouts undo demo -n team-a
 kubectl -n team-a delete analysisrun --all
 kubectl -n team-a delete analysistemplate always-fails
-kubectl -n team-a apply -f examples/rollouts/canary.yaml</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n team-a apply -f examples/rollouts/canary.yaml</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: AnalysisTemplate</b>
 <b>metadata: { name: always-fails, namespace: team-a }</b>
@@ -590,20 +620,91 @@ kubectl -n team-a apply -f examples/rollouts/canary.yaml</code></pre><details cl
 <b>                    command: ["sh", "-c", "exit 1"]</b>
 <b>            backoffLimit: 0</b>
 <b>EOF</b>
+analysistemplate.argoproj.io/always-fails created
 <b>$ kubectl -n team-a patch rollout demo --type merge -p '{"spec":{"strategy":{"canary":{"analysis":{"templates":[{"templateName":"always-fails"}],"startingStep":0,"args":null}}}}}'</b>
+rollout.argoproj.io/demo patched
 <b>$ kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.25-alpine -n team-a</b>
+rollout "demo" image updated
 <b>$ sleep 75</b>
 <b>$ kubectl -n team-a get analysisrun -o jsonpath='{.items[-1:].status.metricResults[0]}' | jq</b>
+{
+  "count": 1,
+  "inconclusive": 1,
+  "measurements": [
+    {
+      "finishedAt": "2026-09-13T03:02:58Z",
+      "message": "Metric Terminated",
+      "metadata": {
+        "job-name": "c303afc8-c38f-41d7-b2ea-ad4f0d0f98f2.always-fails.1",
+        "job-namespace": "team-a"
+      },
+      "phase": "Inconclusive",
+      "resumeAt": "2026-09-13T03:02:59Z",
+      "startedAt": "2026-09-13T03:02:57Z"
+    }
+  ],
+  "message": "Metric Terminated",
+  "name": "always-fails",
+  "phase": "Inconclusive"
+}
 <b>$ kubectl argo rollouts undo demo -n team-a</b>
+rollout 'demo' undo
 <b>$ kubectl patch analysistemplate always-fails -n team-a --type merge -p '{"spec":{"metrics":[{"name":"always-fails","interval":"15s","count":5,"failureLimit":2,"successCondition":"result == \"never\"","provider":{"job":{"spec":{"backoffLimit":0,"template":{"spec":{"restartPolicy":"Never","containers":[{"name":"check","image":"busybox:1.36","command":["sh","-c","exit 1"]}]}}}}}}]}}'</b>
+analysistemplate.argoproj.io/always-fails patched
 <b>$ kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.24-alpine -n team-a</b>
+rollout "demo" image updated
 <b>$ sleep 120</b>
 <b>$ kubectl -n team-a get analysisrun -o jsonpath='{.items[-1:].status.metricResults[0]}' | jq</b>
+{
+  "count": 3,
+  "failed": 3,
+  "measurements": [
+    {
+      "finishedAt": "2026-09-13T03:04:25Z",
+      "metadata": {
+        "job-name": "fb430794-9587-4762-8158-42ef4b94ac5f.always-fails.1",
+        "job-namespace": "team-a"
+      },
+      "phase": "Failed",
+      "resumeAt": "2026-09-13T03:04:25Z",
+      "startedAt": "2026-09-13T03:04:13Z"
+    },
+    {
+      "finishedAt": "2026-09-13T03:04:49Z",
+      "metadata": {
+        "job-name": "fb430794-9587-4762-8158-42ef4b94ac5f.always-fails.2",
+        "job-namespace": "team-a"
+      },
+      "phase": "Failed",
+      "resumeAt": "2026-09-13T03:04:49Z",
+      "startedAt": "2026-09-13T03:04:40Z"
+    },
+    {
+      "finishedAt": "2026-09-13T03:05:13Z",
+      "metadata": {
+        "job-name": "fb430794-9587-4762-8158-42ef4b94ac5f.always-fails.3",
+        "job-namespace": "team-a"
+      },
+      "phase": "Failed",
+      "resumeAt": "2026-09-13T03:05:13Z",
+      "startedAt": "2026-09-13T03:05:04Z"
+    }
+  ],
+  "name": "always-fails",
+  "phase": "Failed"
+}
 <b>$ kubectl argo rollouts undo demo -n team-a</b>
+rollout 'demo' undo
 <b>$ kubectl -n team-a delete analysisrun --all</b>
+analysisrun.argoproj.io "demo-584f94bcff-10" deleted from team-a namespace
+analysisrun.argoproj.io "demo-5cfc49f565-11" deleted from team-a namespace
+analysisrun.argoproj.io "demo-5cfc49f565-9" deleted from team-a namespace
+analysisrun.argoproj.io "demo-6bcd89b78b-12" deleted from team-a namespace
 <b>$ kubectl -n team-a delete analysistemplate always-fails</b>
+analysistemplate.argoproj.io "always-fails" deleted from team-a namespace
 <b>$ kubectl -n team-a apply -f examples/rollouts/canary.yaml</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+analysistemplate.argoproj.io/success-rate unchanged
+rollout.argoproj.io/demo configured</code></pre></details></div>
       <div class="verify"><b>verify:</b> the first run records one failure and aborts; the second records three before it does. <code>count</code> is how many measurements you asked for, <code>failureLimit</code> is how many you will tolerate, and only the second one aborts anything.</div>
     </div>
 
@@ -649,7 +750,7 @@ kubectl -n team-a get rs -l app=bg -o custom-columns=NAME:.metadata.name,DESIRED
 sleep 45
 kubectl -n team-a get rs -l app=bg -o custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,READY:.status.readyReplicas
 kubectl -n team-a delete rollout bg
-kubectl -n team-a delete svc bg-active bg-preview</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n team-a delete svc bg-active bg-preview</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: Rollout</b>
 <b>metadata: { name: bg, namespace: team-a }</b>
@@ -682,15 +783,29 @@ kubectl -n team-a delete svc bg-active bg-preview</code></pre><details class="ou
 <b>metadata: { name: bg-preview, namespace: team-a }</b>
 <b>spec: { selector: { app: bg }, ports: [{ port: 80, targetPort: 8080 }] }</b>
 <b>EOF</b>
+rollout.argoproj.io/bg created
+service/bg-active created
+service/bg-preview created
 <b>$ kubectl argo rollouts status bg -n team-a --timeout 180s</b>
+Degraded - InvalidSpec: The Rollout "bg" is invalid: spec.strategy.blueGreen.previewService: Invalid value: "bg-preview": service "bg-preview" not found
+Error: The rollout is in a degraded state with message: InvalidSpec: The Rollout "bg" is invalid: spec.strategy.blueGreen.previewService: Invalid value: "bg-preview": service "bg-preview" not found
 <b>$ kubectl argo rollouts set image bg web=ghcr.io/nginxinc/nginx-unprivileged:1.26-alpine -n team-a</b>
+rollout "bg" image updated
 <b>$ sleep 15</b>
 <b>$ kubectl -n team-a get rs -l app=bg -o custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,READY:.status.readyReplicas</b>
+NAME            DESIRED   READY
+bg-5cb944994f   4         4
+bg-845689b9dd   4         &lt;none&gt;
 <b>$ sleep 45</b>
 <b>$ kubectl -n team-a get rs -l app=bg -o custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,READY:.status.readyReplicas</b>
+NAME            DESIRED   READY
+bg-5cb944994f   0         &lt;none&gt;
+bg-845689b9dd   4         4
 <b>$ kubectl -n team-a delete rollout bg</b>
+rollout.argoproj.io "bg" deleted from team-a namespace
 <b>$ kubectl -n team-a delete svc bg-active bg-preview</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+service "bg-active" deleted from team-a namespace
+service "bg-preview" deleted from team-a namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the new ReplicaSet sits at one replica while the old one still serves four, then scales to four and takes the active Service after the promotion window. Say what <code>previewReplicaCount</code> costs you in confidence in exchange for the saving.</div>
     </div>
 
@@ -889,13 +1004,43 @@ kubectl --context kind-mesh -n test patch canary podinfo --type merge -p '{"spec
 kubectl --context kind-mesh -n test set image deploy/podinfo podinfod=ghcr.io/stefanprodan/podinfo:6.7.0
 sleep 180
 kubectl --context kind-mesh -n test describe canary podinfo | sed -n '/Events/,$p'
-kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.status.phase} {.status.failedChecks}{"\n"}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.spec.analysis}' | jq</b>
+kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.status.phase} {.status.failedChecks}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.spec.analysis}' | jq</b>
+{
+  "interval": "15s",
+  "maxWeight": 50,
+  "metrics": [
+    {
+      "interval": "1m",
+      "name": "request-success-rate",
+      "thresholdRange": {
+        "min": 99
+      }
+    }
+  ],
+  "stepWeight": 10,
+  "threshold": 5
+}
 <b>$ kubectl --context kind-mesh -n test patch canary podinfo --type merge -p '{"spec":{"analysis":{"interval":"15s","iterations":3,"threshold":2,"match":[{"headers":{"x-canary":{"regex":"^insider$"}}}]}}}'</b>
+The Canary "podinfo" is invalid: &lt;nil&gt;: Invalid value: "": "spec.analysis" must validate one and only one schema (oneOf). Found 2 valid alternatives
 <b>$ kubectl --context kind-mesh -n test set image deploy/podinfo podinfod=ghcr.io/stefanprodan/podinfo:6.7.0</b>
 <b>$ sleep 180</b>
 <b>$ kubectl --context kind-mesh -n test describe canary podinfo | sed -n '/Events/,$p'</b>
+Events:
+  Type     Reason  Age                  From     Message
+  ----     ------  ----                 ----     -------
+  Warning  Synced  22m                  flagger  podinfo-primary.test not ready: waiting for rollout to finish: observed deployment generation less than desired generation
+  Warning  Synced  22m                  flagger  podinfo-primary.test not ready: waiting for rollout to finish: 0 of 2 (readyThreshold 100%) updated replicas are available
+  Warning  Synced  22m (x3 over 22m)    flagger  Error checking metric providers: prometheus not avaiable: running query failed: request failed: Get "http://prometheus:9090/api/v1/query?query=vector%281%29": dial tcp: lookup prometheus on 10.96.0.10:53: server misbehaving
+  Normal   Synced  22m                  flagger  Initialization done! podinfo.test
+  Normal   Synced  3m53s                flagger  New revision detected! Scaling up podinfo.test
+  Warning  Synced  3m38s                flagger  canary deployment podinfo.test not ready: waiting for rollout to finish: 0 of 2 (readyThreshold 100%) updated replicas are available
+  Normal   Synced  3m23s                flagger  Starting canary analysis for podinfo.test
+  Normal   Synced  3m23s                flagger  Advance podinfo.test canary weight 10
+  Warning  Synced  2m8s (x5 over 3m8s)  flagger  Prometheus query failed: running query failed: request failed: Get "http://prometheus:9090/api/v1/query?query=+sum%28+rate%28+istio_requests_total%7B+reporter%3D%22destination%22%2C+destination_workload_namespace%3D%22test%22%2C+destination_workload%3D~%22podinfo%22%2C+response_code%21~%225.%2A%22+%7D%5B1m%5D+%29+%29+%2F+sum%28+rate%28+istio_requests_total%7B+reporter%3D%22destination%22%2C+destination_workload_namespace%3D%22test%22%2C+destination_workload%3D~%22podinfo%22+%7D%5B1m%5D+%29+%29+%2A+100": dial tcp: lookup prometheus on 10.96.0.10:53: server misbehaving
+  Warning  Synced  113s                 flagger  Rolling back podinfo.test failed checks threshold reached 5
+  Warning  Synced  113s                 flagger  Canary failed! Scaling down podinfo.test
 <b>$ kubectl --context kind-mesh -n test get canary podinfo -o jsonpath='{.status.phase} {.status.failedChecks}{"\n"}'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Failed 0</code></pre></details></div>
       <div class="verify"><b>verify:</b> the events walk <code>Advance podinfo.test canary iteration 1/3</code> rather than a weight ladder, then promote. Say which of the two shapes you would pick for a change that cannot be judged by error rate, such as a new checkout page.</div>
     </div>
 

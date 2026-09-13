@@ -487,15 +487,43 @@ kubectl -n flux-demo get deploy podinfo -o jsonpath='{.spec.replicas}{"\n"}'
 sleep 120
 kubectl -n flux-demo get deploy podinfo -o jsonpath='{.spec.replicas}{"\n"}'
 flux -n flux-demo events --for HelmRelease/podinfo | tail -10
-kubectl -n flux-demo get hr podinfo -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl -n flux-demo get hr podinfo -o jsonpath='{.spec.driftDetection}{"\n"}'</b>
+kubectl -n flux-demo get hr podinfo -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n flux-demo get hr podinfo -o jsonpath='{.spec.driftDetection}{"\n"}'</b>
 <b>$ kubectl -n flux-demo patch hr podinfo --type merge -p '{"spec":{"driftDetection":{"mode":"enabled"}}}'</b>
+helmrelease.helm.toolkit.fluxcd.io/podinfo patched
 <b>$ kubectl -n flux-demo scale deploy podinfo --replicas=5</b>
+deployment.apps/podinfo scaled
 <b>$ kubectl -n flux-demo get deploy podinfo -o jsonpath='{.spec.replicas}{"\n"}'</b>
+5
 <b>$ sleep 120</b>
 <b>$ kubectl -n flux-demo get deploy podinfo -o jsonpath='{.spec.replicas}{"\n"}'</b>
+1
 <b>$ flux -n flux-demo events --for HelmRelease/podinfo | tail -10</b>
+flux-system	13m               	Normal 	NewArtifact       	HelmRepository/podinfo     	stored fetched index of size 81.8kB from 'https://stefanprodan.github.io/podinfo'                                  	
+flux-demo  	13m               	Normal 	HelmChartCreated  	HelmRelease/podinfo        	Created HelmChart/flux-system/flux-demo-podinfo with SourceRef 'HelmRepository/flux-system/podinfo'                	
+flux-system	13m               	Normal 	ChartPullSucceeded	HelmChart/flux-demo-podinfo	pulled 'podinfo' chart with version '6.15.0'                                                                       	
+flux-demo  	12m               	Normal 	InstallSucceeded  	HelmRelease/podinfo        	Helm install succeeded for release flux-demo/podinfo.v1 with chart podinfo@6.15.0                                  	
+flux-system	2m57s             	Normal 	ArtifactUpToDate  	HelmRepository/podinfo     	artifact up-to-date with remote revision: 'sha256:e7dc68a4dec90a35c2c6d8cdfedb7eaaee17fde45dced5898289df85069ec089'	
+flux-demo  	60s               	Warning	DriftDetected     	HelmRelease/podinfo        	Cluster state of release flux-demo/podinfo.v1 has drifted from the desired state:                                  	
+           	                  	       	                  	                           	Deployment/flux-demo/podinfo changed (0 additions, 1 changes, 0 removals)                                          	
+flux-demo  	60s               	Normal 	DriftCorrected    	HelmRelease/podinfo        	Cluster state of release flux-demo/podinfo.v1 has been corrected:                                                  	
+           	                  	       	                  	                           	Deployment/flux-demo/podinfo configured                                                                            	
+flux-system	14s (x13 over 12m)	Normal 	ArtifactUpToDate  	HelmChart/flux-demo-podinfo	artifact up-to-date with remote revision: '6.15.0'                                                                 	
 <b>$ kubectl -n flux-demo get hr podinfo -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+{
+  "type": "Ready",
+  "status": "True",
+  "reason": "InstallSucceeded"
+}
+{
+  "type": "Drifted",
+  "status": "False",
+  "reason": "NoDriftDetected"
+}
+{
+  "type": "Released",
+  "status": "True",
+  "reason": "InstallSucceeded"
+}</code></pre></details></div>
       <div class="verify"><b>verify:</b> the replica count returns on its own and an event says the cluster state of the release had drifted. This exercise needs the HelmRelease from the exercise above it; if <code>podinfo</code> is not installed, do that one first.</div>
     </div>
 
@@ -512,19 +540,61 @@ kubectl -n flux-demo get deploy demo
 flux events --for Kustomization/demo-flux | tail -10
 cd /tmp/platform-prune-flux &amp;&amp; git revert --no-edit HEAD &amp;&amp; git push
 flux reconcile kustomization demo-flux --with-source
-kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune-</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ rm -rf /tmp/platform-prune-flux &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune-flux &amp;&amp; cd /tmp/platform-prune-flux</b>
+kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune-</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ rm -rf /tmp/platform-prune-flux &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune-flux &amp;&amp; cd /tmp/platform-prune-flux</b>
+Cloning into '/tmp/platform-prune-flux'...
 <b>$ kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune=disabled --overwrite</b>
+deployment.apps/demo annotated
 <b>$ git rm demo-app/base/deployment.yaml</b>
+rm 'demo-app/base/deployment.yaml'
 <b>$ sed -i '/deployment.yaml/d' demo-app/base/kustomization.yaml</b>
 <b>$ git commit -am 'remove the deployment from git' &amp;&amp; git push</b>
+[main 93548ad] remove the deployment from git
+ 2 files changed, 40 deletions(-)
+ delete mode 100644 demo-app/base/deployment.yaml
+To http://gitea.lab:3000/lab/platform.git
+   0b07ed8..93548ad  main -&gt; main
 <b>$ flux reconcile kustomization demo-flux --with-source</b>
+► annotating GitRepository platform in flux-system namespace
+✔ GitRepository annotated
+◎ waiting for GitRepository reconciliation
+✔ fetched revision main@sha1:93548ad825c11e1c719a0818388e6c409c14d684
+► annotating Kustomization demo-flux in flux-system namespace
+✔ Kustomization annotated
+◎ waiting for Kustomization reconciliation
+✔ applied revision main@sha1:93548ad825c11e1c719a0818388e6c409c14d684
 <b>$ sleep 20</b>
 <b>$ kubectl -n flux-demo get deploy demo</b>
+NAME   READY   UP-TO-DATE   AVAILABLE   AGE
+demo   2/2     2            2           12m
 <b>$ flux events --for Kustomization/demo-flux | tail -10</b>
+8m33s                  	Normal	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 908.296542ms, next run in 1m0s                                                   	
+7m34s                  	Normal	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 870.608906ms, next run in 1m0s                                                   	
+6m35s                  	Normal	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 790.965807ms, next run in 1m0s                                                   	
+5m31s                  	Normal	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 996.611327ms, next run in 1m0s                                                   	
+4m49s                  	Normal	NewArtifact            	GitRepository/platform 	stored artifact for commit 'drop the service'                                                               	
+4m48s                  	Normal	ReconciliationSucceeded	Kustomization/demo-flux	Reconciliation finished in 1.197086752s, next run in 1m0s                                                   	
+4m48s                  	Normal	Progressing            	Kustomization/demo-flux	Service/flux-demo/demo deleted                                                                              	
+3m47s                  	Normal	Progressing            	Kustomization/demo-flux	Service/flux-demo/demo created                                                                              	
+23s                    	Normal	Progressing            	Kustomization/demo-flux	Deployment/flux-demo/demo skipped                                                                           	
+22s (x7 over 3m49s)    	Normal	ReconciliationSucceeded	Kustomization/demo-flux	(combined from similar events): Reconciliation finished in 814.683331ms, next run in 1m0s                   	
 <b>$ cd /tmp/platform-prune-flux &amp;&amp; git revert --no-edit HEAD &amp;&amp; git push</b>
+[main 75be58c] Revert "remove the deployment from git"
+ Date: Sat Sep 12 22:08:17 2026 -0400
+ 2 files changed, 40 insertions(+)
+ create mode 100644 demo-app/base/deployment.yaml
+To http://gitea.lab:3000/lab/platform.git
+   93548ad..75be58c  main -&gt; main
 <b>$ flux reconcile kustomization demo-flux --with-source</b>
+► annotating GitRepository platform in flux-system namespace
+✔ GitRepository annotated
+◎ waiting for GitRepository reconciliation
+✔ fetched revision main@sha1:75be58cd7311d1b51ebfdc2779e1e44897cf4bd3
+► annotating Kustomization demo-flux in flux-system namespace
+✔ Kustomization annotated
+◎ waiting for Kustomization reconciliation
+✔ applied revision main@sha1:75be58cd7311d1b51ebfdc2779e1e44897cf4bd3
 <b>$ kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune-</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+deployment.apps/demo annotated</code></pre></details></div>
       <div class="verify"><b>verify:</b> the Deployment is still running after a reconcile that removed it from git, and the events say the object was skipped rather than deleted. Put the manifest back and remove the annotation, or the next exercise inherits a lie.</div>
     </div>
 
@@ -601,8 +671,9 @@ sleep 10
 kubectl -n flux-system get receiver gitea-receiver -o jsonpath='{.status.webhookPath}{"\n"}'
 kubectl -n flux-system patch svc webhook-receiver -p '{"spec":{"type":"LoadBalancer"}}'
 kubectl -n flux-system get svc webhook-receiver -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}'
-flux events --for GitRepository/platform | tail -5</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ TOKEN=$(head -c 24 /dev/urandom | base64 | tr -d '=+/')</b>
+flux events --for GitRepository/platform | tail -5</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ TOKEN=$(head -c 24 /dev/urandom | base64 | tr -d '=+/')</b>
 <b>$ kubectl -n flux-system create secret generic receiver-token --from-literal=token="$TOKEN"</b>
+secret/receiver-token created
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: notification.toolkit.fluxcd.io/v1</b>
 <b>kind: Receiver</b>
@@ -614,12 +685,21 @@ flux events --for GitRepository/platform | tail -5</code></pre><details class="o
 <b>  resources:</b>
 <b>    - { kind: GitRepository, name: platform }</b>
 <b>EOF</b>
+The Receiver "gitea-receiver" is invalid: 
+* spec.type: Unsupported value: "gitea": supported values: "generic", "generic-hmac", "generic-oidc", "github", "gitlab", "bitbucket", "harbor", "dockerhub", "quay", "gcr", "nexus", "acr", "cdevents"
+* &lt;nil&gt;: Invalid value: null: some validation rules were not checked because the object was invalid; correct the existing errors to complete validation
 <b>$ sleep 10</b>
 <b>$ kubectl -n flux-system get receiver gitea-receiver -o jsonpath='{.status.webhookPath}{"\n"}'</b>
+Error from server (NotFound): receivers.notification.toolkit.fluxcd.io "gitea-receiver" not found
 <b>$ kubectl -n flux-system patch svc webhook-receiver -p '{"spec":{"type":"LoadBalancer"}}'</b>
+service/webhook-receiver patched
 <b>$ kubectl -n flux-system get svc webhook-receiver -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}'</b>
 <b>$ flux events --for GitRepository/platform | tail -5</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+LAST SEEN           	TYPE  	REASON                    	OBJECT                	MESSAGE                                                                                                      
+55m                 	Normal	NewArtifact               	GitRepository/platform	stored artifact for commit 'seed lab manifests'                                                             	
+14m (x41 over 54m)  	Normal	GitOperationSucceeded     	GitRepository/platform	no changes since last reconciliation: observed revision 'main@sha1:c9d066255db33d9c2085a7804b3bcd55f5ec6918'	
+9m28s               	Normal	GarbageCollectionSucceeded	GitRepository/platform	garbage collected 1 artifacts                                                                               	
+17s (x10 over 9m27s)	Normal	GitOperationSucceeded     	GitRepository/platform	no changes since last reconciliation: observed revision 'main@sha1:8a8142cc9861fed0e37229617f152f27909a3081'	</code></pre></details></div>
       <div class="verify"><b>verify:</b> the Receiver reports a webhook path and the Service has an address. Point the Gitea repository's webhook at <code>http://&lt;ip&gt;&lt;webhookPath&gt;</code> with the same token, push, and the reconcile shows up in the events within seconds rather than at the next interval.</div>
     </div>
 

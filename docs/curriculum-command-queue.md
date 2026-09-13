@@ -201,7 +201,7 @@ holds real output.
 - [ ] Remove the operator ServiceAccount's permission on `pods` (edit the ClusterRole temporarily), delete pg-1, and read `kubectl -n cnpg-system logs deploy/cnpg-controller-manager | grep -i forbidden`: capture the Forbidden line and the stuck Cluster condition; restore.
 - [ ] `kubectl get validatingwebhookconfiguration cnpg-validating-webhook-configuration -o jsonpath='{.webhooks[*].failurePolicy}'`, scale the operator to 0, then `kubectl apply` a Cluster edit: capture `failed calling webhook` blocking the write. Scale back.
 - [ ] `kubectl get cluster pg -o jsonpath='{.status.conditions[*].type}'` and compare with `kubectl explain cluster.status.conditions`: show a real operator's condition types against the metav1.Condition shape.
-- [ ] If a demo of OLM v1 is wanted: install operator-controller per its release manifest, apply a ClusterCatalog for operatorhubio, then a ClusterExtension for `argocd-operator` with `version: "<1.0"` and a pre-created ServiceAccount: capture the Installed/Progressing conditions and, after setting `upgradeConstraintPolicy: SelfCertified` and a lower version, the downgrade proceeding.
+- [x] ~~Install OLM v1 and watch it resolve~~: **dropped**. It never got as far as the conditions: the `argocd-operator` bundle owns `applicationsets.argoproj.io`, which Argo CD already installed, so the ClusterExtension fails on a CRD it is not allowed to adopt. Getting there also installs cert-manager and an `olmv1-system` namespace that the block does not remove, and no other exercise cleans up after it. The theory panel keeps the ClusterCatalog and ClusterExtension shapes.
 
 #### 3.4 Argo Workflows: orchestration for self-service
 
@@ -261,7 +261,7 @@ holds real output.
 
 - [ ] Provision a Loki datasource ConfigMap with an explicit `uid`, `editable: false` and `jsonData.derivedFields` linking a `trace_id` regex to the Jaeger datasource; show the link in Explore.
 - [ ] Annotate a dashboard ConfigMap `grafana_folder: Platform` and show it land in that folder.
-- [ ] If the Grafana Operator is installed in the lab: a `GrafanaDashboard` with a non-matching `instanceSelector`, then a matching one; show empty vs populated status.
+- [x] ~~Make a dashboard wait for its instance~~: **dropped**. Installing the Grafana Operator to watch one `instanceSelector` match costs about four minutes, and "a selector that matches nothing leaves status empty" is already made twice on this site, by the ServiceMonitor `namespaceSelector` exercise and by the kro `instanceSelector` one. The lesson survives; the four minutes do not earn their place.
 - [ ] LogQL: `| pattern` on the demo app's access log, `| unwrap` with `quantile_over_time`, `absent_over_time` on the chatty pod after it exits, and a query with `__error__!=""` to show parse failures.
 - [ ] `alloy convert --source-format=promtail` on a sample promtail config (in the Alloy image) to show the component mapping.
 - [ ] Loki retention: `kubectl -n monitoring get cm loki -o yaml | grep -A3 -E 'compactor|retention'` to show whether `retention_enabled` is set.
@@ -330,7 +330,7 @@ holds real output.
 
 - [x] ~~Apply the audit policy and query it with jq~~: **dropped**. It restarts the API server, and every controller in the cluster crashloops through the gap for several minutes. The policy fragment in the theory panel is the part worth reading.
 - [x] ~~The VAP audit annotation~~: **dropped with the item above**, which is the only thing that would have produced an audit log to query.
-- [ ] Falco (if installable on kind with modern eBPF): default rules, `kubectl exec` a shell into a pod, capture the `Terminal shell in container` alert; optional `k8saudit` plugin fed by the audit webhook backend.
+- [x] ~~Watch a shell open inside a container~~: **dropped**, and this one was conditional from the start ("if installable on kind with modern eBPF"). Falco installs and the DaemonSet goes Ready, but the alert never fires: the `Terminal shell in container` rule requires `proc.tty != 0`, and a captured `kubectl exec` has no terminal. Allocating a pty inside the container with `script` did not produce an event either, so the modern eBPF probe is not delivering on this host kernel. It also costs five minutes and puts a privileged DaemonSet on every node. The theory panel keeps the rule and the detection argument.
 - [ ] `trivy image --format spdx-json` and `syft` on the same image; `trivy sbom` on the result; `trivy image --vex` with a small OpenVEX file suppressing one CVE.
 - [ ] `kubectl get clustercompliancereport cis -o jsonpath='{.status.updateTimestamp}'` before and after forcing a rerun (edit `spec.cron`).
 - [ ] kube-bench Job on kind; capture one PASS and one FAIL line with control ids.
@@ -353,4 +353,4 @@ holds real output.
 - [ ] Kyverno IVP requiring the SLSA attestation (`attestations[].intoto.type: https://slsa.dev/provenance/v1`) with `verifyAttestationSignatures`; admit the Chains-built image, reject the busybox retag.
 - [ ] `mutateDigest: true` and `kubectl get pod -o jsonpath='{.spec.containers[0].image}'` to show the digest rewrite.
 - [ ] trivy gate variants: `--exit-code 1 --severity CRITICAL`, then `--ignore-unfixed`, then a `.trivyignore` with an `exp:` date in the past to show it no longer suppresses.
-- [ ] If the Sigstore policy-controller can be installed alongside Kyverno in the lab: `ClusterImagePolicy` with a key authority, label a namespace `policy.sigstore.dev/include=true`, admit signed, reject unsigned.
+- [x] ~~A second opinion at admission~~: **dropped**. A second admission controller enforcing image signatures alongside Kyverno teaches the same control twice, and the Kyverno half already has two exercises on this page (the ImageValidatingPolicy and the digest rewrite). Two webhooks racing on the same pods is a lab hazard, not a lesson.

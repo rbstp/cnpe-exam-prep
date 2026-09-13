@@ -225,27 +225,36 @@ error during command execution: no signatures found</code></pre></details></div>
 
     <div class="exercise" data-title="Attest an SBOM and read it back">
       <p>A signature says who built it. An attestation says what it contains, signed. Attach an SBOM as an attestation, look at the tree, and pull the predicate back out, because that round trip is the whole supply-chain story.</p>
-      <div class="cb" data-lang="bash"><pre><code>cosign generate-key-pair --output-key-prefix /tmp/cosign 2&gt;/dev/null || true
+      <div class="cb" data-lang="bash"><pre><code># generate-key-pair prompts for a passphrase; an empty COSIGN_PASSWORD is what makes it non-interactive
+[ -f /tmp/cosign.key ] || COSIGN_PASSWORD='' cosign generate-key-pair --output-key-prefix /tmp/cosign
 skopeo copy --dest-tls-verify=false docker://ghcr.io/stefanprodan/podinfo:6.7.1 docker://localhost:5001/demo:v1
 trivy image --format cyclonedx --output /tmp/sbom.json localhost:5001/demo:v1
 COSIGN_PASSWORD='' cosign attest --yes --predicate /tmp/sbom.json --type cyclonedx --key /tmp/cosign.key --allow-insecure-registry localhost:5001/demo:v1
 cosign tree --allow-insecure-registry localhost:5001/demo:v1
-cosign verify-attestation --type cyclonedx --key /tmp/cosign.pub --allow-insecure-registry localhost:5001/demo:v1 | jq -r .payload | base64 -d | jq '{predicateType, components: (.predicate.components | length)}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ cosign generate-key-pair --output-key-prefix /tmp/cosign 2&gt;/dev/null || true</b>
+cosign verify-attestation --type cyclonedx --key /tmp/cosign.pub --allow-insecure-registry localhost:5001/demo:v1 | jq -r .payload | base64 -d | jq '{predicateType, components: (.predicate.components | length)}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # generate-key-pair prompts for a passphrase; an empty COSIGN_PASSWORD is what makes it non-interactive</b>
+<b>$ [ -f /tmp/cosign.key ] || COSIGN_PASSWORD='' cosign generate-key-pair --output-key-prefix /tmp/cosign</b>
+Private key written to /tmp/cosign.key
+Public key written to /tmp/cosign.pub
 <b>$ skopeo copy --dest-tls-verify=false docker://ghcr.io/stefanprodan/podinfo:6.7.1 docker://localhost:5001/demo:v1</b>
 Getting image source signatures
-Copying blob sha256:31eaa2883f08a0ce854d061714a111f052444a3ba1b2323719cb12b872a0dbe3
-Copying blob sha256:35d14af0e611499048effc4d39a2341345f96dd9103c8c186b7cc239a687de5c
-Copying blob sha256:43c4264eed91be63b206e17d93e75256a6097070ce643c5e8f0379998b44f170
-Copying blob sha256:2bf70b2badb9fa00aa36d50d61c6b9cc094d7a18fb4a3c7a91ce950dd7202900
 Copying blob sha256:7e517c53cd4ca936c3bc3d3dc66419278a680214f37444ad0ad1b8bd65968940
 Copying blob sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1
+Copying blob sha256:43c4264eed91be63b206e17d93e75256a6097070ce643c5e8f0379998b44f170
+Copying blob sha256:2bf70b2badb9fa00aa36d50d61c6b9cc094d7a18fb4a3c7a91ce950dd7202900
+Copying blob sha256:35d14af0e611499048effc4d39a2341345f96dd9103c8c186b7cc239a687de5c
+Copying blob sha256:31eaa2883f08a0ce854d061714a111f052444a3ba1b2323719cb12b872a0dbe3
 Copying blob sha256:47f87f374862e0c7555781b116554936999ad2e8e4c6a4e7417688ffe57d8b88
 Copying config sha256:c875de4397634b0dc138954cbe2c11b9d86d948b98b17bd9fc3227b3ad992eae
 Writing manifest to image destination
 <b>$ trivy image --format cyclonedx --output /tmp/sbom.json localhost:5001/demo:v1</b>
-2026-09-12T16:54:00-04:00	INFO	"--format cyclonedx" disables security scanning. Specify "--scanners vuln" explicitly if you want to include vulnerabilities in the "cyclonedx" report.
-2026-09-12T16:54:00-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
-2026-09-12T16:54:00-04:00	INFO	Number of language-specific files	num=2
+2026-09-13T00:11:59-04:00	INFO	"--format cyclonedx" disables security scanning. Specify "--scanners vuln" explicitly if you want to include vulnerabilities in the "cyclonedx" report.
+2026-09-13T00:12:00-04:00	INFO	Detected OS	family="alpine" version="3.20.3"
+2026-09-13T00:12:00-04:00	INFO	Number of language-specific files	num=2
+
+📣 Notices:
+  - Version 0.74.0 of Trivy is now available, current version is 0.73.0
+
+To suppress version checks, run Trivy scans with the --skip-version-check flag
 <b>$ COSIGN_PASSWORD='' cosign attest --yes --predicate /tmp/sbom.json --type cyclonedx --key /tmp/cosign.key --allow-insecure-registry localhost:5001/demo:v1</b>
 WARNING: Image reference localhost:5001/demo:v1 uses a tag, not a digest, to identify the image to sign.
     This can lead you to sign a different image than the intended one. Please use a
@@ -254,15 +263,26 @@ WARNING: Image reference localhost:5001/demo:v1 uses a tag, not a digest, to ide
     images by tag will be removed in a future release.
 
 Using payload from: /tmp/sbom.json
-Error: signing localhost:5001/demo:v1: creating bundle: getting keypair and token: getting signer: reading key: open /tmp/cosign.key: no such file or directory
-error during command execution: signing localhost:5001/demo:v1: creating bundle: getting keypair and token: getting signer: reading key: open /tmp/cosign.key: no such file or directory
+Signing artifact...
 <b>$ cosign tree --allow-insecure-registry localhost:5001/demo:v1</b>
 📦 Supply Chain Security Related artifacts for an image: localhost:5001/demo:v1
-No Supply Chain Security Related Artifacts found for image localhost:5001/demo:v1,
- start creating one with simply running$ cosign sign &lt;img&gt;
+└── 🔐 Signatures for an image tag: localhost:5001/demo:sha256-ed73e9871dfba28276b28daab3463cc2f9b3c15337dfe0445e8b0f79694e0cd6.sig
+   └── 🍒 sha256:a217ae5b0b2d194cf70785da9ff77db49a8040f86cd50d518766deecce261c91
+└── 🔗 https://cyclonedx.org/bom artifacts via OCI referrer: localhost:5001/demo@sha256:53833ef158bb16c0652edf40242d2f5a0da861f0b447271c5f55170da4a294da
+   └── 🍒 sha256:6ff7639af536922fe0b7b8d5ee81bcd56fc432099b04a2bfb5e96fc8ef167558
+└── 🔗 https://cyclonedx.org/bom artifacts via OCI referrer: localhost:5001/demo@sha256:c4ebc6c30e427e7656271ffaae5694e47c51831d2dfbcda1a306603877e4e620
+   └── 🍒 sha256:9f5427192055dde8d943dfcf0e35900cebacef1b820258a2d06a17da84b0ceb4
 <b>$ cosign verify-attestation --type cyclonedx --key /tmp/cosign.pub --allow-insecure-registry localhost:5001/demo:v1 | jq -r .payload | base64 -d | jq '{predicateType, components: (.predicate.components | length)}'</b>
-Error: loading verifierfrom key opts: loading public key: open /tmp/cosign.pub: no such file or directory
-error during command execution: loading verifierfrom key opts: loading public key: open /tmp/cosign.pub: no such file or directory</code></pre></details></div>
+
+Verification for localhost:5001/demo:v1 --
+The following checks were performed on each of these signatures:
+  - The cosign claims were validated
+  - Existence of the claims in the transparency log was verified offline
+  - The signatures were verified against the specified public key
+{
+  "predicateType": "https://cyclonedx.org/bom",
+  "components": 114
+}</code></pre></details></div>
       <div class="verify"><b>verify:</b> the tree shows an attestation alongside the image, and the verified payload's <code>predicateType</code> is the CycloneDX one with the component list intact. Say where that attestation is stored, and what happens to it if someone retags the image.</div>
     </div>
 
@@ -416,7 +436,11 @@ clusterpolicy.kyverno.io "require-provenance" deleted</code></pre></details></di
 
     <div class="exercise" data-title="Rewrite the tag to a digest">
       <p>A tag is a mutable pointer, so verifying a tag and then running it is a race. <code>mutateDigest</code> makes the policy rewrite the pod spec to the digest it verified, which closes the gap in the object itself.</p>
-      <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;EOF
+      <div class="cb" data-lang="bash"><pre><code>[ -f /tmp/cosign.pub ] || COSIGN_PASSWORD='' cosign generate-key-pair --output-key-prefix /tmp/cosign
+# Kyverno's verifier reads the legacy .sig tag, so the image needs a signature in that format
+DIGEST=$(skopeo inspect --tls-verify=false docker://localhost:5001/demo:v1 | jq -r .Digest)
+COSIGN_PASSWORD='' cosign sign --key /tmp/cosign.key --allow-http-registry -y --use-signing-config=false --new-bundle-format=false --tlog-upload=false localhost:5001/demo@$DIGEST
+kubectl apply -f - &lt;&lt;EOF
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata: { name: pin-digest }
@@ -438,13 +462,25 @@ spec:
             - entries:
                 - keys:
                     publicKeys: |-
-$(cat /tmp/cosign.pub | sed 's/^/                      /')
+$(sed 's/^/                      /' /tmp/cosign.pub)
+                    rekor:
+                      ignoreTlog: true
+                    ctlog:
+                      ignoreSCT: true
 EOF
 sleep 20
 kubectl -n default run pinned --image=kind-registry:5000/demo:v1 --restart=Never
 kubectl -n default get pod pinned -o jsonpath='{.spec.containers[0].image}{"\n"}'
 kubectl -n default delete pod pinned --ignore-not-found
-kubectl delete clusterpolicy pin-digest</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;EOF</b>
+kubectl delete clusterpolicy pin-digest</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ [ -f /tmp/cosign.pub ] || COSIGN_PASSWORD='' cosign generate-key-pair --output-key-prefix /tmp/cosign</b>
+<b>$ # Kyverno's verifier reads the legacy .sig tag, so the image needs a signature in that format</b>
+<b>$ DIGEST=$(skopeo inspect --tls-verify=false docker://localhost:5001/demo:v1 | jq -r .Digest)</b>
+<b>$ COSIGN_PASSWORD='' cosign sign --key /tmp/cosign.key --allow-http-registry -y --use-signing-config=false --new-bundle-format=false --tlog-upload=false localhost:5001/demo@$DIGEST</b>
+Flag --new-bundle-format has been deprecated, this will be the only supported format in future versions
+Flag --tlog-upload has been deprecated, prefer using a --signing-config file with no transparency log services
+Signing artifact...
+Pushing signature to: localhost:5001/demo
+<b>$ kubectl apply -f - &lt;&lt;EOF</b>
 <b>apiVersion: kyverno.io/v1</b>
 <b>kind: ClusterPolicy</b>
 <b>metadata: { name: pin-digest }</b>
@@ -466,14 +502,24 @@ kubectl delete clusterpolicy pin-digest</code></pre><details class="out pending"
 <b>            - entries:</b>
 <b>                - keys:</b>
 <b>                    publicKeys: |-</b>
-<b>$(cat /tmp/cosign.pub | sed 's/^/                      /')</b>
+<b>$(sed 's/^/                      /' /tmp/cosign.pub)</b>
+<b>                    rekor:</b>
+<b>                      ignoreTlog: true</b>
+<b>                    ctlog:</b>
+<b>                      ignoreSCT: true</b>
 <b>EOF</b>
+Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
+clusterpolicy.kyverno.io/pin-digest created
 <b>$ sleep 20</b>
 <b>$ kubectl -n default run pinned --image=kind-registry:5000/demo:v1 --restart=Never</b>
+pod/pinned created
 <b>$ kubectl -n default get pod pinned -o jsonpath='{.spec.containers[0].image}{"\n"}'</b>
+kind-registry:5000/demo:v1@sha256:ed73e9871dfba28276b28daab3463cc2f9b3c15337dfe0445e8b0f79694e0cd6
 <b>$ kubectl -n default delete pod pinned --ignore-not-found</b>
+pod "pinned" deleted from default namespace
 <b>$ kubectl delete clusterpolicy pin-digest</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
+Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
+clusterpolicy.kyverno.io "pin-digest" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> the running pod's image is <code>...@sha256:...</code> even though you asked for a tag. Say what this protects against that verification alone does not, and what it costs a team that relies on moving tags.</div>
     </div>
 
@@ -676,64 +722,6 @@ Total: 2 (CRITICAL: 2)
 ├────────────┤                │          │        │                   │               │                                                          │
 <i>... 37 more lines</i></code></pre></details></div>
       <div class="verify"><b>verify:</b> the exit code changes between the runs, and the expired ignore entry no longer suppresses while the future-dated one does. Say which of these three you would put in a pipeline and what you would do about the findings the flag hides.</div>
-    </div>
-
-    <div class="exercise" data-title="A second opinion at admission">
-      <p>The Sigstore policy-controller does one job, verification at admission, and it opts in per namespace with a label. Running it beside Kyverno shows how two admission controllers coexist and where they would collide.</p>
-      <p>The lab does not install it; this block does, and removes it at the end.</p>
-      <div class="cb" data-lang="bash"><pre><code>helm repo add sigstore https://sigstore.github.io/helm-charts
-helm repo update sigstore
-helm upgrade --install policy-controller sigstore/policy-controller -n cosign-system --create-namespace --wait --timeout 5m
-kubectl apply -f - &lt;&lt;EOF
-apiVersion: policy.sigstore.dev/v1beta1
-kind: ClusterImagePolicy
-metadata: { name: demo-signed-only }
-spec:
-  images:
-    - glob: "kind-registry:5000/demo**"
-  authorities:
-    - key:
-        data: |-
-$(cat /tmp/cosign.pub | sed 's/^/          /')
-EOF
-kubectl create ns sigstore-demo --dry-run=client -o yaml | kubectl apply -f -
-kubectl label ns sigstore-demo policy.sigstore.dev/include=true --overwrite
-sleep 30
-COSIGN_PASSWORD='' cosign sign --yes --key /tmp/cosign.key --allow-insecure-registry localhost:5001/demo:v1
-kubectl -n sigstore-demo run signed --image=kind-registry:5000/demo:v1 --restart=Never
-kubectl -n sigstore-demo run unsigned --image=kind-registry:5000/demo:fake --restart=Never
-kubectl -n sigstore-demo delete pod signed unsigned --ignore-not-found
-kubectl delete clusterimagepolicy demo-signed-only
-kubectl delete ns sigstore-demo
-helm uninstall policy-controller -n cosign-system
-kubectl delete ns cosign-system</code></pre><details class="out pending"><summary>output<span class="when">not yet captured</span></summary><pre><code><b>$ helm repo add sigstore https://sigstore.github.io/helm-charts</b>
-<b>$ helm repo update sigstore</b>
-<b>$ helm upgrade --install policy-controller sigstore/policy-controller -n cosign-system --create-namespace --wait --timeout 5m</b>
-<b>$ kubectl apply -f - &lt;&lt;EOF</b>
-<b>apiVersion: policy.sigstore.dev/v1beta1</b>
-<b>kind: ClusterImagePolicy</b>
-<b>metadata: { name: demo-signed-only }</b>
-<b>spec:</b>
-<b>  images:</b>
-<b>    - glob: "kind-registry:5000/demo**"</b>
-<b>  authorities:</b>
-<b>    - key:</b>
-<b>        data: |-</b>
-<b>$(cat /tmp/cosign.pub | sed 's/^/          /')</b>
-<b>EOF</b>
-<b>$ kubectl create ns sigstore-demo --dry-run=client -o yaml | kubectl apply -f -</b>
-<b>$ kubectl label ns sigstore-demo policy.sigstore.dev/include=true --overwrite</b>
-<b>$ sleep 30</b>
-<b>$ COSIGN_PASSWORD='' cosign sign --yes --key /tmp/cosign.key --allow-insecure-registry localhost:5001/demo:v1</b>
-<b>$ kubectl -n sigstore-demo run signed --image=kind-registry:5000/demo:v1 --restart=Never</b>
-<b>$ kubectl -n sigstore-demo run unsigned --image=kind-registry:5000/demo:fake --restart=Never</b>
-<b>$ kubectl -n sigstore-demo delete pod signed unsigned --ignore-not-found</b>
-<b>$ kubectl delete clusterimagepolicy demo-signed-only</b>
-<b>$ kubectl delete ns sigstore-demo</b>
-<b>$ helm uninstall policy-controller -n cosign-system</b>
-<b>$ kubectl delete ns cosign-system</b>
-<i>placeholder: run this against the lab and paste the real output here</i></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the signed image is admitted in the labelled namespace and the unsigned one is refused by a webhook that is not Kyverno's. Say what you would do if both controllers were configured with different keys for the same image, and which of them decides.</div>
     </div>
 
   </div>
