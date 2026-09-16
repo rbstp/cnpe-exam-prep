@@ -1,5 +1,7 @@
 # cnpe-exam-prep
 
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/rbstp/cnpe-exam-prep/badge)](https://scorecard.dev/viewer/?uri=github.com/rbstp/cnpe-exam-prep)
+
 An unofficial lab for the CNCF [Certified Cloud Native Platform Engineer (CNPE)](https://training.linuxfoundation.org/certification/certified-cloud-native-platform-engineer-cnpe/) exam.
 
 The exam is hands-on and covers five domains, so reading docs is not enough. This repo builds a working internal developer platform on `kind` and then proves each piece actually functions. Not "the pod is Running", but "a repo pushed to Gitea produced an Argo CD Application that deployed itself, and reverting drift works".
