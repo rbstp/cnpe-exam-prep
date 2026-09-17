@@ -4,7 +4,8 @@ source "$(dirname "$0")/lib.sh"
 need node; need npx
 APP="${BACKSTAGE_APP:-$LAB_HOME/portal}"
 
-command -v yarn >/dev/null || { log "Installing yarn"; sudo npm i -g yarn; }
+# 1.22.22 is the end of the classic line; yarn 2+ comes from corepack, not npm.
+command -v yarn >/dev/null || { log "Installing yarn"; sudo npm i -g yarn@1.22.22; }
 # The app create-app scaffolds carries "node": "22 || 24" in its package.json, so
 # an odd release is not the only thing that fails: 20 is even and still refused.
 # One list, read by both the mise fallback and the guard, in preference order.
