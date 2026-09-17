@@ -1,0 +1,49 @@
+name: Scorecard
+
+on:
+  # Scorecard reads the branch protection rules, so re-score when they change.
+  branch_protection_rule:
+  schedule:
+    - cron: '41 6 * * 2'
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Supply-chain posture scores clean
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # Upload the SARIF to the repository's code scanning alerts.
+      security-events: write
+      # Mint the OIDC token that publishes the score to the public dataset.
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Scorecard refuses to run against a checkout that left a token on disk.
+          persist-credentials: false
+
+      - name: Run the Scorecard checks
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Publish to deps.dev and the OpenSSF API, which is what feeds the badge.
+          publish_results: true
+
+      - name: Keep the raw results for 5 days
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: scorecard-results
+          path: results.sarif
+          retention-days: 5
+
+      - name: Upload the results to code scanning
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
+        with:
+          sarif_file: results.sarif
