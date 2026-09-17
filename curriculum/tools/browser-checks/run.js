@@ -25,8 +25,7 @@ if (unknown.length) {
 }
 const AREAS = want.length ? want : ALL;
 
-/** One full pass over the areas, on a harness of its own.
- *  @param {import('playwright').Browser} browser
+/** @param {import('playwright').Browser} browser
  *  @return {Promise<{ checks: number, failures: number, startedOn: string }>} */
 async function pass(browser) {
   const h = makeHarness(browser, SITE);
@@ -50,12 +49,8 @@ async function run() {
 
   let { checks, failures, startedOn } = await pass(browser);
 
-  // A pass reads its day keys off the machine clock once, at the start; the page
-  // under test reads its own at the moment it writes a record. Run through local
-  // midnight and the two disagree, so days[today] comes back undefined for a
-  // record the page just wrote. Take the second pass rather than asking a human
-  // to: it starts after the rollover, so the whole of it sits in one day, and a
-  // failure that survives it is a real one.
+  // A pass fixes its day keys at the start; the page reads its own each time it
+  // writes one. Midnight splits the two, so take a pass that sits inside one day.
   if (dayKey(new Date()) !== startedOn && failures) {
     console.log('\n' + checks + ' checks, ' + failures + ' failures');
     console.log('\nthe pass crossed local midnight, which fails day-based checks where'
