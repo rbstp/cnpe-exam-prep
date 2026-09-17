@@ -1,6 +1,7 @@
 # cnpe-exam-prep
 
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/rbstp/cnpe-exam-prep/badge)](https://scorecard.dev/viewer/?uri=github.com/rbstp/cnpe-exam-prep)
+[![OpenSSF Baseline](https://www.bestpractices.dev/projects/14686/baseline)](https://www.bestpractices.dev/projects/14686)
 
 An unofficial lab for the CNCF [Certified Cloud Native Platform Engineer (CNPE)](https://training.linuxfoundation.org/certification/certified-cloud-native-platform-engineer-cnpe/) exam.
 
