@@ -10,7 +10,7 @@
 'use strict';
 const { chromium } = require('playwright');
 const path = require('path');
-const { makeHarness } = require('./lib');
+const { makeHarness, dayKey } = require('./lib');
 
 const SITE = path.resolve(process.argv[2] || path.join(__dirname, '..', '..', '..', '_site'));
 
@@ -25,9 +25,10 @@ if (unknown.length) {
 }
 const AREAS = want.length ? want : ALL;
 
-async function run() {
-  const browser = await chromium.launch(
-    process.env.CHROMIUM_BIN ? { executablePath: process.env.CHROMIUM_BIN } : {});
+/** One full pass over the areas, on a harness of its own.
+ *  @param {import('playwright').Browser} browser
+ *  @return {Promise<{ checks: number, failures: number, startedOn: string }>} */
+async function pass(browser) {
   const h = makeHarness(browser, SITE);
   const startedOn = h.TODAY;
 
@@ -39,11 +40,30 @@ async function run() {
     catch (e) { h.assert(false, name + ' aborted: ' + String((e && e.message) || e).split('\n')[0]); }
   }
 
-  await browser.close();
   const { checks, failures } = h.counts();
-  if (h.dayKey(new Date()) !== startedOn && failures) {
-    console.log('\nnote: the run crossed local midnight; day-based failures above may be spurious, rerun');
+  return { checks, failures, startedOn };
+}
+
+async function run() {
+  const browser = await chromium.launch(
+    process.env.CHROMIUM_BIN ? { executablePath: process.env.CHROMIUM_BIN } : {});
+
+  let { checks, failures, startedOn } = await pass(browser);
+
+  // A pass reads its day keys off the machine clock once, at the start; the page
+  // under test reads its own at the moment it writes a record. Run through local
+  // midnight and the two disagree, so days[today] comes back undefined for a
+  // record the page just wrote. Take the second pass rather than asking a human
+  // to: it starts after the rollover, so the whole of it sits in one day, and a
+  // failure that survives it is a real one.
+  if (dayKey(new Date()) !== startedOn && failures) {
+    console.log('\n' + checks + ' checks, ' + failures + ' failures');
+    console.log('\nthe pass crossed local midnight, which fails day-based checks where'
+      + ' the day changed; running once more, wholly inside one day');
+    ({ checks, failures } = await pass(browser));
   }
+
+  await browser.close();
   console.log('\n' + checks + ' checks, ' + failures + ' failures');
   process.exitCode = failures ? 1 : 0;   // let stdout flush
 }

@@ -111,4 +111,4 @@ function makeHarness(browser, siteDir) {
 /** The bag every area module receives.
     @typedef {ReturnType<typeof makeHarness>} Harness */
 
-module.exports = { makeHarness };
+module.exports = { makeHarness, dayKey };
