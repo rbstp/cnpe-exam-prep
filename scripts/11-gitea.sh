@@ -126,7 +126,7 @@ log "Pointing this host's git at ${GITEA_HOST}"
 # line for that, so git's HTTP client resolves the name itself instead, to Gitea's
 # fixed address on the kind network. URLs and git's output read the same from the
 # host as from a pod.
-git config --global --get-regexp '^url\..*\.insteadof$' 2>/dev/null \
+{ git config --global --get-regexp '^url\..*\.insteadof$' 2>/dev/null || true; } \
   | awk -v h="${GITEA_HOST}:3000/" 'index($2, h) {print $1}' | sort -u \
   | while read -r key; do git config --global --unset-all "$key"; done   # an older lab rewrote URLs
 git config --global --unset-all http.curloptResolve "^${GITEA_HOST//./\\.}:3000:" 2>/dev/null || true
