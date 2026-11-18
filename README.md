@@ -168,7 +168,7 @@ Run the layers one at a time and watch `make status` in between. Running two at 
 
 ### What needs root, and what it touches
 
-Only `make host`, once. Everything after it runs as you.
+Only `make host`, and `make tools` the first time, when it installs the `pacman` packages. Everything after that runs as you.
 
 - `make host` adds you to the `docker` group (root-equivalent), writes `/etc/sysctl.d/99-cnpe-lab.conf` and a systemd drop-in for docker, and creates `/etc/docker/daemon.json` only if absent. It restarts dockerd when the limits drop-in changes, which bounces every container on the machine, and it warns before doing so.
 - `make gitea` adds one `http.curloptResolve` entry to your git config, so `git` on the host resolves `gitea.lab:3000` to Gitea's address on the kind network without an `/etc/hosts` line; pods resolve the same name through CoreDNS. `make nuke` removes it.

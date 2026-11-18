@@ -11,14 +11,22 @@ trap 'rm -rf "$RELEASE_CACHE"; rm -f "$RELEASE_ROWS"' EXIT
 pac() {
   local p repo_ver local_ver
   for p in "$@"; do
-    repo_ver=$(pacman -Si "$p" 2>/dev/null | awk -F': ' '/^Version/ {print $2; exit}')
-    local_ver=$(pacman -Q "$p" 2>/dev/null | awk '{print $2}')
+    # '|| true': pacman exits non-zero for a package it does not know or has not
+    # installed, and under 'set -e' that would end the run right here.
+    repo_ver=$(pacman -Si "$p" 2>/dev/null | awk -F': ' '/^Version/ {print $2; exit}' || true)
+    local_ver=$(pacman -Q "$p" 2>/dev/null | awk '{print $2}' || true)
     if [ -z "$repo_ver" ]; then
       warn "pacman: $p not in the repos, will try an upstream binary"
     elif [ "$repo_ver" = "$local_ver" ]; then
       ok "$p already matches the repos ($local_ver)"
+    elif [ -z "$local_ver" ]; then
+      # A first install is the one time root is unavoidable: let sudo ask if a
+      # person is at the terminal, and say plainly what is missing if not.
+      if [ -t 0 ] && sudo pacman -S --needed --noconfirm "$p"; then ok "$p installed ($repo_ver)"
+      elif sudo -n pacman -S --needed --noconfirm "$p" 2>/dev/null; then ok "$p installed ($repo_ver)"
+      else warn "pacman: $p is not installed and the lab needs it; run: sudo pacman -S $p"; fi
     elif ! sudo -n pacman -S --needed --noconfirm "$p" 2>/dev/null; then
-      warn "pacman: $p is at ${local_ver:-nothing}, the repos have $repo_ver; upgrading it needs root, so run 'sudo pacman -Syu' when it suits you (the lab keeps working)"
+      warn "pacman: $p is at $local_ver, the repos have $repo_ver; upgrading needs root, so run 'sudo pacman -Syu' when it suits you (the lab keeps working)"
     fi
   done
 }

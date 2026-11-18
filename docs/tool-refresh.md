@@ -4,7 +4,9 @@ This lab follows current upstream releases on purpose. Run `make tools` to compa
 the installed CLIs with each project's latest GitHub release and upgrade anything
 that is behind. It also refreshes every configured Helm repository index. Arch
 packages come from the current pacman repositories. Upgrading one needs root, so
-when one is behind the run reports it and carries on; it never prompts.
+when one is behind the run reports it and carries on. A package that is not installed
+at all is the exception: run from a terminal, `make tools` lets sudo ask, since a first
+install has no other way in; run unattended, it names the package and the command.
 GitHub release assets use the SHA-256 digest published by GitHub when one is
 available. A CLI whose download fails keeps the version it had, and the next run
 tries the upgrade again.
