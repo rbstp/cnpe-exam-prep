@@ -171,7 +171,7 @@ Run the layers one at a time and watch `make status` in between. Running two at 
 Only `make host`, once. Everything after it runs as you.
 
 - `make host` adds you to the `docker` group (root-equivalent), writes `/etc/sysctl.d/99-cnpe-lab.conf` and a systemd drop-in for docker, and creates `/etc/docker/daemon.json` only if absent. It restarts dockerd when the limits drop-in changes, which bounces every container on the machine, and it warns before doing so.
-- `make gitea` adds two `url.<base>.insteadOf` entries to your `~/.gitconfig`, so `git` on the host sends `http://gitea.lab:3000/...` to `localhost:3001`; pods resolve the same name through CoreDNS. One of them carries `GITEA_PASS`, the throwaway local password the curriculum's clone URLs embed. `make nuke` removes both.
+- `make gitea` adds one `http.curloptResolve` entry to your git config, so `git` on the host resolves `gitea.lab:3000` to Gitea's address on the kind network without an `/etc/hosts` line; pods resolve the same name through CoreDNS. `make nuke` removes it.
 - `make up` starts `cloud-provider-kind` in the background so LoadBalancer Services get real IPs. On Linux each load balancer is a container on the kind network, so docker access is all it needs. It records its PID for `make down`.
 - Gitea and the local registry sit on fixed addresses near the top of the kind network, so a reboot cannot hand their addresses to another container. After a reboot, `make up` then `make gitea` bring the lab back.
 - `make portal` installs yarn into `~/.local` only if it is missing.

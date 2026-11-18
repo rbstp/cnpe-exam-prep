@@ -123,16 +123,17 @@ ok "gitea API token works"
 
 log "Pointing this host's git at ${GITEA_HOST}"
 # Pods resolve gitea.lab through CoreDNS. The host would need a root-owned /etc/hosts
-# line for that, so git rewrites the URL instead: every command reads the same from
-# the host and from a pod, and the host's copy goes to the published port.
-for from in "http://${GITEA_HOST}:3000/" "http://${GITEA_USER}:${GITEA_PASS}@${GITEA_HOST}:3000/"; do
-  to="${from/${GITEA_HOST}:3000/localhost:${GITEA_PORT}}"
-  git config --global --get-all "url.${to}.insteadOf" 2>/dev/null | grep -qxF "$from" \
-    || git config --global --add "url.${to}.insteadOf" "$from"
-done
+# line for that, so git's HTTP client resolves the name itself instead, to Gitea's
+# fixed address on the kind network. URLs and git's output read the same from the
+# host as from a pod.
+git config --global --get-regexp '^url\..*\.insteadof$' 2>/dev/null \
+  | awk -v h="${GITEA_HOST}:3000/" 'index($2, h) {print $1}' | sort -u \
+  | while read -r key; do git config --global --unset-all "$key"; done   # an older lab rewrote URLs
+git config --global --unset-all http.curloptResolve "^${GITEA_HOST//./\\.}:3000:" 2>/dev/null || true
+git config --global --add http.curloptResolve "${GITEA_HOST}:3000:${GITEA_IP}"
 git ls-remote "http://${GITEA_HOST}:3000/${GITEA_USER}/platform.git" >/dev/null 2>&1 \
   && ok "git on this host reaches http://${GITEA_HOST}:3000" \
-  || warn "git could not reach http://${GITEA_HOST}:3000 through the rewrite to localhost:${GITEA_PORT}"
+  || warn "git could not reach http://${GITEA_HOST}:3000 at ${GITEA_IP}"
 
 coredns_host "$GITEA_IP" "$GITEA_HOST"
 
@@ -177,8 +178,7 @@ cat > "$REPO_ROOT/.gitea-info" <<INFO
 Gitea UI     http://localhost:${GITEA_PORT}   (pods: http://${GITEA_HOST}:3000)
 user/pass    ${GITEA_USER} / ${GITEA_PASS}
 clone URL    http://${GITEA_HOST}:3000/${GITEA_USER}/platform.git
-             (identical from host, from Backstage, and from inside the cluster;
-              on the host, git rewrites it to localhost:${GITEA_PORT})
+             (identical from host git, from Backstage, and from inside the cluster)
 API token    $REPO_ROOT/.gitea-token
 INFO
 cat "$REPO_ROOT/.gitea-info"
