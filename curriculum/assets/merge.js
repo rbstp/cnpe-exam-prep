@@ -448,6 +448,7 @@
     var MOVED_DRILL = {
         "3.1#an-organisation-mandates-the-platform-for-produc": "3.1#an-organization-mandates-the-platform-for-produc",
         "4.5#the-white-paper-s-organisational-efficiency-grou": "4.5#the-white-paper-s-organizational-efficiency-grou",
+        "5.2#which-two-kyverno-controller-flags-must-be-on-be": "5.2#which-kyverno-controller-flag-must-be-on-before-",
     };
     /* One drill card, two records: both may carry a lifetime score and a schedule,
        which is the question two browsers ask of the same card, so it takes the same

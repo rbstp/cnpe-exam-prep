@@ -9,11 +9,24 @@ RELEASE_ROWS=$(mktemp)
 trap 'rm -rf "$RELEASE_CACHE"; rm -f "$RELEASE_ROWS"' EXIT
 
 pac() {
+  local p repo_ver local_ver
   for p in "$@"; do
-    if ! pacman -Si "$p" >/dev/null 2>&1; then
+    # '|| true': pacman exits non-zero for a package it does not know or has not
+    # installed, and under 'set -e' that would end the run right here.
+    repo_ver=$(pacman -Si "$p" 2>/dev/null | awk -F': ' '/^Version/ {print $2; exit}' || true)
+    local_ver=$(pacman -Q "$p" 2>/dev/null | awk '{print $2}' || true)
+    if [ -z "$repo_ver" ]; then
       warn "pacman: $p not in the repos, will try an upstream binary"
-    elif ! sudo pacman -S --needed --noconfirm "$p"; then
-      warn "pacman: installing $p FAILED (it does exist in the repos); see the error above"
+    elif [ "$repo_ver" = "$local_ver" ]; then
+      ok "$p already matches the repos ($local_ver)"
+    elif [ -z "$local_ver" ]; then
+      # A first install is the one time root is unavoidable: let sudo ask if a
+      # person is at the terminal, and say plainly what is missing if not.
+      if [ -t 0 ] && sudo pacman -S --needed --noconfirm "$p"; then ok "$p installed ($repo_ver)"
+      elif sudo -n pacman -S --needed --noconfirm "$p" 2>/dev/null; then ok "$p installed ($repo_ver)"
+      else warn "pacman: $p is not installed and the lab needs it; run: sudo pacman -S $p"; fi
+    elif ! sudo -n pacman -S --needed --noconfirm "$p" 2>/dev/null; then
+      warn "pacman: $p is at $local_ver, the repos have $repo_ver; upgrading needs root, so run 'sudo pacman -Syu' when it suits you (the lab keeps working)"
     fi
   done
 }
@@ -41,7 +54,7 @@ ver() {
     helm)     timeout 10 "$t" version --short 2>/dev/null | head -1 ;;
     cosign)   timeout 10 "$t" version --json 2>/dev/null | jq -r .gitVersion ;;
     kubeseal) timeout 10 "$t" --version 2>/dev/null | head -1 ;;
-    kubectl-cost) timeout 10 "$t" version 2>/dev/null | awk -F ': +' '$1 ~ /Git Summary/ {print $2; exit}' ;;
+    kubectl-cost) timeout 10 "$t" version 2>&1 | awk -F ': +' '$1 ~ /Git Summary/ {print $2; exit}' ;;
     kubectl-argo-rollouts) timeout 10 "$t" version 2>/dev/null | head -1 ;;
     kind|trivy|kubebuilder|cilium|hubble|argo|tkn|crossplane|cloud-provider-kind)
               timeout 10 "$t" version 2>/dev/null | head -1 ;;
@@ -250,7 +263,8 @@ log "Installed versions"
 report_rows=$(mktemp)
 for t in kubectl helm kind argocd flux tkn crossplane istioctl linkerd cilium hubble \
          argo kubectl-argo-rollouts trivy cosign kubebuilder kubeseal kubectl-cost cloud-provider-kind; do
-  version=$(ver "$t" || echo installed)
+  version=$(ver "$t") || true   # a CLI that dies of SIGPIPE behind head still printed its line
+  version=${version:-installed}
   printf '  %-24s %s\n' "$t" "$version"
   path=$(command -v "$t" 2>/dev/null || true)
   if [ -n "$path" ] && [ -f "$path" ]; then digest=$(sha256sum "$path" | awk '{print $1}'); else digest=""; fi

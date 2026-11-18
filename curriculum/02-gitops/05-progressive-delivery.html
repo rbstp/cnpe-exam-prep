@@ -74,7 +74,7 @@
     autoPromotionEnabled: false       # wait for `promote`
     scaleDownDelaySeconds: 30         # keep the old RS warm for instant rollback</code></pre></div>
 
-    <p><strong>AnalysisTemplate</strong> is the measurement half: a list of metrics, each with a provider (Prometheus, Datadog, a Job, a web request), an <code>interval</code>, a <code>successCondition</code> or <code>failureCondition</code>, plus <code>failureLimit</code>, <code>count</code> and <code>inconclusiveLimit</code>. An AnalysisRun is one execution of it. Its status carries every measurement, which is where you look when a rollout aborts and you want to know which number failed it. Analyzes can run as a rollout step, as a background analysis for the whole rollout, or as a pre-promotion/post-promotion gate in blue-green.</p>
+    <p><strong>AnalysisTemplate</strong> is the measurement half: a list of metrics, each with a provider (Prometheus, Datadog, a Job, a web request), an <code>interval</code>, a <code>successCondition</code> or <code>failureCondition</code>, plus <code>failureLimit</code>, <code>count</code> and <code>inconclusiveLimit</code>. An AnalysisRun is one execution of it. Its status carries every measurement, which is where you look when a rollout aborts and you want to know which number failed it. Analyses can run as a rollout step, as a background analysis for the whole rollout, or as a pre-promotion/post-promotion gate in blue-green.</p>
 
     <div class="callout trap">
       <span class="tag">An erroring analysis is not a passing analysis</span>
@@ -90,11 +90,11 @@ kubectl argo rollouts set image demo web=&lt;image&gt; -n team-a
 kubectl argo rollouts promote demo -n team-a               # advance past a pause; --full skips remaining steps
 kubectl argo rollouts abort demo -n team-a                 # stop and shift back to stable
 kubectl argo rollouts undo demo -n team-a                  # roll the spec back to the previous revision
-kubectl argo rollouts status demo -n team-a --timeout 60s  # scriptable, exits non-zero on failure</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl argo rollouts get rollout demo -n team-a --watch   # the best mental-model builder in domain 2</b>
+kubectl argo rollouts status demo -n team-a --timeout 60s  # scriptable, exits non-zero on failure</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl argo rollouts get rollout demo -n team-a --watch   # the best mental-model builder in domain 2</b>
 Name:            demo
 Namespace:       team-a
 Status:          ✖ Degraded
-Message:         RolloutAborted: Rollout aborted update to revision 2: Background analysis phase error/failed: Metric "success-rate" assessed Error due to consecutiveErrors (5) &gt; consecutiveErrorLimit (4): "Error Message: reflect: slice index out of range"
+Message:         RolloutAborted: Rollout aborted update to revision 2: Background analysis phase error/failed: Metric "success-rate" assessed Error due to consecutiveErrors (5) &gt; consecutiveErrorLimit (4): "Error Message: could not evaluate successCondition "result[0] &gt;= 0.95": metric result is nil or empty: no data returned from the metric provider"
 Strategy:        Canary
   Step:          0/5
   SetWeight:     0
@@ -108,16 +108,16 @@ Replicas:
   Available:     4
 
 NAME                              KIND         STATUS        AGE    INFO
-⟳ demo                            Rollout      ✖ Degraded    4m16s  
+⟳ demo                            Rollout      ✖ Degraded    5m52s  
 ├──# revision:2                                                     
-│  ├──⧉ demo-dff9796f6            ReplicaSet   • ScaledDown  4m4s   canary
-│  └──α demo-dff9796f6-2          AnalysisRun  ⚠ Error       3m30s  ⚠ 5
+│  ├──⧉ demo-dff9796f6            ReplicaSet   • ScaledDown  5m32s  canary
+│  └──α demo-dff9796f6-2          AnalysisRun  ⚠ Error       4m43s  ⚠ 5
 └──# revision:1                                                     
-   └──⧉ demo-5cfc49f565           ReplicaSet   ✔ Healthy     4m16s  stable
-      ├──□ demo-5cfc49f565-nx4r8  Pod          ✔ Running     4m16s  ready:1/1
-      ├──□ demo-5cfc49f565-trpgb  Pod          ✔ Running     4m16s  ready:1/1
-      ├──□ demo-5cfc49f565-8rhc9  Pod          ✔ Running     2m50s  ready:1/1
-      └──□ demo-5cfc49f565-sqb6q  Pod          ✔ Running     2m50s  ready:1/1
+   └──⧉ demo-5cfc49f565           ReplicaSet   ✔ Healthy     5m52s  stable
+      ├──□ demo-5cfc49f565-bck6f  Pod          ✔ Running     5m51s  ready:1/1
+      ├──□ demo-5cfc49f565-p2trc  Pod          ✔ Running     5m51s  ready:1/1
+      ├──□ demo-5cfc49f565-2btc5  Pod          ✔ Running     4m3s   ready:1/1
+      └──□ demo-5cfc49f565-jx5gx  Pod          ✔ Running     4m3s   ready:1/1
 <i>^C</i>
 <b>$ kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine -n team-a</b>
 rollout "demo" image updated
@@ -128,6 +128,7 @@ rollout 'demo' aborted
 <b>$ kubectl argo rollouts undo demo -n team-a                  # roll the spec back to the previous revision</b>
 rollout 'demo' undo
 <b>$ kubectl argo rollouts status demo -n team-a --timeout 60s  # scriptable, exits non-zero on failure</b>
+Progressing - more replicas need to be updated
 Paused - CanaryPauseStep
 Progressing - more replicas need to be updated
 Paused - CanaryPauseStep
@@ -166,8 +167,8 @@ Error: Rollout status watch exceeded timeout</code></pre></details></div>
     <p>Flagger's webhooks are how it does things metrics cannot: <code>confirm-rollout</code> (a gate before starting), <code>pre-rollout</code> (acceptance test against the canary), <code>rollout</code> (during each step, typically a load generator), <code>confirm-promotion</code> and <code>post-rollout</code>. A canary with no traffic produces no metrics, so the load-test webhook is what makes the analysis meaningful in a lab.</p>
 
     <div class="callout lab">
-      <span class="tag">Honest lab caveat</span>
-      <p>The mesh cluster runs no Prometheus, and <code>make mesh</code> wires Flagger at a metrics address that does not exist, so the built-in <code>request-success-rate</code> check can never pass there. Build the analysis from <strong>webhooks only</strong> (a load-test webhook against <code>flagger-loadtester.test</code>, plus a pre-rollout acceptance check if you want a gate). The mechanics you are practicing (Canary spec, generated objects, weight progression, events) are entirely real.</p>
+      <span class="tag">Lab caveat</span>
+      <p>The mesh cluster runs no Prometheus, and <code>make mesh</code> wires Flagger at a metrics address that does not exist, so the built-in <code>request-success-rate</code> check can never pass there. Build the analysis from <strong>webhooks only</strong> (a load-test webhook against <code>flagger-loadtester.test</code>, plus a pre-rollout acceptance check if you want a gate). The mechanics you are practicing (Canary spec, generated objects, weight progression, events) are real.</p>
     </div>
   </div>
 </section>
@@ -191,7 +192,7 @@ Error: Rollout status watch exceeded timeout</code></pre></details></div>
     <h3>Argo Rollouts: the analysis budget</h3>
     <ul>
       <li><code>failureLimit</code> defaults to <strong>0</strong>: a single failed measurement fails the analysis and aborts the rollout. Set it deliberately. <code>consecutiveSuccessLimit</code> (1.8+) requires N successes in a row; with <code>failureLimit: -1</code> it turns the analysis into "wait until the metric is good".</li>
-      <li><code>inconclusiveLimit</code> counts measurements that met neither <code>successCondition</code> nor <code>failureCondition</code>; a run ending <code>Inconclusive</code> <em>pauses</em> the rollout for a human, it does not abort. A metric with no conditions at all is always inconclusive by design.</li>
+      <li><code>inconclusiveLimit</code> counts measurements that met neither <code>successCondition</code> nor <code>failureCondition</code>; a run ending <code>Inconclusive</code> <em>pauses</em> the rollout for a human, it does not abort. A metric with no conditions is always inconclusive by design.</li>
       <li><code>count</code> and <code>interval</code> bound how many measurements; no <code>count</code> means run until the rollout finishes (background analysis). <code>initialDelay</code> per metric and <code>analysis.startingStep</code> on the rollout delay the start so the canary has traffic before it is judged.</li>
       <li>Where analysis runs: <code>canary.steps[].analysis</code> (inline, blocks the step), <code>canary.analysis</code> (background, whole rollout), <code>blueGreen.prePromotionAnalysis</code> (blocks the selector switch), <code>blueGreen.postPromotionAnalysis</code> (aborts and switches back on failure). <code>args</code> flow from the rollout; <code>ClusterAnalysisTemplate</code> is the cluster-scoped form.</li>
       <li>Prometheus provider: <code>address</code>, <code>query</code>, optional <code>rangeQuery</code>; results are a vector, so conditions read <code>result[0]</code>, and for range queries <code>all(result, # &lt; 1000)</code>. Other providers: <code>web</code> (jsonPath over an HTTP response), <code>job</code> (a Kubernetes Job's exit), <code>datadog</code>, <code>newrelic</code>, <code>wavefront</code>, <code>graphite</code>, <code>influxdb</code>, <code>skywalking</code>, and metric plugins.</li>
@@ -239,7 +240,7 @@ Error: Rollout status watch exceeded timeout</code></pre></details></div>
       <li>Webhook types beyond the ones above: <code>confirm-traffic-increase</code> (gate each weight step), <code>rollback</code> (a 2xx from it fails the canary on demand), <code>event</code> (receive every Flagger event as JSON). Non-2xx from a rollout webhook counts toward <code>threshold</code>; the sum of rollout webhook timeouts must fit inside <code>interval</code>.</li>
     </ul>
 
-    <div class="callout trap"><span class="tag">Defaults that bite</span><p>Rollouts: <code>failureLimit</code> 0 means one bad sample aborts. Flagger: <code>threshold</code> 1 means one failed check rolls back, and a canary with <code>maxWeight</code> unset runs to 50 in steps of <code>stepWeight</code>. Both tools promote a first-ever deployment straight through with no analysis, because there is no stable version to compare against; do not read that as "analysis is broken".</p></div>
+    <div class="callout trap"><span class="tag">Defaults that bite</span><p>Rollouts: <code>failureLimit</code> 0 means one bad sample aborts. Flagger: <code>threshold</code> 1 means one failed check rolls back, and a canary with <code>maxWeight</code> unset runs all the way to 100 in steps of <code>stepWeight</code>. Both tools promote a first-ever deployment straight through with no analysis, because there is no stable version to compare against; do not read that as "analysis is broken".</p></div>
   </div>
 </section>
 
@@ -287,7 +288,7 @@ Error: Rollout status watch exceeded timeout</code></pre></details></div>
 
     <div class="exercise" data-title="Run the canary and watch it pass">
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -f examples/rollouts/canary.yaml
-kubectl argo rollouts get rollout demo -n team-a --watch</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl apply -f examples/rollouts/canary.yaml</b>
+kubectl argo rollouts get rollout demo -n team-a --watch</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl apply -f examples/rollouts/canary.yaml</b>
 analysistemplate.argoproj.io/success-rate created
 rollout.argoproj.io/demo created
 <b>$ kubectl argo rollouts get rollout demo -n team-a --watch</b>
@@ -307,13 +308,13 @@ Replicas:
   Available:     4
 
 NAME                              KIND        STATUS     AGE  INFO
-⟳ demo                            Rollout     ✔ Healthy  6s   
+⟳ demo                            Rollout     ✔ Healthy  7s   
 └──# revision:1                                               
-   └──⧉ demo-5cfc49f565           ReplicaSet  ✔ Healthy  6s   stable
-      ├──□ demo-5cfc49f565-nx4r8  Pod         ✔ Running  6s   ready:1/1
-      ├──□ demo-5cfc49f565-trpgb  Pod         ✔ Running  6s   ready:1/1
-      ├──□ demo-5cfc49f565-xj4xl  Pod         ✔ Running  6s   ready:1/1
-      └──□ demo-5cfc49f565-znz6p  Pod         ✔ Running  5s   ready:1/1
+   └──⧉ demo-5cfc49f565           ReplicaSet  ✔ Healthy  7s   stable
+      ├──□ demo-5cfc49f565-2fsrm  Pod         ✔ Running  7s   ready:1/1
+      ├──□ demo-5cfc49f565-bck6f  Pod         ✔ Running  6s   ready:1/1
+      ├──□ demo-5cfc49f565-dr4v2  Pod         ✔ Running  6s   ready:1/1
+      └──□ demo-5cfc49f565-p2trc  Pod         ✔ Running  6s   ready:1/1
 <i>  … (frame repeats elided; next state change)</i>
 Name:            demo
 Namespace:       team-a
@@ -332,40 +333,13 @@ Replicas:
   Available:     4
 
 NAME                              KIND        STATUS         AGE  INFO
-⟳ demo                            Rollout     ◌ Progressing  12s  
+⟳ demo                            Rollout     ◌ Progressing  20s  
 └──# revision:1                                                   
-   └──⧉ demo-5cfc49f565           ReplicaSet  ✔ Healthy      12s  stable
-      ├──□ demo-5cfc49f565-nx4r8  Pod         ✔ Running      12s  ready:1/1
-      ├──□ demo-5cfc49f565-trpgb  Pod         ✔ Running      12s  ready:1/1
-      ├──□ demo-5cfc49f565-xj4xl  Pod         ✔ Running      12s  ready:1/1
-      └──□ demo-5cfc49f565-znz6p  Pod         ✔ Running      11s  ready:1/1
-<i>  … (frame repeats elided; next state change)</i>
-Name:            demo
-Namespace:       team-a
-Status:          ◌ Progressing
-Message:         more replicas need to be updated
-Strategy:        Canary
-  Step:          0/5
-  SetWeight:     25
-  ActualWeight:  0
-Images:          ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine (stable)
-Replicas:
-  Desired:       4
-  Current:       4
-  Updated:       0
-  Ready:         4
-  Available:     4
-
-NAME                              KIND        STATUS         AGE  INFO
-⟳ demo                            Rollout     ◌ Progressing  12s  
-├──# revision:2                                                   
-│  └──⧉ demo-dff9796f6            ReplicaSet  • ScaledDown   0s   canary
-└──# revision:1                                                   
-   └──⧉ demo-5cfc49f565           ReplicaSet  ✔ Healthy      12s  stable
-      ├──□ demo-5cfc49f565-nx4r8  Pod         ✔ Running      12s  ready:1/1
-      ├──□ demo-5cfc49f565-trpgb  Pod         ✔ Running      12s  ready:1/1
-      ├──□ demo-5cfc49f565-xj4xl  Pod         ✔ Running      12s  ready:1/1
-      └──□ demo-5cfc49f565-znz6p  Pod         ✔ Running      11s  ready:1/1
+   └──⧉ demo-5cfc49f565           ReplicaSet  ✔ Healthy      20s  stable
+      ├──□ demo-5cfc49f565-2fsrm  Pod         ✔ Running      20s  ready:1/1
+      ├──□ demo-5cfc49f565-bck6f  Pod         ✔ Running      19s  ready:1/1
+      ├──□ demo-5cfc49f565-dr4v2  Pod         ✔ Running      19s  ready:1/1
+      └──□ demo-5cfc49f565-p2trc  Pod         ✔ Running      19s  ready:1/1
 <i>  … (frame repeats elided; next state change)</i>
 Name:            demo
 Namespace:       team-a
@@ -384,35 +358,79 @@ Replicas:
   Ready:         3
   Available:     3
 
-NAME                              KIND        STATUS               AGE  INFO
-⟳ demo                            Rollout     ◌ Progressing        13s  
-├──# revision:2                                                         
-│  └──⧉ demo-dff9796f6            ReplicaSet  ◌ Progressing        1s   canary
-│     └──□ demo-dff9796f6-x5d6g   Pod         ◌ ContainerCreating  1s   ready:0/1
-└──# revision:1                                                         
-   └──⧉ demo-5cfc49f565           ReplicaSet  ✔ Healthy            13s  stable
-      ├──□ demo-5cfc49f565-nx4r8  Pod         ✔ Running            13s  ready:1/1
-      ├──□ demo-5cfc49f565-trpgb  Pod         ✔ Running            13s  ready:1/1
-      ├──□ demo-5cfc49f565-xj4xl  Pod         ◌ Terminating        13s  ready:0/1
-      └──□ demo-5cfc49f565-znz6p  Pod         ✔ Running            12s  ready:1/1
+NAME                              KIND        STATUS         AGE  INFO
+⟳ demo                            Rollout     ◌ Progressing  22s  
+├──# revision:2                                                   
+│  └──⧉ demo-dff9796f6            ReplicaSet  ◌ Progressing  2s   canary
+│     └──□ demo-dff9796f6-8v6rc   Pod         ◌ Pending      1s   ready:0/1
+└──# revision:1                                                   
+   └──⧉ demo-5cfc49f565           ReplicaSet  ✔ Healthy      22s  stable
+      ├──□ demo-5cfc49f565-2fsrm  Pod         ◌ Terminating  22s  ready:1/1
+      ├──□ demo-5cfc49f565-bck6f  Pod         ✔ Running      21s  ready:1/1
+      ├──□ demo-5cfc49f565-dr4v2  Pod         ✔ Running      21s  ready:1/1
+      └──□ demo-5cfc49f565-p2trc  Pod         ✔ Running      21s  ready:1/1
 <i>  … (frame repeats elided; next state change)</i>
 Name:            demo
-<i>… (77 lines omitted)</i>
-├──# revision:2                                                          
-│  ├──⧉ demo-dff9796f6            ReplicaSet   ✔ Healthy            74s  canary
-│  │  ├──□ demo-dff9796f6-x5d6g   Pod          ◌ Terminating        74s  ready:1/1
-│  │  └──□ demo-dff9796f6-fxzp8   Pod          ✔ Running            39s  ready:1/1
-│  └──α demo-dff9796f6-2          AnalysisRun  ⚠ Error              40s  ⚠ 5
-└──# revision:1                                                          
-   └──⧉ demo-5cfc49f565           ReplicaSet   ◌ Progressing        86s  stable
-      ├──□ demo-5cfc49f565-nx4r8  Pod          ✔ Running            86s  ready:1/1
-      ├──□ demo-5cfc49f565-trpgb  Pod          ✔ Running            86s  ready:1/1
-      └──□ demo-5cfc49f565-8rhc9  Pod          ◌ ContainerCreating  0s   ready:0/1
+Namespace:       team-a
+Status:          ॥ Paused
+Message:         CanaryPauseStep
+Strategy:        Canary
+  Step:          1/5
+  SetWeight:     25
+  ActualWeight:  25
+Images:          ghcr.io/nginxinc/nginx-unprivileged:1.26-alpine (canary)
+                 ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine (stable)
+Replicas:
+  Desired:       4
+  Current:       4
+  Updated:       1
+  Ready:         4
+  Available:     4
+
+NAME                              KIND        STATUS     AGE  INFO
+⟳ demo                            Rollout     ॥ Paused   40s  
+├──# revision:2                                               
+│  └──⧉ demo-dff9796f6            ReplicaSet  ✔ Healthy  20s  canary
+│     └──□ demo-dff9796f6-8v6rc   Pod         ✔ Running  19s  ready:1/1
+└──# revision:1                                               
+   └──⧉ demo-5cfc49f565           ReplicaSet  ✔ Healthy  40s  stable
+      ├──□ demo-5cfc49f565-bck6f  Pod         ✔ Running  39s  ready:1/1
+      ├──□ demo-5cfc49f565-dr4v2  Pod         ✔ Running  39s  ready:1/1
+      └──□ demo-5cfc49f565-p2trc  Pod         ✔ Running  39s  ready:1/1
+<i>  … (frame repeats elided; next state change)</i>
+Name:            demo
+Namespace:       team-a
+Status:          ॥ Paused
+Message:         CanaryPauseStep
+Strategy:        Canary
+  Step:          3/5
+  SetWeight:     50
+  ActualWeight:  50
+Images:          ghcr.io/nginxinc/nginx-unprivileged:1.26-alpine (canary)
+                 ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine (stable)
+Replicas:
+  Desired:       4
+  Current:       4
+  Updated:       2
+  Ready:         4
+  Available:     4
+
+NAME                              KIND         STATUS     AGE  INFO
+⟳ demo                            Rollout      ॥ Paused   88s  
+├──# revision:2                                                
+│  ├──⧉ demo-dff9796f6            ReplicaSet   ✔ Healthy  68s  canary
+│  │  ├──□ demo-dff9796f6-8v6rc   Pod          ✔ Running  67s  ready:1/1
+│  │  └──□ demo-dff9796f6-8wrtz   Pod          ✔ Running  19s  ready:1/1
+│  └──α demo-dff9796f6-2          AnalysisRun  ◌ Running  19s  ⚠ 2
+└──# revision:1                                                
+   └──⧉ demo-5cfc49f565           ReplicaSet   ✔ Healthy  88s  stable
+      ├──□ demo-5cfc49f565-bck6f  Pod          ✔ Running  87s  ready:1/1
+      └──□ demo-5cfc49f565-p2trc  Pod          ✔ Running  87s  ready:1/1
 <i>  … (frame repeats elided; next state change)</i>
 Name:            demo
 Namespace:       team-a
 Status:          ✖ Degraded
-Message:         RolloutAborted: Rollout aborted update to revision 2: Background analysis phase error/failed: Metric "success-rate" assessed Error due to consecutiveErrors (5) &gt; consecutiveErrorLimit (4): "Error Message: reflect: slice index out of range"
+Message:         RolloutAborted: Rollout aborted update to revision 2: Background analysis phase error/failed: Metric "success-rate" assessed Error due to consecutiveErrors (5) &gt; consecutiveErrorLimit (4): "Error Message: could not evaluate successCondition "result[0] &gt;= 0.95": metric result is nil or empty: no data returned from the metric provider"
 Strategy:        Canary
   Step:          0/5
   SetWeight:     0
@@ -420,23 +438,23 @@ Strategy:        Canary
 Images:          ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine (stable)
 Replicas:
   Desired:       4
-  Current:       5
-  Updated:       1
+  Current:       4
+  Updated:       0
   Ready:         4
   Available:     4
 
-NAME                              KIND         STATUS               AGE  INFO
-⟳ demo                            Rollout      ✖ Degraded           89s  
-├──# revision:2                                                          
-│  ├──⧉ demo-dff9796f6            ReplicaSet   • ScaledDown         77s  canary
-│  │  └──□ demo-dff9796f6-fxzp8   Pod          ◌ Terminating        42s  ready:1/1
-│  └──α demo-dff9796f6-2          AnalysisRun  ⚠ Error              43s  ⚠ 5
-└──# revision:1                                                          
-   └──⧉ demo-5cfc49f565           ReplicaSet   ◌ Progressing        89s  stable
-      ├──□ demo-5cfc49f565-nx4r8  Pod          ✔ Running            89s  ready:1/1
-      ├──□ demo-5cfc49f565-trpgb  Pod          ✔ Running            89s  ready:1/1
-      ├──□ demo-5cfc49f565-8rhc9  Pod          ✔ Running            3s   ready:1/1
-      └──□ demo-5cfc49f565-sqb6q  Pod          ◌ ContainerCreating  3s   ready:0/1
+NAME                              KIND         STATUS         AGE   INFO
+⟳ demo                            Rollout      ✖ Degraded     114s  
+├──# revision:2                                                     
+│  ├──⧉ demo-dff9796f6            ReplicaSet   • ScaledDown   94s   canary
+│  │  └──□ demo-dff9796f6-8v6rc   Pod          ◌ Terminating  93s   ready:0/1
+│  └──α demo-dff9796f6-2          AnalysisRun  ⚠ Error        45s   ⚠ 5
+└──# revision:1                                                     
+   └──⧉ demo-5cfc49f565           ReplicaSet   ✔ Healthy      114s  stable
+      ├──□ demo-5cfc49f565-bck6f  Pod          ✔ Running      113s  ready:1/1
+      ├──□ demo-5cfc49f565-p2trc  Pod          ✔ Running      113s  ready:1/1
+      ├──□ demo-5cfc49f565-2btc5  Pod          ✔ Running      5s    ready:1/1
+      └──□ demo-5cfc49f565-jx5gx  Pod          ✔ Running      5s    ready:1/1
 <i>^C</i></code></pre></details></div>
       <p>First rollout of a new Rollout goes straight to healthy (nothing to compare against). Now change the image to trigger a real canary, in a second terminal:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.26-alpine -n team-a</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl argo rollouts set image demo web=ghcr.io/nginxinc/nginx-unprivileged:1.26-alpine -n team-a</b>
@@ -462,7 +480,7 @@ rollout "demo" image updated</code></pre></details></div>
     </div>
 
     <div class="exercise" data-title="Inconclusive is the third outcome">
-      <p>A metric with neither a success nor a failure condition cannot decide anything, and Argo Rollouts records that honestly rather than guessing: the run ends <code>Inconclusive</code>, which is neither <code>Successful</code> nor <code>Failed</code>. Know the third outcome, because it is the one people forget when they write the alert on the other two.</p>
+      <p>A measurement that meets neither its success condition nor its failure condition cannot decide anything, and Argo Rollouts records that honestly rather than guessing: the run ends <code>Inconclusive</code>, which is neither <code>Successful</code> nor <code>Failed</code>, and the rollout pauses until a human decides. Know the third outcome, because it is the one people forget when they write the alert on the other two.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: argoproj.io/v1alpha1
 kind: AnalysisTemplate
@@ -472,9 +490,11 @@ spec:
     - name: undecided
       interval: 15s
       count: 1
-      # no successCondition and no failureCondition: nothing can decide, so the
-      # measurement is Inconclusive. A job provider could not show this: its
-      # verdict is the job's exit code, which is always a pass or a fail.
+      # vector(1) meets neither condition, so nothing can decide and the
+      # measurement is Inconclusive. Leave both conditions out and Argo
+      # Rollouts 1.10 counts the measurement Successful instead.
+      successCondition: result[0] &gt; 1
+      failureCondition: result[0] &lt; 1
       provider:
         prometheus:
           address: http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090
@@ -486,11 +506,11 @@ sleep 90
 kubectl -n team-a get analysisrun -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{"\n"}{end}'
 kubectl argo rollouts status demo -n team-a --timeout 10s || true
 kubectl argo rollouts get rollout demo -n team-a --no-color | head -20
-kubectl argo rollouts promote demo -n team-a
+kubectl argo rollouts promote demo -n team-a --full
 kubectl argo rollouts status demo -n team-a --timeout 120s
 kubectl -n team-a delete analysisrun --all
 kubectl -n team-a delete analysistemplate undecided
-kubectl -n team-a apply -f examples/rollouts/canary.yaml</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl -n team-a apply -f examples/rollouts/canary.yaml</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: AnalysisTemplate</b>
 <b>metadata: { name: undecided, namespace: team-a }</b>
@@ -499,9 +519,11 @@ kubectl -n team-a apply -f examples/rollouts/canary.yaml</code></pre><details cl
 <b>    - name: undecided</b>
 <b>      interval: 15s</b>
 <b>      count: 1</b>
-<b>      # no successCondition and no failureCondition: nothing can decide, so the</b>
-<b>      # measurement is Inconclusive. A job provider could not show this: its</b>
-<b>      # verdict is the job's exit code, which is always a pass or a fail.</b>
+<b>      # vector(1) meets neither condition, so nothing can decide and the</b>
+<b>      # measurement is Inconclusive. Leave both conditions out and Argo</b>
+<b>      # Rollouts 1.10 counts the measurement Successful instead.</b>
+<b>      successCondition: result[0] &gt; 1</b>
+<b>      failureCondition: result[0] &lt; 1</b>
 <b>      provider:</b>
 <b>        prometheus:</b>
 <b>          address: http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090</b>
@@ -514,44 +536,47 @@ rollout.argoproj.io/demo patched
 rollout "demo" image updated
 <b>$ sleep 90</b>
 <b>$ kubectl -n team-a get analysisrun -o jsonpath='{range .items[*]}{.metadata.name} {.status.phase}{"\n"}{end}'</b>
-demo-5cfc49f565-13 Inconclusive
-demo-5cfc49f565-13.1 Error
+demo-dff9796f6-10 Inconclusive
 <b>$ kubectl argo rollouts status demo -n team-a --timeout 10s || true</b>
-Healthy
+Paused - InconclusiveAnalysisRun
+Error: Rollout status watch exceeded timeout
 <b>$ kubectl argo rollouts get rollout demo -n team-a --no-color | head -20</b>
 Name:            demo
 Namespace:       team-a
-Status:          ✔ Healthy
+Status:          ॥ Paused
+Message:         InconclusiveAnalysisRun
 Strategy:        Canary
-  Step:          5/5
-  SetWeight:     100
-  ActualWeight:  100
-Images:          ghcr.io/nginxinc/nginx-unprivileged:1.26-alpine (stable)
+  Step:          0/5
+  SetWeight:     25
+  ActualWeight:  0
+Images:          ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine (stable)
 Replicas:
   Desired:       4
-  Current:       4
-  Updated:       4
-  Ready:         4
-  Available:     4
+  Current:       3
+  Updated:       0
+  Ready:         3
+  Available:     3
 
-NAME                                                            KIND         STATUS          AGE    INFO
-⟳ demo                                                          Rollout      ✔ Healthy       3h17m  
-├──# revision:14                                                                                    
-│  └──⧉ demo-dff9796f6                                          ReplicaSet   ✔ Healthy       3h1m   stable
-│     ├──□ demo-dff9796f6-x8b2r                                 Pod          ✔ Running       3h1m   ready:1/1
-<b>$ kubectl argo rollouts promote demo -n team-a</b>
-rollout 'demo' promoted
+NAME                              KIND         STATUS          AGE    INFO
+⟳ demo                            Rollout      ॥ Paused        19m    
+├──# revision:10                                                      
+│  ├──⧉ demo-dff9796f6            ReplicaSet   • ScaledDown    19m    canary
+<b>$ kubectl argo rollouts promote demo -n team-a --full</b>
+rollout 'demo' fully promoted
 <b>$ kubectl argo rollouts status demo -n team-a --timeout 120s</b>
+Progressing - more replicas need to be updated
+Progressing - updated replicas are still becoming available
+Progressing - old replicas are pending termination
+Progressing - updated replicas are still becoming available
 Healthy
 <b>$ kubectl -n team-a delete analysisrun --all</b>
-analysisrun.argoproj.io "demo-5cfc49f565-13" deleted from team-a namespace
-analysisrun.argoproj.io "demo-5cfc49f565-13.1" deleted from team-a namespace
+analysisrun.argoproj.io "demo-dff9796f6-10" deleted from team-a namespace
 <b>$ kubectl -n team-a delete analysistemplate undecided</b>
 analysistemplate.argoproj.io "undecided" deleted from team-a namespace
 <b>$ kubectl -n team-a apply -f examples/rollouts/canary.yaml</b>
 analysistemplate.argoproj.io/success-rate unchanged
 rollout.argoproj.io/demo configured</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the AnalysisRun ends <code>Inconclusive</code>, which is neither of the two outcomes people expect: not <code>Successful</code>, not <code>Failed</code>. That is the whole point of the exercise. Note the second run in the list ending <code>Error</code>: that is the ordinary <code>success-rate</code> template coming back when the original analysis is restored, and it errors because nothing is serving the metric it queries. Restore the original analysis from <code>examples/rollouts/canary.yaml</code> before the next exercise.</div>
+      <div class="verify"><b>verify:</b> the AnalysisRun ends <code>Inconclusive</code>, which is neither of the two outcomes people expect: not <code>Successful</code>, not <code>Failed</code>, and the rollout parks as <code>Paused - InconclusiveAnalysisRun</code>. A plain <code>promote</code> starts the background analysis again and parks it again; <code>promote --full</code> is the human decision that finishes the rollout. Restore the original analysis from <code>examples/rollouts/canary.yaml</code> before the next exercise.</div>
     </div>
 
     <div class="exercise" data-title="Count the failures before the abort">
@@ -1150,7 +1175,7 @@ deployment.apps "stuck" deleted from default namespace</code></pre></details></d
   
 
     <details class="quiz"><summary>An AnalysisRun ended Inconclusive and the rollout stopped. Did it abort?</summary>
-      <div class="answer"><p>No: inconclusive pauses the rollout at its current step and waits for a human to <code>promote</code> or <code>abort</code>. It happens when measurements satisfy neither <code>successCondition</code> nor <code>failureCondition</code> (or when a metric defines neither) more than <code>inconclusiveLimit</code> times. Failure aborts; error beyond <code>consecutiveErrorLimit</code> aborts; inconclusive asks.</p></div></details>
+      <div class="answer"><p>No: inconclusive pauses the rollout at its current step and waits for a human to <code>promote</code> or <code>abort</code>. It happens when measurements satisfy neither <code>successCondition</code> nor <code>failureCondition</code> (a metric that defines neither counts as Successful in Rollouts 1.10) more than <code>inconclusiveLimit</code> times. Failure aborts; error beyond <code>consecutiveErrorLimit</code> aborts; inconclusive asks.</p></div></details>
 
     <details class="quiz"><summary>Flagger: you set match on a header and also stepWeight/maxWeight. What runs?</summary>
       <div class="answer"><p>A/B testing: when Flagger finds an HTTP match condition it ignores <code>maxWeight</code> and <code>stepWeight</code> and runs <code>iterations</code> rounds with matched traffic routed to the canary. Remove <code>match</code> for a weighted canary; keep only <code>iterations</code> for blue/green.</p></div></details>

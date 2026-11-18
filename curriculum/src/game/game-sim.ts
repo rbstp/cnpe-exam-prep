@@ -208,7 +208,8 @@
     }
     // kubectl argo rollouts ... is its own tool
     if (tool === "kubectl" && pos[0] === "argo" && pos[1] === "rollouts") { tool = "kubectl argo rollouts"; pos = pos.slice(2); }
-    if (tool === "crossplane" && pos[0] === "beta") { pos.shift(); tool = "crossplane beta"; }
+    // crossplane v2 moved trace from the beta group to resource; the old spelling still lands
+    if (tool === "crossplane" && (pos[0] === "resource" || pos[0] === "beta")) { pos.shift(); tool = "crossplane resource"; }
     verb = (pos[0] || "").toLowerCase();
     if (pos.length) pos[0] = verb;
     // Where the kind sits, per verb, so aliases and kind/name collapse to one form.
@@ -224,7 +225,7 @@
     } else if (tool === "tkn") {
       if (pos[0]) pos[0] = kindOf(pos[0]);
       if (pos[1]) pos[1] = pos[1].toLowerCase();
-    } else if (tool === "crossplane beta" || tool === "kubectl argo rollouts") {
+    } else if (tool === "crossplane resource" || tool === "kubectl argo rollouts") {
       if (["trace", "get", "retry", "promote", "abort", "undo", "restart", "status"].indexOf(verb) >= 0) kindAt = 1;
     } else if (tool === "argocd") {
       if (pos[1]) pos[1] = pos[1].toLowerCase();
@@ -307,8 +308,7 @@
     triggerbindings: ["AGE"], triggertemplates: ["AGE"],
     appenvironments: ["SYNCED", "READY", "COMPOSITION", "AGE"],
     objects: ["KIND", "PROVIDERCONFIG", "SYNCED", "READY", "AGE"],
-    validatingpolicies: ["ADMISSION", "BACKGROUND", "READY", "AGE", "MESSAGE"],
-    imagevalidatingpolicies: ["ADMISSION", "BACKGROUND", "READY", "AGE", "MESSAGE"],
+    validatingpolicies: ["AGE", "READY"], imagevalidatingpolicies: ["AGE", "READY"],
     servicemonitors: ["AGE"], podmonitors: ["AGE"], prometheusrules: ["AGE"],
     externalsecrets: ["STORE", "REFRESH INTERVAL", "STATUS", "READY"],
     secretstores: ["AGE", "STATUS", "CAPABILITIES", "READY"], clustersecretstores: ["AGE", "STATUS", "CAPABILITIES", "READY"],
@@ -478,7 +478,7 @@
     flux: "Command line utility for assembling Kubernetes CD pipelines.\n\nAvailable Commands:\n  get sources git | get kustomizations | get helmreleases\n  reconcile | resume | suspend  kustomization <name>\n  tree kustomization <name>",
     argocd: "argocd controls a Argo CD server\n\nAvailable Commands:\n  app get|list|sync|diff|set <name> [--revision <ref>]",
     tkn: "CLI for tekton pipelines\n\nAvailable Commands:\n  pipelinerun list|describe|logs   pipeline start   task list   eventlistener list|logs",
-    "crossplane beta": "Run alpha and beta commands\n\nAvailable Commands:\n  trace <kind> <name> [-n <ns>]",
+    "crossplane resource": "Work with Crossplane resources\n\nAvailable Commands:\n  trace <kind> <name> [-n <ns>]",
     "kubectl argo rollouts": "Manage argo rollouts\n\nAvailable Commands:\n  get rollout <name>   retry rollout <name>   promote|abort|undo <name>"
   };
   var EXPLAIN: Record<string, string> = {
@@ -528,7 +528,7 @@
   function parts(n: string): { tool: string, pos: string[], f: Flags } {
     var t = n.split(" "), tool = t[0], i = 1, pos: string[] = [], f: Flags = {};
     if (tool === "kubectl" && t[1] === "argo" && t[2] === "rollouts") { tool = "kubectl argo rollouts"; i = 3; }
-    if (tool === "crossplane" && t[1] === "beta") { tool = "crossplane beta"; i = 2; }
+    if (tool === "crossplane" && t[1] === "resource") { tool = "crossplane resource"; i = 2; }
     for (; i < t.length; i++) {
       var tok = t[i];
       if (tok === "--") { f["--"] = t.slice(i + 1).join(" "); break; }
@@ -551,7 +551,7 @@
     if (tool === "argocd") return argocd(sc, pos, verb);
     if (tool === "tkn") return tkn(sc, pos, ns);
     if (tool === "kubectl argo rollouts") return rollouts(sc, pos, ns, verb);
-    if (tool === "crossplane beta") return trace(sc, pos, ns, verb);
+    if (tool === "crossplane resource") return trace(sc, pos, ns, verb);
     if (tool === "cosign") return cosign(sc, pos, verb);
     if (tool === "helm") return "Error: no releases found here; this cluster's apps are managed by Argo CD and Flux";
     if (tool === "curl" || tool === "wget") return "curl: (7) Failed to connect: the terminal runs outside the cluster; kubectl exec into a pod to probe from inside";
@@ -905,9 +905,9 @@
   }
 
   function trace(sc: CnpeGameScenario, pos: string[], ns: string, verb: string): string {
-    if (verb !== "trace") return HELP["crossplane beta"];
+    if (verb !== "trace") return HELP["crossplane resource"];
     var kind = pos[1] || "", name = pos[2];
-    if (!kind || !name) return "Error: accepts 2 arg(s): crossplane beta trace <kind> <name>";
+    if (!kind || !name) return "Error: accepts 2 arg(s): crossplane resource trace <kind> <name>";
     var res = find(sc, kind, name, ns);
     if (!res || !res.length) return 'crossplane: error: ' + kindName(kind) + '.' + (kind === "appenvironments" ? "platform.lab.local" : "") + ' "' + name + '" not found in namespace ' + ns;
     var r = res[0];

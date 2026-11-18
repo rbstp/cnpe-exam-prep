@@ -31,7 +31,7 @@
     <p class="lede">Nothing in this section needs a controller running; the whole point is that a CRD exists without one. Apply one and you immediately have a typed, validated, RBAC-aware, watchable, <code>kubectl explain</code>-documented API, with zero behavior behind it. That gap is where platform engineering lives.</p>
     <div class="callout exam">
       <span class="tag">What a task looks like</span>
-      <p>"Create a CRD for <em>X</em> with required field <em>Y</em>, an enum, and a printer column; create one valid instance; show that an invalid one is rejected." Every clause is graded by an object or an error message. Typing a CRD from memory under time pressure is a genuine skill; do it by hand at least three times before exam day.</p>
+      <p>"Create a CRD for <em>X</em> with required field <em>Y</em>, an enum, and a printer column; create one valid instance; show that an invalid one is rejected." Every clause is graded by an object or an error message. Typing a CRD from memory under time pressure is a skill; do it by hand at least three times before exam day.</p>
     </div>
   </div>
 </section>
@@ -55,19 +55,19 @@
       </table>
     </div>
 
-    <p><strong>Versioning, at exam depth:</strong> deprecating a version means <code>served: true</code> with storage moved on; removing it means <code>served: false</code>. That is the whole mechanism unless the schemas actually differ, in which case you need conversion: <code>strategy: None</code> (same fields, different name) or a <code>Webhook</code> converter (real transformation). Know that the choice exists and what each costs.</p>
+    <p><strong>Versioning, at exam depth:</strong> deprecating a version means <code>served: true</code> with storage moved on; removing it means <code>served: false</code>. That is the whole mechanism unless the schemas differ, in which case you need conversion: <code>strategy: None</code> (same fields, different name) or a <code>Webhook</code> converter (real transformation). Know that the choice exists and what each costs.</p>
 
     <h3>Schema: where design happens</h3>
     <p>The schema is OpenAPI v3: types, <code>required</code>, <code>enum</code>, <code>pattern</code>, <code>minimum</code>/<code>maximum</code>, <code>default</code>, <code>format</code>. Two extensions worth knowing by name:</p>
     <ul>
       <li><code>x-kubernetes-validations</code>: CEL rules with custom messages, evaluated by the API server. This is how you express cross-field constraints (<code>self.max &gt;= self.min</code>) and immutability (<code>self == oldSelf</code>) without a webhook. The message you write is the message your user sees, so write it like a human.</li>
-      <li><code>x-kubernetes-preserve-unknown-fields</code>: opts a subtree out of pruning. By default anything not in the schema is <em>silently pruned on write</em>, which looks like data loss and is actually the schema doing its job.</li>
+      <li><code>x-kubernetes-preserve-unknown-fields</code>: opts a subtree out of pruning. By default anything not in the schema is <em>silently pruned on write</em>, which looks like data loss and is the schema doing its job.</li>
       <li>Also worth knowing: <code>x-kubernetes-list-type: map</code> with <code>x-kubernetes-list-map-keys</code> (makes server-side apply merge lists sanely instead of replacing them), and <code>x-kubernetes-int-or-string</code>.</li>
     </ul>
 
     <div class="callout trap">
       <span class="tag">Pruning is not an error</span>
-      <p>Apply a field the schema does not declare and it disappears with no complaint, no event, no warning by default. Users report "my setting is ignored"; the truth is it was never stored. This is why a permissive <code>preserve-unknown-fields</code> subtree is tempting and why a platform API mostly should not have one: you would be trading a clear rejection for a silent failure.</p>
+      <p>The API server prunes a field the schema does not declare. kubectl's default strict field validation turns that into an error (<code>strict decoding error: unknown field</code>), but a client that skips it (<code>--validate=false</code>, most controllers, raw API calls) gets the field dropped with no complaint, no event, no warning. Users report "my setting is ignored"; the truth is it was never stored. This is why a permissive <code>preserve-unknown-fields</code> subtree is tempting and why a platform API mostly should not have one: you would be trading a clear rejection for a silent failure.</p>
     </div>
 
     <h3>Subresources and presentation</h3>
@@ -87,12 +87,12 @@
     <ul>
       <li><strong>Aggregated API servers</strong>: for when you need custom storage, huge object counts, or non-etcd backends. Named in the docs, almost never the answer.</li>
       <li><strong>Admission webhooks</strong>: for validation CEL cannot express (cross-object lookups) or mutation with logic. Every webhook is a new availability dependency for the whole API server; <code>failurePolicy</code> is where you choose which risk you prefer (section 5.2).</li>
-      <li><strong>Operators</strong>: for behavior. A CRD with no controller is a typed ConfigMap, which is occasionally exactly what you want (Crossplane's XRs, Argo's Applications and Tekton's Tasks are all "data with a controller elsewhere").</li>
+      <li><strong>Operators</strong>: for behavior. A CRD with no controller is a typed ConfigMap, which is occasionally what you want (Crossplane's XRs, Argo's Applications and Tekton's Tasks are all "data with a controller elsewhere").</li>
       <li><strong>Generators</strong>: Crossplane's XRD and kro's ResourceGraphDefinition both <em>generate</em> CRDs for you. Sections 3.5 and 3.6 are exactly that: the same thing you hand-write here, produced by a higher-level API.</li>
     </ul>
     <div class="callout reflex">
       <span class="tag">Command reflex on an unfamiliar cluster</span>
-      <p><code>kubectl api-resources | grep &lt;tool&gt;</code> to find the nouns, <code>kubectl explain &lt;kind&gt; --recursive</code> to read the schema, <code>kubectl get crd &lt;name&gt; -o yaml</code> to see printer columns, versions and validation. Three commands and you can operate an operator you have never met, which is precisely the exam scenario.</p>
+      <p><code>kubectl api-resources | grep &lt;tool&gt;</code> to find the nouns, <code>kubectl explain &lt;kind&gt; --recursive</code> to read the schema, <code>kubectl get crd &lt;name&gt; -o yaml</code> to see printer columns, versions and validation. Three commands and you can operate an operator you have never met, which is the exam scenario.</p>
     </div>
   </div>
 </section>
@@ -101,10 +101,10 @@
   <div class="phdr"><h2>Schema mechanics the API server enforces</h2><span class="meta">structural rules · CEL in detail · ratcheting · defaulting and nullable · list types</span></div>
   <div class="pbody">
     <h3>Structural schema: the four rules</h3>
-    <p><code>apiextensions.k8s.io/v1</code> requires a structural schema, and a CRD that is not structural is accepted but marked with the <code>NonStructural</code> condition and loses pruning, defaulting and CEL. The rules: every node (root, each property, each array item) has a non-empty <code>type</code>, except nodes with <code>x-kubernetes-int-or-string: true</code> or <code>x-kubernetes-preserve-unknown-fields: true</code>; anything mentioned inside <code>allOf</code>, <code>anyOf</code>, <code>oneOf</code> or <code>not</code> must also be declared outside it; <code>description</code>, <code>type</code>, <code>default</code>, <code>additionalProperties</code> and <code>nullable</code> may not appear inside those junctors; and <code>metadata</code> may only be constrained on <code>name</code> and <code>generateName</code>. The usual failure in hand-written CRDs is a property without <code>type</code> two levels down.</p>
+    <p><code>apiextensions.k8s.io/v1</code> requires a structural schema, and a CRD that is not structural is rejected at create with a <code>Required value</code> error naming the node without a <code>type</code>. (A CRD carried over from <code>v1beta1</code> shows a <code>NonStructuralSchema</code> condition instead and loses pruning, defaulting and CEL.) The rules: every node (root, each property, each array item) has a non-empty <code>type</code>, except nodes with <code>x-kubernetes-int-or-string: true</code> or <code>x-kubernetes-preserve-unknown-fields: true</code>; anything mentioned inside <code>allOf</code>, <code>anyOf</code>, <code>oneOf</code> or <code>not</code> must also be declared outside it; <code>description</code>, <code>type</code>, <code>default</code>, <code>additionalProperties</code> and <code>nullable</code> may not appear inside those junctors; and <code>metadata</code> may only be constrained on <code>name</code> and <code>generateName</code>. The usual failure in hand-written CRDs is a property without <code>type</code> two levels down.</p>
 
     <h3>Pruning and its exceptions</h3>
-    <p>Unknown fields are pruned on every write, at every version. <code>x-kubernetes-preserve-unknown-fields: true</code> on a node keeps everything beneath it, but pruning switches back on for any property you do declare under that node. <code>x-kubernetes-embedded-resource: true</code> marks a field that holds a whole Kubernetes object (apiVersion, kind, metadata are then validated). <code>kubectl apply</code> with strict field validation (the default) rejects unknown fields before pruning ever happens, which is why the same manifest can fail from kubectl and silently succeed from a controller using a client without validation.</p>
+    <p>Unknown fields are pruned on every write, at every version. <code>x-kubernetes-preserve-unknown-fields: true</code> on a node keeps everything beneath it, but pruning switches back on for any property you do declare under that node. <code>x-kubernetes-embedded-resource: true</code> marks a field that holds a whole Kubernetes object (apiVersion, kind, metadata are then validated). <code>kubectl apply</code> with strict field validation (the default) rejects unknown fields before pruning happens, which is why the same manifest can fail from kubectl and silently succeed from a controller using a client without validation.</p>
 
     <h3>CEL rules, all the fields</h3>
     <ul>
@@ -160,7 +160,7 @@
     <h3>Lifecycle of the CRD object itself</h3>
     <ul>
       <li>After creation wait for <code>Established: True</code> (and <code>NamesAccepted: True</code>); before that, requests for the kind 404. A <code>NamesAccepted: False</code> with "is already in use" means a plural, kind or shortName collides with another CRD.</li>
-      <li>Deleting a CRD deletes every custom object of that kind; the finalizer <code>customresourcecleanup.apiextensions.k8s.io</code> holds the CRD in Terminating until they are gone, and a stuck CR (its own finalizer, a dead controller) therefore sticks the CRD too. Argo CD and Flux prune CRDs like any resource unless you protect them (<code>Prune=false</code>, <code>kustomize.toolkit.fluxcd.io/prune: disabled</code>), which is the single most destructive prune there is.</li>
+      <li>Deleting a CRD deletes every custom object of that kind; the finalizer <code>customresourcecleanup.apiextensions.k8s.io</code> holds the CRD in Terminating until they are gone, and a stuck CR (its own finalizer, a dead controller) therefore sticks the CRD too. Argo CD and Flux prune CRDs like any resource unless you protect them (<code>Prune=false</code>, <code>kustomize.toolkit.fluxcd.io/prune: disabled</code>), which is the most destructive prune there is.</li>
       <li>Quota counts custom objects with <code>count/&lt;plural&gt;.&lt;group&gt;</code>; RBAC names them by <code>apiGroups: [group]</code>, <code>resources: [plural, plural/status]</code>.</li>
     </ul>
 
@@ -172,8 +172,8 @@
           <tr><td class="mono">metadata.name: Invalid value: must be spec.names.plural+"."+spec.group</td><td>the name is not <code>&lt;plural&gt;.&lt;group&gt;</code></td></tr>
           <tr><td class="mono">spec.versions: Invalid value: must have exactly one version marked as storage version</td><td>zero or two <code>storage: true</code></td></tr>
           <tr><td class="mono">spec.versions[0].schema.openAPIV3Schema: Required value: schemas are required</td><td>a version without a schema in v1</td></tr>
-          <tr><td class="mono">must be structural / must not be inside allOf / NonStructural condition</td><td>a rule-1 to rule-4 violation above</td></tr>
-          <tr><td class="mono">compilation failed: ERROR: ... found no matching overload / undefined field</td><td>a CEL type mismatch or misspelt property</td></tr>
+          <tr><td class="mono">must be structural / must not be inside allOf / NonStructuralSchema condition</td><td>a rule-1 to rule-4 violation above</td></tr>
+          <tr><td class="mono">compilation failed: ERROR: ... found no matching overload / undefined field</td><td>a CEL type mismatch or misspelled property</td></tr>
           <tr><td class="mono">CEL rule exceeded budget</td><td>unbounded iteration; add maxItems, maxLength</td></tr>
           <tr><td class="mono">spec.conversion.webhook: Required value when strategy is Webhook</td><td><code>strategy: Webhook</code> without <code>webhook.clientConfig</code> and <code>conversionReviewVersions</code></td></tr>
           <tr><td class="mono">status.storedVersions[0]: Invalid value: must appear in spec.versions</td><td>you removed a version that objects are still stored at</td></tr>
@@ -251,7 +251,7 @@ good   silver   100</code></pre></details></div>
     </div>
 
     <div class="exercise" data-title="Prove pruning and explain">
-      <p>Apply a TenantBucket with an extra field <code>spec.color: red</code>, read it back, and observe the field is gone with no error. Then <code>kubectl explain tenantbucket.spec --recursive</code> and see your descriptions serving as live documentation.</p>
+      <p>Apply a TenantBucket with an extra field <code>spec.color: red</code>, read the strict decoding error, then apply it again with <code>--validate=false</code>, read it back, and observe the field is gone with no error. Then <code>kubectl explain tenantbucket.spec --recursive</code> and see your descriptions serving as live documentation.</p>
       <div class="verify"><b>verify:</b> you can state the flag a schema author would set to keep unknown fields, and why a platform API mostly should not.</div>
     </div>
 
@@ -472,7 +472,7 @@ The CustomResourceDefinition "budgets.platform.lab.local" is invalid:
 customresourcedefinition.apiextensions.k8s.io/budgets.platform.lab.local created
 <b>$ kubectl delete crd budgets.platform.lab.local</b>
 customresourcedefinition.apiextensions.k8s.io "budgets.platform.lab.local" deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the unbounded version is rejected for exceeding the estimated cost budget, and adding <code>maxItems</code> and <code>maxLength</code> makes the identical rule acceptable. The lesson generalizes: bound your lists and strings before you write CEL over them.</div>
+      <div class="verify"><b>verify:</b> the unbounded version is rejected for exceeding the estimated cost budget, and adding <code>maxItems</code> and <code>maxLength</code> makes the identical rule acceptable. Bound your lists and strings before you write CEL over them.</div>
     </div>
 
     <div class="exercise" data-title="A rule that only applies to updates">
@@ -710,11 +710,11 @@ NAME   AGE
 good   4h48m
 <b>$ kubectl get tenantbuckets.platform.lab.local --field-selector spec.tier=gold</b>
 No resources found in default namespace.</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the first attempt fails saying the field label is not supported, and after the patch the same query filters. Note that the server does the filtering, which is the reason this matters at ten thousand objects rather than ten.</div>
+      <div class="verify"><b>verify:</b> the first attempt fails saying the field label is not supported, and after the patch the same query filters. The server does the filtering, which is why this matters at ten thousand objects rather than ten.</div>
     </div>
 
     <div class="exercise" data-title="Remove a version etcd still remembers">
-      <p><code>status.storedVersions</code> is the list of versions that still exist as bytes. The API server will not let you stop serving one that is in that list, and the fix is to rewrite the objects and then correct the status by hand.</p>
+      <p><code>status.storedVersions</code> is the list of versions that still exist as bytes. The API server will not let you remove one that is in that list, and the fix is to rewrite the objects and then correct the status by hand.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl get crd tenantbuckets.platform.lab.local -o jsonpath='{.status.storedVersions}{"\n"}'
 kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"add","path":"/spec/versions/-","value":{"name":"v1beta1","served":true,"storage":false,"subresources":{"status":{}},"schema":{"openAPIV3Schema":{"type":"object","properties":{"spec":{"type":"object","properties":{"tier":{"type":"string"},"sizeGB":{"type":"integer"}}},"status":{"type":"object","properties":{"phase":{"type":"string"}}}}}}}}]'
 kubectl patch crd tenantbuckets.platform.lab.local --type json -p '[{"op":"replace","path":"/spec/versions/0/storage","value":false},{"op":"replace","path":"/spec/versions/1/storage","value":true}]'
@@ -776,7 +776,7 @@ NamesAccepted Established</code></pre></details></div>
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>A user says their field "does not work". <code>kubectl get -o yaml</code> shows it missing entirely, and no error was printed. What happened?</summary>
-      <div class="answer"><p>Pruning: the field is not in the schema, so the API server dropped it on write. Either add it to the schema or, rarely, mark that subtree with <code>x-kubernetes-preserve-unknown-fields</code>. The user experience argument is for adding it properly.</p></div></details>
+      <div class="answer"><p>Pruning: the field is not in the schema, so the API server dropped it on write, and whatever wrote it skipped strict field validation (a controller, a GitOps engine, <code>--validate=false</code>), which is why nothing complained. Either add it to the schema or, rarely, mark that subtree with <code>x-kubernetes-preserve-unknown-fields</code>. The user experience argument is for adding it properly.</p></div></details>
 
     <details class="quiz"><summary>Your controller's status writes vanish. One likely cause?</summary>
       <div class="answer"><p>The status subresource is enabled and the writer is going through the main endpoint, which ignores the <code>status</code> stanza. Use <code>UpdateStatus()</code> (or <code>kubectl patch --subresource=status</code>). The mirror-image bug also exists: with no subresource at all, a spec update from anyone overwrites the status your controller just wrote.</p></div></details>

@@ -248,9 +248,10 @@
             tool = "kubectl argo rollouts";
             pos = pos.slice(2);
         }
-        if (tool === "crossplane" && pos[0] === "beta") {
+        // crossplane v2 moved trace from the beta group to resource; the old spelling still lands
+        if (tool === "crossplane" && (pos[0] === "resource" || pos[0] === "beta")) {
             pos.shift();
-            tool = "crossplane beta";
+            tool = "crossplane resource";
         }
         verb = (pos[0] || "").toLowerCase();
         if (pos.length)
@@ -281,7 +282,7 @@
             if (pos[1])
                 pos[1] = pos[1].toLowerCase();
         }
-        else if (tool === "crossplane beta" || tool === "kubectl argo rollouts") {
+        else if (tool === "crossplane resource" || tool === "kubectl argo rollouts") {
             if (["trace", "get", "retry", "promote", "abort", "undo", "restart", "status"].indexOf(verb) >= 0)
                 kindAt = 1;
         }
@@ -381,8 +382,7 @@
         triggerbindings: ["AGE"], triggertemplates: ["AGE"],
         appenvironments: ["SYNCED", "READY", "COMPOSITION", "AGE"],
         objects: ["KIND", "PROVIDERCONFIG", "SYNCED", "READY", "AGE"],
-        validatingpolicies: ["ADMISSION", "BACKGROUND", "READY", "AGE", "MESSAGE"],
-        imagevalidatingpolicies: ["ADMISSION", "BACKGROUND", "READY", "AGE", "MESSAGE"],
+        validatingpolicies: ["AGE", "READY"], imagevalidatingpolicies: ["AGE", "READY"],
         servicemonitors: ["AGE"], podmonitors: ["AGE"], prometheusrules: ["AGE"],
         externalsecrets: ["STORE", "REFRESH INTERVAL", "STATUS", "READY"],
         secretstores: ["AGE", "STATUS", "CAPABILITIES", "READY"], clustersecretstores: ["AGE", "STATUS", "CAPABILITIES", "READY"],
@@ -568,7 +568,7 @@
         flux: "Command line utility for assembling Kubernetes CD pipelines.\n\nAvailable Commands:\n  get sources git | get kustomizations | get helmreleases\n  reconcile | resume | suspend  kustomization <name>\n  tree kustomization <name>",
         argocd: "argocd controls a Argo CD server\n\nAvailable Commands:\n  app get|list|sync|diff|set <name> [--revision <ref>]",
         tkn: "CLI for tekton pipelines\n\nAvailable Commands:\n  pipelinerun list|describe|logs   pipeline start   task list   eventlistener list|logs",
-        "crossplane beta": "Run alpha and beta commands\n\nAvailable Commands:\n  trace <kind> <name> [-n <ns>]",
+        "crossplane resource": "Work with Crossplane resources\n\nAvailable Commands:\n  trace <kind> <name> [-n <ns>]",
         "kubectl argo rollouts": "Manage argo rollouts\n\nAvailable Commands:\n  get rollout <name>   retry rollout <name>   promote|abort|undo <name>"
     };
     var EXPLAIN = {
@@ -623,8 +623,8 @@
             tool = "kubectl argo rollouts";
             i = 3;
         }
-        if (tool === "crossplane" && t[1] === "beta") {
-            tool = "crossplane beta";
+        if (tool === "crossplane" && t[1] === "resource") {
+            tool = "crossplane resource";
             i = 2;
         }
         for (; i < t.length; i++) {
@@ -662,7 +662,7 @@
             return tkn(sc, pos, ns);
         if (tool === "kubectl argo rollouts")
             return rollouts(sc, pos, ns, verb);
-        if (tool === "crossplane beta")
+        if (tool === "crossplane resource")
             return trace(sc, pos, ns, verb);
         if (tool === "cosign")
             return cosign(sc, pos, verb);
@@ -1159,10 +1159,10 @@
     }
     function trace(sc, pos, ns, verb) {
         if (verb !== "trace")
-            return HELP["crossplane beta"];
+            return HELP["crossplane resource"];
         var kind = pos[1] || "", name = pos[2];
         if (!kind || !name)
-            return "Error: accepts 2 arg(s): crossplane beta trace <kind> <name>";
+            return "Error: accepts 2 arg(s): crossplane resource trace <kind> <name>";
         var res = find(sc, kind, name, ns);
         if (!res || !res.length)
             return 'crossplane: error: ' + kindName(kind) + '.' + (kind === "appenvironments" ? "platform.lab.local" : "") + ' "' + name + '" not found in namespace ' + ns;

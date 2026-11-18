@@ -47,7 +47,7 @@ for f in assets/sync.js console.html; do
     { echo "$f does not point at https://$SYNC_DOMAIN"; exit 1; }
 done
 
-# widgets.js is 52 KB and twelve pages draw a figure, so it ships per page. A page
+# widgets.js is 55 KB and twelve pages draw a figure, so it ships per page. A page
 # that forgot the tag just renders nothing, so assert the pairing here.
 while IFS= read -r f; do
   case "${f#"$SITE"/}" in console.html|404.html) continue;; esac

@@ -28,7 +28,7 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 1.1 + 1.2 · compute and scaling</span></div>
   <div class="pbody">
-    <p class="lede">Two numbers per container decide scheduling, cost, eviction order, throttling, and whether your workload survives a noisy neighbor. This section states precisely what each number does at each layer.</p>
+    <p class="lede">Two numbers per container decide scheduling, cost, eviction order, throttling, and whether your workload survives a noisy neighbor. This section states what each number does at each layer.</p>
     <div class="callout model">
       <span class="tag">One sentence to hold everything together</span>
       <p>A <strong>request</strong> is a claim against the scheduler's arithmetic; a <strong>limit</strong> is a ceiling enforced by the kernel at runtime. Nothing reconciles the two after scheduling, which is how a node can be 30% used and 100% requested at the same time. Section 1.5 turns that gap into money.</p>
@@ -65,7 +65,7 @@
       </table>
     </div>
 
-    <p>CPU is compressible: exceed the limit and the CFS scheduler simply stops giving you cycles until the next 100ms period. Latency-sensitive services with a tight CPU limit get periodic stalls that look like network problems; <code>container_cpu_cfs_throttled_periods_total</code> is where the truth lives, and a nonzero rate on a healthy-looking service is a real finding. Memory is incompressible: there is no "slow down", only the OOM killer.</p>
+    <p>CPU is compressible: exceed the limit and the CFS scheduler stops giving you cycles until the next 100ms period. Latency-sensitive services with a tight CPU limit get periodic stalls that look like network problems; <code>container_cpu_cfs_throttled_periods_total</code> is where the truth lives, and a nonzero rate on a healthy-looking service is a real finding. Memory is incompressible: there is no "slow down", only the OOM killer.</p>
 
     <div class="callout exam">
       <span class="tag">Know which field holds the evidence</span>
@@ -107,11 +107,11 @@
       </table>
     </div>
 
-    <p>Three details that decide tasks. Taints repel <em>pods</em>, tolerations do not attract: a toleration only says "I can live here", never "put me here". Pairing a taint with a matching nodeAffinity is how you actually dedicate a pool. <code>NoExecute</code> evicts already-running pods that lack the toleration, and <code>tolerationSeconds</code> is what makes the node-not-ready eviction delay configurable. And anti-affinity is expensive to evaluate at scale, which is exactly why <code>topologySpreadConstraints</code> exists: same intent, bounded cost, plus <code>maxSkew</code> to say <em>how</em> even is even enough.</p>
+    <p>Three details that decide tasks. Taints repel <em>pods</em>, tolerations do not attract: a toleration only says "I can live here", never "put me here". Pairing a taint with a matching nodeAffinity is how you actually dedicate a pool. <code>NoExecute</code> evicts already-running pods that lack the toleration, and <code>tolerationSeconds</code> is what makes the node-not-ready eviction delay configurable. And anti-affinity is expensive to evaluate at scale, which is why <code>topologySpreadConstraints</code> exists: same intent, bounded cost, plus <code>maxSkew</code> to say <em>how</em> even is even enough.</p>
 
     <div class="callout lab">
       <span class="tag">This cluster is built for it</span>
-      <p>The kind config labels its workers into two zones (<code>topology.kubernetes.io/zone</code>) precisely so spread constraints do something observable. <code>kubectl get nodes -L topology.kubernetes.io/zone</code> shows you the domains before you write the constraint. Read the labels first, or you will write a constraint against a key no node carries, which fails <em>open</em> under <code>ScheduleAnyway</code> and <em>closed</em> under <code>DoNotSchedule</code>.</p>
+      <p>The kind config labels its workers into two zones (<code>topology.kubernetes.io/zone</code>) so spread constraints do something observable. <code>kubectl get nodes -L topology.kubernetes.io/zone</code> shows the domains before you write the constraint. Read the labels first, or you will write a constraint against a key no node carries, which fails <em>open</em> under <code>ScheduleAnyway</code> and <em>closed</em> under <code>DoNotSchedule</code>.</p>
     </div>
 
     <p>One neighbor worth naming because availability tasks touch it: a <strong>PodDisruptionBudget</strong> constrains <em>voluntary</em> disruptions (drains, node upgrades) with <code>minAvailable</code> or <code>maxUnavailable</code>. It does nothing about crashes or node failures. A PDB of <code>minAvailable: 100%</code> is the classic way to make a cluster upgrade hang forever, and recognizing that stalled-drain symptom is worth a mark.</p>
@@ -144,7 +144,7 @@
       <li><code>Initial</code>: apply recommendations at pod creation only.</li>
       <li><code>Auto</code> / <code>Recreate</code>: evict and recreate pods to resize them. Disruptive by design, because changing a running pod's requests historically required a new pod.</li>
     </ul>
-    <p>Newer clusters can resize CPU and memory in place, which softens that trade-off. Do not test for it with <code>kubectl explain pod.spec.containers.resizePolicy</code>; that field has been in the schema since 1.27 whether or not the feature is on. The honest check is whether the subresource exists: <code>kubectl get --raw /api/v1 | grep -o 'pods/resize'</code>, or simply try the patch and read the error.</p>
+    <p>Newer clusters can resize CPU and memory in place, which softens that trade-off. Do not test for it with <code>kubectl explain pod.spec.containers.resizePolicy</code>; that field has been in the schema since 1.27 whether or not the feature is on. The reliable check is whether the subresource exists: <code>kubectl get --raw /api/v1 | grep -o 'pods/resize'</code>, or try the patch and read the error.</p>
 
     <div class="callout reflex">
       <span class="tag">Command reflex</span>
@@ -206,14 +206,14 @@
 </section>
 
 <section class="panel accent-y" id="resize-and-recent">
-  <div class="phdr"><h2>In-place resize and what else moved recently</h2><span class="meta">version status stated precisely · Kubernetes 1.36 cluster</span></div>
+  <div class="phdr"><h2>In-place resize and what else moved recently</h2><span class="meta">version status stated precisely · Kubernetes 1.37 cluster</span></div>
   <div class="pbody">
     <h3>In-place pod resize</h3>
-    <p><code>InPlacePodVerticalScaling</code> is GA since Kubernetes 1.35 (alpha 1.27, beta and on by default 1.33), so on a 1.36 cluster the <code>pods/resize</code> subresource exists and the schema check the panel above warns about is moot. The mechanics:</p>
+    <p><code>InPlacePodVerticalScaling</code> is GA since Kubernetes 1.35 (alpha 1.27, beta and on by default 1.33), so on a 1.37 cluster the <code>pods/resize</code> subresource exists and the schema check the panel above warns about is moot. The mechanics:</p>
     <ul>
       <li>You patch through the subresource: <code>kubectl patch pod x --subresource resize --patch '{...}'</code> (also <code>kubectl edit pod x --subresource resize</code>). A plain patch of <code>spec.containers[].resources</code> is rejected as immutable.</li>
       <li><code>resizePolicy</code> per container and per resource: <code>restartPolicy: NotRequired</code> (default, apply live) or <code>RestartContainer</code>. A pod with <code>restartPolicy: Never</code> may only use <code>NotRequired</code>.</li>
-      <li>Progress is in pod conditions: <code>PodResizePending</code> with reason <code>Infeasible</code> (node can never fit it) or <code>Deferred</code> (retry later, for example when another pod leaves); <code>PodResizeInProgress</code> while the kubelet actuates, with <code>reason: Error</code> if the runtime refused. <code>status.containerStatuses[].allocatedResources</code> shows what was actually granted, and <code>status.observedGeneration</code> tells you whether the kubelet has seen your latest spec.</li>
+      <li>Progress is in pod conditions: <code>PodResizePending</code> with reason <code>Infeasible</code> (node can never fit it) or <code>Deferred</code> (retry later, for example when another pod leaves); <code>PodResizeInProgress</code> while the kubelet actuates, with <code>reason: Error</code> if the runtime refused. <code>status.containerStatuses[].allocatedResources</code> shows what was granted, and <code>status.observedGeneration</code> tells you whether the kubelet has seen your latest spec.</li>
       <li>Only CPU and memory; QoS class is fixed at creation (a Guaranteed pod must stay requests-equal-limits, a Burstable pod may not become Guaranteed, a BestEffort pod may not gain requests); you cannot remove a request once set; memory decrease below current usage is skipped and stays In Progress; non-restartable init containers and ephemeral containers cannot be resized; Windows and static CPU-manager pods are excluded.</li>
       <li>VPA caught up: <code>updateMode: InPlaceOrRecreate</code> is GA in VPA 1.6 and resizes without eviction where the kubelet allows it, falling back to recreation. That removes the old objection to running VPA in an active mode on latency-sensitive services, though the HPA conflict on the same metric remains.</li>
     </ul>
@@ -230,7 +230,7 @@
 
     <h3>HPA details that decide behavior</h3>
     <ul>
-      <li>Tolerance is 10% globally; per-HPA <code>spec.behavior.scaleUp.tolerance</code> / <code>scaleDown.tolerance</code> is beta in 1.35 and 1.36 (off by default until GA in 1.37), so do not rely on it in a task unless the cluster shows the field.</li>
+      <li>Tolerance is 10% globally; per-HPA <code>spec.behavior.scaleUp.tolerance</code> / <code>scaleDown.tolerance</code> is GA in 1.37 (beta and off by default in 1.35 and 1.36), so the lab has it; on an older exam cluster, check that <code>kubectl explain hpa.spec.behavior.scaleUp</code> shows the field before relying on it.</li>
       <li>Not-ready pods and pods with missing metrics are set aside; on scale-down they are assumed to be at 100% of target, on scale-up at 0%, which dampens both directions. CPU metrics from a pod that became ready in the last 30 s (<code>--horizontal-pod-autoscaler-initial-readiness-delay</code>) are ignored.</li>
       <li><code>behavior.scaleDown.stabilizationWindowSeconds</code> defaults to 300, scale-up to 0; <code>policies</code> combine by <code>selectPolicy: Max</code> (default), <code>Min</code>, or <code>Disabled</code> to freeze a direction.</li>
       <li><code>ContainerResource</code> metrics target one container's usage rather than the pod sum, the fix for sidecar-heavy pods.</li>
@@ -316,7 +316,7 @@ demo   Deployment/demo   cpu: 38%/20%         2         6         6          3m4
 demo   Deployment/demo   cpu: 39%/20%         2         6         6          4m1s
 demo   Deployment/demo   cpu: 30%/20%         2         6         6          4m16s
 <i>^C</i></code></pre></details></div>
-      <div class="verify"><b>verify:</b> REPLICAS climbs above 2 within a couple of minutes. Kill <code>load</code> and watch it settle back after the stabilization window (about 5 minutes). Note the demo container requests 25m CPU, which is why 20% is reachable at all.</div>
+      <div class="verify"><b>verify:</b> REPLICAS climbs above 2 within a couple of minutes. Kill <code>load</code> and watch it settle back after the stabilization window (about 5 minutes). The demo container requests 25m CPU, which is why 20% is reachable at all.</div>
     </div>
 
     <div class="exercise" data-title="Ask VPA what the right size is">
@@ -361,7 +361,7 @@ kubectl get pod burst -o jsonpath='{.status.containerStatuses[0].allocatedResour
 kubectl get pod burst -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'
 kubectl patch pod burst --subresource resize --patch '{"spec":{"containers":[{"name":"burst","resources":{"requests":{"cpu":"64","memory":"64Mi"},"limits":{"cpu":"80","memory":"128Mi"}}}]}}'
 kubectl get pod burst -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
-kubectl delete pod burst</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl run burst --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"containers":[{"name":"burst","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"100m","memory":"64Mi"},"limits":{"cpu":"200m","memory":"128Mi"}}}]}}'</b>
+kubectl delete pod burst</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-17</span></summary><pre><code><b>$ kubectl run burst --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"containers":[{"name":"burst","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"100m","memory":"64Mi"},"limits":{"cpu":"200m","memory":"128Mi"}}}]}}'</b>
 pod/burst created
 <b>$ kubectl wait --for=condition=Ready pod/burst --timeout=90s</b>
 pod/burst condition met
@@ -373,6 +373,11 @@ pod/burst patched
 {"cpu":"200m","memory":"64Mi"}
 0
 <b>$ kubectl get pod burst -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
+{
+  "type": "PodResizeInProgress",
+  "status": "True",
+  "reason": null
+}
 {
   "type": "PodReadyToStartContainers",
   "status": "True",
@@ -456,7 +461,7 @@ pod "guar" deleted from default namespace</code></pre></details></div>
     </div>
 
     <div class="exercise" data-title="A budget that blocks a drain">
-      <p>A PodDisruptionBudget that can never be satisfied turns a routine node drain into a stuck terminal. The interesting part is that unhealthy pods count against the budget unless you tell the API otherwise.</p>
+      <p>A PodDisruptionBudget that can never be satisfied turns a routine node drain into a stuck terminal. Unhealthy pods count against the budget unless you tell the API otherwise.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl get pdb -A -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,ALLOWED:.status.disruptionsAllowed
 kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: apps/v1
@@ -628,7 +633,7 @@ kubectl run urgentpod --image=nginx:1.27-alpine --restart=Never --overrides='{"s
 sleep 30
 kubectl get pods filler batchpod urgentpod -o wide
 kubectl delete pod filler batchpod urgentpod --ignore-not-found
-kubectl delete priorityclass batch urgent</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create priorityclass batch --value=1000 --preemption-policy=Never</b>
+kubectl delete priorityclass batch urgent</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl create priorityclass batch --value=1000 --preemption-policy=Never</b>
 priorityclass.scheduling.k8s.io/batch created
 <b>$ kubectl create priorityclass urgent --value=1000</b>
 priorityclass.scheduling.k8s.io/urgent created
@@ -645,15 +650,15 @@ batchpod   0/1     Pending   0          20s   &lt;none&gt;   &lt;none&gt;   &lt;
 <b>$ kubectl describe pod batchpod | tail -4</b>
   Type     Reason            Age   From               Message
   ----     ------            ----  ----               -------
-  Warning  PolicyViolation   20s   kyverno-admission  policy require-resource-requests/ fail: every container must set cpu and memory requests
-  Warning  FailedScheduling  20s   default-scheduler  0/3 nodes are available: 1 Insufficient cpu, 1 node(s) didn't match Pod's node affinity/selector, 1 node(s) had untolerated taint(s). no new claims to deallocate, preemption: not eligible due to preemptionPolicy=Never.
+  Warning  PolicyViolation   21s   kyverno-admission  policy require-resource-requests/validation fail: every container must set cpu and memory requests
+  Warning  FailedScheduling  21s   default-scheduler  0/3 nodes are available: 1 Insufficient cpu, 1 node(s) didn't match Pod's node affinity/selector, 1 node(s) had untolerated taint(s). preemption: not eligible due to preemptionPolicy=Never.
 <b>$ kubectl run urgentpod --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"priorityClassName":"urgent","nodeSelector":{"kubernetes.io/hostname":"cnpe-worker2"},"containers":[{"name":"urgentpod","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"8"}}}]}}'</b>
 pod/urgentpod created
 <b>$ sleep 30</b>
 <b>$ kubectl get pods filler batchpod urgentpod -o wide</b>
-NAME        READY   STATUS    RESTARTS   AGE   IP            NODE           NOMINATED NODE   READINESS GATES
-batchpod    0/1     Pending   0          51s   &lt;none&gt;        &lt;none&gt;         &lt;none&gt;           &lt;none&gt;
-urgentpod   1/1     Running   0          31s   10.244.2.42   cnpe-worker2   &lt;none&gt;           &lt;none&gt;
+NAME        READY   STATUS    RESTARTS   AGE   IP             NODE           NOMINATED NODE   READINESS GATES
+batchpod    0/1     Pending   0          52s   &lt;none&gt;         &lt;none&gt;         &lt;none&gt;           &lt;none&gt;
+urgentpod   1/1     Running   0          31s   10.244.1.209   cnpe-worker2   &lt;none&gt;           &lt;none&gt;
 Error from server (NotFound): pods "filler" not found
 <b>$ kubectl delete pod filler batchpod urgentpod --ignore-not-found</b>
 pod "batchpod" deleted from default namespace
@@ -673,7 +678,7 @@ kubectl get hpa hpademo -o jsonpath='{.spec.behavior}{"\n"}'
 kubectl get hpa hpademo -o yaml | sed -n '/^spec:/,/^status:/p'
 kubectl explain hpa.spec.behavior.scaleDown
 kubectl delete hpa hpademo
-kubectl delete deployment hpademo</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create deployment hpademo --image=nginx:1.27-alpine</b>
+kubectl delete deployment hpademo</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl create deployment hpademo --image=nginx:1.27-alpine</b>
 deployment.apps/hpademo created
 <b>$ kubectl set resources deployment hpademo --requests=cpu=50m</b>
 deployment.apps/hpademo resource requirements updated
@@ -720,8 +725,7 @@ DESCRIPTION:
     safest value from the stabilization window is chosen.
     
     The tolerance is applied to the metric values and prevents scaling too
-    eagerly for small metric variations. (Note that setting a tolerance requires
-    the beta HPAConfigurableTolerance feature gate to be enabled.)
+    eagerly for small metric variations.
     
 FIELDS:
   policies	&lt;[]HPAScalingPolicy&gt;
@@ -738,7 +742,7 @@ FIELDS:
     stabilizationWindowSeconds is the number of seconds for which past
     recommendations should be considered while scaling up or scaling down.
     StabilizationWindowSeconds must be greater than or equal to zero and less
-<i>... 17 more lines</i>
+<i>... 14 more lines</i>
 <b>$ kubectl delete hpa hpademo</b>
 horizontalpodautoscaler.autoscaling "hpademo" deleted from default namespace
 <b>$ kubectl delete deployment hpademo</b>
@@ -768,7 +772,7 @@ deployment.apps "hpademo" deleted from default namespace</code></pre></details><
       <div class="answer"><p>A PodDisruptionBudget that cannot be satisfied (often <code>minAvailable</code> equal to the replica count), or unmanaged pods: bare pods with no controller, which <code>kubectl drain</code> refuses to evict without <code>--force</code>. Both are voluntary-disruption mechanics; neither has anything to do with node health.</p></div></details>
   
 
-    <details class="quiz"><summary>Is in-place pod resize usable on a Kubernetes 1.36 cluster, and what does the request look like?</summary>
+    <details class="quiz"><summary>Is in-place pod resize usable on a Kubernetes 1.37 cluster, and what does the request look like?</summary>
       <div class="answer"><p>Yes: <code>InPlacePodVerticalScaling</code> has been GA since 1.35 (beta and default-on since 1.33). You patch the <code>resize</code> subresource (<code>kubectl patch pod x --subresource resize ...</code>); a plain spec patch is rejected as immutable. Watch <code>PodResizePending</code> (Infeasible or Deferred) and <code>PodResizeInProgress</code> conditions, and remember the QoS class cannot change.</p></div></details>
 
     <details class="quiz"><summary>Karpenter refuses to consolidate a node you consider empty enough. Where is the reason, and name two things it could be.</summary>

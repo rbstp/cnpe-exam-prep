@@ -192,12 +192,18 @@ spec:
       <div class="cb" data-lang="bash"><pre><code>kubectl create deploy backend --image=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine --port=8080
 kubectl expose deploy backend --port=8080
 kubectl run client --image=curlimages/curl:8.11.1 --restart=Never -- sh -c 'sleep 3600'
-kubectl exec client -- curl -s -o /dev/null -w '%{http_code}\n' http://backend:8080</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl create deploy backend --image=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine --port=8080</b>
+kubectl wait --for=condition=Available deploy/backend --timeout=120s
+kubectl wait --for=condition=Ready pod/client --timeout=120s
+kubectl exec client -- curl -s -o /dev/null -w '%{http_code}\n' http://backend:8080</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl create deploy backend --image=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine --port=8080</b>
 deployment.apps/backend created
 <b>$ kubectl expose deploy backend --port=8080</b>
 service/backend exposed
 <b>$ kubectl run client --image=curlimages/curl:8.11.1 --restart=Never -- sh -c 'sleep 3600'</b>
 pod/client created
+<b>$ kubectl wait --for=condition=Available deploy/backend --timeout=120s</b>
+deployment.apps/backend condition met
+<b>$ kubectl wait --for=condition=Ready pod/client --timeout=120s</b>
+pod/client condition met
 <b>$ kubectl exec client -- curl -s -o /dev/null -w '%{http_code}\n' http://backend:8080</b>
 200</code></pre></details></div>
       <p>Verify the encryption claim with evidence: <code>istioctl ztunnel-config workload</code> lists both pods with protocol HBONE, and <code>kubectl -n istio-system logs ds/ztunnel | grep -i backend | tail</code> shows connections with source and destination SPIFFE identities.</p>
@@ -214,7 +220,9 @@ spec: { mtls: { mode: STRICT } }
 EOF
 kubectl create ns outsider   # not labelled ambient, therefore not in the mesh
 kubectl -n outsider run intruder --image=curlimages/curl:8.11.1 --restart=Never -- \
-  curl -s -m 5 -o /dev/null -w '%{http_code}' http://backend.default.svc:8080</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+  curl -s -m 5 -o /dev/null -w '%{http_code}' http://backend.default.svc:8080
+kubectl -n outsider wait --for=jsonpath='{.status.phase}'=Failed pod/intruder --timeout=60s   # the refused curl exits non-zero
+kubectl -n outsider logs intruder</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: security.istio.io/v1</b>
 <b>kind: PeerAuthentication</b>
 <b>metadata: { name: default, namespace: default }</b>
@@ -226,14 +234,16 @@ namespace/outsider created
 <b>$ kubectl -n outsider run intruder --image=curlimages/curl:8.11.1 --restart=Never -- \</b>
 <b>  curl -s -m 5 -o /dev/null -w '%{http_code}' http://backend.default.svc:8080</b>
 pod/intruder created
+<b>$ kubectl -n outsider wait --for=jsonpath='{.status.phase}'=Failed pod/intruder --timeout=60s   # the refused curl exits non-zero</b>
+pod/intruder condition met
 <b>$ kubectl -n outsider logs intruder</b>
 000</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the in-mesh client still gets 200; the outsider's curl fails (its plaintext is refused). Delete the PeerAuthentication and the outsider succeeds again. That triple (before, strict, after) is the demonstration the competency wording asks for.</div>
+      <div class="verify"><b>verify:</b> the in-mesh client still gets 200; the outsider's curl fails (its plaintext is refused). Delete the PeerAuthentication and the outsider succeeds again. That triple (before, strict, after) is the demonstration the competency wording asks for. Then put STRICT back on and clean up with <code>kubectl delete ns outsider</code>: a refused intruder pod stays Failed, and <code>make validate</code> counts it.</div>
     </div>
 
     <div class="exercise" data-title="Authorize by identity">
       <p>With STRICT back on, add an AuthorizationPolicy allowing only the <code>client</code> pod's ServiceAccount to reach backend, then test from a second pod running as a different SA.</p>
-      <div class="verify"><b>verify:</b> allowed SA 200, other SA denied (an L4 deny shows as a connection reset/failure, not an HTTP 403; that difference is itself worth noticing). You have now made a network decision based on <em>who</em>, not <em>where from</em>, which is the sentence to say about zero-trust if asked.</div>
+      <div class="verify"><b>verify:</b> allowed SA 200, other SA denied (an L4 deny shows as a connection reset/failure, not an HTTP 403; that difference is worth noticing). You have now made a network decision based on <em>who</em>, not <em>where from</em>, which is the sentence to say about zero-trust if asked.</div>
     </div>
 
     <div class="exercise" data-title="Meet your SVIDs (main cluster)">
@@ -401,6 +411,7 @@ spire-spire-test-keys                 46m</code></pre></details></div>
 istioctl --context kind-mesh waypoint apply -n default --enroll-namespace --overwrite --wait
 kubectl --context kind-mesh get gtw waypoint
 kubectl --context kind-mesh -n default create deployment backend --image=ghcr.io/stefanprodan/podinfo:6.7.1 --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -
+kubectl --context kind-mesh -n default delete svc backend --ignore-not-found   # the first exercise exposed it on 8080
 kubectl --context kind-mesh -n default expose deployment backend --port=80 --target-port=9898 --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -
 kubectl --context kind-mesh -n default create deployment client --image=curlimages/curl:8.11.1 --dry-run=client -o yaml -- sleep 86400 | kubectl --context kind-mesh apply -f -
 kubectl --context kind-mesh -n default rollout status deploy/backend --timeout=180s
@@ -425,27 +436,30 @@ sleep 20
 CLIENT=$(kubectl --context kind-mesh -n default get pod -l app=client -o jsonpath='{.items[0].metadata.name}')
 kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -o /dev/null -w '%{http_code}\n' http://backend/
 kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -X POST -o /dev/null -w '%{http_code}\n' http://backend/
-kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -X POST http://backend/ | head -2</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl --context kind-mesh label ns default istio.io/dataplane-mode=ambient --overwrite</b>
+kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -X POST http://backend/ | head -2</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl --context kind-mesh label ns default istio.io/dataplane-mode=ambient --overwrite</b>
 namespace/default not labeled
 <b>$ istioctl --context kind-mesh waypoint apply -n default --enroll-namespace --overwrite --wait</b>
 ✅ waypoint default/waypoint applied
 ✅ waypoint default/waypoint is ready!
 ✅ namespace default labeled with "istio.io/use-waypoint: waypoint"
 <b>$ kubectl --context kind-mesh get gtw waypoint</b>
-NAME       CLASS            ADDRESS         PROGRAMMED   AGE
-waypoint   istio-waypoint   10.96.191.232   True         11h
+NAME       CLASS            ADDRESS       PROGRAMMED   AGE
+waypoint   istio-waypoint   10.96.3.255   True         65s
 <b>$ kubectl --context kind-mesh -n default create deployment backend --image=ghcr.io/stefanprodan/podinfo:6.7.1 --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -</b>
 Warning: resource deployments/backend is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
 deployment.apps/backend configured
+<b>$ kubectl --context kind-mesh -n default delete svc backend --ignore-not-found   # the first exercise exposed it on 8080</b>
+service "backend" deleted from default namespace
 <b>$ kubectl --context kind-mesh -n default expose deployment backend --port=80 --target-port=9898 --dry-run=client -o yaml | kubectl --context kind-mesh apply -f -</b>
-Warning: resource services/backend is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
-service/backend configured
+service/backend created
 <b>$ kubectl --context kind-mesh -n default create deployment client --image=curlimages/curl:8.11.1 --dry-run=client -o yaml -- sleep 86400 | kubectl --context kind-mesh apply -f -</b>
-Warning: resource deployments/client is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
-deployment.apps/client configured
+deployment.apps/client created
 <b>$ kubectl --context kind-mesh -n default rollout status deploy/backend --timeout=180s</b>
+Waiting for deployment "backend" rollout to finish: 1 old replicas are pending termination...
+Waiting for deployment "backend" rollout to finish: 1 old replicas are pending termination...
 deployment "backend" successfully rolled out
 <b>$ kubectl --context kind-mesh -n default rollout status deploy/client --timeout=180s</b>
+Waiting for deployment "client" rollout to finish: 0 of 1 updated replicas are available...
 deployment "client" successfully rolled out
 <b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: security.istio.io/v1</b>
@@ -476,7 +490,7 @@ RBAC: access denied</code></pre></details></div>
     </div>
 
     <div class="exercise" data-title="The same rule without a waypoint">
-      <p>An L7 rule attached by selector rather than to a waypoint has nowhere to inspect the method, and Istio fails safe: it denies rather than guessing. Watch where the denial lands. ztunnel works at L4, so it cannot answer with a 403: it refuses the connection outright and curl never gets an HTTP status at all.</p>
+      <p>An L7 rule attached by selector rather than to a waypoint has nowhere to inspect the method, and Istio fails safe: it denies rather than guessing. Watch where the denial lands. ztunnel works at L4, so it cannot answer with a 403: it refuses the connection outright and curl never gets an HTTP status.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl --context kind-mesh delete authorizationpolicy backend-get-only -n default --ignore-not-found
 # the previous exercise left the namespace enrolled; take the waypoint away or there is nothing to prove
 kubectl --context kind-mesh label ns default istio.io/use-waypoint- --overwrite
@@ -721,18 +735,16 @@ istioctl --context kind-mesh ztunnel-config workloads | head -6
 kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -o /dev/null -m 5 http://backend/
 sleep 5
 kubectl --context kind-mesh -n istio-system logs "$ZT" --tail=80 | grep -E 'src.identity' | tail -2
-kubectl --context kind-mesh delete authorizationpolicy ztunnel-demo -n default</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ # ztunnel-config needs a specific ztunnel, and the one that logs a connection is the one on the client's node</b>
+kubectl --context kind-mesh delete authorizationpolicy ztunnel-demo -n default</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ # ztunnel-config needs a specific ztunnel, and the one that logs a connection is the one on the client's node</b>
 <b>$ CLIENT=$(kubectl --context kind-mesh -n default get pod -l app=client -o jsonpath='{.items[0].metadata.name}')</b>
 <b>$ NODE=$(kubectl --context kind-mesh -n default get pod "$CLIENT" -o jsonpath='{.spec.nodeName}')</b>
 <b>$ ZT=$(kubectl --context kind-mesh -n istio-system get pod -l app=ztunnel --field-selector spec.nodeName=$NODE -o jsonpath='{.items[0].metadata.name}')</b>
 <b>$ echo "client=$CLIENT node=$NODE ztunnel=$ZT"</b>
-client=client-565fcd6555-qll47 node=mesh-worker ztunnel=ztunnel-fw89t
+client=client-65b9d75449-fbtfj node=mesh-worker ztunnel=ztunnel-6wbft
 <b>$ istioctl --context kind-mesh ztunnel-config certificates "$ZT.istio-system" | head -6</b>
 CERTIFICATE NAME                                 TYPE     STATUS        VALID CERT     SERIAL NUMBER                        NOT AFTER                NOT BEFORE
-spiffe://cluster.local/ns/default/sa/default     Leaf     Available     true           26482be2545a68d95497de0871d7eaf7     2026-09-13T20:48:12Z     2026-09-12T20:46:12Z
-spiffe://cluster.local/ns/default/sa/default     Root     Available     true           6e1f76d1175dc69016eaa6f91c9acb02     2036-09-09T19:30:14Z     2026-09-12T19:30:14Z
-spiffe://cluster.local/ns/test/sa/default        Leaf     Available     true           9e85cd69ed90a9760ba0f819c6c33c45     2026-09-14T01:57:21Z     2026-09-13T01:55:21Z
-spiffe://cluster.local/ns/test/sa/default        Root     Available     true           6e1f76d1175dc69016eaa6f91c9acb02     2036-09-09T19:30:14Z     2026-09-12T19:30:14Z
+spiffe://cluster.local/ns/default/sa/default     Leaf     Available     true           c88ecc85ff4f910babcb7cadb9ed2b5f     2026-11-19T09:54:33Z     2026-11-18T09:52:33Z
+spiffe://cluster.local/ns/default/sa/default     Root     Available     true           3cc5246ce7f67728e63bee08841c0416     2036-11-15T04:22:19Z     2026-11-18T04:22:19Z
 <b>$ kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: security.istio.io/v1</b>
 <b>kind: AuthorizationPolicy</b>
@@ -749,20 +761,21 @@ spiffe://cluster.local/ns/test/sa/default        Root     Available     true    
 authorizationpolicy.security.istio.io/ztunnel-demo created
 <b>$ sleep 10</b>
 <b>$ istioctl --context kind-mesh ztunnel-config policies | head -6</b>
-NAMESPACE POLICY NAME  ACTION SCOPE
-default   ztunnel-demo Allow  WorkloadSelector
+NAMESPACE    POLICY NAME                   ACTION SCOPE
+default      ztunnel-demo                  Allow  WorkloadSelector
+istio-system istio_converted_static_strict Deny   WorkloadSelector
 <b>$ istioctl --context kind-mesh ztunnel-config workloads | head -6</b>
 NAMESPACE          POD NAME                                   ADDRESS     NODE               WAYPOINT PROTOCOL
-argo-rollouts      argo-rollouts-78d84ff54d-4dcw5             10.244.1.12 mesh-worker        None     TCP
-default            backend-6658bbf6b7-zrht6                   10.244.1.9  mesh-worker        None     HBONE
-default            client-565fcd6555-qll47                    10.244.1.10 mesh-worker        None     HBONE
-default            kubernetes                                 172.18.0.7                     None     TCP
-default            waypoint-7d7c44c9b4-g8jvw                  10.244.1.25 mesh-worker        None     TCP
+argo-rollouts      argo-rollouts-88797f77-dtvvz               10.244.1.22 mesh-worker        None     TCP
+default            backend-7c644cf968-x8dxk                   10.244.1.33 mesh-worker        None     HBONE
+default            client                                     10.244.1.27 mesh-worker        None     HBONE
+default            client-65b9d75449-fbtfj                    10.244.1.34 mesh-worker        None     HBONE
+default            kubernetes                                 172.18.0.9                     None     TCP
 <b>$ kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -o /dev/null -m 5 http://backend/</b>
 <b>$ sleep 5</b>
 <b>$ kubectl --context kind-mesh -n istio-system logs "$ZT" --tail=80 | grep -E 'src.identity' | tail -2</b>
-2026-09-13T04:07:03.012434Z	info	access	connection complete	src.addr=10.244.1.10:44832 src.workload="client-565fcd6555-qll47" src.namespace="default" src.identity="spiffe://cluster.local/ns/default/sa/default" dst.addr=10.244.1.25:15008 dst.hbone_addr=10.96.213.187:80 dst.service="backend.default.svc.cluster.local" dst.workload="waypoint-7d7c44c9b4-g8jvw" dst.namespace="default" dst.identity="spiffe://cluster.local/ns/default/sa/waypoint" direction="outbound" bytes_sent=71 bytes_recv=304 duration="5ms"
-2026-09-13T04:09:42.106408Z	info	access	connection complete	src.addr=10.244.1.10:41956 src.workload="client-565fcd6555-qll47" src.namespace="default" src.identity="spiffe://cluster.local/ns/default/sa/default" dst.addr=10.244.1.25:15008 dst.hbone_addr=10.96.213.187:80 dst.service="backend.default.svc.cluster.local" dst.workload="waypoint-7d7c44c9b4-g8jvw" dst.namespace="default" dst.identity="spiffe://cluster.local/ns/default/sa/waypoint" direction="outbound" bytes_sent=71 bytes_recv=674 duration="1ms"
+2026-11-18T09:59:21.050701Z	info	access	connection complete	src.addr=10.244.1.34:47784 src.workload="client-65b9d75449-fbtfj" src.namespace="default" src.identity="spiffe://cluster.local/ns/default/sa/default" src.cluster="Kubernetes" dst.addr=10.244.1.35:15008 dst.hbone_addr=10.96.255.23:80 dst.service="backend.default.svc.cluster.local" dst.workload="waypoint-598689dd96-pz7c7" dst.namespace="default" dst.identity="spiffe://cluster.local/ns/default/sa/waypoint" dst.cluster="Kubernetes" direction="outbound" bytes_sent=693 bytes_recv=674 duration="33ms"
+2026-11-18T09:59:35.364359Z	info	access	connection complete	src.addr=10.244.1.34:44972 src.workload="client-65b9d75449-fbtfj" src.namespace="default" src.identity="spiffe://cluster.local/ns/default/sa/default" src.cluster="Kubernetes" dst.addr=10.244.1.35:15008 dst.hbone_addr=10.96.255.23:80 dst.service="backend.default.svc.cluster.local" dst.workload="waypoint-598689dd96-pz7c7" dst.namespace="default" dst.identity="spiffe://cluster.local/ns/default/sa/waypoint" dst.cluster="Kubernetes" direction="outbound" bytes_sent=71 bytes_recv=674 duration="6ms"
 <b>$ kubectl --context kind-mesh delete authorizationpolicy ztunnel-demo -n default</b>
 authorizationpolicy.security.istio.io "ztunnel-demo" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> each workload has a certificate whose identity is <code>cluster.local/ns/&lt;ns&gt;/sa/&lt;sa&gt;</code>, and the log lines name both ends of a connection by identity rather than by IP.</div>

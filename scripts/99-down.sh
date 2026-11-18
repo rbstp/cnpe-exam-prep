@@ -9,7 +9,7 @@ case "$MODE" in
     if [ -f /tmp/cnpe-lab/cpk.pid ]; then
       CPK_PID=$(cat /tmp/cnpe-lab/cpk.pid 2>/dev/null || true)
       if [ -n "${CPK_PID:-}" ] && kill -0 "$CPK_PID" 2>/dev/null; then
-        sudo kill "$CPK_PID" 2>/dev/null && ok "stopped cloud-provider-kind (pid $CPK_PID)" || true
+        { kill "$CPK_PID" 2>/dev/null || sudo -n kill "$CPK_PID" 2>/dev/null; } && ok "stopped cloud-provider-kind (pid $CPK_PID)" || true
       fi
       rm -f /tmp/cnpe-lab/cpk.pid
     else
@@ -23,6 +23,8 @@ case "$MODE" in
     docker rm -f gitea "$REGISTRY_NAME" 2>/dev/null || true
     docker volume rm gitea-data 2>/dev/null || true
     rm -f "$REPO_ROOT/.gitea-token" "$REPO_ROOT/.gitea-info"
+    # the name resolution 'make gitea' gave the host's git
+    git config --global --unset-all http.curloptResolve "^${GITEA_HOST//./\\.}:3000:" 2>/dev/null || true
     ok "everything removed (images cached; 'docker system prune -a' to reclaim disk)"
     ;;
   *) die "usage: 99-down.sh [clusters|all]" ;;

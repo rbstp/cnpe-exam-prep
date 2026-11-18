@@ -31,7 +31,7 @@
     <p class="lede">Run to completion, not converge forever. That distinction is section 3.6's whole decision table, and it is the reason a workflow is the right tool for "stamp this out once when asked" and the wrong tool for "keep this true for the next three years".</p>
     <div class="callout lab">
       <span class="tag">Lab note</span>
-      <p>Workflows installs with the <code>gitops</code> layer and the controller watches the <code>argo</code> and <code>default</code> namespaces. Workflows created elsewhere will sit untouched forever, looking exactly like a broken controller.</p>
+      <p>Workflows installs with the <code>gitops</code> layer and the controller watches the <code>argo</code> and <code>default</code> namespaces. Workflows created elsewhere will sit untouched forever, looking like a broken controller.</p>
     </div>
   </div>
 </section>
@@ -78,40 +78,47 @@
 
     <div class="callout trap">
       <span class="tag">The one nobody guesses</span>
-      <p>Argo's executor reports each step's outcome through its own CRD, <code>workflowtaskresults.argoproj.io</code>. Every workflow ServiceAccount therefore needs <code>create,patch</code> on that resource; forget it and even a perfectly correct workflow fails, usually <em>before</em> your actual permission problem surfaces.</p>
+      <p>Argo's executor reports each step's outcome through its own CRD, <code>workflowtaskresults.argoproj.io</code>. Every workflow ServiceAccount therefore needs <code>create,patch</code> on that resource; forget it and even a correct workflow fails, usually <em>before</em> your actual permission problem surfaces.</p>
     </div>
 
-    <p>Two related permissions worth knowing exist: the SA also needs <code>get,list,watch</code> on pods to report progress in some configurations, and if you use artifacts, access to the artifact repository Secret. The general rule is the same as section 5.1's: least privilege, then prove it with <code>kubectl auth can-i --as=system:serviceaccount:&lt;ns&gt;:&lt;sa&gt;</code> before you blame the tool.</p>
+    <p>Two related permissions worth knowing: the SA also needs <code>get,list,watch</code> on pods to report progress in some configurations, and if you use artifacts, access to the artifact repository Secret. The general rule is the same as section 5.1's: least privilege, then prove it with <code>kubectl auth can-i --as=system:serviceaccount:&lt;ns&gt;:&lt;sa&gt;</code> before you blame the tool.</p>
 
     <h3>Diagnosing a failed workflow</h3>
     <div class="cb" data-lang="bash"><pre><code>kubectl get workflow &lt;name&gt; -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, phase, message}'
 kubectl get workflow &lt;name&gt; -o jsonpath='{.status.phase}{"\n"}'
-kubectl logs -l workflows.argoproj.io/workflow=&lt;name&gt; --all-containers --tail=50</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl get workflow provision-tenant-29926 -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, phase, message}'</b>
+kubectl logs -l workflows.argoproj.io/workflow=&lt;name&gt; --all-containers --tail=50</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl get workflow provision-tenant-22wmz -o jsonpath='{.status.nodes}' | jq '.[] | {displayName, phase, message}'</b>
 {
-  "displayName": "provision-tenant-29926",
+  "displayName": "provision-tenant-22wmz",
   "phase": "Failed",
   "message": null
+}
+{
+  "displayName": "quota",
+  "phase": "Omitted",
+  "message": "omitted: depends condition not met"
 }
 {
   "displayName": "namespace",
   "phase": "Failed",
   "message": "main: Error (exit code 64): no more retries Error from server (Forbidden): error when creating \"/tmp/manifest.yaml\": namespaces is forbidden: User \"system:serviceaccount:default:default\" cannot create resource \"namespaces\" in API group \"\" at the cluster scope"
 }
-<b>$ kubectl get workflow provision-tenant-29926 -o jsonpath='{.status.phase}{"\n"}'</b>
+<b>$ kubectl get workflow provision-tenant-22wmz -o jsonpath='{.status.phase}{"\n"}'</b>
 Failed
-<b>$ kubectl logs -l workflows.argoproj.io/workflow=provision-tenant-29926 --all-containers --tail=50</b>
-time=2026-08-27T03:31:16.589Z level=INFO msg="Starting Workflow Executor" gitTag=v4.1.2 gitTreeState=clean goVersion=go1.26.5 argo=true version=v4.1.2 buildDate=2026-08-21T11:10:01Z gitCommit=16a52d67daf2f4a8a76fa8bec02a76a46aa46257
-time=2026-08-27T03:31:16.592Z level=INFO msg="Using executor retry strategy" argo=true Jitter=0.5 Steps=5 Duration=1s Factor=1.6
-time=2026-08-27T03:31:16.592Z level=INFO msg="Executor initialized" goVersion=go1.26.5 deadline=0001-01-01T00:00:00.000Z gitTag=v4.1.2 podName=provision-tenant-29926-make-ns-596359171 buildDate=2026-08-21T11:10:01Z gitTreeState=clean templateName=make-ns includeScriptOutput=false version=v4.1.2 namespace=default argo=true gitCommit=16a52d67daf2f4a8a76fa8bec02a76a46aa46257
-time=2026-08-27T03:31:16.718Z level=INFO msg="Loading manifest" argo=true path=/tmp/manifest.yaml
-time=2026-08-27T03:31:16.718Z level=INFO msg="Start loading input artifacts..." argo=true pluginName=""
-time="2026-08-27T03:31:16.718Z" level=info msg="Alloc=11003 TotalAlloc=16525 Sys=28866 NumGC=4 Goroutines=3"
-time=2026-08-27T03:31:18.326Z level=INFO msg="waiting for signals" argo=true signalPath=/var/run/argo/ctr/main/signal
-time=2026-08-27T03:31:18.368Z level=INFO msg="Starting Workflow Executor" gitTreeState=clean goVersion=go1.26.5 argo=true version=v4.1.2 buildDate=2026-08-21T11:10:01Z gitCommit=16a52d67daf2f4a8a76fa8bec02a76a46aa46257 gitTag=v4.1.2
-time=2026-08-27T03:31:18.371Z level=INFO msg="Using executor retry strategy" argo=true Jitter=0.5 Steps=5 Duration=1s Factor=1.6
-time=2026-08-27T03:31:18.371Z level=INFO msg="Executor initialized" gitTreeState=clean namespace=default podName=provision-tenant-29926-make-ns-596359171 gitTag=v4.1.2 gitCommit=16a52d67daf2f4a8a76fa8bec02a76a46aa46257 deadline=0001-01-01T00:00:00.000Z goVersion=go1.26.5 buildDate=2026-08-21T11:10:01Z templateName=make-ns version=v4.1.2 argo=true includeScriptOutput=false
-time=2026-08-27T03:31:18.375Z level=WARN msg="failed to patch task result, see https://argo-workflows.readthedocs.io/en/latest/workflow-rbac/" error="workflowtaskresults.argoproj.io is forbidden: User \"system:serviceaccount:default:default\" cannot create resource \"workflowtaskresults\" in API group \"argoproj.io\" in the namespace \"default\"" argo=true attempt=0
-time=2026-08-27T03:31:18.375Z level=WARN msg="Non-transient error" argo=true error="workflowtaskresults.argoproj.io is forbidden: User \"system:serviceaccount:default:default\" cannot create resource \"workflowtaskresults\" in API group \"argoproj.io\" in the namespace \"default\""
+<b>$ kubectl logs -l workflows.argoproj.io/workflow=provision-tenant-22wmz --all-containers --tail=50</b>
+time=2026-11-18T08:03:31.237Z level=INFO msg="Starting Workflow Executor" argo=true version=v4.1.6 buildDate=2026-10-22T08:12:51Z gitCommit=43021573c5a35cbafae009043c132dfcef43a112 gitTag=v4.1.6 gitTreeState=clean goVersion=go1.26.10
+time=2026-11-18T08:03:31.246Z level=INFO msg="Using executor retry strategy" argo=true Steps=5 Duration=1s Factor=1.6 Jitter=0.5
+time=2026-11-18T08:03:31.247Z level=INFO msg="Executor initialized" templateName=make-ns buildDate=2026-10-22T08:12:51Z goVersion=go1.26.10 namespace=default gitTreeState=clean version=v4.1.6 argo=true gitCommit=43021573c5a35cbafae009043c132dfcef43a112 includeScriptOutput=false gitTag=v4.1.6 podName=provision-tenant-22wmz-make-ns-921861213 deadline=0001-01-01T00:00:00.000Z
+time=2026-11-18T08:03:31.437Z level=INFO msg="Loading manifest" argo=true path=/tmp/manifest.yaml
+time=2026-11-18T08:03:31.437Z level=INFO msg="Start loading input artifacts..." argo=true pluginName=""
+time="2026-11-18T08:03:31.437Z" level=info msg="Alloc=9915 TotalAlloc=16395 Sys=32458 NumGC=4 Goroutines=3"
+time=2026-11-18T08:03:32.767Z level=INFO msg="waiting for signals" argo=true signalPath=/var/run/argo/ctr/main/signal
+time=2026-11-18T08:03:32.809Z level=INFO msg="Starting Workflow Executor" buildDate=2026-10-22T08:12:51Z gitCommit=43021573c5a35cbafae009043c132dfcef43a112 gitTag=v4.1.6 gitTreeState=clean goVersion=go1.26.10 argo=true version=v4.1.6
+time=2026-11-18T08:03:32.813Z level=INFO msg="Using executor retry strategy" argo=true Steps=5 Duration=1s Factor=1.6 Jitter=0.5
+time=2026-11-18T08:03:32.813Z level=INFO msg="Executor initialized" namespace=default podName=provision-tenant-22wmz-make-ns-921861213 deadline=0001-01-01T00:00:00.000Z argo=true gitTag=v4.1.6 goVersion=go1.26.10 templateName=make-ns buildDate=2026-10-22T08:12:51Z version=v4.1.6 includeScriptOutput=false gitCommit=43021573c5a35cbafae009043c132dfcef43a112 gitTreeState=clean
+time=2026-11-18T08:03:32.818Z level=WARN msg="failed to patch task result, see https://argo-workflows.readthedocs.io/en/latest/workflow-rbac/" attempt=0 argo=true error="workflowtaskresults.argoproj.io is forbidden: User \"system:serviceaccount:default:default\" cannot create resource \"workflowtaskresults\" in API group \"argoproj.io\" in the namespace \"default\""
+time=2026-11-18T08:03:32.818Z level=WARN msg="Non-transient error" argo=true error="workflowtaskresults.argoproj.io is forbidden: User \"system:serviceaccount:default:default\" cannot create resource \"workflowtaskresults\" in API group \"argoproj.io\" in the namespace \"default\""
+time=2026-11-18T08:03:32.819Z level=ERROR msg="executor error" argo=true error="workflowtaskresults.argoproj.io is forbidden: User \"system:serviceaccount:default:default\" cannot create resource \"workflowtaskresults\" in API group \"argoproj.io\" in the namespace \"default\""
+time=2026-11-18T08:03:32.819Z level=INFO msg="Loading manifest" argo=true path=/tmp/manifest.yaml
 <i>… (rest of the executor log omitted)</i></code></pre></details></div>
     <p>The node map is the whole diagnosis: each node's phase and message, in one JSON blob. A workflow's failure diagnostics are pod diagnostics plus that one layer.</p>
   </div>
@@ -122,7 +129,7 @@ time=2026-08-27T03:31:18.375Z level=WARN msg="Non-transient error" argo=true err
   <div class="pbody">
     <ul>
       <li><strong>Parameters at submit time</strong>: a WorkflowTemplate with typed, defaulted, documented parameters is an API. A Workflow with hard-coded values is a script you happened to run in a pod.</li>
-      <li><strong>Validation before side effects</strong>: a first DAG node that rejects bad input (a name that is not a DNS label, a quota over policy) is admission control one layer earlier, and it is much cheaper than half-provisioning and rolling back.</li>
+      <li><strong>Validation before side effects</strong>: a first DAG node that rejects bad input (a name that is not a DNS label, a quota over policy) is admission control one layer earlier, and much cheaper than half-provisioning and rolling back.</li>
       <li><strong>Idempotency</strong>: a re-run should not double-create. <code>resource</code> templates with <code>action: apply</code> rather than <code>create</code>, or a <code>when</code> guard on an existence check, are the two usual answers. Workflows do not reconcile, so idempotency is <em>your</em> job.</li>
       <li><strong>Observability</strong>: the workflow's own status is the audit trail; ship it somewhere. And verify the <em>outputs</em>, not the runner: a green workflow that produced nothing is still a failure.</li>
       <li><strong>Triggering</strong>: CronWorkflow for schedules, the API/CLI for portals, or Argo Events (not installed here) for event-driven runs. Backstage templates commonly call one of these underneath, which is how a form becomes infrastructure.</li>
@@ -180,7 +187,7 @@ time=2026-08-27T03:31:18.375Z level=WARN msg="Non-transient error" argo=true err
 
     <h3>Locks and resource templates</h3>
     <ul>
-      <li><strong><code>synchronization</code>.</strong> <code>mutexes</code> allow one holder; <code>semaphores</code> take a size from a ConfigMap key (<code>configMapKeyRef</code>) and allow N. Both work at workflow level or template level, and both are namespace-scoped unless you configure the database-backed multi-controller variant. A workflow waiting on a lock sits in <code>Pending</code> with a message naming the lock, which is easy to misread as a scheduling problem. Note the plural field names (<code>mutexes</code>, <code>semaphores</code>): v3.6 made them lists.</li>
+      <li><strong><code>synchronization</code>.</strong> <code>mutexes</code> allow one holder; <code>semaphores</code> take a size from a ConfigMap key (<code>configMapKeyRef</code>) and allow N. Both work at workflow level or template level, and both are namespace-scoped unless you configure the database-backed multi-controller variant. A workflow waiting on a lock sits in <code>Pending</code> with a message naming the lock, which is easy to misread as a scheduling problem. The field names are plural (<code>mutexes</code>, <code>semaphores</code>): v3.6 made them lists.</li>
       <li><strong><code>resource</code> templates.</strong> <code>action</code> is any kubectl verb (<code>create</code>, <code>apply</code>, <code>patch</code>, <code>delete</code>, <code>get</code>); <code>successCondition</code> and <code>failureCondition</code> poll the created object (for example <code>status.succeeded &gt; 0</code> / <code>status.failed &gt; 3</code> on a Job) so a step waits for a real outcome; <code>patch</code> takes <code>mergeStrategy: strategic|merge|json</code>, and custom resources cannot use <code>strategic</code>; <code>setOwnerReference: true</code> makes the created object die with the workflow, which is the opposite of what a provisioning workflow usually wants.</li>
       <li><strong>Outputs.</strong> <code>outputs.parameters[].valueFrom.path</code> reads a file the container wrote; <code>outputs.result</code> captures up to 256 kB of stdout (or the HTTP body). A reference to an output the producer never wrote fails the consuming node terminally unless you give <code>valueFrom.default</code> or an expression fallback (<code>??</code>).</li>
       <li><strong>Artifacts without plumbing.</strong> A key-only artifact (<code>s3: { key: my-file }</code>, nothing else) inherits bucket and credentials from the configured artifact repository (<code>artifactRepositoryRef</code> or the controller default), which is how templates stay portable between clusters.</li>
@@ -309,13 +316,13 @@ spec:
     </div>
 
     <div class="exercise" data-title="Break it on RBAC, on purpose">
-      <p>Rerun with <code>serviceAccountName: default</code> and a new team name. Which rule it names first is instructive: with the bare default SA the executor usually trips over <code>workflowtaskresults</code> (its own reporting channel) before your namespace rule even gets a chance. That is an Argo-specific wrinkle worth seeing once.</p>
-      <div class="verify"><b>verify:</b> the workflow fails, and <code>kubectl get workflow &lt;name&gt; -o jsonpath='{.status.nodes}' | jq '.[] | {phase, message}'</code> contains a <code>forbidden</code> message naming a missing verb and resource. The message structure is identical for every RBAC failure you will ever debug.</div>
+      <p>Rerun with <code>serviceAccountName: default</code> and a new team name. Which rule it names first is instructive: with the bare default SA the executor usually trips over <code>workflowtaskresults</code> (its own reporting channel) before your namespace rule gets a chance. That is an Argo-specific wrinkle worth seeing once.</p>
+      <div class="verify"><b>verify:</b> the workflow fails, and <code>kubectl get workflow &lt;name&gt; -o jsonpath='{.status.nodes}' | jq '.[] | {phase, message}'</code> contains a <code>forbidden</code> message naming a missing verb and resource. The message structure is identical for every RBAC failure you will debug.</div>
     </div>
 
     <div class="exercise" data-title="Parameterize from outside">
       <p>Submit the same workflow for <code>team-e</code> without editing the file. The UI's submit flow lists WorkflowTemplates, not bare Workflows, so either promote yours to a <code>WorkflowTemplate</code> first (change the kind, drop generateName for a name) and submit it from the UI with the parameter overridden, or stay in the shell and <code>sed 's/team-d/team-e/' workflow.yaml | kubectl create -f -</code>.</p>
-      <div class="verify"><b>verify:</b> two tenants exist, one workflow spec. Parameters-at-submit is what makes a workflow a self-service endpoint rather than a script, and the WorkflowTemplate promotion is exactly how you would productize it.</div>
+      <div class="verify"><b>verify:</b> two tenants exist, one workflow spec. Parameters-at-submit is what makes a workflow a self-service endpoint rather than a script, and the WorkflowTemplate promotion is how you would productize it.</div>
     </div>
 
     <div class="exercise" data-title="A guardrail branch (stretch)">
@@ -662,7 +669,7 @@ workflow.argoproj.io "locked-ccpvq" deleted from default namespace</code></pre><
     </div>
 
     <div class="exercise" data-title="An exit handler that always runs">
-      <p><code>onExit</code> is the finally block: it sees the workflow's final status and runs whether the entrypoint succeeded or not. The interesting part is that one kind of cancellation skips it.</p>
+      <p><code>onExit</code> is the finally block: it sees the workflow's final status and runs whether the entrypoint succeeded or not. One kind of cancellation skips it.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -
 kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -
 kubectl create -f - &lt;&lt;'EOF'
@@ -784,7 +791,7 @@ workflow.argoproj.io "exiter-dl5qg" deleted from default namespace</code></pre><
     </div>
 
     <div class="exercise" data-title="A schedule that refuses to overlap">
-      <p>A CronWorkflow that fires faster than its work finishes is a self-service outage waiting to happen. <code>concurrencyPolicy: Forbid</code> makes the controller skip the tick instead, and it records that it did.</p>
+      <p>A CronWorkflow that fires faster than its work finishes is a self-service outage waiting to happen. <code>concurrencyPolicy: Forbid</code> makes the controller skip the tick instead.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -
 kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -
 kubectl create -f - &lt;&lt;'EOF'
@@ -865,7 +872,7 @@ every-minute-1789269540   Running     41s
 cronworkflow.argoproj.io "every-minute" deleted from default namespace
 <b>$ kubectl delete wf -l workflows.argoproj.io/cron-workflow=every-minute</b>
 No resources found</code></pre></details></div>
-      <div class="verify"><b>verify:</b> two Workflows exist for three and a half minutes of a one-minute schedule, and <code>argo cron get</code> shows a single Active Workflow. The status keeps no record of the skipped ticks: it carries <code>active</code>, <code>lastScheduledTime</code>, <code>succeeded</code> and <code>failed</code> and nothing else, so the skips only show as the gap between minutes elapsed and workflows created. <code>Replace</code> would have deleted the running Workflow and started the new one; <code>Allow</code> would have let them pile up.</div>
+      <div class="verify"><b>verify:</b> two Workflows exist for three and a half minutes of a one-minute schedule, and <code>argo cron get</code> shows a single Active Workflow. The status keeps no record of the skipped ticks: it carries <code>active</code>, <code>lastScheduledTime</code>, <code>succeeded</code>, <code>failed</code> and <code>phase</code>, and no count of skipped ticks, so the skips only show as the gap between minutes elapsed and workflows created. <code>Replace</code> would have deleted the running Workflow and started the new one; <code>Allow</code> would have let them pile up.</div>
     </div>
 
     <div class="exercise" data-title="Reference a template from the wrong scope">
@@ -965,11 +972,11 @@ rightscope-ccj6r-say-4102760526: time=2026-09-13T03:20:45.688Z level=INFO msg="s
 rightscope-ccj6r-say-4102760526: time=2026-09-13T03:20:45.688Z level=INFO msg="file signal handler exiting due to context cancellation" argo=true
 <b>$ kubectl delete clusterworkflowtemplate shared-say</b>
 clusterworkflowtemplate.argoproj.io "shared-say" deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the first run fails with <code>invalid spec: templates.main.steps[0].call template reference shared-say.say not found</code>, and one boolean fixes it. Note what the message does not say: it names neither the kind it looked for nor the scope it looked in, so a cluster-scoped object sitting right there looks like a typo. <code>clusterScope: true</code> is the difference.</div>
+      <div class="verify"><b>verify:</b> the first run fails with <code>invalid spec: templates.main.steps[0].call template reference shared-say.say not found</code>, and one boolean fixes it. The message names neither the kind it looked for nor the scope it looked in, so a cluster-scoped object sitting right there looks like a typo. <code>clusterScope: true</code> is the difference.</div>
     </div>
 
     <div class="exercise" data-title="Forbid bare workflows">
-      <p>A platform that lets anyone submit arbitrary workflow specs has no guardrails at all. <code>templateReferencing: Strict</code> means every submission must go through a reviewed template, and a ServiceAccount override is refused too. Note where the enforcement happens: there is no admission webhook, so the API accepts all three of these Workflows. The controller is what refuses them, which means you read the verdict out of <code>status.message</code> rather than out of the <code>kubectl create</code> exit code.</p>
+      <p>A platform that lets anyone submit arbitrary workflow specs has no guardrails. <code>templateReferencing: Strict</code> means every submission must go through a reviewed template, and a ServiceAccount override is refused too. There is no admission webhook, so the API accepts all three of these Workflows. The controller is what refuses them, which means you read the verdict out of <code>status.message</code> rather than out of the <code>kubectl create</code> exit code.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -
 kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f - &lt;&lt;'EOF'
@@ -1021,7 +1028,7 @@ kubectl -n argo create cm argo-workflows-workflow-controller-configmap --from-fi
 kubectl -n argo rollout restart deploy argo-workflows-workflow-controller
 kubectl -n argo rollout status deploy argo-workflows-workflow-controller --timeout=180s
 kubectl delete workflowtemplate sanctioned
-kubectl get wf -o name | grep -E 'bare-|override-|fromtmpl-' | xargs -r kubectl delete</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -</b>
+kubectl get wf -o name | grep -E 'bare-|override-|fromtmpl-' | xargs -r kubectl delete</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl create role wf-executor --verb=create,patch --resource=workflowtaskresults.argoproj.io --dry-run=client -o yaml | kubectl apply -f -</b>
 role.rbac.authorization.k8s.io/wf-executor unchanged
 <b>$ kubectl create rolebinding default-wf-executor --role=wf-executor --serviceaccount=default:default --dry-run=client -o yaml | kubectl apply -f -</b>
 rolebinding.rbac.authorization.k8s.io/default-wf-executor unchanged
@@ -1036,12 +1043,13 @@ rolebinding.rbac.authorization.k8s.io/default-wf-executor unchanged
 <b>    - name: work</b>
 <b>      container: { image: busybox:1.36, command: [sh, -c], args: ["echo sanctioned"] }</b>
 <b>EOF</b>
-workflowtemplate.argoproj.io/sanctioned unchanged
+workflowtemplate.argoproj.io/sanctioned created
 <b>$ # every controller setting lives in the single config key, so append to it rather than adding a sibling</b>
 <b>$ kubectl -n argo get cm argo-workflows-workflow-controller-configmap -o jsonpath='{.data.config}' &gt; /tmp/argocfg.yaml</b>
 <b>$ cp /tmp/argocfg.yaml /tmp/argocfg.orig</b>
 <b>$ printf 'workflowRestrictions:\n  templateReferencing: Strict\n' &gt;&gt; /tmp/argocfg.yaml</b>
 <b>$ kubectl -n argo create cm argo-workflows-workflow-controller-configmap --from-file=config=/tmp/argocfg.yaml --dry-run=client -o yaml | kubectl -n argo apply -f -</b>
+Warning: resource configmaps/argo-workflows-workflow-controller-configmap is missing the kubectl.kubernetes.io/last-applied-configuration annotation which is required by kubectl apply. kubectl apply should only be used on resources created declaratively by either kubectl create --save-config or kubectl apply. The missing annotation will be patched automatically.
 configmap/argo-workflows-workflow-controller-configmap configured
 <b>$ kubectl -n argo rollout restart deploy argo-workflows-workflow-controller</b>
 deployment.apps/argo-workflows-workflow-controller restarted
@@ -1062,7 +1070,7 @@ deployment "argo-workflows-workflow-controller" successfully rolled out
 <b>    - name: work</b>
 <b>      container: { image: busybox:1.36, command: [sh, -c], args: ["echo hi"] }</b>
 <b>EOF</b>
-workflow.argoproj.io/bare-nt5d8 created
+workflow.argoproj.io/bare-bh9rh created
 <b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: Workflow</b>
@@ -1071,7 +1079,7 @@ workflow.argoproj.io/bare-nt5d8 created
 <b>  serviceAccountName: default</b>
 <b>  workflowTemplateRef: { name: sanctioned }</b>
 <b>EOF</b>
-workflow.argoproj.io/override-j74f6 created
+workflow.argoproj.io/override-49wbm created
 <b>$ kubectl create -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: argoproj.io/v1alpha1</b>
 <b>kind: Workflow</b>
@@ -1079,12 +1087,12 @@ workflow.argoproj.io/override-j74f6 created
 <b>spec:</b>
 <b>  workflowTemplateRef: { name: sanctioned }</b>
 <b>EOF</b>
-workflow.argoproj.io/fromtmpl-tz52d created
+workflow.argoproj.io/fromtmpl-hckd4 created
 <b>$ sleep 40</b>
 <b>$ kubectl get wf --sort-by=.metadata.creationTimestamp -o jsonpath='{range .items[-3:]}{.metadata.name} {.status.phase} {.status.message}{"\n"}{end}'</b>
-bare-nt5d8 Error workflows must use workflowTemplateRef to be executed when the controller is in reference mode
-fromtmpl-tz52d Succeeded 
-override-j74f6 Error fields [ServiceAccountName] are not permitted when using workflowTemplateRef with templateReferencing restriction
+bare-bh9rh Error workflows must use workflowTemplateRef to be executed when the controller is in reference mode
+override-49wbm Error fields [ServiceAccountName] are not permitted when using workflowTemplateRef with templateReferencing restriction
+fromtmpl-hckd4 Succeeded 
 <b>$ kubectl -n argo create cm argo-workflows-workflow-controller-configmap --from-file=config=/tmp/argocfg.orig --dry-run=client -o yaml | kubectl -n argo apply -f -</b>
 configmap/argo-workflows-workflow-controller-configmap configured
 <b>$ kubectl -n argo rollout restart deploy argo-workflows-workflow-controller</b>
@@ -1099,9 +1107,9 @@ deployment "argo-workflows-workflow-controller" successfully rolled out
 <b>$ kubectl delete workflowtemplate sanctioned</b>
 workflowtemplate.argoproj.io "sanctioned" deleted from default namespace
 <b>$ kubectl get wf -o name | grep -E 'bare-|override-|fromtmpl-' | xargs -r kubectl delete</b>
-workflow.argoproj.io "bare-nt5d8" deleted from default namespace
-workflow.argoproj.io "fromtmpl-tz52d" deleted from default namespace
-workflow.argoproj.io "override-j74f6" deleted from default namespace</code></pre></details></div>
+workflow.argoproj.io "bare-bh9rh" deleted from default namespace
+workflow.argoproj.io "fromtmpl-hckd4" deleted from default namespace
+workflow.argoproj.io "override-49wbm" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> all three Workflows are created, then the controller sorts them out: the bare one ends <code>Error</code> with <code>workflows must use workflowTemplateRef to be executed when the controller is in reference mode</code>, the overriding one ends <code>Error</code> with <code>fields [ServiceAccountName] are not permitted when using workflowTemplateRef with templateReferencing restriction</code>, and the plain reference ends <code>Succeeded</code>.</div>
     </div>
 

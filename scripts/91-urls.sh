@@ -3,7 +3,7 @@
 source "$(dirname "$0")/lib.sh"
 
 CPK_UP=no
-pgrep -f 'cloud-provider-kind' >/dev/null 2>&1 && CPK_UP=yes
+cpk_running && CPK_UP=yes
 
 kc() { kubectl --context "kind-$CLUSTER" "$@"; }
 
@@ -28,9 +28,9 @@ if [ "$CPK_UP" = yes ]; then
   ok "cloud-provider-kind is running; LoadBalancer IPs below are reachable directly"
 else
   warn "cloud-provider-kind is NOT running, so LoadBalancer IPs stay <pending>."
-  warn "Start it (needs root to bind :80/:443):"
-  warn "    sudo -b nohup $(command -v cloud-provider-kind 2>/dev/null || echo cloud-provider-kind) \\"
-warn "      --gateway-channel=disabled > /tmp/cnpe-lab/cpk.log 2>&1"
+  warn "Start it (it needs the docker socket, not root):"
+  warn "    setsid nohup $(command -v cloud-provider-kind 2>/dev/null || echo cloud-provider-kind) \\"
+  warn "      --gateway-channel=disabled > /tmp/cnpe-lab/cpk.log 2>&1 &"
   warn "Until then use the port-forward commands below."
 fi
 printf '%s\n\n' "──────────────────────────────────────────────────────────────────────────────"
@@ -53,7 +53,7 @@ cat <<INFO
 
 Backstage portal (runs on the HOST, not in the cluster)
   Portal           http://localhost:3000     start: cd $LAB_HOME/portal && yarn start
-                   backend API on :7007      (needs Node 24; mise.toml pins it)
+                   backend API on :7007      (needs Node 26.13+; mise.toml pins 26)
   Golden path      Create -> "Golden path service" -> publishes to gitea org '${GITEA_ORG}'
                    Argo CD then generates an Application automatically
 
@@ -62,7 +62,7 @@ Second cluster (service mesh)
   Istio ambient    istioctl ztunnel-config workload --context kind-${MESH_CLUSTER}
 
 Always-on (no port-forward needed)
-  Gitea            http://${GITEA_HOST}:3000   (also http://localhost:${GITEA_PORT})
+  Gitea            http://localhost:${GITEA_PORT}   (pods and git: http://${GITEA_HOST}:3000)
                    ${GITEA_USER} / ${GITEA_PASS}
   OCI registry     localhost:${REGISTRY_PORT}   (push: docker push localhost:${REGISTRY_PORT}/demo:v1)
 

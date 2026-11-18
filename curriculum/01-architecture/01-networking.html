@@ -86,7 +86,7 @@
 
     <div class="callout reflex">
       <span class="tag">Command reflex</span>
-      <p><code>kubectl get endpointslices -l kubernetes.io/service-name=X</code> beats <code>describe svc</code>, because it shows you conditions per address (<code>ready</code>, <code>serving</code>, <code>terminating</code>) rather than a summarized list. When a rollout half-breaks, those three booleans tell the whole story.</p>
+      <p><code>kubectl get endpointslices -l kubernetes.io/service-name=X</code> beats <code>describe svc</code>, because it shows conditions per address (<code>ready</code>, <code>serving</code>, <code>terminating</code>) rather than a summarized list. When a rollout half-breaks, those three booleans tell the whole story.</p>
     </div>
   </div>
 </section>
@@ -107,7 +107,7 @@
    ▼ policy is evaluated on the <s>pod identity</s>, not the Service VIP</pre>
     <p class="figcap">Note the last line. This is why an <code>ipBlock</code> rule naming a ClusterIP never matches: by the time policy is evaluated, the destination has already been rewritten to a pod IP. That single fact explains a whole family of "my NetworkPolicy does nothing" tasks; section 3.3 sets the same trap with CloudNativePG.</p>
 
-    <p>This cluster runs <strong>Cilium instead of kindnet plus kube-proxy</strong> for one decisive reason: <em>kindnet does not enforce NetworkPolicy at all</em>. A lab where policies apply cleanly and change nothing teaches you the wrong lesson permanently. Cilium also brings identity-based policy (labels are compiled into numeric identities, so policy survives pod IP churn) and Hubble, which shows flows <em>with their verdict</em>: forwarded or dropped, and by which policy.</p>
+    <p>This cluster runs <strong>Cilium instead of kindnet</strong> (kube-proxy still runs beside it) for one decisive reason: <em>kindnet does not enforce NetworkPolicy at all</em>. A lab where policies apply cleanly and change nothing teaches you the wrong lesson permanently. Cilium also brings identity-based policy (labels are compiled into numeric identities, so policy survives pod IP churn) and Hubble, which shows flows <em>with their verdict</em>: forwarded or dropped, and by which policy.</p>
 
     <div class="callout lab">
       <span class="tag">Cilium extras worth knowing by name</span>
@@ -150,9 +150,9 @@
       <li>Policies are <strong>namespaced</strong> and select <strong>pods</strong>, never Services.</li>
       <li>A pod is "isolated" for a direction the moment <em>any</em> policy selects it for that direction. Until then, everything is allowed.</li>
       <li>Rules are <strong>additive allow-lists</strong>. There is no deny rule. You loosen by adding and tighten only by removing. The break drill exploits that asymmetry: a missing rule looks exactly like a rule that was never there.</li>
-      <li>Ingress and egress are independent. A cross-namespace call needs an <em>egress</em> allow on the caller's side <em>and</em> an <em>ingress</em> allow on the callee's. Discovering that empirically once (exercise 3 below) saves you re-deriving it under pressure.</li>
+      <li>Ingress and egress are independent. A cross-namespace call needs an <em>egress</em> allow on the caller's side <em>and</em> an <em>ingress</em> allow on the callee's. Discovering that empirically once ("Cross-tenant traffic must die" in section 1.4) saves you re-deriving it under pressure.</li>
       <li>Default-deny is itself a policy: empty <code>podSelector</code>, <code>policyTypes: [Ingress, Egress]</code>, no rules.</li>
-      <li>Selector scoping inside a rule matters: <code>namespaceSelector</code> and <code>podSelector</code> in the <em>same</em> list item is an AND (those pods in those namespaces); as two separate items it is an OR. This is the single most common authoring bug.</li>
+      <li>Selector scoping inside a rule matters: <code>namespaceSelector</code> and <code>podSelector</code> in the <em>same</em> list item is an AND (those pods in those namespaces); as two separate items it is an OR. This is the most common authoring bug.</li>
     </ul>
 
     <div class="callout exam">
@@ -184,20 +184,20 @@
     <p>Status conditions are how you grade your own work: <strong>Accepted</strong> (the controller understood it), <strong>Programmed</strong> (the data plane is configured), <strong>ResolvedRefs</strong> (backends and secrets exist and are permitted). Reading those three beats guessing every time.</p>
 
     <div class="callout lab">
-      <span class="tag">Honest lab caveat</span>
+      <span class="tag">Lab caveat</span>
       <p>This cluster installs the standard-channel Gateway API CRDs so you can author and schema-validate all of it, but no controller programs a data plane for them on the main cluster. Your Gateway will sit unprogrammed; do not mistake a clean apply for a working Gateway. On the mesh cluster (<code>make mesh</code>), Istio serves Gateway API for real: the same manifests, an actual Programmed condition.</p>
     </div>
 
     <p>One neighbor the Gateway needs and Kubernetes does not provide: <strong>certificates</strong>. A TLS listener references a Secret, and something has to keep that Secret valid. In practice that something is cert-manager: an <code>Issuer</code>/<code>ClusterIssuer</code> (ACME, CA, or Vault) plus a <code>Certificate</code>, or the <code>cert-manager.io/cluster-issuer</code> annotation on the Gateway, which issues into the Secret and renews before expiry. Not installed in this lab, but "who renews that certificate" is a fair question about any Gateway you design, and <em>ResolvedRefs: False</em> on a listener is usually its absence.</p>
 
-    <p>Progressive delivery ties in here (section 2.5): weighted <code>backendRefs</code> on an HTTPRoute are how a mesh shifts traffic by route weight instead of by replica count, and Flagger drives exactly those weights.</p>
+    <p>Progressive delivery ties in here (section 2.5): weighted <code>backendRefs</code> on an HTTPRoute are how a mesh shifts traffic by route weight instead of by replica count, and Flagger drives those weights.</p>
   </div>
 </section>
 
 <section class="panel accent-c" id="gateway-fields">
   <div class="phdr"><h2>Gateway API, field by field</h2><span class="meta">listeners · matches · filters · weights · ReferenceGrant · status reasons</span></div>
   <div class="pbody">
-    <p>The role table above is the model. A task hands you the fields. Gateway API v1.5 (April 2026) is the current release; everything below is Standard channel unless marked. On the exam cluster, <code>kubectl explain gateway.spec.listeners --recursive</code> and <code>kubectl explain httproute.spec.rules --recursive</code> print the same fields, version-correct.</p>
+    <p>The role table above is the model. A task hands you the fields. Gateway API v1.7 (October 2026) is the current release and the one the lab installs; everything below is Standard channel unless marked. On the exam cluster, <code>kubectl explain gateway.spec.listeners --recursive</code> and <code>kubectl explain httproute.spec.rules --recursive</code> print the same fields, version-correct.</p>
 
     <h3>Gateway listeners</h3>
     <ul>
@@ -214,6 +214,7 @@
       <li><strong><code>filters</code></strong>: <code>RequestHeaderModifier</code>, <code>ResponseHeaderModifier</code>, <code>RequestRedirect</code>, <code>URLRewrite</code> (these two cannot be combined), <code>RequestMirror</code>, <code>CORS</code> (Standard since v1.5) and <code>ExtensionRef</code> for vendor CRDs. Filters replace almost every Ingress annotation you used to write.</li>
       <li><strong><code>backendRefs</code></strong>: <code>name</code>, <code>port</code>, optional <code>namespace</code> (needs a ReferenceGrant) and <code>weight</code> (default 1). Weights are shares of the total: 90 and 10 split 90/10, 3 and 1 split 75/25. A rule with no backendRefs and no redirect answers 500. A missing Service gives <code>ResolvedRefs: False</code>, <code>BackendNotFound</code>.</li>
       <li><strong><code>timeouts</code></strong> (Standard since v1.2): <code>request</code> for the whole exchange, <code>backendRequest</code> for one attempt; <code>backendRequest</code> may not exceed <code>request</code>; <code>0s</code> disables.</li>
+      <li><strong><code>retry</code></strong> (Standard since v1.7): <code>attempts</code> (retries on top of the first try; <code>0</code> disables), <code>codes</code> (status codes to retry, unique) and <code>backoff</code> (a base interval; the curve and jitter are up to the implementation). Support is Extended, so check your controller before relying on it.</li>
     </ul>
 
     <div class="cb" data-lang="yaml"><pre><code>apiVersion: gateway.networking.k8s.io/v1
@@ -247,7 +248,7 @@ spec:
       <li><strong>ReferenceGrant</strong> is <code>v1</code> since v1.5: <code>from</code> (group, kind, namespace of the referrer) and <code>to</code> (group, kind, optionally name) in the namespace being referenced. It is consent, never a route: it grants nothing by itself.</li>
       <li><strong>BackendTLSPolicy</strong> (Standard since v1.4) configures TLS from the Gateway to the backend pods: <code>targetRefs</code> a Service, <code>validation.hostname</code> as SNI, and either <code>caCertificateRefs</code> or <code>wellKnownCACertificates: System</code>. Same namespace as the Service, by design.</li>
       <li><strong>ListenerSet</strong> (Standard since v1.5) lets a team add listeners to a shared Gateway without editing it; the Gateway must opt in with <code>spec.allowedListeners.namespaces.from</code> (default <code>None</code>). Parent listeners win conflicts. It also lifts the 64-listener ceiling.</li>
-      <li><strong>TLSRoute</strong> is <code>v1</code> since v1.5; GRPCRoute has been Standard since v1.1.</li>
+      <li><strong>TLSRoute</strong> is <code>v1</code> since v1.5, and <strong>TCPRoute</strong> and <strong>UDPRoute</strong> since v1.6 (their <code>v1alpha2</code> is deprecated); GRPCRoute has been Standard since v1.1.</li>
     </ul>
 
     <h3>Ingress to Gateway, mapped</h3>
@@ -342,7 +343,7 @@ argocd-server-lm5nc   IPv4          8080,8080   10.244.1.181   25m
       <p>The EXTERNAL-IP is real only while <code>cloud-provider-kind</code> runs; without it, <code>kubectl -n argocd port-forward svc/argocd-server 8080:80</code> and curl localhost:8080 instead, and the rest of the exercise is unchanged. Now break it in a way you can explain:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd patch svc argocd-server --type=merge -p '{"spec":{"selector":{"app":"nope"}}}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n argocd patch svc argocd-server --type=merge -p '{"spec":{"selector":{"app":"nope"}}}'</b>
 service/argocd-server patched</code></pre></details></div>
-      <p>Watch the endpointslice lose its endpoints and curl start failing while DNS still resolves. Then look at what your patch actually did before undoing it: <code>kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.selector}'</code> shows the original two labels <em>plus</em> <code>app: nope</code>, because a JSON merge patch merges maps rather than replacing them. So the honest restore is removing your key, not re-adding theirs: <code>--type=merge -p '{"spec":{"selector":{"app":null}}}'</code>.</p>
+      <p>Watch the endpointslice lose its endpoints and curl start failing while DNS still resolves. Then look at what your patch did before undoing it: <code>kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.selector}'</code> shows the original two labels <em>plus</em> <code>app: nope</code>, because a JSON merge patch merges maps rather than replacing them. So the restore is removing your key, not re-adding theirs: <code>--type=merge -p '{"spec":{"selector":{"app":null}}}'</code>.</p>
       <div class="verify"><b>verify:</b> the selector is back to exactly <code>app.kubernetes.io/name: argocd-server</code> and <code>app.kubernetes.io/instance: argocd</code>, and curl returns 200. The merge-patch semantics come up on their own exam tasks.</div>
     </div>
 
@@ -351,26 +352,25 @@ service/argocd-server patched</code></pre></details></div>
       <div class="cb" data-lang="bash"><pre><code>cilium hubble port-forward &amp;
 kubectl -n team-a run probe --image=curlimages/curl:8.11.1 --restart=Never \
   -- curl -s -m 5 http://example.com
-hubble observe --namespace team-a --verdict DROPPED --last 20</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ cilium hubble port-forward &amp;</b>
-[1] 954968
+hubble observe --namespace team-a --verdict DROPPED --last 20</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-17</span></summary><pre><code><b>$ cilium hubble port-forward &amp;</b>
+ℹ️  Hubble Relay is available at 127.0.0.1:4245
 <b>$ kubectl -n team-a run probe --image=curlimages/curl:8.11.1 --restart=Never \</b>
 <b>  -- curl -s -m 5 http://example.com</b>
 Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "probe" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "probe" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "probe" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "probe" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
 pod/probe created
 <b>$ hubble observe --namespace team-a --verdict DROPPED --last 20</b>
-time=2026-08-26T22:13:56.514-04:00 level=WARN msg="Hubble CLI version is lower than Hubble Relay, API compatibility is not guaranteed, updating to a matching or higher version is recommended" hubble-cli-version=1.19.4 hubble-relay-version=1.20.1+g7d68cfb3
-Aug 27 02:13:45.229: team-a/probe:39428 (ID:2901) &lt;&gt; 104.20.23.154:80 (world) policy-verdict:none TRAFFIC_DIRECTION_UNKNOWN DENIED (TCP Flags: SYN)
-Aug 27 02:13:45.229: team-a/probe:39428 (ID:2901) &lt;&gt; 104.20.23.154:80 (world) Policy denied DROPPED (TCP Flags: SYN)
-Aug 27 02:13:46.270: team-a/probe:39428 (ID:2901) &lt;&gt; 104.20.23.154:80 (world) policy-verdict:none TRAFFIC_DIRECTION_UNKNOWN DENIED (TCP Flags: SYN)
-Aug 27 02:13:46.270: team-a/probe:39428 (ID:2901) &lt;&gt; 104.20.23.154:80 (world) Policy denied DROPPED (TCP Flags: SYN)
-Aug 27 02:13:47.294: team-a/probe:39428 (ID:2901) &lt;&gt; 104.20.23.154:80 (world) policy-verdict:none TRAFFIC_DIRECTION_UNKNOWN DENIED (TCP Flags: SYN)
-Aug 27 02:13:47.294: team-a/probe:39428 (ID:2901) &lt;&gt; 104.20.23.154:80 (world) Policy denied DROPPED (TCP Flags: SYN)
-Aug 27 02:13:47.629: team-a/probe:48966 (ID:2901) &lt;&gt; 172.66.147.243:80 (world) policy-verdict:none TRAFFIC_DIRECTION_UNKNOWN DENIED (TCP Flags: SYN)
-Aug 27 02:13:47.629: team-a/probe:48966 (ID:2901) &lt;&gt; 172.66.147.243:80 (world) Policy denied DROPPED (TCP Flags: SYN)
-Aug 27 02:13:48.639: team-a/probe:48966 (ID:2901) &lt;&gt; 172.66.147.243:80 (world) policy-verdict:none TRAFFIC_DIRECTION_UNKNOWN DENIED (TCP Flags: SYN)
-Aug 27 02:13:48.639: team-a/probe:48966 (ID:2901) &lt;&gt; 172.66.147.243:80 (world) Policy denied DROPPED (TCP Flags: SYN)
-Aug 27 02:13:49.663: team-a/probe:48966 (ID:2901) &lt;&gt; 172.66.147.243:80 (world) policy-verdict:none TRAFFIC_DIRECTION_UNKNOWN DENIED (TCP Flags: SYN)
-Aug 27 02:13:49.663: team-a/probe:48966 (ID:2901) &lt;&gt; 172.66.147.243:80 (world) Policy denied DROPPED (TCP Flags: SYN)</code></pre></details></div>
+Nov 18 04:25:08.323: team-a/probe:55156 (ID:21174) &lt;&gt; 104.20.23.154:80 (world) policy-verdict:none EGRESS DENIED (TCP Flags: SYN)
+Nov 18 04:25:08.323: team-a/probe:55156 (ID:21174) &lt;&gt; 104.20.23.154:80 (world) Policy denied DROPPED (TCP Flags: SYN)
+Nov 18 04:25:09.373: team-a/probe:55156 (ID:21174) &lt;&gt; 104.20.23.154:80 (world) policy-verdict:none EGRESS DENIED (TCP Flags: SYN)
+Nov 18 04:25:09.373: team-a/probe:55156 (ID:21174) &lt;&gt; 104.20.23.154:80 (world) Policy denied DROPPED (TCP Flags: SYN)
+Nov 18 04:25:10.396: team-a/probe:55156 (ID:21174) &lt;&gt; 104.20.23.154:80 (world) policy-verdict:none EGRESS DENIED (TCP Flags: SYN)
+Nov 18 04:25:10.396: team-a/probe:55156 (ID:21174) &lt;&gt; 104.20.23.154:80 (world) Policy denied DROPPED (TCP Flags: SYN)
+Nov 18 04:25:10.806: team-a/probe:43610 (ID:21174) &lt;&gt; 172.66.147.243:80 (world) policy-verdict:none EGRESS DENIED (TCP Flags: SYN)
+Nov 18 04:25:10.806: team-a/probe:43610 (ID:21174) &lt;&gt; 172.66.147.243:80 (world) Policy denied DROPPED (TCP Flags: SYN)
+Nov 18 04:25:11.869: team-a/probe:43610 (ID:21174) &lt;&gt; 172.66.147.243:80 (world) policy-verdict:none EGRESS DENIED (TCP Flags: SYN)
+Nov 18 04:25:11.869: team-a/probe:43610 (ID:21174) &lt;&gt; 172.66.147.243:80 (world) Policy denied DROPPED (TCP Flags: SYN)
+Nov 18 04:25:12.892: team-a/probe:43610 (ID:21174) &lt;&gt; 172.66.147.243:80 (world) policy-verdict:none EGRESS DENIED (TCP Flags: SYN)
+Nov 18 04:25:12.892: team-a/probe:43610 (ID:21174) &lt;&gt; 172.66.147.243:80 (world) Policy denied DROPPED (TCP Flags: SYN)</code></pre></details></div>
       <div class="verify"><b>verify:</b> DROPPED flows from the probe pod, and the pod's curl exits non-zero. This is the difference between "policy exists" and "policy enforces".</div>
     </div>
 
@@ -403,7 +403,7 @@ pod "dnsprobe" deleted from default namespace</code></pre></details></div>
     </div>
 
     <div class="exercise" data-title="Read the Gateway schema offline">
-      <p>There is no browser in the exam, and the Gateway API field names are the kind you half-remember. The CRDs carry their own documentation, so <code>kubectl explain</code> is the reference, and it is correct for the channel this cluster actually installed.</p>
+      <p>There is no browser in the exam, and the Gateway API field names are the kind you half-remember. The CRDs carry their own documentation, so <code>kubectl explain</code> is the reference, and it is correct for the channel this cluster installed.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl explain gateway.spec.listeners.allowedRoutes.namespaces.from
 kubectl explain gateway.spec.listeners.allowedRoutes --recursive | head -12
 kubectl explain httproute.spec.rules.backendRefs</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl explain gateway.spec.listeners.allowedRoutes.namespaces.from</b>
@@ -607,7 +607,7 @@ printf '%s\nconsul.local:53 {\n    errors\n    cache 30\n    forward . 10.150.0.
 kubectl -n kube-system create configmap coredns --from-file=Corefile=/tmp/Corefile.new --dry-run=client -o yaml | kubectl -n kube-system apply -f -
 sleep 120
 kubectl -n kube-system logs deploy/coredns --tail=10
-kubectl -n kube-system create configmap coredns --from-file=Corefile=/tmp/Corefile.orig --dry-run=client -o yaml | kubectl -n kube-system apply -f -</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl -n kube-system get cm coredns -o jsonpath='{.data.Corefile}' | tee /tmp/Corefile.orig</b>
+kubectl -n kube-system create configmap coredns --from-file=Corefile=/tmp/Corefile.orig --dry-run=client -o yaml | kubectl -n kube-system apply -f -</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-17</span></summary><pre><code><b>$ kubectl -n kube-system get cm coredns -o jsonpath='{.data.Corefile}' | tee /tmp/Corefile.orig</b>
 .:53 {
     errors
     health {
@@ -641,14 +641,13 @@ kubectl -n kube-system create configmap coredns --from-file=Corefile=/tmp/Corefi
 configmap/coredns configured
 <b>$ sleep 120</b>
 <b>$ kubectl -n kube-system logs deploy/coredns --tail=10</b>
-Found 2 pods, using pod/coredns-754f9cbf9f-9kjvm
+Found 2 pods, using pod/coredns-57ddcc67ff-5gsk2
+maxprocs: Leaving GOMAXPROCS=16: CPU quota undefined
+[INFO] plugin/ready: Plugins not ready: "kubernetes"
+.:53
 [INFO] plugin/reload: Running configuration SHA512 = 21ac5a0b49ecc87479896d161ce04e13d5464755235ff622730e3dfae4608be276f4a5f8b10043b699e176d468200893ab00c7ce401fe4e331b9c0e19f77eb6d
-CoreDNS-1.14.2
-linux/amd64, go1.26.1, dd1df4f
-[ERROR] plugin/errors: 2 _grpclb._tcp.argocd-repo-server. SRV: read udp 10.244.2.138:45773-&gt;172.18.0.1:53: i/o timeout
-[ERROR] plugin/errors: 2 _grpclb._tcp.spire-server.spire. SRV: read udp 10.244.2.138:41440-&gt;172.18.0.1:53: i/o timeout
-[ERROR] plugin/errors: 2 _grpclb._tcp.spire-server.spire. SRV: read udp 10.244.2.138:45718-&gt;172.18.0.1:53: i/o timeout
-[ERROR] plugin/errors: 2 _grpclb._tcp.spire-server.spire. SRV: read udp 10.244.2.138:60045-&gt;172.18.0.1:53: i/o timeout
+CoreDNS-1.14.6
+linux/amd64, go1.26.5, 424d125
 [INFO] Reloading
 [INFO] plugin/reload: Running configuration SHA512 = fa9459fcfd404334de10bf2f59ce4f79c08316d97dff8ba20f46ce959b71a49c67999e92a94381f4cab42431a2af64dcc71ec6d1681cd790c23927cc3c07ac13
 [INFO] Reloading complete
@@ -704,7 +703,7 @@ kube-proxy   3         3         3       3            3           kubernetes.io/
     </div>
 
     <div class="exercise" data-title="Ask for a same-zone preference">
-      <p><code>trafficDistribution</code> is a hint, not a rule: the field is accepted anywhere, but the EndpointSlice controller only writes zone hints when the endpoints actually carry zones. On kind the nodes have no zone label until you add one, which makes the mechanism easy to see.</p>
+      <p><code>trafficDistribution</code> is a hint, not a rule: the field is accepted anywhere, but the EndpointSlice controller only writes zone hints when the endpoints carry zones. On kind the nodes have no zone label until you add one, which makes the mechanism easy to see.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl create deployment demo --image=nginx:1.27-alpine --replicas=4
 kubectl expose deployment demo --port=80
 kubectl patch svc demo -p '{"spec":{"trafficDistribution":"PreferSameZone"}}'

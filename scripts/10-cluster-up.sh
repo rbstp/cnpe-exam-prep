@@ -38,7 +38,9 @@ sed -e "s|__CLUSTER__|$CLUSTER|g" \
     -e "s|__AUDIT_DIR__|$AUDIT_DIR|g" \
     "$REPO_ROOT/kind/cnpe.yaml.tpl" > /tmp/cnpe-lab/kind-$CLUSTER.yaml
 
+CLUSTER_EXISTED=0
 if cluster_exists "$CLUSTER"; then
+  CLUSTER_EXISTED=1
   ok "cluster '$CLUSTER' already exists (delete with: make down)"
 else
   log "Creating kind cluster '$CLUSTER' (3 nodes)"
@@ -50,6 +52,38 @@ else
   fi
 fi
 kubectl config use-context "kind-$CLUSTER" >/dev/null
+
+# ── an existing cluster settles before anything is installed into it ─────
+# After a restart the nodes come back on new addresses and the admission webhooks
+# come back last. A Helm upgrade that reaches a failing-closed webhook before its
+# pod is ready is refused, which used to stop 'make up' before it repaired anything.
+if [ "$CLUSTER_EXISTED" = 1 ]; then
+  log "Letting the existing cluster settle (after a restart this takes a few minutes)"
+  poll 300 "the API server" kubectl get --raw /readyz || die "the API server of '$CLUSTER' is not answering"
+  kubectl wait --for=condition=Ready nodes --all --timeout=5m >/dev/null || warn "some nodes still NotReady"
+  if [ "$CNI" = "cilium" ] && kubectl -n kube-system get ds cilium >/dev/null 2>&1; then
+    kubectl -n kube-system rollout status ds/cilium --timeout=5m >/dev/null || true
+    # The agents keep the nodes' old addresses cached, and every endpoint sync then
+    # fails with "cannot take ownership of CEP that is not local".
+    if cilium status --context "kind-$CLUSTER" 2>/dev/null | grep -q 'cannot take ownership of CEP'; then
+      log "Restarting the Cilium agents (they still hold the node addresses from before a restart)"
+      kubectl -n kube-system rollout restart ds/cilium >/dev/null
+      kubectl -n kube-system rollout status ds/cilium --timeout=5m >/dev/null || true
+    fi
+  fi
+  # A Deployment's Available condition is the one saved before the shutdown until
+  # the controllers catch up, so ask the webhooks themselves: a server-side dry run
+  # goes through every admission webhook and creates nothing. A policy that denies
+  # it still answered; only "failed calling webhook" means one is not serving yet.
+  webhooks_answer() {
+    local out
+    out=$( { kubectl create namespace cnpe-settle-probe --dry-run=server -o name
+             kubectl -n default create deployment cnpe-settle-probe --image=busybox:1.37 --dry-run=server -o name; } 2>&1 ) || true
+    ! grep -q 'failed calling webhook' <<<"$out"
+  }
+  if poll 300 "the admission webhooks" webhooks_answer; then ok "admission webhooks are answering"
+  else warn "an admission webhook is still not answering; installs it checks may be refused"; fi
+fi
 
 # ── tell every node where the local registry lives ───────────────────────
 if [ "$SMOKE" != 1 ]; then
@@ -64,7 +98,11 @@ if [ "$SMOKE" != 1 ]; then
 TOML
     done
   done
-  docker network connect kind "$REGISTRY_NAME" 2>/dev/null || true
+  REGISTRY_IP=$(kind_fixed_ip 6)
+  if [ "$(docker inspect -f '{{with index .NetworkSettings.Networks "kind"}}{{.IPAddress}}{{end}}' "$REGISTRY_NAME")" != "$REGISTRY_IP" ]; then
+    docker network disconnect kind "$REGISTRY_NAME" 2>/dev/null || true
+    docker network connect --ip "$REGISTRY_IP" kind "$REGISTRY_NAME"
+  fi
   kubectl apply -f - >/dev/null <<CM
 apiVersion: v1
 kind: ConfigMap
@@ -87,56 +125,40 @@ if [ "$CNI" = "cilium" ]; then
     --set hubble.relay.enabled=true \
     --set hubble.ui.enabled=true \
     --set envoy.enabled=false
-  cilium status --wait --context "kind-$CLUSTER" || warn "cilium not fully ready yet"
+  cilium status --wait --wait-duration 3m --context "kind-$CLUSTER" >/dev/null || warn "cilium not fully ready yet"
   log "Waiting for all nodes to reach Ready now that a CNI exists"
   kubectl wait --for=condition=Ready nodes --all --timeout=5m || warn "some nodes still NotReady"
 fi
 
+# A reboot kills Job pods mid-run; once their Job is gone (Trivy deletes its scan
+# Jobs), nothing ever removes them, and they fail 'make validate'.
+if cluster_exists "$CLUSTER"; then
+  kubectl get pods -A --field-selector=status.phase=Failed -o json \
+    | jq -r --argjson jobs "$(kubectl get jobs -A -o json | jq '[.items[].metadata.uid]')" \
+      '.items[] | select(.metadata.ownerReferences[0].kind == "Job")
+       | select(.metadata.ownerReferences[0].uid as $u | ($jobs | index($u)) == null)
+       | "\(.metadata.namespace) \(.metadata.name)"' \
+    | while read -r ns pod; do kubectl -n "$ns" delete pod "$pod" --wait=false >/dev/null && ok "removed orphaned pod $ns/$pod"; done
+fi
+
 # ── make the registry resolvable from pods, not just from containerd ─────
-REGISTRY_IP=$(docker inspect -f '{{(index .NetworkSettings.Networks "kind").IPAddress}}' "$REGISTRY_NAME" 2>/dev/null || true)
-if [ -n "$REGISTRY_IP" ]; then
-  log "Teaching CoreDNS about $REGISTRY_NAME ($REGISTRY_IP)"
-  python3 - "$REGISTRY_IP" "$REGISTRY_NAME" <<'PY'
-import subprocess, sys, json, re
-ip, host = sys.argv[1], sys.argv[2]
-cm = json.loads(subprocess.check_output(
-    ["kubectl","-n","kube-system","get","cm","coredns","-o","json"]))
-corefile = cm["data"]["Corefile"]
-if host in corefile:
-    print("    CoreDNS already knows", host); sys.exit(0)
-m = re.search(r"(    hosts \{\n)", corefile)
-if m:  # extend the existing hosts block (CoreDNS allows only one per server)
-    corefile = corefile.replace(m.group(1), m.group(1) + f"        {ip} {host}\n", 1)
-else:
-    block = f"    hosts {{\n        {ip} {host}\n        fallthrough\n    }}\n"
-    corefile = corefile.replace("    ready\n", "    ready\n" + block, 1)
-cm["data"]["Corefile"] = corefile
-subprocess.run(["kubectl","apply","-f","-"], input=json.dumps(cm).encode(), check=True)
-print("    CoreDNS patched")
-PY
-  kubectl -n kube-system rollout restart deploy/coredns >/dev/null
-  kubectl -n kube-system rollout status deploy/coredns --timeout=3m >/dev/null || true
+if [ "$SMOKE" != 1 ]; then
+  coredns_host "$(kind_fixed_ip 6)" "$REGISTRY_NAME"
 fi
 
 # ── LoadBalancer services actually get IPs ───────────────────────────────
-if [ "$SMOKE" != 1 ] && ! pgrep -f cloud-provider-kind >/dev/null 2>&1; then
+if [ "$SMOKE" != 1 ] && ! cpk_running; then
   if command -v cloud-provider-kind >/dev/null; then
     log "Starting cloud-provider-kind (gives Services type=LoadBalancer real IPs)"
-    # sudo resets PATH, so cloud-provider-kind has to be called by absolute path.
-    CPK="$(command -v cloud-provider-kind)"
-    if sudo -n true 2>/dev/null; then
-      # shellcheck disable=SC2024
-      sudo -b nohup "$CPK" --gateway-channel=disabled > /tmp/cnpe-lab/cpk.log 2>&1
-      sleep 2
-      pgrep -f "$CPK --gateway-channel=disabled" | head -1 > /tmp/cnpe-lab/cpk.pid 2>/dev/null || true
-      sleep 5
-      if pgrep -f "$CPK" >/dev/null; then ok "cloud-provider-kind running"
-      else warn "cloud-provider-kind died; see /tmp/cnpe-lab/cpk.log"; fi
-    else
-      warn "sudo needs a password; skipping cloud-provider-kind for now."
-      warn "LoadBalancer Services stay <pending> until you run, in another shell:"
-      warn "  sudo -b nohup $CPK --gateway-channel=disabled > /tmp/cnpe-lab/cpk.log 2>&1"
-    fi
+    # On Linux each load balancer is a container on the kind network, so the docker
+    # socket is all it needs: it runs as you, like kind does.
+    mkdir -p /tmp/cnpe-lab
+    setsid nohup "$(command -v cloud-provider-kind)" --gateway-channel=disabled \
+      > /tmp/cnpe-lab/cpk.log 2>&1 < /dev/null &
+    echo $! > /tmp/cnpe-lab/cpk.pid
+    sleep 5
+    if kill -0 "$(cat /tmp/cnpe-lab/cpk.pid)" 2>/dev/null; then ok "cloud-provider-kind running"
+    else warn "cloud-provider-kind died; see /tmp/cnpe-lab/cpk.log"; fi
   else
     warn "cloud-provider-kind missing; LoadBalancer Services will stay <pending>"
   fi
@@ -145,7 +167,7 @@ fi
 # ── Gateway API CRDs (Istio, Linkerd, Argo Rollouts, Cilium all use these) ─
 if [ "$SMOKE" != 1 ]; then
   log "Installing Gateway API CRDs (standard channel)"
-  kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.1/standard-install.yaml
+  kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.7.0/standard-install.yaml
 
   # ── metrics-server: required for HPA, kubectl top, VPA recommendations ──
   log "Installing metrics-server"

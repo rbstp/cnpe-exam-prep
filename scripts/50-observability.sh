@@ -5,9 +5,15 @@ need helm; need kubectl
 
 log "kube-prometheus-stack (Prometheus Operator CRDs, Alertmanager, Grafana)"
 repo_add prometheus-community https://prometheus-community.github.io/helm-charts
+# Grafana's first boot runs ~730 database migrations. SQLite in its default
+# journal mode syncs each one to disk, about 2m40s in all; WAL mode cuts that to
+# well under a minute. The longer liveness delay covers a slow disk: the chart's
+# budget (60s + 10 x 10s) killed it mid-migration and cost a second boot.
 helmi prometheus prometheus-community/kube-prometheus-stack monitoring \
   --set grafana.service.type=LoadBalancer \
   --set grafana.adminPassword=admin \
+  --set grafana.livenessProbe.initialDelaySeconds=300 \
+  --set 'grafana.grafana\.ini.database.wal=true' \
   --set prometheus.service.type=LoadBalancer \
   --set prometheus.prometheusSpec.retention=6h \
   --set prometheus.prometheusSpec.resources.requests.memory=512Mi \
@@ -70,6 +76,10 @@ metadata: { name: otel, namespace: tracing }
 spec:
   mode: deployment
   config:
+    # health_check makes the operator add readiness and liveness probes: without them the
+    # Service routes to a restarted collector before its receivers listen
+    extensions:
+      health_check: { endpoint: 0.0.0.0:13133 }
     receivers:
       otlp:
         protocols:
@@ -77,19 +87,20 @@ spec:
           http: { endpoint: 0.0.0.0:4318 }
     processors:
       batch: { timeout: 5s }
-      k8sattributes: {}
+      k8s_attributes: {}
     exporters:
-      otlp/jaeger:
+      otlp_grpc/jaeger:
         endpoint: jaeger.tracing.svc.cluster.local:4317
         tls: { insecure: true }
-      otlphttp/prom:
+      otlp_http/prom:
         endpoint: http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090/api/v1/otlp
         tls: { insecure: true }
       debug: { verbosity: basic }
     service:
+      extensions: [health_check]
       pipelines:
-        traces:  { receivers: [otlp], processors: [k8sattributes, batch], exporters: [otlp/jaeger] }
-        metrics: { receivers: [otlp], processors: [batch], exporters: [otlphttp/prom] }
+        traces:  { receivers: [otlp], processors: [k8s_attributes, batch], exporters: [otlp_grpc/jaeger] }
+        metrics: { receivers: [otlp], processors: [batch], exporters: [otlp_http/prom] }
         logs:    { receivers: [otlp], processors: [batch], exporters: [debug] }
 YAML
 # The operator's admission webhook lags pod readiness by a few seconds.

@@ -85,7 +85,7 @@ spec:
     </div>
     <div class="callout model">
       <span class="tag">Synced and Degraded is not a contradiction</span>
-      <p>Git said run a broken image, and the cluster faithfully runs it broken. Sync is green because the diff is empty; health is red because the Deployment cannot progress. Clicking <em>sync</em> again does nothing at all. The fix is a commit. Recognize this state on sight; section 2.6 opens with it.</p>
+      <p>Git said run a broken image, and the cluster faithfully runs it broken. Sync is green because the diff is empty; health is red because the Deployment cannot progress. Clicking <em>sync</em> again does nothing. The fix is a commit. Recognize this state on sight; section 2.6 opens with it.</p>
     </div>
 
     <p>Every combination means something different, and each has exactly one right first move:</p>
@@ -176,10 +176,10 @@ spec:
     </div>
 
     <h3>Other clusters</h3>
-    <p><code>destination.server: https://kubernetes.default.svc</code> (or <code>name: in-cluster</code>) is the local cluster. Any other cluster has to be registered first: <code>argocd cluster add &lt;context&gt;</code> creates a ServiceAccount there and stores its credentials in a Secret in <code>argocd</code> labeled <code>argocd.argoproj.io/secret-type: cluster</code>. That Secret is the thing an ApplicationSet's <code>clusters</code> generator iterates, which is why generator-driven fan-out and "deploy this to the second cluster" are the same mechanism. <code>argocd cluster list</code> tells you what is registered; the AppProject's <code>destinations</code> list decides who may target it.</p>
+    <p><code>destination.server: https://kubernetes.default.svc</code> (or <code>name: in-cluster</code>) is the local cluster. Any other cluster has to be registered first: <code>argocd cluster add &lt;context&gt;</code> creates a ServiceAccount there and stores its credentials in a Secret in <code>argocd</code> labeled <code>argocd.argoproj.io/secret-type: cluster</code>. That Secret is what an ApplicationSet's <code>clusters</code> generator iterates, which is why generator-driven fan-out and "deploy this to the second cluster" are the same mechanism. <code>argocd cluster list</code> tells you what is registered; the AppProject's <code>destinations</code> list decides who may target it.</p>
 
     <h3>Diffing quirks</h3>
-    <p><code>ignoreDifferences</code> (by group/kind/jsonPointers or a jq path) is how you stop a mutating webhook or an HPA-managed replica count from showing permanent drift. <code>argocd.argoproj.io/compare-options: IgnoreExtraneous</code> hides resources Argo did not create. Both exist because "OutOfSync forever on a field nobody edits" is a real and common state.</p>
+    <p><code>ignoreDifferences</code> (by group/kind/jsonPointers or a jq path) is how you stop a mutating webhook or an HPA-managed replica count from showing permanent drift. <code>argocd.argoproj.io/compare-options: IgnoreExtraneous</code> hides resources Argo did not create. Both exist because "OutOfSync forever on a field nobody edits" is a common state.</p>
 
     <h3>CLI, because the UI wastes exam time</h3>
     <div class="cb" data-lang="bash"><pre><code>argocd login &lt;server&gt; --username admin \
@@ -365,7 +365,7 @@ NAME           READY   UP-TO-DATE   AVAILABLE   AGE
 staging-demo   0/3     3            0           15s
 NAME        READY   UP-TO-DATE   AVAILABLE   AGE
 prod-demo   0/3     3            0           16s</code></pre></details></div>
-      <p>One nuance: the ApplicationSet template sets <code>destination.namespace</code> to the directory basename, but the overlays pin <code>namespace: team-a</code> and <code>team-b</code> in their kustomizations. An explicit namespace in a manifest always wins over the Application's destination default, so the workloads land in the tenant namespaces, prefixed <code>staging-</code> and <code>prod-</code>. If an app is stuck, read its conditions: <code>kubectl -n argocd get app demo-staging -o jsonpath='{.status.conditions}' | jq</code>.</p>
+      <p>The ApplicationSet template sets <code>destination.namespace</code> to the directory basename, but the overlays pin <code>namespace: team-a</code> and <code>team-b</code> in their kustomizations. An explicit namespace in a manifest always wins over the Application's destination default, so the workloads land in the tenant namespaces, prefixed <code>staging-</code> and <code>prod-</code>. If an app is stuck, read its conditions: <code>kubectl -n argocd get app demo-staging -o jsonpath='{.status.conditions}' | jq</code>.</p>
       <div class="verify"><b>verify:</b> <code>demo-staging</code> and <code>demo-prod</code> Applications exist (one per overlay directory in the platform repo), each Synced/Healthy.</div>
     </div>
 
@@ -401,8 +401,8 @@ staging-demo   3/3     3            3           55s
     </div>
 
     <div class="exercise" data-title="Synced but Degraded">
-      <p>Push an image tag that doesn't exist (<code>newTag: does-not-exist</code> in the staging kustomization), sync, and read the two statuses side by side: <code>argocd app get demo-staging | head -20</code>. One timing note: health shows Progressing for up to ten minutes (the Deployment's <code>progressDeadlineSeconds</code>) before flipping to Degraded. The pod's ImagePullBackOff is visible in events immediately, and Progressing-with-a-broken-pod already tells you everything.</p>
-      <div class="verify"><b>verify:</b> Sync status Synced, health on its way to Degraded, and you can articulate why clicking sync again is useless here. Revert the commit. This exact confusion is section 2.6's opening scenario.</div>
+      <p>Push an image tag that doesn't exist (<code>newTag: does-not-exist</code> in the staging kustomization), sync, and read the two statuses side by side: <code>argocd app get demo-staging | head -20</code>. Health shows Progressing for up to ten minutes (the Deployment's <code>progressDeadlineSeconds</code>) before flipping to Degraded. The pod's ImagePullBackOff is visible in events immediately, and Progressing-with-a-broken-pod already tells you everything.</p>
+      <div class="verify"><b>verify:</b> Sync status Synced, health on its way to Degraded, and you can say why clicking sync again is useless here. Revert the commit. This exact confusion is section 2.6's opening scenario.</div>
     </div>
 
     <div class="exercise" data-title="Read the operation, not just the health">
@@ -431,11 +431,11 @@ argocd app sync demo-staging --timeout 120 || true
 kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.status} {.message}{"\n"}{end}'
 kubectl -n team-a delete deploy staging-demo
 argocd app wait demo-staging --operation --timeout 180 || true
-argocd app sync demo-staging --timeout 120</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there</b>
+argocd app sync demo-staging --timeout 120</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there</b>
 <b>$ ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')</b>
 <b>$ argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web</b>
 'admin:login' logged in successfully
-Context '172.18.0.4:32015' updated
+Context '172.18.0.12:32162' updated
 <b>$ argocd app wait demo-staging --operation --timeout 180 || true</b>
 
 Name:               argocd/demo-staging
@@ -449,26 +449,26 @@ Source:
   Path:             demo-app/overlays/staging
 SyncWindow:         Sync Allowed
 Sync Policy:        Automated (Prune)
-Sync Status:        Synced to main (83a41e2)
+Sync Status:        Synced to main (55f63ae)
 Health Status:      Healthy
 
 Operation:          Sync
-Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Sync Revision:      55f63ae149b35bc4c3aec26031456109b16f4f4b
 Phase:              Succeeded
-Start:              2026-09-13 00:53:59 -0400 EDT
-Finished:           2026-09-13 00:54:00 -0400 EDT
+Start:              2026-11-18 00:45:46 -0500 EST
+Finished:           2026-11-18 00:45:47 -0500 EST
 Duration:           1s
 Message:            successfully synced (all tasks run)
 
 GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
-       Service     team-a     staging-demo  Synced  Healthy        service/staging-demo unchanged
-apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged
+apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo configured
+       Service     team-a     staging-demo  Synced  Healthy        
 <b>$ argocd app sync demo-staging --timeout 120 || true</b>
 TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
-2026-09-13T00:54:56-04:00            Service      team-a          staging-demo    Synced  Healthy              
-2026-09-13T00:54:56-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
-2026-09-13T00:54:57-04:00            Service      team-a          staging-demo    Synced  Healthy              service/staging-demo unchanged
-2026-09-13T00:54:57-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              deployment.apps/staging-demo unchanged
+2026-11-18T00:46:17-05:00            Service      team-a          staging-demo    Synced  Healthy              
+2026-11-18T00:46:17-05:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
+2026-11-18T00:46:18-05:00            Service      team-a          staging-demo    Synced  Healthy              service/staging-demo unchanged
+2026-11-18T00:46:18-05:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              deployment.apps/staging-demo unchanged
 
 Name:               argocd/demo-staging
 Project:            default
@@ -481,14 +481,14 @@ Source:
   Path:             demo-app/overlays/staging
 SyncWindow:         Sync Allowed
 Sync Policy:        Automated (Prune)
-Sync Status:        Synced to main (83a41e2)
+Sync Status:        Synced to main (55f63ae)
 Health Status:      Healthy
 
 Operation:          Sync
-Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Sync Revision:      55f63ae149b35bc4c3aec26031456109b16f4f4b
 Phase:              Succeeded
-Start:              2026-09-13 00:54:56 -0400 EDT
-Finished:           2026-09-13 00:54:57 -0400 EDT
+Start:              2026-11-18 00:46:17 -0500 EST
+Finished:           2026-11-18 00:46:18 -0500 EST
 Duration:           1s
 Message:            successfully synced (all tasks run)
 
@@ -516,17 +516,16 @@ deployment.apps "staging-demo" deleted from team-a namespace
 Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "web" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "web" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "web" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "web" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
 deployment.apps/staging-demo created
 <b>$ argocd app wait demo-staging --operation --timeout 180 || true</b>
-TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME       STATUS   HEALTH        HOOK  MESSAGE
-2026-09-13T00:54:59-04:00            Service      team-a          staging-demo       Synced  Healthy              
-2026-09-13T00:54:59-04:00   apps  Deployment      team-a          staging-demo       Synced  Missing              
-2026-09-13T00:54:59-04:00   apps  ReplicaSet      team-a  staging-demo-66955f8974            Healthy              
-2026-09-13T00:54:59-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Missing              
-2026-09-13T00:55:00-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Missing              error when patching "/dev/shm/2994384382": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
-2026-09-13T00:55:10-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Healthy              error when patching "/dev/shm/2994384382": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
-2026-09-13T00:55:10-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Healthy              error when patching "/dev/shm/1714539329": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
-2026-09-13T00:55:30-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Healthy              error when patching "/dev/shm/128196255": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
-2026-09-13T00:56:10-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Healthy              error when patching "/dev/shm/1706085184": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
-2026-09-13T00:57:30-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Healthy              error when patching "/dev/shm/1824439474": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME       STATUS    HEALTH        HOOK  MESSAGE
+2026-11-18T00:46:20-05:00            Service      team-a          staging-demo       Synced   Healthy              
+2026-11-18T00:46:20-05:00   apps  Deployment      team-a          staging-demo     OutOfSync  Missing              
+2026-11-18T00:46:20-05:00   apps  ReplicaSet      team-a  staging-demo-5fbf76bbbf             Healthy              
+2026-11-18T00:46:21-05:00   apps  Deployment      team-a          staging-demo  OutOfSync  Missing              error when patching "/dev/shm/209529445": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-11-18T00:46:32-05:00   apps  Deployment      team-a          staging-demo  OutOfSync  Missing              error when patching "/dev/shm/1110977579": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-11-18T00:46:51-05:00   apps  Deployment      team-a          staging-demo  OutOfSync  Missing              error when patching "/dev/shm/2404680201": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-11-18T00:47:31-05:00   apps  Deployment      team-a          staging-demo  OutOfSync  Missing              error when patching "/dev/shm/3648205654": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-11-18T00:48:50-05:00   apps  Deployment      team-a          staging-demo  OutOfSync  Healthy              error when patching "/dev/shm/3648205654": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-11-18T00:48:52-05:00   apps  Deployment      team-a          staging-demo  OutOfSync  Healthy              error when patching "/dev/shm/3391637429": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
 
 This is the state of the app after wait timed out:
 
@@ -543,33 +542,35 @@ Source:
   Path:             demo-app/overlays/staging
 SyncWindow:         Sync Allowed
 Sync Policy:        Automated (Prune)
-Sync Status:        OutOfSync from main (83a41e2)
+Sync Status:        OutOfSync from main (55f63ae)
 Health Status:      Healthy
 
 Operation:          Sync
-Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Sync Revision:      55f63ae149b35bc4c3aec26031456109b16f4f4b
 Phase:              Running
-Start:              2026-09-13 00:54:59 -0400 EDT
-Finished:           2026-09-13 00:57:30 -0400 EDT
-Duration:           2m31s
-Message:            one or more objects failed to apply, reason: error when patching "/dev/shm/1824439474": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable. Retrying attempt #5 at 4:58AM.
+Start:              2026-11-18 00:46:20 -0500 EST
+Finished:           2026-11-18 00:48:52 -0500 EST
+Duration:           2m32s
+Message:            one or more objects failed to apply, reason: error when patching "/dev/shm/3391637429": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable. Retrying attempt #5 at 2026-11-18T05:50:12Z.
 
 GROUP  KIND        NAMESPACE  NAME                     STATUS     HEALTH   HOOK  MESSAGE
-apps   Deployment  team-a     staging-demo             OutOfSync  Healthy        error when patching "/dev/shm/1824439474": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+apps   Deployment  team-a     staging-demo             OutOfSync  Healthy        error when patching "/dev/shm/3391637429": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
 <i>... 3 more lines</i>
 <b>$ argocd app sync demo-staging --timeout 120 || true</b>
-{"level":"fatal","msg":"rpc error: code = FailedPrecondition desc = another operation is already in progress","time":"2026-09-13T00:57:59-04:00"}
+{"level":"fatal","msg":"rpc error: code = FailedPrecondition desc = another operation is already in progress","time":"2026-11-18T00:49:21-05:00"}
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{range .status.operationState.syncResult.resources[*]}{.kind}/{.name} {.status} {.message}{"\n"}{end}'</b>
 Running
-Deployment/staging-demo SyncFailed error when patching "/dev/shm/1824439474": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+Deployment/staging-demo SyncFailed error when patching "/dev/shm/3391637429": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
 <b>$ kubectl -n team-a delete deploy staging-demo</b>
 deployment.apps "staging-demo" deleted from team-a namespace
 <b>$ argocd app wait demo-staging --operation --timeout 180 || true</b>
 TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME       STATUS    HEALTH        HOOK  MESSAGE
-2026-09-13T00:58:00-04:00   apps  Deployment      team-a          staging-demo     OutOfSync  Healthy              error when patching "/dev/shm/1824439474": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
-2026-09-13T00:58:00-04:00            Service      team-a          staging-demo       Synced   Healthy              
-2026-09-13T00:58:00-04:00   apps  ReplicaSet      team-a  staging-demo-66955f8974             Healthy              
-2026-09-13T01:00:10-04:00   apps  Deployment      team-a          staging-demo  OutOfSync  Missing              error when patching "/dev/shm/1824439474": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-11-18T00:49:21-05:00   apps  Deployment      team-a          staging-demo     OutOfSync  Healthy              error when patching "/dev/shm/3391637429": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-11-18T00:49:21-05:00            Service      team-a          staging-demo       Synced   Healthy              
+2026-11-18T00:49:21-05:00   apps  ReplicaSet      team-a  staging-demo-5fbf76bbbf             Healthy              
+2026-11-18T00:51:15-05:00   apps  Deployment      team-a          staging-demo  OutOfSync  Missing              error when patching "/dev/shm/3391637429": Deployment.apps "staging-demo" is invalid: spec.selector: Invalid value: {"matchLabels":{"app":"demo","app.kubernetes.io/part-of":"demo-app"}}: field is immutable
+2026-11-18T00:51:32-05:00   apps  Deployment      team-a          staging-demo  OutOfSync  Missing              deployment.apps/staging-demo created
+2026-11-18T00:51:32-05:00   apps  Deployment      team-a          staging-demo    Synced  Progressing              deployment.apps/staging-demo created
 
 Name:               argocd/demo-staging
 Project:            default
@@ -582,15 +583,15 @@ Source:
   Path:             demo-app/overlays/staging
 SyncWindow:         Sync Allowed
 Sync Policy:        Automated (Prune)
-Sync Status:        Synced to main (83a41e2)
+Sync Status:        Synced to main (55f63ae)
 Health Status:      Healthy
 
 Operation:          Sync
-Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Sync Revision:      55f63ae149b35bc4c3aec26031456109b16f4f4b
 Phase:              Succeeded
-Start:              2026-09-13 00:54:59 -0400 EDT
-Finished:           2026-09-13 01:00:10 -0400 EDT
-Duration:           5m11s
+Start:              2026-11-18 00:46:20 -0500 EST
+Finished:           2026-11-18 00:51:32 -0500 EST
+Duration:           5m12s
 Message:            successfully synced (all tasks run)
 
 GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
@@ -598,10 +599,10 @@ apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.ap
        Service     team-a     staging-demo  Synced  Healthy        
 <b>$ argocd app sync demo-staging --timeout 120</b>
 TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
-2026-09-13T01:00:11-04:00            Service      team-a          staging-demo    Synced  Healthy              
-2026-09-13T01:00:11-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
-2026-09-13T01:00:13-04:00            Service      team-a          staging-demo    Synced  Healthy              service/staging-demo unchanged
-2026-09-13T01:00:13-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              deployment.apps/staging-demo unchanged
+2026-11-18T00:51:35-05:00            Service      team-a          staging-demo    Synced  Healthy              
+2026-11-18T00:51:35-05:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
+2026-11-18T00:51:36-05:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              deployment.apps/staging-demo unchanged
+2026-11-18T00:51:36-05:00            Service      team-a          staging-demo    Synced  Healthy              service/staging-demo unchanged
 
 Name:               argocd/demo-staging
 Project:            default
@@ -614,14 +615,14 @@ Source:
   Path:             demo-app/overlays/staging
 SyncWindow:         Sync Allowed
 Sync Policy:        Automated (Prune)
-Sync Status:        Synced to main (83a41e2)
+Sync Status:        Synced to main (55f63ae)
 Health Status:      Healthy
 
 Operation:          Sync
-Sync Revision:      83a41e21322e15eff2307bc1e9d5c89e33226d0d
+Sync Revision:      55f63ae149b35bc4c3aec26031456109b16f4f4b
 Phase:              Succeeded
-Start:              2026-09-13 01:00:11 -0400 EDT
-Finished:           2026-09-13 01:00:12 -0400 EDT
+Start:              2026-11-18 00:51:35 -0500 EST
+Finished:           2026-11-18 00:51:36 -0500 EST
 Duration:           1s
 Message:            successfully synced (all tasks run)
 
@@ -840,14 +841,15 @@ git -C /tmp/platform-prune revert --no-edit HEAD &amp;&amp; git -C /tmp/platform
 kubectl -n argocd patch applicationset demo-envs --type merge -p '{"spec":{"template":{"spec":{"syncPolicy":{"syncOptions":["CreateNamespace=true"]}}}}}'
 argocd app sync demo-staging --timeout 120
 kubectl -n argocd get app demo-staging -o jsonpath='{.spec.syncPolicy.syncOptions}{"\n"}'
-rm -rf /tmp/platform-prune</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there</b>
+rm -rf /tmp/platform-prune</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there</b>
 <b>$ ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')</b>
 <b>$ argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web</b>
 'admin:login' logged in successfully
-Context '172.18.0.4:32015' updated
+Context '172.18.0.12:32162' updated
 <b>$ # git -C rather than cd: a cd here would follow you into every later command in the session</b>
 <b>$ rm -rf /tmp/platform-prune &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune</b>
 Cloning into '/tmp/platform-prune'...
+warning: redirecting to http://gitea.lab:3000/lab/platform.git/
 <b>$ # set it on the template: the ApplicationSet controller overwrites a spec edit on the generated Application</b>
 <b>$ kubectl -n argocd patch applicationset demo-envs --type merge -p '{"spec":{"template":{"spec":{"syncPolicy":{"syncOptions":["CreateNamespace=true","Prune=confirm"]}}}}}'</b>
 applicationset.argoproj.io/demo-envs patched
@@ -856,15 +858,16 @@ applicationset.argoproj.io/demo-envs patched
 rm 'demo-app/base/service.yaml'
 <b>$ sed -i '/service.yaml/d' /tmp/platform-prune/demo-app/base/kustomization.yaml</b>
 <b>$ git -C /tmp/platform-prune commit -am 'drop the service' &amp;&amp; git -C /tmp/platform-prune push</b>
-[main b761904] drop the service
+[main af211cc] drop the service
  2 files changed, 8 deletions(-)
  delete mode 100644 demo-app/base/service.yaml
+warning: redirecting to http://gitea.lab:3000/lab/platform.git/
 To http://gitea.lab:3000/lab/platform.git
-   894975d..b761904  main -&gt; main
+   55f63ae..af211cc  main -&gt; main
 <b>$ argocd app sync demo-staging --prune --timeout 60 || true</b>
 TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
-2026-09-13T08:06:10-04:00            Service      team-a          staging-demo    Synced  Healthy              
-2026-09-13T08:06:10-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
+2026-11-18T00:54:51-05:00            Service      team-a          staging-demo    Synced  Healthy              
+2026-11-18T00:54:51-05:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
 
 This is the state of the app after wait timed out:
 
@@ -881,13 +884,13 @@ Source:
   Path:             demo-app/overlays/staging
 SyncWindow:         Sync Allowed
 Sync Policy:        Automated (Prune)
-Sync Status:        Synced to main (894975d)
+Sync Status:        Synced to main (55f63ae)
 Health Status:      Healthy
 
 Operation:          Sync
-Sync Revision:      b761904983e66ec86d904ff126285f518ac6182b
+Sync Revision:      af211ccc2910226606fe3559f9f32f3861d70dbf
 Phase:              Running
-Start:              2026-09-13 08:06:10 -0400 EDT
+Start:              2026-11-18 00:54:51 -0500 EST
 Finished:           &lt;nil&gt;
 Duration:           1m0s
 Message:            waiting for pruning confirmation of /Service/staging-demo
@@ -895,7 +898,7 @@ Message:            waiting for pruning confirmation of /Service/staging-demo
 GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
        Service     team-a     staging-demo  Synced  Healthy        
 apps   Deployment  team-a     staging-demo  Synced  Healthy        
-{"level":"fatal","msg":"timed out (60s) waiting for app \"demo-staging\" match desired state","time":"2026-09-13T08:07:10-04:00"}
+{"level":"fatal","msg":"timed out (60s) waiting for app \"demo-staging\" match desired state","time":"2026-11-18T00:55:51-05:00"}
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}{.status.operationState.message}{"\n"}'</b>
 Running
 waiting for pruning confirmation of /Service/staging-demo
@@ -905,21 +908,22 @@ application.argoproj.io/demo-staging annotated
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.status.operationState.phase}{"\n"}'</b>
 Succeeded
 <b>$ git -C /tmp/platform-prune revert --no-edit HEAD &amp;&amp; git -C /tmp/platform-prune push</b>
-[main 1d38064] Revert "drop the service"
- Date: Sun Sep 13 08:07:31 2026 -0400
+[main 34dd8a1] Revert "drop the service"
+ Date: Wed Nov 18 00:56:13 2026 -0500
  2 files changed, 8 insertions(+)
  create mode 100644 demo-app/base/service.yaml
+warning: redirecting to http://gitea.lab:3000/lab/platform.git/
 To http://gitea.lab:3000/lab/platform.git
-   b761904..1d38064  main -&gt; main
+   af211cc..34dd8a1  main -&gt; main
 <b>$ # unset removes the option; setting Prune=false would just record a different value</b>
 <b>$ kubectl -n argocd patch applicationset demo-envs --type merge -p '{"spec":{"template":{"spec":{"syncPolicy":{"syncOptions":["CreateNamespace=true"]}}}}}'</b>
 applicationset.argoproj.io/demo-envs patched
 <b>$ argocd app sync demo-staging --timeout 120</b>
 TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME    STATUS   HEALTH        HOOK  MESSAGE
-2026-09-13T08:07:32-04:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
-2026-09-13T08:07:32-04:00            Service      team-a          staging-demo  OutOfSync  Healthy              
-2026-09-13T08:07:33-04:00            Service      team-a          staging-demo  OutOfSync  Healthy              service/staging-demo created
-2026-09-13T08:07:33-04:00   apps  Deployment      team-a          staging-demo    Synced   Healthy              deployment.apps/staging-demo unchanged
+2026-11-18T00:56:15-05:00   apps  Deployment      team-a          staging-demo    Synced  Healthy              
+2026-11-18T00:56:16-05:00            Service      team-a          staging-demo  OutOfSync  Healthy              
+2026-11-18T00:56:17-05:00   apps  Deployment      team-a          staging-demo    Synced   Healthy              deployment.apps/staging-demo unchanged
+2026-11-18T00:56:17-05:00            Service      team-a          staging-demo  OutOfSync  Healthy              service/staging-demo created
 
 Name:               argocd/demo-staging
 Project:            default
@@ -932,15 +936,15 @@ Source:
   Path:             demo-app/overlays/staging
 SyncWindow:         Sync Allowed
 Sync Policy:        Automated (Prune)
-Sync Status:        Synced to main (1d38064)
+Sync Status:        Synced to main (34dd8a1)
 Health Status:      Healthy
 
 Operation:          Sync
-Sync Revision:      1d38064a22b6d6e6ee6d5acbc0044745d3960f3a
+Sync Revision:      34dd8a1a893ac80025f048b52a8d0175018263eb
 Phase:              Succeeded
-Start:              2026-09-13 08:07:32 -0400 EDT
-Finished:           2026-09-13 08:07:33 -0400 EDT
-Duration:           1s
+Start:              2026-11-18 00:56:15 -0500 EST
+Finished:           2026-11-18 00:56:17 -0500 EST
+Duration:           2s
 Message:            successfully synced (all tasks run)
 
 GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
@@ -953,7 +957,7 @@ apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.ap
     </div>
 
     <div class="exercise" data-title="Test a project role before you hand it over">
-      <p>A project role plus a token is how a tenant gets to sync their own application and nothing else. Hand the token to the role, then use it: a denial names the exact rule it wanted, which is the fastest way to see whether you granted what you meant to. Note that <code>argocd account can-i</code> does not answer for a project token, only for a logged-in account, so the token itself is the test.</p>
+      <p>A project role plus a token is how a tenant gets to sync their own application and nothing else. Hand the token to the role, then use it: a denial names the exact rule it wanted, which is the fastest way to see whether you granted what you meant to. <code>argocd account can-i</code> does not answer for a project token, only for a logged-in account, so the token itself is the test.</p>
       <div class="cb" data-lang="bash"><pre><code>ARGO_PW=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)
 # the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there
 ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')

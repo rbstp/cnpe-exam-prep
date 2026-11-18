@@ -126,8 +126,8 @@ cat <<'INFO'
     kubectl apply -f examples/crossplane/pg-cluster.yaml
     kubectl -n team-a get cluster,pods,pvc
     # This one will NOT become Ready, on purpose. team-a is default-deny, so the
-    # Postgres pods cannot reach the API server and initdb hangs. Read the header
-    # comment in that file only after you have tried to diagnose it yourself.
+    # Postgres pods cannot reach the API server and initdb hangs. Diagnose it
+    # yourself first; curriculum section 3.3 has the CiliumNetworkPolicy that fixes it.
 
   Build your own CRD + controller:
     mkdir -p ~/kb-demo && cd ~/kb-demo

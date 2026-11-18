@@ -46,7 +46,7 @@ const SAME = [
   ["kubectl get namespaces team-a --show-labels", ["kubectl get ns team-a --show-labels", "kubectl get namespace/team-a --show-labels"]],
   ["kubectl argo rollouts get rollouts drill-web -n team-a", ["kubectl argo rollouts get rollout drill-web -n team-a", "kubectl -n team-a argo rollouts get rollout drill-web"]],
   ["tkn pipelineruns list -n drill-ci", ["tkn -n drill-ci pr list", "tkn pipelinerun list -n drill-ci"]],
-  ["crossplane beta trace appenvironments drill-env -n default", ["crossplane beta trace appenvironment drill-env -n default", "crossplane beta trace AppEnvironment/drill-env -n default"]],
+  ["crossplane resource trace appenvironments drill-env -n default", ["crossplane resource trace appenvironment drill-env -n default", "crossplane resource trace AppEnvironment/drill-env -n default", "crossplane beta trace appenvironment drill-env -n default"]],
   ["kubectl set image deployments broken nginx-unprivileged=img:1 -n team-a", ["kubectl -n team-a set image deploy/broken nginx-unprivileged=img:1", "kubectl set image deployment broken nginx-unprivileged=img:1 --namespace team-a"]],
   ["kubectl label namespaces team-a pod-security.kubernetes.io/enforce=baseline --overwrite", ["kubectl label ns team-a pod-security.kubernetes.io/enforce=baseline --overwrite", "kubectl label --overwrite namespace team-a pod-security.kubernetes.io/enforce=baseline"]],
   ["kubectl explain deployments.spec.template", ["kubectl explain deploy.spec.template", "kubectl explain deployment.spec.template"]],
@@ -62,7 +62,7 @@ SAME.forEach(([want, forms]) => {
 ok(S.normalize("") === "" && S.normalize("   ") === "" && S.normalize("$") === "", "a blank line normalizes to nothing");
 ok(S.normalize("kubectl get pods -a") === "kubectl get pods -a", "-a and -A are different flags");
 [["kubectl get pods", "kubectl"], ["flux get ks", "flux"], ["argocd app get x", "argo"], ["kubectl argo rollouts get rollout x", "argo"],
-  ["tkn pr list", "tekton"], ["crossplane beta trace x y", "crossplane"], ["kubectl get servicemonitors -A", "platform"],
+  ["tkn pr list", "tekton"], ["crossplane resource trace x y", "crossplane"], ["kubectl get servicemonitors -A", "platform"],
   ["kubectl get kustomizations -A", "flux"], ["kubectl get pipelineruns -n drill-ci", "tekton"], ["nonsense", "nonsense"]].forEach(([cmd, want]) => {
   const got = S.toolOf(cmd);
   ok(got === want, "toolOf names the family: " + JSON.stringify(cmd) + " -> " + want + (got === want ? "" : ", got " + got));
@@ -100,7 +100,7 @@ const PROBES = {
   "tekton-trigger": { evidence: ["kubectl -n drill-ci get eventlisteners,pods", "kubectl -n drill-ci logs deploy/el-drill-listener --tail=20", "kubectl -n drill-ci get sa,rolebindings"],
     fix: "kubectl -n drill-ci create rolebinding drill-trigger-el --clusterrole=tekton-triggers-eventlistener-roles --serviceaccount=drill-ci:drill-trigger-sa",
     wrong: "kubectl -n drill-ci delete pod -l eventlistener=drill-listener", other: "kubectl -n drill-ci get triggerbindings" },
-  "xp-provider-rbac": { evidence: ["kubectl -n default get appenvironment", "crossplane beta trace appenvironment drill-env -n default", "kubectl get clusterrolebindings"],
+  "xp-provider-rbac": { evidence: ["kubectl -n default get appenvironment", "crossplane resource trace appenvironment drill-env -n default", "kubectl get clusterrolebindings"],
     fix: "kubectl create clusterrolebinding crossplane-provider-kubernetes-a1b2c3d4e5f6 --clusterrole=cluster-admin --serviceaccount=crossplane-system:provider-kubernetes-a1b2c3d4e5f6",
     wrong: "kubectl create ns team-drill", other: "kubectl -n crossplane-system get pods" },
   "xr-paused": { evidence: ["kubectl -n team-c get resourcequota tenant-quota -o yaml", "kubectl -n default describe appenvironment team-c-dev", "kubectl -n default get objects.kubernetes.m.crossplane.io"],

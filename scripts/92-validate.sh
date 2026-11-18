@@ -51,8 +51,10 @@ else
 fi
 
 head_ "Domain 2: GitOps & continuous delivery"
-GITEA_CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://${GITEA_HOST}:3000/api/healthz" 2>/dev/null)
+GITEA_CODE=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${GITEA_PORT}/api/healthz" 2>/dev/null)
 eq "gitea reachable from host" "200" "$GITEA_CODE"
+git ls-remote "http://${GITEA_HOST}:3000/${GITEA_USER}/platform.git" >/dev/null 2>&1 \
+  && ok_ "host git reaches ${GITEA_HOST}:3000" || bad_ "host git reaches ${GITEA_HOST}:3000 (re-run: make gitea)"
 eq "flux GitRepository ready" "True" "$($K -n flux-system get gitrepository platform -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)"
 ge "flux controllers ready" 6 "$($K -n flux-system get deploy -o json 2>/dev/null | jq '[.items[]|select(.status.readyReplicas>0)]|length')"
 eq "argocd-server ready" "1" "$($K -n argocd get deploy argocd-server -o jsonpath='{.status.readyReplicas}' 2>/dev/null)"

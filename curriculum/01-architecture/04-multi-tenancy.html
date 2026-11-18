@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#171c1d" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f5f0" media="(prefers-color-scheme: light)">
-<meta name="description" content="examples/multitenancy/team-a.yaml is the whole syllabus for this section in 75 lines: one namespace carrying every guardrail the exam can ask about.">
+<meta name="description" content="examples/multitenancy/team-a.yaml is the whole syllabus for this section in 74 lines: one namespace carrying every guardrail the exam can ask about.">
 <title>1.4 Multi-tenancy: isolation you can defend · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
 <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
@@ -18,7 +18,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum"><code>examples/multitenancy/team-a.yaml</code> is the whole syllabus for this section in 75 lines: one namespace carrying every guardrail the exam can ask about. Read it top to bottom before doing anything else; every exercise below pokes at one of its objects.</p>
+  <p class="sum"><code>examples/multitenancy/team-a.yaml</code> is the whole syllabus for this section in 74 lines: one namespace carrying every guardrail the exam can ask about. Read it top to bottom before doing anything else; every exercise below pokes at one of its objects.</p>
 </header>
 
 <div class="stats"></div>
@@ -40,7 +40,7 @@
   <div class="phdr"><h2>The isolation stack, control by control</h2><span class="meta">what refuses you, and with which message</span></div>
   <div class="pbody">
     <ol>
-      <li><strong>ResourceQuota</strong> caps the namespace total: <code>requests.*</code>, <code>limits.*</code>, object counts (<code>pods: "20"</code>, <code>services.loadbalancers: "1"</code>), and storage per class. Crucially, a quota that lists <code>requests.cpu</code> or <code>limits.memory</code> <em>rejects any pod that fails to declare them</em>, which leads directly to point 2.</li>
+      <li><strong>ResourceQuota</strong> caps the namespace total: <code>requests.*</code>, <code>limits.*</code>, object counts (<code>pods: "20"</code>, <code>services.loadbalancers: "1"</code>), and storage per class. A quota that lists <code>requests.cpu</code> or <code>limits.memory</code> <em>rejects any pod that fails to declare them</em>, which leads directly to point 2.</li>
       <li><strong>LimitRange</strong> fills in per-container defaults (<code>default</code>, <code>defaultRequest</code>) and bounds (<code>min</code>, <code>max</code>, <code>maxLimitRequestRatio</code>), so a bare pod arrives at the quota check with numbers already attached. LimitRange defaulting is what keeps tenant onboarding friction-free while the quota stays enforceable.</li>
       <li><strong>NetworkPolicy</strong> default-deny plus explicit allows. team-a allows same-namespace traffic and DNS to kube-dns, nothing else. Additive allow-lists mean you loosen by adding policies and tighten only by removing rules, an asymmetry the netpol break drill exploits.</li>
       <li><strong>Pod Security Standards</strong> labels on the namespace (enforce baseline, warn and audit restricted here). Covered properly in section 5.3.</li>
@@ -49,7 +49,7 @@
 
     <div class="callout trap">
       <span class="tag">Admission order decides who refuses you</span>
-      <p>The order is: <em>mutating</em> admission (LimitRanger injects defaults, Kyverno mutates labels) → <em>validating</em> admission (PSS, quota, Kyverno/Gatekeeper validate). So a pod with no resources block can be admitted because LimitRange gave it some, and a validating policy demanding requests will never see a violation in a namespace that has a LimitRange. Section 5.2 makes a whole lesson of this; here, just internalize that <strong>a mutation can satisfy a validation the user never wrote</strong>.</p>
+      <p>The order is: <em>mutating</em> admission (LimitRanger injects defaults, Kyverno mutates labels) → <em>validating</em> admission (PSS, quota, Kyverno/Gatekeeper validate). So a pod with no resources block can be admitted because LimitRange gave it some, and a validating policy demanding requests will never see a violation in a namespace that has a LimitRange. Section 5.2 makes a whole lesson of this; here, internalize that <strong>a mutation can satisfy a validation the user never wrote</strong>.</p>
     </div>
 
     <h3>Reading the refusal</h3>
@@ -58,7 +58,7 @@
         <thead><tr><th>Message contains</th><th>Who refused</th><th>Fix direction</th></tr></thead>
         <tbody>
           <tr><td class="mono">exceeded quota: team-a-quota, requested: …, used: …, limited: …</td><td>ResourceQuota</td><td>smaller requests, fewer replicas, or a bigger quota</td></tr>
-          <tr><td class="mono">maximum cpu usage per Container is 500m, but limit is 2</td><td>LimitRange</td><td>fit inside the bounds</td></tr>
+          <tr><td class="mono">maximum cpu usage per Container is 1, but limit is 2</td><td>LimitRange</td><td>fit inside the bounds</td></tr>
           <tr><td class="mono">violates PodSecurity "baseline:latest"</td><td>PSS admission</td><td>fix the securityContext</td></tr>
           <tr><td class="mono">admission webhook "…kyverno…" denied the request</td><td>policy engine</td><td>satisfy the policy or exempt properly</td></tr>
           <tr><td class="mono">is forbidden: User "dev-a" cannot create …</td><td>RBAC</td><td>a rule, a binding, or the wrong namespace</td></tr>
@@ -85,7 +85,7 @@
       <li><strong>Priority and preemption.</strong> A <code>PriorityClass</code> decides who gets evicted when the cluster is full. Platform components (ingress, monitoring, CNI) should outrank tenant workloads; a tenant that can preempt your metrics stack is a tenant that can blind you. Quota can be scoped per priority class (<code>scopeSelector</code>) so nobody hoards the high-priority lane.</li>
       <li><strong>Overcommit ratios.</strong> Setting <code>limits</code> well above <code>requests</code> across every tenant is how you get density; it is also how you get a node that OOMs under coincident spikes. The lab's LimitRange (50m request / 200m limit) is a deliberate 4× burst ratio: a decision, not an accident.</li>
       <li><strong>Node pools with taints.</strong> When two tenants must not share a kernel (or a GPU, or a license), taint the pool and pair it with nodeAffinity. Cost: stranded capacity in each pool.</li>
-      <li><strong>Idle reclamation.</strong> The unused space between requests and usage is the tenancy tax, and it is exactly what OpenCost puts a number on in section 1.5. "Optimizing multi-tenancy resource usage" is, in practice, driving that number down without breaking the guardrails above.</li>
+      <li><strong>Idle reclamation.</strong> The unused space between requests and usage is the tenancy tax, and it is what OpenCost puts a number on in section 1.5. "Optimizing multi-tenancy resource usage" is, in practice, driving that number down without breaking the guardrails above.</li>
     </ul>
 
     <p>Two more things a real tenant needs that people forget in exam prep: a default <code>ServiceAccount</code> with nothing attached (so workloads do not inherit power), and namespaced <strong>quota on objects that cost money outside the cluster</strong>: LoadBalancers, PVCs, NodePorts. That is why team-a caps <code>services.loadbalancers</code> at 1: quota as a cost tool, not just a fairness tool.</p>
@@ -298,7 +298,7 @@ kubectl -n team-a create configmap two --from-literal=a=1
 kubectl -n team-a create configmap three --from-literal=a=1
 kubectl -n team-a get quota objs -o jsonpath='{.status.used}' | jq
 kubectl -n team-a delete configmap one two three --ignore-not-found
-kubectl -n team-a delete quota objs</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl create quota objs -n team-a --hard=count/configmaps=3,count/analysistemplates.argoproj.io=1</b>
+kubectl -n team-a delete quota objs</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl create quota objs -n team-a --hard=count/configmaps=3,count/analysistemplates.argoproj.io=1</b>
 resourcequota/objs created
 <b>$ kubectl -n team-a get quota objs -o jsonpath='{.status}' | jq</b>
 {
@@ -307,30 +307,31 @@ resourcequota/objs created
     "count/configmaps": "3"
   },
   "used": {
-    "count/analysistemplates.argoproj.io": "1",
-    "count/configmaps": "2"
+    "count/analysistemplates.argoproj.io": "0",
+    "count/configmaps": "1"
   }
 }
 <b>$ kubectl -n team-a create configmap one --from-literal=a=1</b>
 configmap/one created
 <b>$ kubectl -n team-a create configmap two --from-literal=a=1</b>
-error: failed to create configmap: configmaps "two" is forbidden: exceeded quota: objs, requested: count/configmaps=1, used: count/configmaps=3, limited: count/configmaps=3
+configmap/two created
 <b>$ kubectl -n team-a create configmap three --from-literal=a=1</b>
 error: failed to create configmap: configmaps "three" is forbidden: exceeded quota: objs, requested: count/configmaps=1, used: count/configmaps=3, limited: count/configmaps=3
 <b>$ kubectl -n team-a get quota objs -o jsonpath='{.status.used}' | jq</b>
 {
-  "count/analysistemplates.argoproj.io": "1",
+  "count/analysistemplates.argoproj.io": "0",
   "count/configmaps": "3"
 }
 <b>$ kubectl -n team-a delete configmap one two three --ignore-not-found</b>
 configmap "one" deleted from team-a namespace
+configmap "two" deleted from team-a namespace
 <b>$ kubectl -n team-a delete quota objs</b>
 resourcequota "objs" deleted from team-a namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> <code>status.used</code> tracks both keys the moment the quota is created: <code>count/configmaps</code> at 2, because team-a already holds <code>kube-root-ca.crt</code> and one more before you create anything, and <code>count/analysistemplates.argoproj.io</code> at 1 for the <code>success-rate</code> template. So the limit of 3 leaves room for exactly one, <code>one</code> is created and <code>two</code> is refused with a message naming <code>objs</code> and both numbers. Count quotas are charged against what is already there, not against what you add.</div>
+      <div class="verify"><b>verify:</b> <code>status.used</code> tracks both keys the moment the quota is created: <code>count/configmaps</code> at 1, because team-a already holds <code>kube-root-ca.crt</code> before you create anything, and <code>count/analysistemplates.argoproj.io</code> at 0 (it reads 1 once 2.5's <code>success-rate</code> template exists). So the limit of 3 leaves room for two, <code>one</code> and <code>two</code> are created and <code>three</code> is refused with a message naming <code>objs</code> and both numbers. Count quotas are charged against what is already there, not against what you add.</div>
     </div>
 
     <div class="exercise" data-title="Hierarchical namespaces, installed on purpose">
-      <p>The lab does not install HNC, so this block installs it first and removes it at the end. Do it once to see what namespace inheritance actually produces, then decide whether you would run it.</p>
+      <p>The lab does not install HNC, so this block installs it first and removes it at the end. Do it once to see what namespace inheritance produces, then decide whether you would run it.</p>
       <p>The <code>kubectl hns</code> plugin is not part of the lab's tool set either, so this uses the CRs directly: a SubnamespaceAnchor is what the plugin creates for you.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -f https://github.com/kubernetes-sigs/hierarchical-namespaces/releases/download/v1.1.0/default.yaml
 kubectl -n hnc-system rollout status deploy/hnc-controller-manager --timeout=180s

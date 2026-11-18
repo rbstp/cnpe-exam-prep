@@ -2,15 +2,15 @@
 
 This directory is a small self-contained site, not markdown. Open **[`index.html`](index.html)**
 in a browser (no server, no build step, `file://` works), or run `make study` from the repo root.
-GitHub will not render it in place; clone the repo (or use raw + a local browser) to read it.
+GitHub will not render it in place: read it at [cnpe.rbstp.dev](https://cnpe.rbstp.dev) or clone the repo.
 
 - `index.html`: the dashboard, with the map, competency coverage, study plan and exam-day tactics
 - `mock-exam.html`, `mock-exam-2.html`: two papers of 15 timed tasks each (no task repeated between them, scored separately) with grading commands and a 120-minute clock
 - `drill.html`: every self-check question as flashcards, each on its own spaced-repetition schedule and weighted toward what you miss; ten a day is the drill's daily goal, and any study action (a card answered, an exercise verified, a section completed, a mock task scored) is a heartbeat for the dashboard's console-wide study uptime
 - `game.html`: CNPE Quest, a role-playing game over the whole curriculum. Five regions are the five domains and 29 towns are the 29 sections; the townsfolk teach a section's ideas and hand out its command families, the town's trial is its own self-check cards as multiple choice (every answer written into the drill's record, and a heartbeat for the streak), and the dungeon behind it holds a fault, the kind `make break` injects, fought with real `kubectl`, `argocd`, `flux`, `tkn`, `crossplane` and `cosign` commands against a simulated cluster. A keep per region chains two faults; the Exam gate draws three
 - `0*-…/*.html`: the 29 sections, each theory + exercises + self-check
-- `assets/`: the stylesheet (`style.css`), the section manifest (`nav.js`), the two DOM-free modules the runtime reads (`merge.js`, the progress merge and the rules around it, and `syntax.js`, the command-block coloring; neither touches the DOM, storage or the network, which is what lets `tools/merge-test.mjs` and `tools/syntax-test.mjs` drive them in bare node; both are compiled from TypeScript in `src/console/`), the page runtime (`app.js`), the interactive figures (`widgets.js`), the drill (`drill.js`), the optional progress sync (`sync.js`), the theme switch (`theme.js`, loaded from `<head>`; `onChange`/`offChange` for a listener that comes and goes with a mount) and the typefaces
-- The quest is four more scripts and a stylesheet, loaded only by `game.html` (and inlined into the bundle). It is written in TypeScript: the sources are `src/game/*.ts`, `tools/build-ts.sh` (or `make ts`) compiles them with `tsc` into `assets/`, and the compiled scripts are committed, so the site still needs no build step and `file://` still works; `tools/build-ts.sh --check` fails CI when the committed output drifts from its source, the way `extract-drill.py --check` does for the drill bank
+- `assets/`: the stylesheet (`style.css`), the section manifest (`nav.js`), the page runtime (`app.js`), the interactive figures (`widgets.js`), the drill (`drill.js`), the optional progress sync (`sync.js`), the theme switch (`theme.js`, loaded from `<head>`; `onChange`/`offChange` for a listener that comes and goes with a mount) and the typefaces. Two more modules are compiled from TypeScript in `src/console/`: `merge.js`, the progress merge and the rules around it, and `syntax.js`, the command-block coloring. Neither touches the DOM, storage or the network, which is what lets `tools/merge-test.mjs` and `tools/syntax-test.mjs` drive them in bare node
+- The quest is four more scripts and a stylesheet, loaded only by `game.html` (and inlined into the bundle). It is written in TypeScript: the sources are `src/game/*.ts`, `tools/build-ts.sh` (or `make ts`) compiles them with `tsc` into `assets/`, and the compiled scripts are committed, so the site still needs no build step and `file://` still works. `tools/build-ts.sh --check` fails CI when the committed output drifts from its source, the way `extract-drill.py --check` does for the drill bank
   - `game-data.js`: the map, the towns and their people, the techniques and items, and the 24 fault scenarios with their fake-cluster resource tables, evidence matchers and fixes
   - `game-sim.js`: the DOM-free command interpreter that normalizes a typed command and answers it from a scenario's table; `tools/game-sim-test.mjs` drives it in bare node
   - `game-art.js`: every tile, the player, the eight enemy families and the town scenery as small palette-indexed pixel grids, painted to canvases from the theme's colors on demand, so the same grids serve both themes and nothing is a picture file
@@ -18,7 +18,7 @@ GitHub will not render it in place; clone the repo (or use raw + a local browser
   - `game.css`: the quest page around the game and the game's own windows and scenes
   - `CNPE_GAME.mount()` builds into `#game-app`; `CNPE_GAME.unmount()` takes everything down again (the animation frame, the beat, every timer, the listeners including the theme's through `CNPE_THEME.offChange`, the observers and the caches), so the bundle's router can call the pair around every visit to `#GM`. `CNPE_GAME.debug()` reports the renderer's frame, cache, patch, minimap, camera and step counters for the browser checks and for profiling, and carries two test hooks, `tick()` (one beat of the water's ticker) and `settle()` (every pending one-shot timer and a keep's pending swap, fired now), so the checks drive time rather than wait on it; the types are in `assets/cnpe.d.ts`
   - The game's progress is the `game` bucket of the `cnpe:v2` store: xp, gold and items as per-browser counters that add up across browsers, towns cleared, techniques learned, battles won and where you stood; `merge.js` merges it with the rest and the sync carries it unchanged
-- Two of those ship per page rather than site-wide, because most pages do not use them. `widgets.js` is 52 KB and twelve pages draw a figure, so only those twelve pull it. The question bank splits in two: `drill-data.js` carries every question and answer and only the drill loads it, while the dashboard loads `drill-index.js`, the same cards stripped to id and section, which is all its due-count and weak-spots panel read. Both pairings are asserted by `tools/check-site.sh`, so a page that grows a figure, or reaches for the bank it does not need, fails the deploy
+- Two of those ship per page rather than site-wide, because most pages do not use them. `widgets.js` is 55 KB and twelve pages draw a figure, so only those twelve pull it. The question bank splits in two: `drill-data.js` carries every question and answer and only the drill loads it, while the dashboard loads `drill-index.js`, the same cards stripped to id and section, which is all its due-count and weak-spots panel read. Both pairings are asserted by `tools/check-site.sh`, so a page that grows a figure, or reaches for the bank it does not need, fails the deploy
 - `assets/fonts/`: IBM Plex Serif, Sans and Mono, shipped so the console needs no network; the sans is one variable file covering wght 100-700, the other six are static weights. Pages use sans-serif prose and navigation, serif page titles, and monospaced commands; the quest's menus use the sans and the mono. SIL OFL 1.1, see `OFL.txt`. Each face carries only the characters the console writes, cut from the latin builds in `tools/fonts-src/` by `tools/subset-fonts.py`. A cut is a Modified Version, and the OFL reserves the name "Plex", so the faces present as `CNPE Serif`, `CNPE Sans` and `CNPE Mono` (which is what the stylesheet asks for); IBM's copyright, version and license records travel with them untouched, and each face carries a description naming what it was cut from
 - `tools/bundle.py`: bundles the whole console into one hash-routed HTML file (`python3 tools/bundle.py`, or `--fragment` for a host that supplies its own `<head>`), handy for sharing or reading it somewhere that takes a single document
 - `tools/extract-drill.py`: regenerates `assets/drill-data.js` and `assets/drill-index.js` from the section pages' self-check panels; run it after editing any self-check question (CI fails the deploy if either file is stale)
@@ -32,19 +32,20 @@ GitHub will not render it in place; clone the repo (or use raw + a local browser
 
 Most command blocks carry a collapsed **output** drawer underneath: the real result of that
 command, so the sections read self-contained even away from a running cluster. Each drawer is
-dated with the day it was captured against the lab. The original blocks carry
-**August 26, 2026**, bar one on the 27th; the 163 exercises added in September carry **September 12** or
-**September 13, 2026**, and were captured on Kubernetes 1.36.1, the `K8S_IMAGE` pin in force at
-the time, before it moved to 1.37.0. Expand a drawer only after predicting what it should say; the lab's tool versions
-float, so details may drift from what your lab prints.
+dated with the day it was captured against the lab. In November 2026 every drawer was re-run,
+in page order, on Kubernetes 1.37.0 with every tool at its then-current release. A drawer whose
+output still said the same thing kept its original date (**August 26-27** or **September 12-13,
+2026**, captured on 1.36.1); one that changed was recaptured and carries **November 17** or
+**November 18, 2026**. Expand a drawer only after predicting what it should say; the lab's tool
+versions float, so details may drift from what your lab prints.
 
-The cluster those September drawers were captured against reported:
+The cluster the November drawers were captured against reported:
 
 ```
 $ kubectl version
-Client Version: v1.36.4
+Client Version: v1.37.1
 Kustomize Version: v5.8.1
-Server Version: v1.36.1
+Server Version: v1.37.0
 ```
 
 No drawer is a placeholder: every one holds output that a real cluster produced. (Manifest

@@ -111,7 +111,7 @@ pod-security.kubernetes.io/audit: restricted</code></pre></div>
 Warning: existing pods in namespace "team-b" violate the new PodSecurity enforce level "restricted:latest"
 Warning: lazy: allowPrivilegeEscalation != false, unrestricted capabilities, runAsNonRoot != true, seccompProfile
 namespace/team-b labeled (server dry run)</code></pre></details></div>
-    <p>The API server evaluates every existing pod against the proposed profile and warns about each one that <em>would</em> break, without changing anything. It is the single most useful PSS command to know exists, and it turns a risky tightening into a planned migration.</p>
+    <p>The API server evaluates every existing pod against the proposed profile and warns about each one that <em>would</em> break, without changing anything. It is the most useful PSS command to know, and it turns a risky tightening into a planned migration.</p>
 
     <h3>What a compliant pod looks like</h3>
     <div class="cb" data-lang="yaml"><pre><code>securityContext:                 # pod level
@@ -124,7 +124,7 @@ containers:
       allowPrivilegeEscalation: false
       readOnlyRootFilesystem: true          # not required by restricted, but good practice
       capabilities: { drop: ["ALL"] }</code></pre></div>
-    <p>The demo app's manifest (<code>examples/demo-app/base/deployment.yaml</code>) is a worked answer to "make this pass restricted": read its securityContext blocks line by line, because writing exactly that block from memory is a plausible task. Note the level split: <code>runAsNonRoot</code> and <code>seccompProfile</code> sit naturally at pod level, <code>capabilities</code> and <code>allowPrivilegeEscalation</code> are per container.</p>
+    <p>The demo app's manifest (<code>examples/demo-app/base/deployment.yaml</code>) is a worked answer to "make this pass restricted": read its securityContext blocks line by line, because writing exactly that block from memory is a plausible task. The level split: <code>runAsNonRoot</code> and <code>seccompProfile</code> sit naturally at pod level, <code>capabilities</code> and <code>allowPrivilegeEscalation</code> are per container.</p>
 
     <div class="callout exam">
       <span class="tag">PSS versus a policy engine</span>
@@ -196,7 +196,7 @@ Error from server (Forbidden): pods "priv" is forbidden: violates PodSecurity "b
     </div>
 
     <div class="exercise" data-title="Diagnose the two-level failure">
-      <p>In <code>hardened</code>, <code>kubectl -n hardened create deploy sneaky --image=busybox:1.37 -- sleep 300</code>. The deploy is created; no pod appears. Find the rejection where it actually lives:</p>
+      <p>In <code>hardened</code>, <code>kubectl -n hardened create deploy sneaky --image=busybox:1.37 -- sleep 300</code>. The deploy is created; no pod appears. Find the rejection where it lives:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n hardened get deploy sneaky   # READY 0/1, no error here
 kubectl -n hardened describe rs -l app=sneaky | tail -5</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n hardened get deploy sneaky   # READY 0/1, no error here</b>
 NAME     READY   UP-TO-DATE   AVAILABLE   AGE
@@ -207,16 +207,16 @@ sneaky   0/1     0            0           11s
   Warning  FailedCreate  11s              replicaset-controller  Error creating: pods "sneaky-595c4bc9c7-v8xwt" is forbidden: violates PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "busybox" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "busybox" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "busybox" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "busybox" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
   Warning  FailedCreate  10s              replicaset-controller  Error creating: pods "sneaky-595c4bc9c7-z48jz" is forbidden: violates PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "busybox" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "busybox" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "busybox" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "busybox" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
   Warning  FailedCreate  1s (x3 over 9s)  replicaset-controller  (combined from similar events): Error creating: pods "sneaky-595c4bc9c7-pf2pl" is forbidden: violates PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "busybox" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "busybox" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "busybox" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "busybox" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the ReplicaSet events carry the PSS denial. This indirection is a stock exam scenario for every admission mechanism (5.2's engines included); PSS is just where it is cheapest to practice.</div>
+      <div class="verify"><b>verify:</b> the ReplicaSet events carry the PSS denial. This indirection is a stock exam scenario for every admission mechanism (5.2's engines included); PSS is where it is cheapest to practice.</div>
     </div>
 
     <div class="exercise" data-title="Preview a tightening like a platform team would">
       <p><code>kubectl label --dry-run=server --overwrite ns team-b pod-security.kubernetes.io/enforce=restricted</code> and read which existing pods would violate.</p>
-      <div class="verify"><b>verify:</b> a warning per non-compliant pod, zero mutations made. Pair with the audit log (section 5.4) to see what the <code>audit</code> label has been quietly recording all along.</div>
+      <div class="verify"><b>verify:</b> a warning per non-compliant pod, zero mutations made. Pair with the audit log (section 5.4) to see what the <code>audit</code> label has been recording all along.</div>
     </div>
 
     <div class="exercise" data-title="runAsNonRoot meets a root image">
-      <p>Pod Security admits this pod happily: the spec is compliant. The kubelet then refuses to start it, because the image's user is root and the spec said not root. The refusal therefore lands in the container status, not at admission, which is why the pod is created and never runs.</p>
+      <p>Pod Security admits this pod: the spec is compliant. The kubelet then refuses to start it, because the image's user is root and the spec said not root. The refusal therefore lands in the container status, not at admission, which is why the pod is created and never runs.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl create ns hardened --dry-run=client -o yaml | kubectl apply -f -
 kubectl label ns hardened pod-security.kubernetes.io/enforce=restricted --overwrite
 kubectl -n hardened apply -f - &lt;&lt;'EOF'
@@ -237,7 +237,7 @@ EOF
 sleep 20
 kubectl -n hardened get pod rootimage -o jsonpath='{.status.containerStatuses[0].state}' | jq
 kubectl -n hardened describe pod rootimage | sed -n '/Events/,$p'
-kubectl -n hardened delete pod rootimage</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create ns hardened --dry-run=client -o yaml | kubectl apply -f -</b>
+kubectl -n hardened delete pod rootimage</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl create ns hardened --dry-run=client -o yaml | kubectl apply -f -</b>
 namespace/hardened created
 <b>$ kubectl label ns hardened pod-security.kubernetes.io/enforce=restricted --overwrite</b>
 namespace/hardened labeled
@@ -261,7 +261,7 @@ pod/rootimage created
 <b>$ kubectl -n hardened get pod rootimage -o jsonpath='{.status.containerStatuses[0].state}' | jq</b>
 {
   "waiting": {
-    "message": "container has runAsNonRoot and image will run as root (pod: \"rootimage_hardened(b1353a96-63bb-4895-b6f2-838249d72469)\", container: c)",
+    "message": "container has runAsNonRoot and image will run as root (pod: \"rootimage_hardened(ea1bc5ba-ec01-4f25-8a09-2531b28d3296)\", container: c)",
     "reason": "CreateContainerConfigError"
   }
 }
@@ -269,10 +269,10 @@ pod/rootimage created
 Events:
   Type     Reason           Age               From               Message
   ----     ------           ----              ----               -------
-  Warning  PolicyViolation  21s               kyverno-admission  policy require-resource-requests/ fail: every container must set cpu and memory requests
-  Normal   Scheduled        21s               default-scheduler  Successfully assigned hardened/rootimage to cnpe-worker
-  Normal   Pulled           7s (x3 over 19s)  kubelet            spec.containers{c}: Container image "nginx:1.27-alpine" already present on machine and can be accessed by the pod
-  Warning  Failed           7s (x3 over 19s)  kubelet            spec.containers{c}: Error: container has runAsNonRoot and image will run as root (pod: "rootimage_hardened(b1353a96-63bb-4895-b6f2-838249d72469)", container: c)
+  Warning  PolicyViolation  20s               kyverno-admission  policy require-resource-requests/validation fail: every container must set cpu and memory requests
+  Normal   Scheduled        20s               default-scheduler  Successfully assigned hardened/rootimage to cnpe-worker
+  Normal   Pulled           4s (x3 over 18s)  kubelet            spec.containers{c}: Container image "nginx:1.27-alpine" already present on machine and can be accessed by the pod
+  Warning  Failed           4s (x3 over 18s)  kubelet            spec.containers{c}: Error: container has runAsNonRoot and image will run as root (pod: "rootimage_hardened(ea1bc5ba-ec01-4f25-8a09-2531b28d3296)", container: c)
 <b>$ kubectl -n hardened delete pod rootimage</b>
 pod "rootimage" deleted from hardened namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> admission accepts the pod and the container status is <code>CreateContainerConfigError</code> with an event saying the container has runAsNonRoot and the image will run as root.</div>
@@ -323,10 +323,10 @@ spec:
 EOF
 sleep 30
 kubectl -n default get pod userns -o jsonpath='{.status.phase} {.status.conditions[*].message}{"\n"}'
-kubectl -n default get events --field-selector involvedObject.name=userns -o jsonpath='{range .items[*]}{.reason}: {.message}{"\n"}{end}' | tail -1
+kubectl -n default get events --field-selector involvedObject.name=userns,reason=FailedCreatePodSandBox -o jsonpath='{range .items[*]}{.reason}: {.message}{"\n"}{end}' | tail -1
 kubectl -n default exec userns -- cat /proc/self/uid_map
 kubectl -n default exec userns -- id
-kubectl -n default delete pod userns</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl -n default apply -f - &lt;&lt;'EOF'</b>
+kubectl -n default delete pod userns</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl -n default apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: v1</b>
 <b>kind: Pod</b>
 <b>metadata: { name: userns }</b>
@@ -340,16 +340,16 @@ kubectl -n default delete pod userns</code></pre><details class="out"><summary>o
 pod/userns created
 <b>$ sleep 30</b>
 <b>$ kubectl -n default get pod userns -o jsonpath='{.status.phase} {.status.conditions[*].message}{"\n"}'</b>
-Pending containers with unready status: [c] containers with unready status: [c]
-<b>$ kubectl -n default get events --field-selector involvedObject.name=userns -o jsonpath='{range .items[*]}{.reason}: {.message}{"\n"}{end}' | tail -1</b>
-FailedCreatePodSandBox: Failed to create pod sandbox: rpc error: code = Unknown desc = failed to start sandbox "8f8262b522a1e5b8f11a084559e731dd00390acf1c8d8f4ebddd62f0452dc38d": failed to create containerd task: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: error mounting "sysfs" to rootfs at "/sys": mount src=sysfs, dst=/sys, dstFd=/proc/thread-self/fd/11, flags=MS_RDONLY|MS_NOSUID|MS_NODEV|MS_NOEXEC: operation not permitted
+Pending no pod sandbox exists containers with unready status: [c] containers with unready status: [c]
+<b>$ kubectl -n default get events --field-selector involvedObject.name=userns,reason=FailedCreatePodSandBox -o jsonpath='{range .items[*]}{.reason}: {.message}{"\n"}{end}' | tail -1</b>
+FailedCreatePodSandBox: Failed to create pod sandbox: rpc error: code = Unknown desc = failed to start sandbox "cc4756c58ce6e33dcde4c9a6536a43339c2c0a971b3ace9f2acbc19db0c39503": failed to create containerd task: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: error mounting "sysfs" to rootfs at "/sys": mount src=sysfs, dst=/sys, dstFd=/proc/thread-self/fd/11, flags=MS_RDONLY|MS_NOSUID|MS_NODEV|MS_NOEXEC: operation not permitted
 <b>$ kubectl -n default exec userns -- cat /proc/self/uid_map</b>
 error: unable to upgrade connection: container not found ("c")
 <b>$ kubectl -n default exec userns -- id</b>
 error: unable to upgrade connection: container not found ("c")
 <b>$ kubectl -n default delete pod userns</b>
 pod "userns" deleted from default namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the pod stays <code>Pending</code> with <code>containers with unready status: [c]</code>, and the event is <code>FailedCreatePodSandBox ... error mounting "sysfs" to rootfs at "/sys": ... operation not permitted</code>. That is the runtime, not the API, refusing: admission accepted <code>hostUsers: false</code> quite happily, so the exec that follows fails with <code>container not found</code> rather than with anything about user namespaces. On a cluster where it does work, <code>cat /proc/self/uid_map</code> inside the pod shows container uid 0 mapped to a high host uid rather than to 0, which is the check worth remembering.</div>
+      <div class="verify"><b>verify:</b> the pod stays <code>Pending</code> with <code>containers with unready status: [c]</code>, and the event is <code>FailedCreatePodSandBox ... error mounting "sysfs" to rootfs at "/sys": ... operation not permitted</code>. That is the runtime, not the API, refusing: admission accepted <code>hostUsers: false</code>, so the exec that follows fails with <code>container not found</code> rather than with anything about user namespaces. On a cluster where it does work, <code>cat /proc/self/uid_map</code> inside the pod shows container uid 0 mapped to a high host uid rather than to 0, which is the check worth remembering.</div>
     </div>
 
     <div class="exercise" data-title="Preview a tightening without breaking anyone">

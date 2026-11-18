@@ -3,6 +3,10 @@
 source "$(dirname "$0")/lib.sh"
 need kind; need kubectl; need helm
 MESH="${MESH:-istio}"
+# kind create cluster makes the new cluster current; put back whatever was current,
+# so context-less kubectl still reaches the main cluster afterwards.
+ORIG_CTX=$(kubectl config current-context 2>/dev/null || true)
+trap '[ -z "$ORIG_CTX" ] || kubectl config use-context "$ORIG_CTX" >/dev/null' EXIT
 
 if ! cluster_exists "$MESH_CLUSTER"; then
   log "Creating '$MESH_CLUSTER' cluster"
@@ -11,10 +15,9 @@ if ! cluster_exists "$MESH_CLUSTER"; then
   kind create cluster --config /tmp/cnpe-lab/kind-$MESH_CLUSTER.yaml --wait 90s
 fi
 CTX="kind-$MESH_CLUSTER"
-kubectl config use-context "$CTX" >/dev/null
 
 log "Gateway API CRDs"
-kubectl --context "$CTX" apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.1/standard-install.yaml
+kubectl --context "$CTX" apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.7.0/standard-install.yaml
 
 case "$MESH" in
   istio)
@@ -23,14 +26,14 @@ case "$MESH" in
     istioctl install --context "$CTX" --set profile=ambient --skip-confirmation
     log "Labeling default namespace into the mesh"
     kubectl --context "$CTX" label ns default istio.io/dataplane-mode=ambient --overwrite
-    cat <<'X'
+    cat <<X
 
-  Drills:
-    istioctl x ztunnel-config workload
-    kubectl apply -f https://raw.githubusercontent.com/istio/istio/master/samples/bookinfo/platform/kube/bookinfo.yaml
+  Drills (your current context stays on the main cluster, so name this one):
+    istioctl x ztunnel-config workload --context $CTX
+    kubectl --context $CTX apply -f https://raw.githubusercontent.com/istio/istio/master/samples/bookinfo/platform/kube/bookinfo.yaml
     # then: PeerAuthentication STRICT, AuthorizationPolicy allow-only-frontend,
     #       a Gateway + HTTPRoute, and an L7 waypoint:
-    istioctl waypoint apply -n default --enroll-namespace
+    istioctl waypoint apply -n default --enroll-namespace --context $CTX
 X
     ;;
   linkerd)
@@ -52,5 +55,4 @@ helm --kube-context "$CTX" upgrade --install flagger flagger/flagger \
   --set metricsServer="http://prometheus:9090" --wait --timeout 8m \
   || warn "flagger needs a Prometheus in this cluster; install kube-prometheus-stack here too if you want metric-driven canaries"
 
-kubectl config use-context "kind-$CLUSTER" >/dev/null
 ok "Mesh cluster ready (context: $CTX). Switch with: kubectl config use-context $CTX"

@@ -114,14 +114,14 @@
   
 
     <h3>Backup and restore as objects: Velero</h3>
-    <p>When the DR answer is "a backup tool", Velero is the one the exam pool knows, and its model is four CRDs. A <code>BackupStorageLocation</code> names the object store (bucket, prefix, provider plugin); a <code>VolumeSnapshotLocation</code> names where disk snapshots go; a <code>Backup</code> selects what to copy (<code>includedNamespaces</code>, <code>includedResources</code>, <code>labelSelector</code>, <code>ttl</code>, default 30 days) and a <code>Schedule</code> is a Backup template with a cron expression, producing backups named <code>&lt;schedule&gt;-&lt;timestamp&gt;</code>. Volumes are copied either by CSI snapshot (the snapshot is retained only for the life of the backup, then moved or deleted) or by file-system backup, which reads the mounted files from a node agent and works for any volume type at the cost of consistency. Backup hooks (<code>pre</code> and <code>post</code> exec commands, such as flushing a database) are the honest answer to "is this backup consistent". A <code>Restore</code> replays a backup, optionally mapping namespaces (<code>namespaceMapping: {abc: def}</code>), and restored objects carry the label <code>velero.io/restore-name</code>. In a GitOps cluster the split to state out loud is: manifests come back from git, PV contents come back from Velero (or the operator's own backup), and neither replaces the other.</p>
+    <p>When the DR answer is "a backup tool", Velero is the one the exam pool knows, and its model is four CRDs. A <code>BackupStorageLocation</code> names the object store (bucket, prefix, provider plugin); a <code>VolumeSnapshotLocation</code> names where disk snapshots go; a <code>Backup</code> selects what to copy (<code>includedNamespaces</code>, <code>includedResources</code>, <code>labelSelector</code>, <code>ttl</code>, default 30 days) and a <code>Schedule</code> is a Backup template with a cron expression, producing backups named <code>&lt;schedule&gt;-&lt;timestamp&gt;</code>. Volumes are copied either by CSI snapshot (the snapshot is retained only for the life of the backup, then moved or deleted) or by file-system backup, which reads the mounted files from a node agent and works for any volume type at the cost of consistency. Backup hooks (<code>pre</code> and <code>post</code> exec commands, such as flushing a database) are the answer to "is this backup consistent". A <code>Restore</code> replays a backup, optionally mapping namespaces (<code>namespaceMapping: {abc: def}</code>), and restored objects carry the label <code>velero.io/restore-name</code>. In a GitOps cluster the split to state out loud is: manifests come back from git, PV contents come back from Velero (or the operator's own backup), and neither replaces the other.</p>
   </div>
 </section>
 
 <section class="panel accent-c" id="lifecycle-features">
   <div class="phdr"><h2>Lifecycle features by version, and copies of data</h2><span class="meta">retention · expansion · snapshots · clones · ephemeral volumes · VolumeAttributesClass</span></div>
   <div class="pbody">
-    <p>Every item here is a field on a PVC, StatefulSet or StorageClass that a task can ask you to set, plus the version at which it stopped being optional. The cluster is 1.36, so everything marked GA is simply on.</p>
+    <p>Every item here is a field on a PVC, StatefulSet or StorageClass that a task can ask you to set, plus the version at which it stopped being optional. The cluster is 1.37, so everything marked GA is on.</p>
 
     <h3>StatefulSet PVC retention (GA since 1.32)</h3>
     <p><code>spec.persistentVolumeClaimRetentionPolicy</code> has two knobs, each <code>Retain</code> (default) or <code>Delete</code>: <code>whenDeleted</code> applies when the StatefulSet is deleted, <code>whenScaled</code> when replicas are reduced. <code>Delete</code> works by putting an ownerReference on the PVC so the garbage collector removes it after the pod is gone; a pod replaced after a node failure keeps its PVC regardless. The common production choice is <code>whenDeleted: Retain, whenScaled: Delete</code>: an accidental delete keeps the data, a deliberate scale-down does not leave orphans.</p>
@@ -241,7 +241,7 @@ default      pg-2                        standard   ReadWriteOnce   1Gi
 default      scratch                     standard   ReadWriteOnce   1Gi
 monitoring   storage-loki-0              standard   ReadWriteOnce   10Gi
 spire        spire-data-spire-server-0   standard   ReadWriteOnce   1Gi</code></pre></details></div>
-      <div class="verify"><b>verify:</b> you can point at each PVC and name what created it (a volumeClaimTemplate, an operator, a human). Note that a CNPG instance's PVC survives <code>kubectl delete pod</code> of the instance, and the new pod mounts the same data. That is the operator relying on exactly the PVC semantics above.</div>
+      <div class="verify"><b>verify:</b> you can point at each PVC and name what created it (a volumeClaimTemplate, an operator, a human). A CNPG instance's PVC survives <code>kubectl delete pod</code> of the instance, and the new pod mounts the same data. That is the operator relying on the PVC semantics above.</div>
     </div>
 
     <div class="exercise" data-title="One static PV, for completeness">
@@ -379,9 +379,9 @@ kubectl describe pvc grow | tail -8
 kubectl delete pod grower
 kubectl delete pvc grow
 # put the shared default class back the way it was
-kubectl patch storageclass standard -p '{"allowVolumeExpansion":false}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get storageclass</b>
+kubectl patch storageclass standard -p '{"allowVolumeExpansion":false}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl get storageclass</b>
 NAME                 PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
-standard (default)   rancher.io/local-path   Delete          WaitForFirstConsumer   false                  20h
+standard (default)   rancher.io/local-path   Delete          WaitForFirstConsumer   false                  101m
 <b>$ kubectl patch storageclass standard -p '{"allowVolumeExpansion":true}'</b>
 storageclass.storage.k8s.io/standard patched
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
@@ -403,17 +403,17 @@ persistentvolumeclaim/grow patched
 <b>$ kubectl get pvc grow -o jsonpath='spec: {.spec.resources.requests.storage}  status: {.status.capacity.storage}{"\n"}'</b>
 spec: 128Mi  status: 64Mi
 <b>$ echo "conditions: $(kubectl get pvc grow -o jsonpath='{.status.conditions}')"</b>
-conditions: 
+conditions: [{"lastProbeTime":null,"lastTransitionTime":"2026-11-18T05:29:06Z","message":"A pod is currently referencing this PVC","reason":"PodUsingPVC","status":"False","type":"Unused"}]
 <b>$ kubectl get pvc grow -o jsonpath='{.status.allocatedResourceStatuses}{"\n"}'</b>
 <b>$ kubectl describe pvc grow | tail -8</b>
 Events:
-  Type    Reason                 Age   From                                                                                                Message
-  ----    ------                 ----  ----                                                                                                -------
-  Normal  WaitForFirstConsumer   32s   persistentvolume-controller                                                                         waiting for first consumer to be created before binding
-  Normal  ExternalProvisioning   31s   persistentvolume-controller                                                                         Waiting for a volume to be created either by the external provisioner 'rancher.io/local-path' or manually by the system administrator. If volume creation is delayed, please verify that the provisioner is running and correctly registered.
-  Normal  Provisioning           31s   rancher.io/local-path_local-path-provisioner-855c7b7774-xsqw2_944b3c00-03a8-486a-896a-567844028b41  External provisioner is provisioning volume for claim "default/grow"
-  Normal  ProvisioningSucceeded  25s   rancher.io/local-path_local-path-provisioner-855c7b7774-xsqw2_944b3c00-03a8-486a-896a-567844028b41  Successfully provisioned volume pvc-f412d670-060c-4a9a-8fda-bd4cc5645a03
-  Normal  ExternalExpanding      21s   volume_expand                                                                                       waiting for an external controller to expand this PVC
+  Type    Reason                 Age                From                                                                                                Message
+  ----    ------                 ----               ----                                                                                                -------
+  Normal  WaitForFirstConsumer   35s (x2 over 36s)  persistentvolume-controller                                                                         waiting for first consumer to be created before binding
+  Normal  ExternalProvisioning   35s (x2 over 35s)  persistentvolume-controller                                                                         Waiting for a volume to be created either by the external provisioner 'rancher.io/local-path' or manually by the system administrator. If volume creation is delayed, please verify that the provisioner is running and correctly registered.
+  Normal  Provisioning           35s                rancher.io/local-path_local-path-provisioner-75f7fc7dc5-fn77f_38469406-ed44-47b9-ab58-e77608b6f5e9  External provisioner is provisioning volume for claim "default/grow"
+  Normal  ProvisioningSucceeded  27s                rancher.io/local-path_local-path-provisioner-75f7fc7dc5-fn77f_38469406-ed44-47b9-ab58-e77608b6f5e9  Successfully provisioned volume pvc-66665d14-7fe5-4b21-b8fa-82d0dc39d1e6
+  Normal  ExternalExpanding      22s                volume_expand                                                                                       waiting for an external controller to expand this PVC
 <b>$ kubectl delete pod grower</b>
 pod "grower" deleted from default namespace
 <b>$ kubectl delete pvc grow</b>
@@ -421,7 +421,7 @@ persistentvolumeclaim "grow" deleted from default namespace
 <b>$ # put the shared default class back the way it was</b>
 <b>$ kubectl patch storageclass standard -p '{"allowVolumeExpansion":false}'</b>
 storageclass.storage.k8s.io/standard patched</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the class accepts <code>allowVolumeExpansion: true</code> and the claim accepts the larger request, so <code>spec</code> reads 128Mi while <code>status.capacity</code> stays at 64Mi. <code>status.conditions</code> is empty and the only event is <code>ExternalExpanding: waiting for an external controller to expand this PVC</code>, which is the whole answer: local-path has no resize support, so no controller ever picks the request up and the claim waits forever with its spec and status disagreeing. There is no error to find, which is the failure mode worth recognizing.</div>
+      <div class="verify"><b>verify:</b> the class accepts <code>allowVolumeExpansion: true</code> and the claim accepts the larger request, so <code>spec</code> reads 128Mi while <code>status.capacity</code> stays at 64Mi. <code>status.conditions</code> holds only <code>Unused: False</code> (a pod references the claim), nothing about resizing, and the only resize event is <code>ExternalExpanding: waiting for an external controller to expand this PVC</code>, which is the whole answer: local-path has no resize support, so no controller ever picks the request up and the claim waits forever with its spec and status disagreeing. There is no error to find, which is the failure mode worth recognizing.</div>
     </div>
 
     <div class="exercise" data-title="A claim that lives and dies with its pod">

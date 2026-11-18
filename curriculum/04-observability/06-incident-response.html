@@ -84,7 +84,7 @@ cnpe-worker
 
     <div class="callout reflex">
       <span class="tag">Time-boxing is part of the skill</span>
-      <p>Seven minutes per task is the lab's clock because it is roughly the exam's. If you are four minutes in with no theory that fits the evidence, stop and re-run step 1: widen, do not deepen. And write your diagnosis down <em>before</em> you fix anything; a written theory is falsifiable, a mental one drifts to match whatever you just tried.</p>
+      <p>Seven minutes per workload task (ten for a platform-tooling one) is the lab's clock because it is roughly the exam's. If you are four minutes in with no theory that fits the evidence, stop and re-run step 1: widen, do not deepen. And write your diagnosis down <em>before</em> you fix anything; a written theory is falsifiable, a mental one drifts to match whatever you just tried.</p>
     </div>
   </div>
 </section>
@@ -120,7 +120,7 @@ cnpe-worker
       <table>
         <thead><tr><th>Scenario</th><th>Tells</th><th>Lever</th></tr></thead>
         <tbody>
-          <tr><td>node <code>NotReady</code></td><td>condition message <code>Kubelet stopped posting node status</code>; pods on it go <code>Unknown</code>, then are evicted after the eviction timeout (5 minutes by default)</td><td><code>kubectl debug node/</code> and read <code>/host/var/log/kubelet.log</code> and containerd; disk pressure and certificate expiry are the usual causes</td></tr>
+          <tr><td>node <code>NotReady</code></td><td>condition message <code>Kubelet stopped posting node status</code>; pods on it go <code>Unknown</code>, then are evicted after the eviction timeout (5 minutes by default)</td><td><code>kubectl debug node/&lt;n&gt; -it --image=busybox:1.37 -- chroot /host journalctl -u kubelet -n 50</code> (and <code>-u containerd</code>): the kubelet logs to the journal, not to a file; disk pressure and certificate expiry are the usual causes</td></tr>
           <tr><td>DNS</td><td>everything Running, apps log <code>no such host</code>; <code>nslookup kubernetes.default</code> from a pod fails</td><td>CoreDNS pods and its ConfigMap; a NetworkPolicy that forgot UDP/TCP 53 egress to <code>kube-system</code></td></tr>
           <tr><td>certificate expiry</td><td><code>x509: certificate has expired or is not yet valid</code> in kubelet or kubectl output; a webhook whose <code>caBundle</code> no longer matches</td><td><code>kubeadm certs check-expiration</code> and <code>kubeadm certs renew</code>; cert-manager for the webhook</td></tr>
           <tr><td>etcd full</td><td>every write fails with <code>etcdserver: mvcc: database space exceeded</code>; reads still work</td><td><code>etcdctl alarm list</code>, compact, defrag, <code>alarm disarm</code>; raise <code>--quota-backend-bytes</code>; find what filled it (events, huge ConfigMaps)</td></tr>
@@ -143,7 +143,7 @@ cnpe-worker
       <li><code>kubectl debug -it pod/x --image=busybox --target=app</code> adds an ephemeral container sharing the process namespace of <code>app</code>; ephemeral containers cannot be removed, only the pod deleted.</li>
       <li><code>--copy-to=x-debug --share-processes --set-image=app=busybox</code> copies the pod with a changed image or command, for a container that crashes before you can attach; <code>--copy-to</code> with <code>--container app -- sh</code> overrides the command.</li>
       <li><code>kubectl debug node/n -it --image=busybox</code> schedules a pod on the node with the host filesystem at <code>/host</code>; it is not privileged unless <code>--profile=sysadmin</code>. The other profiles are <code>general</code> (the default), <code>baseline</code> and <code>restricted</code> (pass PSS), <code>netadmin</code> (NET_ADMIN and NET_RAW for tcpdump and ip). Delete the <code>node-debugger-*</code> pod afterwards.</li>
-      <li><code>kubectl get --raw /readyz?verbose</code> and <code>/livez?verbose</code> list API server health checks by name (etcd, informers, webhooks); <code>kubectl get componentstatuses</code> is gone, do not reach for it.</li>
+      <li><code>kubectl get --raw /readyz?verbose</code> and <code>/livez?verbose</code> list API server health checks by name (etcd, informers, webhooks); <code>kubectl get componentstatuses</code> still answers, but it has been deprecated since 1.19 and prints a warning saying so; the health endpoints above are the supported view.</li>
     </ul>
 
     <h3>Rollback, per layer</h3>
@@ -180,7 +180,7 @@ cnpe-worker
       <li><strong>Fix</strong>: what you did, including anything you did that turned out to be irrelevant.</li>
       <li><strong>Proof of recovery</strong>: the command or signal that confirms it, and the follow-up that prevents recurrence (an alert that would have caught it sooner, a policy, a default).</li>
     </ol>
-    <p>Blameless, mechanism-focused, and short enough that you will actually write it. Vocabulary that may appear in a scenario: <em>MTTD</em> (detect), <em>MTTA</em> (acknowledge), <em>MTTR</em> (restore), <em>error budget</em> (how much unreliability the SLO permits), <em>toil</em> (manual repetitive work that scales with load, the thing a platform is supposed to remove).</p>
+    <p>Blameless, mechanism-focused, and short enough that you will write it. Vocabulary that may appear in a scenario: <em>MTTD</em> (detect), <em>MTTA</em> (acknowledge), <em>MTTR</em> (restore), <em>error budget</em> (how much unreliability the SLO permits), <em>toil</em> (manual repetitive work that scales with load, the thing a platform is supposed to remove).</p>
 
     <div class="callout exam">
       <span class="tag">Remediation ≠ resolution</span>
@@ -216,7 +216,7 @@ rbac  (domain: workload)
 
 the pod was switched to sa/app-sa, which has no RBAC at all. Nothing in pod status shows it; only 'kubectl auth can-i --as=system:serviceaccount:team-a:app-sa' does. Fix: bind a Role with the needed verbs.</code></pre></details></div>
       <p>Then drill the ones that hurt, by name. The classic workload seven: <code>FAULT=image</code>, <code>probe</code>, <code>resources</code>, <code>rbac</code>, <code>quota</code>, <code>netpol</code>, <code>config</code>. The rbac fault is invisible in pod listings and only surfaces under <code>kubectl auth can-i --as=...</code>; the netpol fault leaves everything Running while DNS is dead (the additive-allow-list lesson from 1.4). Beyond those, <code>DOMAIN=gitops</code>, <code>cicd</code>, <code>apis</code> or <code>security</code> scopes the draw to faults in the platform tooling itself: a frozen Argo CD sync, a suspended Flux Kustomization, a canary analysis querying a dead Prometheus, a Tekton pipeline missing its Task, a crashlooping EventListener, a Crossplane provider stripped of RBAC, a paused XR, a Kyverno Deny policy, a PSS flip. Those are the incidents domains 2, 3 and 5 grade.</p>
-      <div class="verify"><b>verify:</b> your diagnosis written down <em>before</em> <code>make break-answer</code>, and the fix confirmed by the failing behavior now succeeding. <code>make break-fix</code> afterwards shows the evidence trail a systematic diagnosis would have followed; compare it with the path you actually took and note where you diverged.</div>
+      <div class="verify"><b>verify:</b> your diagnosis written down <em>before</em> <code>make break-answer</code>, and the fix confirmed by the failing behavior now succeeding. <code>make break-fix</code> afterwards shows the evidence trail a systematic diagnosis would have followed; compare it with the path you took and note where you diverged.</div>
     </div>
 
     <div class="exercise" data-title="Diagnose with telemetry, not just kubectl">
@@ -235,7 +235,7 @@ the pod was switched to sa/app-sa, which has no RBAC at all. Nothing in pod stat
     </div>
 
     <div class="exercise" data-title="Fill etcd and dig out">
-      <p>etcd's quota is a hard stop: once it trips the cluster goes read-only for writes and stays that way until you compact, defrag and disarm the alarm. Four commands, in an order that has to be right.</p>
+      <p>etcd's quota is a hard stop: once it trips the cluster goes read-only and stays that way until you compact, defrag and disarm the alarm. Four commands, in an order that has to be right.</p>
       <p>This block lowers the quota on the kind control plane so the failure is reachable, then puts it back. Everything happens inside the control-plane container.</p>
       <div class="cb" data-lang="bash"><pre><code>ETCD="kubectl -n kube-system exec etcd-cnpe-control-plane -- etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key"
 $ETCD endpoint status -w table
@@ -250,28 +250,28 @@ $ETCD compact "$REV"
 $ETCD defrag
 $ETCD alarm disarm
 $ETCD alarm list
-kubectl create configmap canary --from-literal=a=1 &amp;&amp; kubectl delete configmap canary</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ ETCD="kubectl -n kube-system exec etcd-cnpe-control-plane -- etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key"</b>
+kubectl create configmap canary --from-literal=a=1 &amp;&amp; kubectl delete configmap canary</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ ETCD="kubectl -n kube-system exec etcd-cnpe-control-plane -- etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key"</b>
 <b>$ $ETCD endpoint status -w table</b>
-+------------------------+-----------------+---------+-----------------+---------+--------+-----------------------+--------+-----------+------------+-----------+------------+--------------------+--------+--------------------------+-------------------+
-|        ENDPOINT        |       ID        | VERSION | STORAGE VERSION | DB SIZE | IN USE | PERCENTAGE NOT IN USE | QUOTA  | IS LEADER | IS LEARNER | RAFT TERM | RAFT INDEX | RAFT APPLIED INDEX | ERRORS | DOWNGRADE TARGET VERSION | DOWNGRADE ENABLED |
-+------------------------+-----------------+---------+-----------------+---------+--------+-----------------------+--------+-----------+------------+-----------+------------+--------------------+--------+--------------------------+-------------------+
-| https://127.0.0.1:2379 | 26e8d9c7b9b778d |   3.6.8 |           3.6.0 |   75 MB |  72 MB |                    5% | 2.1 GB |      true |      false |         4 |     125621 |             125621 |        |                          |             false |
-+------------------------+-----------------+---------+-----------------+---------+--------+-----------------------+--------+-----------+------------+-----------+------------+--------------------+--------+--------------------------+-------------------+
+┌────────────────────────┬──────────────────┬─────────┬─────────────────┬─────────┬────────┬───────────────────────┬────────┬───────────┬────────────┬───────────┬────────────┬────────────────────┬────────┬──────────────────────────┬───────────────────┐
+│        ENDPOINT        │        ID        │ VERSION │ STORAGE VERSION │ DB SIZE │ IN USE │ PERCENTAGE NOT IN USE │ QUOTA  │ IS LEADER │ IS LEARNER │ RAFT TERM │ RAFT INDEX │ RAFT APPLIED INDEX │ ERRORS │ DOWNGRADE TARGET VERSION │ DOWNGRADE ENABLED │
+├────────────────────────┼──────────────────┼─────────┼─────────────────┼─────────┼────────┼───────────────────────┼────────┼───────────┼────────────┼───────────┼────────────┼────────────────────┼────────┼──────────────────────────┼───────────────────┤
+│ https://127.0.0.1:2379 │ 5320353a7d98bdee │   3.7.0 │           3.7.0 │  130 MB │  88 MB │                   33% │ 2.1 GB │      true │      false │         3 │     239545 │             239543 │        │                          │             false │
+└────────────────────────┴──────────────────┴─────────┴─────────────────┴─────────┴────────┴───────────────────────┴────────┴───────────┴────────────┴───────────┴────────────┴────────────────────┴────────┴──────────────────────────┴───────────────────┘
 <b>$ docker exec cnpe-control-plane sed -i 's|- etcd$|- etcd\n    - --quota-backend-bytes=16777216|' /etc/kubernetes/manifests/etcd.yaml</b>
 <b>$ sleep 90</b>
 <b>$ kubectl create configmap canary --from-literal=a=1</b>
 error: failed to create configmap: etcdserver: mvcc: database space exceeded
 <b>$ $ETCD alarm list</b>
-memberID:175233138742228877 alarm:NOSPACE 
+memberID:5989846029734297070 alarm:NOSPACE
 <b>$ docker exec cnpe-control-plane sed -i '/--quota-backend-bytes=16777216/d' /etc/kubernetes/manifests/etcd.yaml</b>
 <b>$ sleep 90</b>
 <b>$ REV=$($ETCD endpoint status --write-out=json | jq -r '.[0].Status.header.revision')</b>
 <b>$ $ETCD compact "$REV"</b>
-compacted revision 120134
+compacted revision 230538
 <b>$ $ETCD defrag</b>
-Finished defragmenting etcd member[https://127.0.0.1:2379]. took 451.79565ms
+Finished defragmenting etcd member[https://127.0.0.1:2379]. took 1.478135787s
 <b>$ $ETCD alarm disarm</b>
-memberID:175233138742228877 alarm:NOSPACE 
+memberID:5989846029734297070 alarm:NOSPACE
 <b>$ $ETCD alarm list</b>
 <b>$ kubectl create configmap canary --from-literal=a=1 &amp;&amp; kubectl delete configmap canary</b>
 configmap/canary created
@@ -544,45 +544,45 @@ kubectl -n default get pods -l app=probed
 POD=$(kubectl -n default get pod -l app=probed -o jsonpath='{.items[0].metadata.name}')
 kubectl -n default get pod "$POD" -o jsonpath='{.status.containerStatuses[0].lastState}' | jq
 kubectl -n default describe pod "$POD" | sed -n '/Events/,$p'
-kubectl -n default delete deployment probed</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n default create deployment probed --image=ghcr.io/stefanprodan/podinfo:6.7.1</b>
+kubectl -n default delete deployment probed</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl -n default create deployment probed --image=ghcr.io/stefanprodan/podinfo:6.7.1</b>
 deployment.apps/probed created
 <b>$ kubectl -n default patch deployment probed --type merge -p '{"spec":{"template":{"spec":{"containers":[{"name":"podinfo","image":"ghcr.io/stefanprodan/podinfo:6.7.1","livenessProbe":{"httpGet":{"path":"/healthz","port":9999},"initialDelaySeconds":5,"periodSeconds":5,"failureThreshold":2}}]}}}}'</b>
 deployment.apps/probed patched
 <b>$ sleep 90</b>
 <b>$ kubectl -n default get pods -l app=probed</b>
 NAME                      READY   STATUS    RESTARTS      AGE
-probed-5fcd4554f7-8qzz5   1/1     Running   4 (26s ago)   90s
+probed-58c8d84f9d-hsm22   1/1     Running   4 (26s ago)   90s
 <b>$ POD=$(kubectl -n default get pod -l app=probed -o jsonpath='{.items[0].metadata.name}')</b>
 <b>$ kubectl -n default get pod "$POD" -o jsonpath='{.status.containerStatuses[0].lastState}' | jq</b>
 {
   "terminated": {
-    "containerID": "containerd://9d61ffcbb66c2a6e74f31775c38f992f2a9b6769a2812941730d973b49fdf5d0",
+    "containerID": "containerd://e0dd37c9689fa866e91c2aea9b87e789580afd1a188dc416190b21f231d7991a",
     "exitCode": 0,
-    "finishedAt": "2026-09-13T03:44:00Z",
+    "finishedAt": "2026-11-18T09:01:25Z",
     "reason": "Completed",
-    "startedAt": "2026-09-13T03:43:46Z"
+    "startedAt": "2026-11-18T09:01:12Z"
   }
 }
 <b>$ kubectl -n default describe pod "$POD" | sed -n '/Events/,$p'</b>
 Events:
   Type     Reason           Age                From               Message
   ----     ------           ----               ----               -------
-  Warning  PolicyViolation  90s                kyverno-admission  policy require-resource-requests/ fail: every container must set cpu and memory requests
-  Normal   Scheduled        90s                default-scheduler  Successfully assigned default/probed-5fcd4554f7-8qzz5 to cnpe-worker
-  Warning  PolicyViolation  59s                kyverno-scan       policy require-resource-requests/ fail: every container must set cpu and memory requests
-  Warning  Unhealthy        30s (x8 over 80s)  kubelet            spec.containers{podinfo}: Liveness probe failed: Get "http://10.244.1.218:9999/healthz": dial tcp 10.244.1.218:9999: connect: connection refused
+  Warning  PolicyViolation  91s                kyverno-admission  policy require-resource-requests/validation fail: every container must set cpu and memory requests
+  Normal   Scheduled        91s                default-scheduler  Successfully assigned default/probed-58c8d84f9d-hsm22 to cnpe-worker
+  Warning  PolicyViolation  61s                kyverno-scan       policy require-resource-requests/validation fail: every container must set cpu and memory requests
+  Warning  Unhealthy        30s (x8 over 80s)  kubelet            spec.containers{podinfo}: Liveness probe failed: Get "http://10.244.2.253:9999/healthz": dial tcp 10.244.2.253:9999: connect: connection refused
   Normal   Killing          30s (x4 over 75s)  kubelet            spec.containers{podinfo}: Container podinfo failed liveness probe, will be restarted
-  Warning  BackOff          26s (x2 over 27s)  kubelet            spec.containers{podinfo}: Back-off restarting failed container podinfo in pod probed-5fcd4554f7-8qzz5_default(51a2ebe0-4fb8-4789-8b5a-595055e4ddd5)
-  Normal   Pulled           2s (x5 over 88s)   kubelet            spec.containers{podinfo}: Container image "ghcr.io/stefanprodan/podinfo:6.7.1" already present on machine and can be accessed by the pod
-  Normal   Created          1s (x5 over 88s)   kubelet            spec.containers{podinfo}: Container created
-  Normal   Started          1s (x5 over 87s)   kubelet            spec.containers{podinfo}: Container started
+  Warning  BackOff          26s (x2 over 27s)  kubelet            spec.containers{podinfo}: Back-off restarting failed container podinfo in pod probed-58c8d84f9d-hsm22_default(824e6976-387c-43a1-b596-6c3397518f2e)
+  Normal   Pulled           3s (x5 over 88s)   kubelet            spec.containers{podinfo}: Container image "ghcr.io/stefanprodan/podinfo:6.7.1" already present on machine and can be accessed by the pod
+  Normal   Created          3s (x5 over 87s)   kubelet            spec.containers{podinfo}: Container created
+  Normal   Started          2s (x5 over 87s)   kubelet            spec.containers{podinfo}: Container started
 <b>$ kubectl -n default delete deployment probed</b>
 deployment.apps "probed" deleted from default namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> the restart count climbs (4 in 90 seconds here), the events carry <code>Liveness probe failed</code> with connection refused on port 9999 followed by <code>Killing</code> and <code>BackOff</code>, and <code>lastState.terminated</code> records the kill. The exit code is 0 with reason <code>Completed</code>, not 143, because podinfo handles SIGTERM and exits cleanly; 143 is what you see from a process that ignores it. The probe event plus the restart count is the evidence that separates "the app is broken" from "we are killing it", and the exit code alone does not.</div>
     </div>
 
     <div class="exercise" data-title="Ask the API server if it is well">
-      <p><code>/readyz?verbose</code> lists every readiness check the API server runs and which one is failing. It is the fastest first command on a control plane that feels wrong, and it needs no tooling at all.</p>
+      <p><code>/readyz?verbose</code> lists every readiness check the API server runs and which one is failing. It is the fastest first command on a control plane that feels wrong, and it needs no tooling.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl get --raw '/readyz?verbose' | tail -30
 kubectl get --raw '/livez?verbose' | tail -10
 kubectl get --raw '/healthz/etcd'

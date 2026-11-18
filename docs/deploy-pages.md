@@ -9,8 +9,8 @@ human are [GitHub settings](#1-github-settings-you-have-to-click-yourself) and
 
 ## How the deploy works
 
-`.github/workflows/deploy-study-console.yml` runs on pushes to `master` that touch
-`curriculum/**` or the workflow itself (plus `workflow_dispatch`), and mirrors the approach already used by
+`.github/workflows/deploy-study-console.yml` runs when the `CI` workflow succeeds on a
+push to `master` (plus `workflow_dispatch`), and mirrors the approach already used by
 `rbstp/gist-blog`: `actions/configure-pages` → `actions/upload-pages-artifact` →
 `actions/deploy-pages`, same action majors, same `github-pages` environment, same
 `pages` concurrency group.
@@ -32,9 +32,10 @@ the publish step, so `file://` and `make study` keep working exactly as before:
 * `404.html`: served for any missing path at any depth, so its links are **root-absolute** (`/assets/style.css`, `/`); that is exactly why it is generated here and not checked into the tree, where absolute paths would break `file://`
 * a content stamp on every asset reference the pages carry: `assets/app.js?v=a703192080`, the first ten hex digits of the file's SHA-256. Pages sends `Cache-Control: max-age=600` on everything it serves, so without a stamp each file expires on its own clock and a browser can hold the new HTML against the bundle it cached ten minutes ago. The stamp changes when the bytes change and not otherwise, so a page and the assets it pulls are always one version of the console, and an asset nobody touched stays cached across the deploy. It buys that coherence rather than immediacy: the pages themselves cannot be stamped and still expire on their own clock, so a deploy still reaches a recent visitor when their copy of the page does. The stylesheet's own `url("fonts/…")` references are stamped first, before its hash is taken, so a changed font moves the stylesheet and the pages' stamp for it in turn. `check-site.sh` fails on any reference that is missing a stamp
 
-The staged artifact is asserted by `curriculum/tools/check-site.sh` (required files,
-35 pages, self-contained bundle, stamped asset references, `CNAME` content). The same script gates pull requests
-via `.github/workflows/ci.yml`, so the merge gate and the deploy gate cannot drift.
+`curriculum/tools/check-site.sh` asserts the staged site (required files, 36 pages,
+self-contained bundle, stamped asset references, `CNAME` content). It runs in
+`.github/workflows/ci.yml` on every pull request and every push to `master`, and the
+deploy starts only from a green CI run, so the merge gate and the deploy gate are one check.
 `tools/subset-fonts.py --check` runs alongside it: the shipped faces carry only the
 characters the console writes, and the check fails when new prose reaches for one the cut
 removed, rather than letting it fall back to a system font in a deployed page. It reads
@@ -69,12 +70,12 @@ These are repo settings, not repo contents, so a PR cannot set them.
 | Setting | Where | Value | Status |
 |---|---|---|---|
 | Visibility | Settings → General → Danger Zone | public | **already public**, nothing to do. (Pages on a *private* repo needs Pro/Team/Enterprise; not your case.) |
-| Source | Settings → Pages → Build and deployment → **Source** | **GitHub Actions** | **you must set this.** Pages is not enabled on this repo yet. |
+| Source | Settings → Pages → Build and deployment → **Source** | **GitHub Actions** | **you must set this.** A new repo or a fork starts with Pages off. |
 | Custom domain | Settings → Pages → **Custom domain** | `cnpe.rbstp.dev` → Save | **you must set this**, *after* the DNS record exists; GitHub runs a DNS check on save and rejects a name that does not resolve to it yet. |
 | Enforce HTTPS | Settings → Pages → **Enforce HTTPS** | ticked | **you must tick this**, and the checkbox stays grayed out until GitHub has issued the certificate. Come back to it. |
 
-Order: merge this PR → set Source = GitHub Actions → add the Cloudflare record → set the
-custom domain → wait for the cert → tick Enforce HTTPS.
+Order: set Source = GitHub Actions → add the Cloudflare record → set the custom
+domain → wait for the cert → tick Enforce HTTPS.
 
 Two things that need no clicking: the `github-pages` environment is created on first
 deploy, and the workflow already carries `pages: write` + `id-token: write`. If you have
@@ -162,10 +163,10 @@ Check these before blaming the deploy:
 ## 3. Progress sync across browsers
 
 `localStorage` is per-origin, so a `file://` copy and `https://cnpe.rbstp.dev` keep
-*separate* stores, and no two browsers share one. This PR adds **Export**/**Import**
-buttons on the dashboard: Export writes `cnpe-progress-YYYY-MM-DD.json`, Import merges
-one back in: union only, so an import can tick something but never un-tick it, and the
-mock exam's clock is left alone (only its scored tasks merge). Reset first if you want a
+*separate* stores, and no two browsers share one. The dashboard's **Export** and
+**Import** buttons bridge them: Export writes `cnpe-progress-YYYY-MM-DD.json`, and Import
+merges one back in. The merge is a union, so an import can tick something but never
+un-tick it, and the mock exam's clock is left alone (only its scored tasks merge). Reset first if you want a
 plain restore rather than a merge.
 
 That was chosen over the alternatives:
@@ -284,6 +285,6 @@ curl -sS -o /dev/null -w 'apex %{http_code}\n' https://rbstp.dev/
 | Pages settings reject the custom domain | DNS has not propagated. `dig +short CNAME cnpe.rbstp.dev` first. |
 | **Enforce HTTPS** stays grayed out for over an hour | Cert not issued. Confirm the record is **gray**, then check `dig +short CAA rbstp.dev`. |
 | `ERR_TOO_MANY_REDIRECTS` | Proxied with SSL/TLS mode `Flexible`. Set `Full (strict)`, or go back to gray. |
-| Site loads unstyled | `/assets/style.css` is 404ing; check the workflow's *Check the staged site* step ran green. |
+| Site loads unstyled | `/assets/style.css` is 404ing; check CI's *Check the staged site* step ran green. |
 | Custom domain reverted to blank after a deploy | The classic Actions-Pages failure mode; the `CNAME` in the artifact is there to prevent it. Re-set it and check the artifact contains `CNAME`. |
-| A deploy did not fire | The push touched nothing under `curriculum/`. Run the workflow manually: Actions → Deploy Study Console → Run workflow. |
+| A deploy did not fire | CI failed on that push, and the deploy only follows a green CI run on `master`. Fix CI, or run the workflow manually: Actions → Deploy Study Console → Run workflow. |

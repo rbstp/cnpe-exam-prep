@@ -90,3 +90,51 @@ poll() {
 }
 
 cluster_exists() { kind get clusters 2>/dev/null | grep -qx "$1"; }
+
+# The controller itself, not the Envoy load balancer containers it starts: their
+# command lines carry its name too, and they come back after a reboot without it.
+cpk_running() { pgrep -u "$(id -u)" -f '^[^ ]*cloud-provider-kind( |$)' >/dev/null 2>&1; }
+
+# A fixed address near the top of the kind network (its broadcast address minus $1),
+# for the containers pods reach by name. Docker hands out addresses from the bottom
+# and remembers them, so after a reboot a container that starts first can take one
+# Gitea or the registry held, which then fails with "Address already in use" and
+# leaves CoreDNS pointing at the wrong container.
+kind_fixed_ip() {
+  local subnet
+  subnet=$(docker network inspect kind -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' | tr ' ' '\n' | grep -m1 '\.') \
+    || die "the 'kind' docker network has no IPv4 subnet; run 'make up' first"
+  python3 -c 'import ipaddress,sys; n=ipaddress.ip_network(sys.argv[1]); print(n.broadcast_address - int(sys.argv[2]))' "$subnet" "$1"
+}
+
+# Resolve $2 to $1 inside the cluster, through the hosts block of CoreDNS's
+# Corefile; a stale address from an older install is corrected, not kept.
+coredns_host() {
+  local ip="$1" host="$2" changed
+  changed=$(python3 - "$ip" "$host" <<'PY'
+import subprocess, sys, json, re
+ip, host = sys.argv[1], sys.argv[2]
+cm = json.loads(subprocess.check_output(["kubectl", "-n", "kube-system", "get", "cm", "coredns", "-o", "json"]))
+corefile = cm["data"]["Corefile"]
+known = re.search(r"^(\s+)(\S+) " + re.escape(host) + r"$", corefile, re.M)
+if known and known.group(2) == ip:
+    print("no"); sys.exit(0)
+if known:
+    corefile = corefile.replace(known.group(0), f"{known.group(1)}{ip} {host}", 1)
+elif "    hosts {\n" in corefile:  # CoreDNS allows only one hosts block per server
+    corefile = corefile.replace("    hosts {\n", f"    hosts {{\n        {ip} {host}\n", 1)
+else:
+    corefile = corefile.replace("    ready\n", f"    ready\n    hosts {{\n        {ip} {host}\n        fallthrough\n    }}\n", 1)
+cm["data"]["Corefile"] = corefile
+subprocess.run(["kubectl", "apply", "-f", "-"], input=json.dumps(cm).encode(), check=True, stdout=subprocess.DEVNULL)
+print("yes")
+PY
+) || die "could not patch CoreDNS for $host"
+  if [ "$changed" = yes ]; then
+    kubectl -n kube-system rollout restart deploy/coredns >/dev/null
+    kubectl -n kube-system rollout status deploy/coredns --timeout=3m >/dev/null || true
+    ok "CoreDNS resolves $host to $ip"
+  else
+    ok "CoreDNS already resolves $host to $ip"
+  fi
+}

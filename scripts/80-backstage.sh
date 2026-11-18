@@ -5,31 +5,35 @@ need node; need npx
 APP="${BACKSTAGE_APP:-$LAB_HOME/portal}"
 
 # 1.22.22 is the end of the classic line; yarn 2+ comes from corepack, not npm.
-command -v yarn >/dev/null || { log "Installing yarn"; sudo npm i -g yarn@1.22.22; }
-# The app create-app scaffolds carries "node": "22 || 24" in its package.json, so
-# an odd release is not the only thing that fails: 20 is even and still refused.
-# One list, read by both the mise fallback and the guard, in preference order.
-SUPPORTED=(22 24)
-supported() { case " ${SUPPORTED[*]} " in *" $1 "*) return 0;; *) return 1;; esac; }
-node_major() { node -v 2>/dev/null | sed 's/v\([0-9]*\).*/\1/'; }
-NODE_MAJOR=$(node_major)
-if ! supported "$NODE_MAJOR" && command -v mise >/dev/null; then
-  for v in "${SUPPORTED[@]}"; do
-    NODE_DIR=$(mise where "node@$v" 2>/dev/null) || continue
-    [ -x "$NODE_DIR/bin/node" ] || continue
-    log "Using mise-pinned Node $v from $NODE_DIR (shell default is $(node -v))"
+command -v yarn >/dev/null || { log "Installing yarn into $BIN_DIR"; npm i -g --prefix "${BIN_DIR%/bin}" yarn@1.22.22; }
+# The app create-app scaffolds carries "node": "^24.15.0 || ^26.13.0" in its
+# package.json, so the major is not enough: 26.12 is refused like 22 is. One
+# list of floors, read by both the mise fallback and the guard, in preference order.
+NODE_FLOORS=(26.13.0 24.15.0)
+supported() {
+  local v="${1#v}" floor
+  for floor in "${NODE_FLOORS[@]}"; do
+    [ "${v%%.*}" = "${floor%%.*}" ] || continue
+    [ "$(printf '%s\n%s\n' "$floor" "$v" | sort -V | head -1)" = "$floor" ] && return 0
+  done
+  return 1
+}
+if ! supported "$(node -v)" && command -v mise >/dev/null; then
+  for floor in "${NODE_FLOORS[@]}"; do
+    NODE_DIR=$(mise where "node@${floor%%.*}" 2>/dev/null) || continue
+    [ -x "$NODE_DIR/bin/node" ] && supported "$("$NODE_DIR/bin/node" -v)" || continue
+    log "Using mise's Node $("$NODE_DIR/bin/node" -v) from $NODE_DIR (shell default is $(node -v))"
     export PATH="$NODE_DIR/bin:$PATH"
-    NODE_MAJOR=$(node_major)
     break
   done
 fi
-if ! supported "$NODE_MAJOR"; then
-  warn "Node $(node -v) is not a version Backstage supports (its app wants 22 or 24)."
+if ! supported "$(node -v)"; then
+  warn "Node $(node -v) is not a version Backstage supports (its app wants ^24.15.0 or ^26.13.0)."
   if command -v mise >/dev/null; then
     warn "You have mise. Pin a supported Node just for this directory:"
-    warn "    cd $LAB_HOME && mise use node@24 && exec \$SHELL"
+    warn "    cd $LAB_HOME && mise use node@26 && exec \$SHELL"
   else
-    warn "Install Node 24 (nvm/mise/fnm) and re-run 'make portal'."
+    warn "Install Node 26.13 or later (nvm/mise/fnm) and re-run 'make portal'."
   fi
   die "refusing to scaffold Backstage on an unsupported Node; see above"
 fi
@@ -94,12 +98,12 @@ mkdir -p "$APP/examples/golden-path"
 cp -r "$REPO_ROOT/backstage/template/." "$APP/examples/golden-path/"
 cp "$REPO_ROOT/backstage/app-config.local.yaml" "$APP/app-config.local.yaml"
 
-python3 - "$APP/app-config.local.yaml" "$GITEA_HOST" "$GITEA_USER" "$GITEA_PASS" <<'PY'
+python3 - "$APP/app-config.local.yaml" "$GITEA_HOST" "$GITEA_USER" "$GITEA_PASS" "$GITEA_PORT" <<'PY'
 import sys
-p, host, user, pw = sys.argv[1:5]
+p, host, user, pw, port = sys.argv[1:6]
 s = open(p).read()
 s = s.replace('gitea.lab:3000', f'{host}:3000')
-s = s.replace('http://gitea.lab', f'http://{host}')
+s = s.replace('localhost:3001', f'localhost:{port}')
 s = s.replace('username: lab\n', f'username: {user}\n')
 s = s.replace('password: REPLACED_FROM_LAB_ENV', f'password: {pw}')
 open(p, 'w').write(s)
@@ -128,11 +132,11 @@ fi
 cat <<INFO
 
   Start Backstage:   cd $APP && yarn start      → http://localhost:3000
-  (Gitea moved to host port ${GITEA_PORT} to free 3000; http://${GITEA_HOST}:3000 works from both.)
+  (Gitea is on host port ${GITEA_PORT}, freeing 3000; repo URLs still say http://${GITEA_HOST}:3000.)
 
   The loop to run, end to end:
     1. Create → choose "Golden path service" → name it e.g. 'payments'
-    2. Watch the repo appear:   http://${GITEA_HOST}:3000/${GITEA_USER}/payments
+    2. Watch the repo appear:   http://localhost:${GITEA_PORT}/${GITEA_ORG}/payments
     3. Watch Argo CD find it:   kubectl -n argocd get applicationset golden-path -w
                                 kubectl -n argocd get app
     4. Watch it land:           kubectl -n payments-dev get all

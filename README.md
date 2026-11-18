@@ -5,19 +5,23 @@
 
 An unofficial lab for the CNCF [Certified Cloud Native Platform Engineer (CNPE)](https://training.linuxfoundation.org/certification/certified-cloud-native-platform-engineer-cnpe/) exam.
 
-The exam is hands-on and covers five domains, so reading docs is not enough. This repo builds a working internal developer platform on `kind` and then proves each piece actually functions. Not "the pod is Running", but "a repo pushed to Gitea produced an Argo CD Application that deployed itself, and reverting drift works".
+The exam is hands-on and covers five domains, so reading docs is not enough. This repo builds a working internal developer platform on `kind` and then proves each piece works. Not "the pod is Running", but "a repo pushed to Gitea produced an Argo CD Application that deployed itself, and reverting drift works".
 
-Every layer installs on its own. That matters on a laptop, because running all of it at once will saturate the CPU.
+Every layer installs on its own, which matters on a laptop: running all of it at once saturates the CPU.
 
 ## Curriculum
 
 The lab is the machinery; [curriculum/](curriculum/index.html) is the study plan that drives it. It covers every competency in the official curriculum PDF across 29 evening-sized sections. Each section pairs concepts with exercises against this lab, and each exercise ends with a command that proves the thing worked.
 
-It is published at **[cnpe.rbstp.dev](https://cnpe.rbstp.dev)**. It is a self-contained site rather than a pile of markdown, so it also runs off disk: open `curriculum/index.html` in a browser (no server, no build step, `file://` is fine) or run `make study`.
+It is published at **[cnpe.rbstp.dev](https://cnpe.rbstp.dev)**. It is a self-contained site, not a pile of markdown, so it also runs off disk: open `curriculum/index.html` in a browser (no server, no build step, `file://` is fine) or run `make study`.
 
-Code blocks have copy buttons, `/` jumps to any section by name, tool or concept, and exercises tick off as you verify them. Thirteen interactive figures can be driven directly, and drill mode replays all 257 self-check questions as flashcards weighted toward what you miss. [CNPE Quest](curriculum/game.html) turns the whole map into a role-playing game: five regions for the five domains, a town per section whose people teach the theory and the commands, a trial built from the section's own self-check cards, and a dungeon holding one of the lab's faults, fought with real `kubectl`, `argocd`, `flux`, `tkn` and `crossplane` commands against a simulated cluster. Progress lives in that browser's local storage, and **Export** and **Import** on the dashboard move it between browsers or machines. On the hosted site you can also **sign in with GitHub** from the header to keep a copy across machines: opt-in, off by default, identity-only (the OAuth scope is empty), and signed out the console never touches the network. See [docs/progress-sync.md](docs/progress-sync.md).
+Code blocks have copy buttons, `/` jumps to any section by name, tool or concept, and exercises tick off as you verify them. Thirteen interactive figures can be driven directly, and drill mode replays all 257 self-check questions as flashcards weighted toward what you miss.
 
-The study pages use a reading-first black-and-gold theme, dark by default with a full light theme (`t`). **Read / Practice / Recall** and the exercise index jump directly through the original continuous lesson; **Contents** provides the same access on mobile. Use `f` for focus view and **Aa** for larger reading text. Text size and theme stay local to the browser, outside progress sync. The quest uses the same page shell, navigation, charcoal-and-gold windows and dark/light switch, with an original 16-bit RPG presentation: pixel-art towns, staged battles, scene transitions, optional synthesized sound, click-to-travel and a quest journal (`q`). Desktop stats sit beside the game, while mobile uses a compact strip. It respects reduced motion and keeps quick help collapsed below the game.
+[CNPE Quest](curriculum/game.html) turns the map into a role-playing game: five regions for the five domains and a town per section. A town's people teach the theory and the commands, its trial is the section's own self-check cards, and its dungeon holds one of the lab's faults, fought with real `kubectl`, `argocd`, `flux`, `tkn` and `crossplane` commands against a simulated cluster.
+
+Progress lives in the browser's local storage, and **Export** and **Import** on the dashboard move it between browsers or machines. On the hosted site you can also **sign in with GitHub** from the header to keep a copy across machines. That is opt-in and identity-only (the OAuth scope is empty), and signed out the console never touches the network. See [docs/progress-sync.md](docs/progress-sync.md).
+
+The pages are dark by default, with a full light theme on `t`. **Read / Practice / Recall** and the exercise index jump within the one continuous lesson, `f` is a focus view, and **Aa** enlarges the reading text. Theme and text size stay in the browser, outside progress sync. The quest shares the page shell and the theme switch, is drawn as 16-bit pixel art with optional synthesized sound, and respects reduced motion. [curriculum/README.md](curriculum/README.md) has the detail on both.
 
 The [dashboard](curriculum/index.html) maps every official competency to a section and to the `make validate` check or exercise that demonstrates it. Two 15-task mock exams ([paper 1](curriculum/mock-exam.html), [paper 2](curriculum/mock-exam-2.html)) share no tasks, score separately, and come with grading commands and a 120-minute clock. A weak-spots panel splits your drill accuracy by domain and names the one to spend evenings on.
 
@@ -46,9 +50,9 @@ The [dashboard](curriculum/index.html) maps every official competency to a secti
 | `mesh` | Second cluster with [Istio](https://istio.io/) ambient and [Flagger](https://flagger.app/) | Security (15%) |
 | `portal` | [Backstage](https://backstage.io/) on the host, with a software template that publishes to Gitea | Platform APIs (25%) |
 
-Versions as tested: kind 0.33.0, Helm 4.2.2, Cilium 1.20.1, Argo CD 10.9.0 (chart), Crossplane 2.4.0 (chart), kube-prometheus-stack 88.5.3, Istio 1.30.3, Flux 2.9.4. `K8S_IMAGE` pins Kubernetes 1.37.0; the curriculum's September output was captured on 1.36.1, the pin in force before that bump. Only Kubernetes is pinned, by `K8S_IMAGE` in `lab.env`; `scripts/01-tools.sh` installs kind and the other CLIs from their latest release, so those numbers record what was tested rather than what you will get.
+Versions as tested (November 2026): Kubernetes 1.37.0 on kind 0.33.0, Helm 4.3.0, Cilium 1.20.5, Gateway API 1.7.0, Argo CD 3.6.1 (chart 10.18.0), Flux 2.10.0, Crossplane 2.4.3, kube-prometheus-stack 93.4.0, Kyverno 1.20.0, Istio 1.32.0. `make tools` and every install write what your own run resolved to `.lab-versions.json`.
 
-Only the Kubernetes node image is pinned, by digest, in `lab.env`. Helm charts and the Tekton manifests float on purpose, so a fresh install gets whatever is current and the versions above will drift. That is the right trade for exam prep, because chart values and API versions moving under you is the thing the exam actually tests. When something breaks, `kubectl api-resources | grep <tool>` and `kubectl explain <kind>` are the fix. If you want reproducibility instead, pinning `--version` in `helmi` (`scripts/lib.sh`) is a one-line change.
+Two things are pinned: the Kubernetes node image, by digest, as `K8S_IMAGE` in `lab.env`, and the Gateway API release in `scripts/10-cluster-up.sh` and `scripts/70-mesh.sh`. Everything else floats on purpose. The CLIs install from their latest release, and the Helm charts and Tekton manifests resolve to the newest version at install time, so the numbers above will drift. That is the right trade for exam prep, because chart values and API versions moving under you is the thing the exam actually tests. When something breaks, `kubectl api-resources | grep <tool>` and `kubectl explain <kind>` are the fix. For a reproducible install, have `helmi` (`scripts/lib.sh`) pass a fixed `--version` instead of the one it resolves.
 
 ## Tools
 
@@ -115,7 +119,7 @@ Shell tooling installed by `make tools`:
 [k9s](https://k9scli.io/) ·
 [stern](https://github.com/stern/stern) ·
 [kubectx](https://github.com/ahmetb/kubectx) ·
-[mise](https://mise.jdx.dev/) (pins Node 24 for Backstage)
+[mise](https://mise.jdx.dev/) (pins Node 26 for Backstage)
 
 ## Hardware and build time
 
@@ -136,7 +140,7 @@ I built and tested this on a 2019 Intel MacBook Pro, Core i9-9880H (8 cores, 16 
 | `make mesh` | ~6 min | Builds a second cluster |
 | `make portal` | ~20 min | Backstage pulls a large npm tree |
 
-Around 70 minutes for everything, or about 25 minutes for a useful subset (`make core cicd api`).
+Around 70 minutes for everything, or about 25 for a useful subset (`make core cicd api`).
 
 At rest the full stack uses roughly 21 GB of RAM across two clusters, 85 pods and 20 Helm releases, plus about 19 GB of Docker images and volumes. Load average sits near 18 during the observability install and settles to about 3 afterwards.
 
@@ -156,7 +160,7 @@ make host                       # sysctls, docker, kernel limits. needs sudo
 make tools                      # every CLI into ~/.local/bin
 make core                       # cluster + git server + Argo CD/Flux/Rollouts/Workflows
 make cicd api obs sec spire     # the rest, one at a time
-make validate                   # 71 functional checks
+make validate                   # 72 functional checks
 make urls                       # where everything is
 ```
 
@@ -164,21 +168,22 @@ Run the layers one at a time and watch `make status` in between. Running two at 
 
 ### What needs root, and what it touches
 
-More than just `make host`, so it is worth knowing before you run any of it:
+Only `make host`, and `make tools` the first time, when it installs the `pacman` packages. Everything after that runs as you.
 
 - `make host` adds you to the `docker` group (root-equivalent), writes `/etc/sysctl.d/99-cnpe-lab.conf` and a systemd drop-in for docker, and creates `/etc/docker/daemon.json` only if absent. It restarts dockerd when the limits drop-in changes, which bounces every container on the machine, and it warns before doing so.
-- `make gitea` appends one line to `/etc/hosts` mapping `gitea.lab`, and only when the entry is missing or the IP moved.
-- `make up` starts `cloud-provider-kind` under `sudo -b` so LoadBalancer Services get real IPs. It needs root to bind ports 80 and 443, it records its PID, and it skips itself with a warning if sudo would prompt.
-- `make down` stops that process by the recorded PID.
-- `make portal` runs `sudo npm i -g yarn` only if yarn is missing.
+- `make gitea` adds one `http.curloptResolve` entry to your git config, so `git` on the host resolves `gitea.lab:3000` to Gitea's address on the kind network without an `/etc/hosts` line; pods resolve the same name through CoreDNS. `make nuke` removes it.
+- `make up` starts `cloud-provider-kind` in the background so LoadBalancer Services get real IPs. On Linux each load balancer is a container on the kind network, so docker access is all it needs. It records its PID for `make down`.
+- Gitea and the local registry sit on fixed addresses near the top of the kind network, so a reboot cannot hand their addresses to another container. After a reboot, `make up` then `make gitea` bring the lab back; `make up` first waits for the API server and for every admission webhook to answer, which takes a few minutes.
+- `make portal` installs yarn into `~/.local` only if it is missing.
 
-`make tools` installs every CLI into `~/.local/bin` and needs sudo only for the `pacman` packages. Three upstream installers are piped to a shell unpinned (crossplane, istioctl, linkerd), which is how those projects document installation, but read them first if that bothers you.
+`make tools` installs every CLI into `~/.local/bin`. A `pacman` package that falls behind the repos is reported, not upgraded, since that needs root. Two upstream installer scripts are piped to a shell as fetched (crossplane, istioctl). That is how those projects document installation, but read them first if it bothers you.
 
 ## Targets
 
 ```
 make host            Kernel limits, docker, thermal advice (run once, needs sudo)
-make tools           Install every CLI into ~/.local/bin
+make tools           Install or upgrade every CLI into ~/.local/bin
+make refresh         Everything 'tools' does, plus updating an existing Gitea container
 make up              Create the cluster: kind + Cilium + LB + metrics + VPA + registry
 make gitea           Local git server, seeded repos, CoreDNS entry
 make gitops          Argo CD, Argo Rollouts, Argo Workflows, Flux
@@ -210,9 +215,9 @@ make down            Delete both clusters (keeps git history + registry)
 make nuke            Delete everything including Gitea data
 ```
 
-Each section page of the study console ends with the `make down-<layer>` commands for
-whatever the next section does not need, so a laptop only ever runs the layers the
-section in front of you uses. A layer's CRDs stay behind; nothing else does.
+Where the next section needs fewer layers, a section page of the study console ends
+with the `make down-<layer>` commands that free them, so a laptop only runs the layers
+the section in front of you uses. A layer's CRDs stay behind; nothing else does.
 
 ## make validate
 
@@ -232,7 +237,7 @@ The part I care about most. It checks behavior, not pod status.
   ✓ Applications auto-generated from git           1
 
 ──────────────────────────────────────────────
-  PASS 71   FAIL 0   SKIP 0
+  PASS 72   FAIL 0   SKIP 0
 ──────────────────────────────────────────────
 
 Lab is fully functional.
@@ -259,12 +264,12 @@ Hubble UI         http://localhost:12000   needs a port-forward
 
 Backstage portal (runs on the HOST, not in the cluster)
   Portal           http://localhost:3000     start: cd <clone>/portal && yarn start
-                   backend API on :7007      (needs Node 24; mise.toml pins it)
+                   backend API on :7007      (needs Node 26.13+; mise.toml pins 26)
   Golden path      Create -> "Golden path service" -> publishes to gitea org 'services'
                    Argo CD then generates an Application automatically
 
 Always-on (no port-forward needed)
-  Gitea            http://gitea.lab:3000   (also http://localhost:3001)
+  Gitea            http://localhost:3001   (pods and git: http://gitea.lab:3000)
   OCI registry     localhost:5001   (push: docker push localhost:5001/demo:v1)
 ```
 
@@ -282,7 +287,7 @@ SPIRE identities kubectl -n spire exec sts/spire-server -c spire-server -- \
 Golden path apps kubectl -n argocd get applicationset,applications
 ```
 
-Real LoadBalancer IPs need `cloud-provider-kind`, which wants root to bind ports 80 and 443. Skip it and use `make forward` instead if you would rather not run a root process.
+Real LoadBalancer IPs need `cloud-provider-kind`, which `make up` starts for you. If it is not running, `make forward` gives every UI a localhost port instead.
 
 ## make break
 
@@ -313,13 +318,7 @@ Domains are `workload`, `gitops`, `cicd`, `apis` and `security`. Injecting a new
 
 ## Credentials
 
-Nothing sensitive is committed. `lab.env` is gitignored, so copy the template first:
-
-```bash
-cp lab.env.example lab.env
-```
-
-`GITEA_PASS` is the only value you need to set. It is the admin password for a throwaway Gitea container that only listens on localhost, so it is not a real secret, but it does not belong in git either.
+Nothing sensitive is committed. `lab.env` is gitignored: the quick start copies it from `lab.env.example`, and `GITEA_PASS` is the only value you need to set. It is the admin password for a throwaway Gitea container that only listens on localhost, so it is not a real secret, but it does not belong in git either.
 
 Everything else is generated at runtime and gitignored:
 
@@ -346,7 +345,7 @@ These cost me real time, and none of them are obvious from the upstream docs.
 
 **Gateway API v1.5 and later blocks older CRDs.** It ships a ValidatingAdmissionPolicy that rejects any Gateway API CRD before v1.5.0. cloud-provider-kind embeds an older bundle and installs it at startup, so it gets denied and its service controller dies, and no LoadBalancer ever gets an IP. Start it with `--gateway-channel=disabled`.
 
-**Backstage wants Node 22 or 24, not any even LTS.** The app `create-app` scaffolds declares `"node": "22 || 24"`, so 20 is even and still refused. Arch ships 26, and `create-app` fails on it, so `mise.toml` pins 24 for this directory. `create-app` also has no `--name` flag and always prompts, so it hangs when scripted, and the `.yarnrc.yml` it generates sets `npmMinimalAgeGate: 3d`, which can reject one of Backstage's own fresh dependencies.
+**Backstage checks the Node minor, not just the major.** The app `create-app` scaffolds declares `"node": "^24.15.0 || ^26.13.0"`, so 22 is refused, and so is 26.12. `mise.toml` pins 26 for this directory, and `make portal` falls back to any mise-installed Node that meets the floor. `create-app` also has no `--name` flag and always prompts, so it hangs when scripted, and the `.yarnrc.yml` it generates sets `npmMinimalAgeGate: 3d`, which can reject one of Backstage's own fresh dependencies.
 
 **Trivy's node-collector needs a toleration.** It is pinned to each node by nodeSelector but does not tolerate the control-plane taint, so that node silently produces no compliance report. `nodeCollector.tolerations` and `trivyOperator.scanJobTolerations` are separate chart keys and you need both.
 
