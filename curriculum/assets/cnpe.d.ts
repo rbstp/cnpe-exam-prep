@@ -409,7 +409,7 @@ interface CnpeGameResource {
   /** argocd app get/list's fields */
   argo?: { dest?: string; repo?: string; path?: string; rev?: string; sync?: string; health?: string;
     conditions?: string; condLines?: string; resources?: string; syncOut?: string; diff?: string };
-  /** crossplane beta trace's tree */
+  /** crossplane resource trace's tree */
   trace?: string;
 }
 

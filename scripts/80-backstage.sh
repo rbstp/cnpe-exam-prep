@@ -136,7 +136,7 @@ cat <<INFO
 
   The loop to run, end to end:
     1. Create → choose "Golden path service" → name it e.g. 'payments'
-    2. Watch the repo appear:   http://${GITEA_HOST}:3000/${GITEA_USER}/payments
+    2. Watch the repo appear:   http://${GITEA_HOST}:3000/${GITEA_ORG}/payments
     3. Watch Argo CD find it:   kubectl -n argocd get applicationset golden-path -w
                                 kubectl -n argocd get app
     4. Watch it land:           kubectl -n payments-dev get all

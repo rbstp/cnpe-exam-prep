@@ -426,7 +426,7 @@ YAML
     HINTS="kubectl -n default get appenvironment
        kubectl -n default describe appenvironment drill-env
        kubectl -n default get objects.kubernetes.m.crossplane.io   # the composed resources
-       crossplane beta trace appenvironment drill-env -n default"
+       crossplane resource trace appenvironment drill-env -n default"
     ANSWER="the ClusterRoleBinding that gives provider-kubernetes its in-cluster permissions (crossplane-$XP_SA) was deleted. Every composed Object now fails with 'forbidden' in its Synced condition, so the XR never becomes Ready. Fix: recreate the binding (cluster-admin for the provider's service account, as scripts/40-platform-api.sh does)." ;;
 
   xr-paused)
