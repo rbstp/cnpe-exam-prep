@@ -7,7 +7,7 @@ GITEA_CONTAINER=gitea
 GITEA_IMAGE=gitea/gitea:latest
 
 run_gitea() {
-  docker run -d --name "$GITEA_CONTAINER" --network kind --restart=always \
+  docker run -d --name "$GITEA_CONTAINER" --network kind --ip "$(kind_fixed_ip 5)" --restart=always \
     -p "127.0.0.1:${GITEA_PORT}:3000" \
     -e GITEA__database__DB_TYPE=sqlite3 \
     -e GITEA__security__INSTALL_LOCK=true \
@@ -80,8 +80,10 @@ fi
 
 need kubectl; need git
 
-if [ "$(docker inspect -f '{{.State.Running}}' "$GITEA_CONTAINER" 2>/dev/null || true)" != "true" ]; then
-  log "Starting Gitea"
+current_ip=$(docker inspect -f '{{ (index .NetworkSettings.Networks "kind").IPAddress }}' "$GITEA_CONTAINER" 2>/dev/null || true)
+if [ "$(docker inspect -f '{{.State.Running}}' "$GITEA_CONTAINER" 2>/dev/null || true)" != "true" ] || \
+   [ "$current_ip" != "$(kind_fixed_ip 5)" ]; then
+  log "Starting Gitea (its data lives in the gitea-data volume, so recreating the container keeps it)"
   docker rm -f "$GITEA_CONTAINER" >/dev/null 2>&1 || true
   run_gitea
   log "Waiting for Gitea to come up"
@@ -119,41 +121,20 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: token $TOKEN" \
 [ "$code" = "200" ] || die "gitea token rejected (HTTP $code) - delete $REPO_ROOT/.gitea-token and re-run"
 ok "gitea API token works"
 
-log "Teaching the HOST about ${GITEA_HOST}"
-if grep -qE "^${GITEA_IP}[[:space:]]+${GITEA_HOST}\$" /etc/hosts; then
-  ok "/etc/hosts already correct (no sudo needed)"
-elif ! sudo -n true 2>/dev/null && ! [ -t 0 ]; then
-  warn "/etc/hosts needs updating but sudo cannot prompt here; run this yourself:"
-  warn "  sudo sed -i -E 's|^[0-9.]+[[:space:]]+${GITEA_HOST}\$|${GITEA_IP} ${GITEA_HOST}|' /etc/hosts   # or append if missing"
-elif grep -qE "[[:space:]]${GITEA_HOST}\$" /etc/hosts; then
-  sudo sed -i -E "s|^[0-9.]+[[:space:]]+${GITEA_HOST}\$|${GITEA_IP} ${GITEA_HOST}|" /etc/hosts
-else
-  echo "${GITEA_IP} ${GITEA_HOST}" | sudo tee -a /etc/hosts >/dev/null
-fi
-curl -fsS "http://${GITEA_HOST}:3000/api/healthz" >/dev/null && ok "http://${GITEA_HOST}:3000 reachable from this host" \
-  || warn "gitea.lab not reachable from the host; check /etc/hosts and the docker bridge"
+log "Pointing this host's git at ${GITEA_HOST}"
+# Pods resolve gitea.lab through CoreDNS. The host would need a root-owned /etc/hosts
+# line for that, so git rewrites the URL instead: every command reads the same from
+# the host and from a pod, and the host's copy goes to the published port.
+for from in "http://${GITEA_HOST}:3000/" "http://${GITEA_USER}:${GITEA_PASS}@${GITEA_HOST}:3000/"; do
+  to="${from/${GITEA_HOST}:3000/localhost:${GITEA_PORT}}"
+  git config --global --get-all "url.${to}.insteadOf" 2>/dev/null | grep -qxF "$from" \
+    || git config --global --add "url.${to}.insteadOf" "$from"
+done
+git ls-remote "http://${GITEA_HOST}:3000/${GITEA_USER}/platform.git" >/dev/null 2>&1 \
+  && ok "git on this host reaches http://${GITEA_HOST}:3000" \
+  || warn "git could not reach http://${GITEA_HOST}:3000 through the rewrite to localhost:${GITEA_PORT}"
 
-log "Teaching CoreDNS about ${GITEA_HOST}"
-python3 - "$GITEA_IP" "$GITEA_HOST" <<'PY'
-import subprocess, sys, json, re
-ip, host = sys.argv[1], sys.argv[2]
-cm = json.loads(subprocess.check_output(
-    ["kubectl","-n","kube-system","get","cm","coredns","-o","json"]))
-corefile = cm["data"]["Corefile"]
-if host in corefile:
-    print("    CoreDNS already knows", host); sys.exit(0)
-m = re.search(r"(    hosts \{\n)", corefile)
-if m:  # extend the existing hosts block (CoreDNS allows only one per server)
-    corefile = corefile.replace(m.group(1), m.group(1) + f"        {ip} {host}\n", 1)
-else:
-    block = f"    hosts {{\n        {ip} {host}\n        fallthrough\n    }}\n"
-    corefile = corefile.replace("    ready\n", "    ready\n" + block, 1)
-cm["data"]["Corefile"] = corefile
-subprocess.run(["kubectl","apply","-f","-"], input=json.dumps(cm).encode(), check=True)
-print("    CoreDNS patched")
-PY
-kubectl -n kube-system rollout restart deploy/coredns >/dev/null
-kubectl -n kube-system rollout status deploy/coredns --timeout=3m >/dev/null
+coredns_host "$GITEA_IP" "$GITEA_HOST"
 
 # ── seed repositories ────────────────────────────────────────────────────
 mk_repo() {
@@ -193,10 +174,11 @@ cp -r "$REPO_ROOT/examples/." "$WORK/platform/"
 rm -rf "$WORK"
 
 cat > "$REPO_ROOT/.gitea-info" <<INFO
-Gitea UI     http://${GITEA_HOST}:3000   (also http://localhost:${GITEA_PORT})
+Gitea UI     http://localhost:${GITEA_PORT}   (pods: http://${GITEA_HOST}:3000)
 user/pass    ${GITEA_USER} / ${GITEA_PASS}
 clone URL    http://${GITEA_HOST}:3000/${GITEA_USER}/platform.git
-             (identical from host, from Backstage, and from inside the cluster)
+             (identical from host, from Backstage, and from inside the cluster;
+              on the host, git rewrites it to localhost:${GITEA_PORT})
 API token    $REPO_ROOT/.gitea-token
 INFO
 cat "$REPO_ROOT/.gitea-info"

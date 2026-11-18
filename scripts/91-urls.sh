@@ -3,7 +3,7 @@
 source "$(dirname "$0")/lib.sh"
 
 CPK_UP=no
-pgrep -f 'cloud-provider-kind' >/dev/null 2>&1 && CPK_UP=yes
+cpk_running && CPK_UP=yes
 
 kc() { kubectl --context "kind-$CLUSTER" "$@"; }
 
@@ -62,7 +62,7 @@ Second cluster (service mesh)
   Istio ambient    istioctl ztunnel-config workload --context kind-${MESH_CLUSTER}
 
 Always-on (no port-forward needed)
-  Gitea            http://${GITEA_HOST}:3000   (also http://localhost:${GITEA_PORT})
+  Gitea            http://localhost:${GITEA_PORT}   (pods and git: http://${GITEA_HOST}:3000)
                    ${GITEA_USER} / ${GITEA_PASS}
   OCI registry     localhost:${REGISTRY_PORT}   (push: docker push localhost:${REGISTRY_PORT}/demo:v1)
 

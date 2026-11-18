@@ -64,7 +64,11 @@ if [ "$SMOKE" != 1 ]; then
 TOML
     done
   done
-  docker network connect kind "$REGISTRY_NAME" 2>/dev/null || true
+  REGISTRY_IP=$(kind_fixed_ip 6)
+  if [ "$(docker inspect -f '{{with index .NetworkSettings.Networks "kind"}}{{.IPAddress}}{{end}}' "$REGISTRY_NAME")" != "$REGISTRY_IP" ]; then
+    docker network disconnect kind "$REGISTRY_NAME" 2>/dev/null || true
+    docker network connect --ip "$REGISTRY_IP" kind "$REGISTRY_NAME"
+  fi
   kubectl apply -f - >/dev/null <<CM
 apiVersion: v1
 kind: ConfigMap
@@ -87,62 +91,37 @@ if [ "$CNI" = "cilium" ]; then
     --set hubble.relay.enabled=true \
     --set hubble.ui.enabled=true \
     --set envoy.enabled=false
-  cilium status --wait --context "kind-$CLUSTER" || warn "cilium not fully ready yet"
+  # After a reboot the kind nodes come back on new addresses, and the agents keep
+  # the old ones cached: every endpoint sync fails with "cannot take ownership of
+  # CEP that is not local". Restarting the agents is the whole fix.
+  if cilium status --context "kind-$CLUSTER" 2>/dev/null | grep -q 'cannot take ownership of CEP'; then
+    log "Restarting the Cilium agents (they still hold the node addresses from before a restart)"
+    kubectl -n kube-system rollout restart ds/cilium >/dev/null
+    kubectl -n kube-system rollout status ds/cilium --timeout=5m >/dev/null || true
+  fi
+  cilium status --wait --wait-duration 3m --context "kind-$CLUSTER" >/dev/null || warn "cilium not fully ready yet"
   log "Waiting for all nodes to reach Ready now that a CNI exists"
   kubectl wait --for=condition=Ready nodes --all --timeout=5m || warn "some nodes still NotReady"
 fi
 
 # ── make the registry resolvable from pods, not just from containerd ─────
-REGISTRY_IP=$(docker inspect -f '{{(index .NetworkSettings.Networks "kind").IPAddress}}' "$REGISTRY_NAME" 2>/dev/null || true)
-if [ -n "$REGISTRY_IP" ]; then
-  log "Teaching CoreDNS about $REGISTRY_NAME ($REGISTRY_IP)"
-  python3 - "$REGISTRY_IP" "$REGISTRY_NAME" <<'PY'
-import subprocess, sys, json, re
-ip, host = sys.argv[1], sys.argv[2]
-cm = json.loads(subprocess.check_output(
-    ["kubectl","-n","kube-system","get","cm","coredns","-o","json"]))
-corefile = cm["data"]["Corefile"]
-if host in corefile:
-    print("    CoreDNS already knows", host); sys.exit(0)
-m = re.search(r"(    hosts \{\n)", corefile)
-if m:  # extend the existing hosts block (CoreDNS allows only one per server)
-    corefile = corefile.replace(m.group(1), m.group(1) + f"        {ip} {host}\n", 1)
-else:
-    block = f"    hosts {{\n        {ip} {host}\n        fallthrough\n    }}\n"
-    corefile = corefile.replace("    ready\n", "    ready\n" + block, 1)
-cm["data"]["Corefile"] = corefile
-subprocess.run(["kubectl","apply","-f","-"], input=json.dumps(cm).encode(), check=True)
-print("    CoreDNS patched")
-PY
-  kubectl -n kube-system rollout restart deploy/coredns >/dev/null
-  kubectl -n kube-system rollout status deploy/coredns --timeout=3m >/dev/null || true
+if [ "$SMOKE" != 1 ]; then
+  coredns_host "$(kind_fixed_ip 6)" "$REGISTRY_NAME"
 fi
 
 # ── LoadBalancer services actually get IPs ───────────────────────────────
-if [ "$SMOKE" != 1 ] && ! pgrep -f cloud-provider-kind >/dev/null 2>&1; then
+if [ "$SMOKE" != 1 ] && ! cpk_running; then
   if command -v cloud-provider-kind >/dev/null; then
     log "Starting cloud-provider-kind (gives Services type=LoadBalancer real IPs)"
-    # On Linux each load balancer is a container on the kind network, so the
-    # docker socket is all it needs. sudo resets PATH, hence the absolute path.
-    CPK="$(command -v cloud-provider-kind)"
-    if docker info >/dev/null 2>&1; then
-      setsid nohup "$CPK" --gateway-channel=disabled > /tmp/cnpe-lab/cpk.log 2>&1 < /dev/null &
-      echo $! > /tmp/cnpe-lab/cpk.pid
-    elif sudo -n true 2>/dev/null; then
-      # shellcheck disable=SC2024
-      sudo -b nohup "$CPK" --gateway-channel=disabled > /tmp/cnpe-lab/cpk.log 2>&1
-      sleep 2
-      pgrep -f "$CPK --gateway-channel=disabled" | head -1 > /tmp/cnpe-lab/cpk.pid 2>/dev/null || true
-    fi
-    if [ -s /tmp/cnpe-lab/cpk.pid ]; then
-      sleep 5
-      if pgrep -f "$CPK" >/dev/null; then ok "cloud-provider-kind running"
-      else warn "cloud-provider-kind died; see /tmp/cnpe-lab/cpk.log"; fi
-    else
-      warn "no docker access and sudo needs a password; skipping cloud-provider-kind."
-      warn "LoadBalancer Services stay <pending> until you run, in another shell:"
-      warn "  setsid nohup $CPK --gateway-channel=disabled > /tmp/cnpe-lab/cpk.log 2>&1 &"
-    fi
+    # On Linux each load balancer is a container on the kind network, so the docker
+    # socket is all it needs: it runs as you, like kind does.
+    mkdir -p /tmp/cnpe-lab
+    setsid nohup "$(command -v cloud-provider-kind)" --gateway-channel=disabled \
+      > /tmp/cnpe-lab/cpk.log 2>&1 < /dev/null &
+    echo $! > /tmp/cnpe-lab/cpk.pid
+    sleep 5
+    if kill -0 "$(cat /tmp/cnpe-lab/cpk.pid)" 2>/dev/null; then ok "cloud-provider-kind running"
+    else warn "cloud-provider-kind died; see /tmp/cnpe-lab/cpk.log"; fi
   else
     warn "cloud-provider-kind missing; LoadBalancer Services will stay <pending>"
   fi

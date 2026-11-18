@@ -9,7 +9,7 @@ case "$MODE" in
     if [ -f /tmp/cnpe-lab/cpk.pid ]; then
       CPK_PID=$(cat /tmp/cnpe-lab/cpk.pid 2>/dev/null || true)
       if [ -n "${CPK_PID:-}" ] && kill -0 "$CPK_PID" 2>/dev/null; then
-        { kill "$CPK_PID" 2>/dev/null || sudo kill "$CPK_PID" 2>/dev/null; } && ok "stopped cloud-provider-kind (pid $CPK_PID)" || true
+        { kill "$CPK_PID" 2>/dev/null || sudo -n kill "$CPK_PID" 2>/dev/null; } && ok "stopped cloud-provider-kind (pid $CPK_PID)" || true
       fi
       rm -f /tmp/cnpe-lab/cpk.pid
     else
@@ -23,6 +23,10 @@ case "$MODE" in
     docker rm -f gitea "$REGISTRY_NAME" 2>/dev/null || true
     docker volume rm gitea-data 2>/dev/null || true
     rm -f "$REPO_ROOT/.gitea-token" "$REPO_ROOT/.gitea-info"
+    # the URL rewrites 'make gitea' added to ~/.gitconfig
+    git config --global --get-regexp '^url\..*\.insteadof$' 2>/dev/null \
+      | awk -v h="@${GITEA_HOST}:3000/" -v p="//${GITEA_HOST}:3000/" 'index($2, h) || index($2, p) {print $1}' \
+      | sort -u | while read -r key; do git config --global --unset-all "$key"; done
     ok "everything removed (images cached; 'docker system prune -a' to reclaim disk)"
     ;;
   *) die "usage: 99-down.sh [clusters|all]" ;;

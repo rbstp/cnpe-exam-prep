@@ -168,15 +168,15 @@ Run the layers one at a time and watch `make status` in between. Running two at 
 
 ### What needs root, and what it touches
 
-More than `make host`:
+Only `make host`, once. Everything after it runs as you.
 
 - `make host` adds you to the `docker` group (root-equivalent), writes `/etc/sysctl.d/99-cnpe-lab.conf` and a systemd drop-in for docker, and creates `/etc/docker/daemon.json` only if absent. It restarts dockerd when the limits drop-in changes, which bounces every container on the machine, and it warns before doing so.
-- `make gitea` appends one line to `/etc/hosts` mapping `gitea.lab`, and only when the entry is missing or the IP moved.
-- `make up` starts `cloud-provider-kind` in the background so LoadBalancer Services get real IPs. On Linux each load balancer is a container on the kind network, so it runs as you with docker access and needs no root. It records its PID for `make down`.
-- `make down` stops that process by the recorded PID.
-- `make portal` runs `sudo npm i -g yarn` only if yarn is missing.
+- `make gitea` adds two `url.<base>.insteadOf` entries to your `~/.gitconfig`, so `git` on the host sends `http://gitea.lab:3000/...` to `localhost:3001`; pods resolve the same name through CoreDNS. One of them carries `GITEA_PASS`, the throwaway local password the curriculum's clone URLs embed. `make nuke` removes both.
+- `make up` starts `cloud-provider-kind` in the background so LoadBalancer Services get real IPs. On Linux each load balancer is a container on the kind network, so docker access is all it needs. It records its PID for `make down`.
+- Gitea and the local registry sit on fixed addresses near the top of the kind network, so a reboot cannot hand their addresses to another container. After a reboot, `make up` then `make gitea` bring the lab back.
+- `make portal` installs yarn into `~/.local` only if it is missing.
 
-`make tools` installs every CLI into `~/.local/bin` and needs sudo only for the `pacman` packages. Two upstream installer scripts are piped to a shell as fetched (crossplane, istioctl). That is how those projects document installation, but read them first if it bothers you.
+`make tools` installs every CLI into `~/.local/bin`. A `pacman` package that falls behind the repos is reported, not upgraded, since that needs root. Two upstream installer scripts are piped to a shell as fetched (crossplane, istioctl). That is how those projects document installation, but read them first if it bothers you.
 
 ## Targets
 
@@ -269,7 +269,7 @@ Backstage portal (runs on the HOST, not in the cluster)
                    Argo CD then generates an Application automatically
 
 Always-on (no port-forward needed)
-  Gitea            http://gitea.lab:3000   (also http://localhost:3001)
+  Gitea            http://localhost:3001   (pods and git: http://gitea.lab:3000)
   OCI registry     localhost:5001   (push: docker push localhost:5001/demo:v1)
 ```
 

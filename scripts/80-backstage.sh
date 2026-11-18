@@ -5,7 +5,7 @@ need node; need npx
 APP="${BACKSTAGE_APP:-$LAB_HOME/portal}"
 
 # 1.22.22 is the end of the classic line; yarn 2+ comes from corepack, not npm.
-command -v yarn >/dev/null || { log "Installing yarn"; sudo npm i -g yarn@1.22.22; }
+command -v yarn >/dev/null || { log "Installing yarn into $BIN_DIR"; npm i -g --prefix "${BIN_DIR%/bin}" yarn@1.22.22; }
 # The app create-app scaffolds carries "node": "^24.15.0 || ^26.13.0" in its
 # package.json, so the major is not enough: 26.12 is refused like 22 is. One
 # list of floors, read by both the mise fallback and the guard, in preference order.
@@ -98,12 +98,12 @@ mkdir -p "$APP/examples/golden-path"
 cp -r "$REPO_ROOT/backstage/template/." "$APP/examples/golden-path/"
 cp "$REPO_ROOT/backstage/app-config.local.yaml" "$APP/app-config.local.yaml"
 
-python3 - "$APP/app-config.local.yaml" "$GITEA_HOST" "$GITEA_USER" "$GITEA_PASS" <<'PY'
+python3 - "$APP/app-config.local.yaml" "$GITEA_HOST" "$GITEA_USER" "$GITEA_PASS" "$GITEA_PORT" <<'PY'
 import sys
-p, host, user, pw = sys.argv[1:5]
+p, host, user, pw, port = sys.argv[1:6]
 s = open(p).read()
 s = s.replace('gitea.lab:3000', f'{host}:3000')
-s = s.replace('http://gitea.lab', f'http://{host}')
+s = s.replace('localhost:3001', f'localhost:{port}')
 s = s.replace('username: lab\n', f'username: {user}\n')
 s = s.replace('password: REPLACED_FROM_LAB_ENV', f'password: {pw}')
 open(p, 'w').write(s)
@@ -132,11 +132,11 @@ fi
 cat <<INFO
 
   Start Backstage:   cd $APP && yarn start      → http://localhost:3000
-  (Gitea moved to host port ${GITEA_PORT} to free 3000; http://${GITEA_HOST}:3000 works from both.)
+  (Gitea is on host port ${GITEA_PORT}, freeing 3000; repo URLs still say http://${GITEA_HOST}:3000.)
 
   The loop to run, end to end:
     1. Create → choose "Golden path service" → name it e.g. 'payments'
-    2. Watch the repo appear:   http://${GITEA_HOST}:3000/${GITEA_ORG}/payments
+    2. Watch the repo appear:   http://localhost:${GITEA_PORT}/${GITEA_ORG}/payments
     3. Watch Argo CD find it:   kubectl -n argocd get applicationset golden-path -w
                                 kubectl -n argocd get app
     4. Watch it land:           kubectl -n payments-dev get all

@@ -17,8 +17,8 @@ pac() {
       warn "pacman: $p not in the repos, will try an upstream binary"
     elif [ "$repo_ver" = "$local_ver" ]; then
       ok "$p already matches the repos ($local_ver)"
-    elif ! sudo pacman -S --needed --noconfirm "$p"; then
-      warn "pacman: installing $p FAILED (it does exist in the repos); see the error above"
+    elif ! sudo -n pacman -S --needed --noconfirm "$p" 2>/dev/null; then
+      warn "pacman: $p is at ${local_ver:-nothing}, the repos have $repo_ver; upgrading it needs root, so run 'sudo pacman -Syu' when it suits you (the lab keeps working)"
     fi
   done
 }
