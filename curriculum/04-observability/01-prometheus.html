@@ -90,7 +90,7 @@ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.serviceMonitor
 
     <ul>
       <li><strong>Selectors:</strong> <code>up{namespace="argocd"}</code>, with <code>=</code>, <code>!=</code>, <code>=~</code>, <code>!~</code>. Regexes are fully anchored.</li>
-      <li><strong>Ranges:</strong> <code>[5m]</code> turns an instant vector into a range vector: required by <code>rate</code>/<code>increase</code>, and <em>forbidden</em> everywhere else. "Expected type instant vector" almost always means a stray range selector.</li>
+      <li><strong>Ranges:</strong> <code>[5m]</code> turns an instant vector into a range vector, the input that <code>rate</code>, <code>increase</code> and the <code>*_over_time</code> functions take; anywhere an instant vector is expected it is <em>forbidden</em>. "Expected type instant vector" almost always means a stray range selector.</li>
       <li><strong>Aggregation:</strong> <code>sum by (label) (...)</code> and <code>sum without (pod) (...)</code>. <code>by</code> keeps only what you name; <code>without</code> keeps everything else. Aggregating before <code>rate</code> is wrong: <code>rate</code> first, then <code>sum</code>.</li>
       <li><strong>Arithmetic between vectors</strong> matches on labels; mismatched label sets produce an empty result, which is why <code>on()</code>/<code>ignoring()</code> and <code>group_left</code> exist. You used vector arithmetic for the cost gap in section 1.5.</li>
       <li><strong>Emptiness:</strong> <code>absent(x)</code> is 1 when <em>x</em> has no series (the way to alert on "the metric stopped existing"), and <code>… or vector(0)</code> makes a query return a number instead of nothing.</li>
@@ -145,7 +145,7 @@ kubectl -n monitoring get prometheus -o jsonpath='{.items[0].spec.serviceMonitor
       <li><strong>Limits that protect you.</strong> <code>sampleLimit</code>, <code>labelLimit</code>, <code>labelNameLengthLimit</code> and <code>labelValueLengthLimit</code> on a monitor drop a whole scrape that exceeds them (the target shows down with the reason in Status → Targets), which is the blunt tool when <code>metricRelabelings</code> is too slow to write. <code>scrapeInterval</code> and <code>scrapeTimeout</code> per endpoint override the global 30s; timeout must be shorter than interval or the config is rejected.</li>
       <li><strong>Relabel actions.</strong> <code>replace</code> (default), <code>keep</code>/<code>drop</code> on a <code>regex</code> over <code>sourceLabels</code>, <code>labelmap</code> (copy <code>__meta_kubernetes_pod_label_(.+)</code> to plain labels), <code>labeldrop</code>/<code>labelkeep</code>, <code>hashmod</code>. The <code>__address__</code>, <code>__scheme__</code>, <code>__metrics_path__</code> targets are how a relabel rewrites where to scrape; a <code>ScrapeConfig</code> with <code>kubernetesSDConfigs</code> almost always needs them because discovery gives you metadata, not a metrics URL.</li>
     </ul>
-    <div class="callout reflex"><span class="tag">Reflex</span><p>Before writing any monitor: read the six selector pairs off the Prometheus object with <code>kubectl -n monitoring get prometheus -o yaml</code>, then <code>kubectl get svc &lt;name&gt; -o jsonpath='{.spec.ports[*].name}'</code> for the port name, then <code>kubectl get endpointslices -l kubernetes.io/service-name=&lt;name&gt;</code> for ready addresses. Three reads, no guessing.</p></div>
+    <div class="callout reflex"><span class="tag">Reflex</span><p>Before writing any monitor: read the five selector pairs (serviceMonitor, podMonitor, probe, scrapeConfig, rule) off the Prometheus object with <code>kubectl -n monitoring get prometheus -o yaml</code>, then <code>kubectl get svc &lt;name&gt; -o jsonpath='{.spec.ports[*].name}'</code> for the port name, then <code>kubectl get endpointslices -l kubernetes.io/service-name=&lt;name&gt;</code> for ready addresses. Three reads, no guessing.</p></div>
   </div>
 </section>
 
@@ -264,7 +264,7 @@ spec:
   metricsPath: /metrics
   scrapeInterval: 30s
 EOF
-sleep 60
+sleep 90
 kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!
 sleep 5
 curl -s localhost:9090/api/v1/targets | jq '.data.activeTargets[] | select(.labels.source=="static") | {scrapeUrl, health, lastError}'
@@ -291,7 +291,7 @@ service/fakemetrics exposed
 <b>  scrapeInterval: 30s</b>
 <b>EOF</b>
 scrapeconfig.monitoring.coreos.com/static-target created
-<b>$ sleep 60</b>
+<b>$ sleep 90</b>
 <b>$ kubectl -n monitoring port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 &amp; PF1=$!</b>
 <b>$ sleep 5</b>
 Forwarding from 127.0.0.1:9090 -&gt; 9090

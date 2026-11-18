@@ -144,7 +144,7 @@
           <tr><td class="mono">True</td><td class="mono">Completed</td><td>passed, but one or more tasks were skipped by <code>when</code>; the skipped ones are listed under <code>status.skippedTasks</code> with their reason</td></tr>
           <tr><td class="mono">False</td><td class="mono">Failed</td><td>a TaskRun failed; the message counts "Tasks Completed: N (Failed: M, Cancelled 0), Skipped: K"</td></tr>
           <tr><td class="mono">False</td><td class="mono">PipelineRunTimeout</td><td><code>timeouts.pipeline</code> elapsed; child TaskRuns are canceled</td></tr>
-          <tr><td class="mono">False</td><td class="mono">Cancelled · CancelledRunFinally · StoppedRunFinally</td><td>you set <code>spec.status</code></td></tr>
+          <tr><td class="mono">False</td><td class="mono">Cancelled</td><td>you set <code>spec.status</code> (<code>Cancelled</code>, <code>CancelledRunFinally</code> or <code>StoppedRunFinally</code>); while finally tasks still run the reason is <code>CancelledRunningFinally</code> or <code>StoppedRunningFinally</code> with status Unknown</td></tr>
           <tr><td class="mono">False</td><td class="mono">CreateRunFailed</td><td>could not create a child TaskRun (quota, admission, missing ServiceAccount)</td></tr>
           <tr><td class="mono">False</td><td class="mono">ParameterMissing · PipelineValidationFailed · InvalidWorkspaceBinding · CouldntGetTask · InvalidTaskResultReference · ResolvingPipelineRef...</td><td>permanent validation errors, often prefixed <code>[User error]</code> in the message; nothing ran</td></tr>
         </tbody>
@@ -710,7 +710,7 @@ Taskruns
     </div>
 
     <div class="exercise" data-title="Cancel a run and still clean up">
-      <p>There are two cancellations. One stops everything now; the other stops the work but lets finally run, which is what you want when finally releases a lock or posts a status back to git.</p>
+      <p>There are two cancellations (the third stop value, <code>StoppedRunFinally</code>, lets running work finish). One stops everything now; the other stops the work but lets finally run, which is what you want when finally releases a lock or posts a status back to git.</p>
       <div class="cb" data-lang="bash"><pre><code># a fixed name needs a pre-delete or the second run reads a leftover from the first
 kubectl delete pipelinerun cancel-me --ignore-not-found
 kubectl create -f - &lt;&lt;'EOF'
@@ -944,13 +944,14 @@ pipelinerun.tekton.dev "fanout" deleted from default namespace</code></pre></det
     </div>
 
     <div class="exercise" data-title="Sign what the pipeline built">
-      <p>Tekton Chains is not part of <code>make cicd</code>, so this block installs it, generates a signing key, and removes nothing afterwards: uninstall it when you are finished, or leave it if you want to keep experimenting with signing.</p>
+      <p>Tekton Chains is not part of <code>make cicd</code>, so this block installs it and generates a signing key. Uninstall it with the block at the end of this exercise when you are finished, or leave it if you want to keep experimenting with signing.</p>
       <p>The release ships an empty <code>signing-secrets</code>, so the block replaces it with a real key pair. <code>cosign generate-key-pair</code> prompts for a password unless <code>COSIGN_PASSWORD</code> is set, which is why it is set to an empty one here; do not do that where the key matters. The point is that no pipeline change is needed: Chains watches completed TaskRuns and signs what they report.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -f https://storage.googleapis.com/tekton-releases/chains/latest/release.yaml
 kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=300s
 kubectl -n tekton-chains get secret signing-secrets -o jsonpath='{.data}{"\n"}'
 kubectl -n tekton-chains delete secret signing-secrets
-COSIGN_PASSWORD='' cosign generate-key-pair k8s://tekton-chains/signing-secrets
+# in a subshell under /tmp, so the cosign.pub it writes stays out of your working directory
+(cd /tmp &amp;&amp; COSIGN_PASSWORD='' cosign generate-key-pair k8s://tekton-chains/signing-secrets)
 kubectl -n tekton-chains get secret signing-secrets -o json | jq '.data | keys'
 kubectl -n tekton-chains patch cm chains-config --type merge -p '{"data":{"artifacts.taskrun.format":"in-toto","artifacts.taskrun.storage":"tekton","artifacts.oci.storage":"tekton"}}'
 kubectl -n tekton-chains rollout restart deploy/tekton-chains-controller
@@ -993,7 +994,8 @@ deployment "tekton-chains-controller" successfully rolled out
 <b>$ kubectl -n tekton-chains get secret signing-secrets -o jsonpath='{.data}{"\n"}'</b>
 <b>$ kubectl -n tekton-chains delete secret signing-secrets</b>
 secret "signing-secrets" deleted from tekton-chains namespace
-<b>$ COSIGN_PASSWORD='' cosign generate-key-pair k8s://tekton-chains/signing-secrets</b>
+<b>$ # in a subshell under /tmp, so the cosign.pub it writes stays out of your working directory</b>
+<b>$ (cd /tmp &amp;&amp; COSIGN_PASSWORD='' cosign generate-key-pair k8s://tekton-chains/signing-secrets)</b>
 Successfully created secret signing-secrets in namespace tekton-chains
 Public key written to cosign.pub
 <b>$ kubectl -n tekton-chains get secret signing-secrets -o json | jq '.data | keys'</b>
@@ -1007,6 +1009,7 @@ configmap/chains-config patched
 <b>$ kubectl -n tekton-chains rollout restart deploy/tekton-chains-controller</b>
 deployment.apps/tekton-chains-controller restarted
 <b>$ kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=180s</b>
+Waiting for deployment "tekton-chains-controller" rollout to finish: 0 out of 1 new replicas have been updated...
 Waiting for deployment "tekton-chains-controller" rollout to finish: 1 old replicas are pending termination...
 Waiting for deployment "tekton-chains-controller" rollout to finish: 1 old replicas are pending termination...
 deployment "tekton-chains-controller" successfully rolled out
@@ -1022,17 +1025,20 @@ deployment "tekton-chains-controller" successfully rolled out
 <b>        script: |</b>
 <b>          echo pretend this built something</b>
 <b>EOF</b>
-taskrun.tekton.dev/signed-fcxsw created
+taskrun.tekton.dev/signed-mzmn4 created
 <b>$ sleep 60</b>
 <b>$ kubectl get taskrun --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.annotations}' | jq 'with_entries(select(.key | startswith("chains")))'</b>
 {
-  "chains.tekton.dev/cert-taskrun-8404e4ef-2e2d-4b7f-9081-ac2a8e5d6c2b": "",
-  "chains.tekton.dev/chain-taskrun-8404e4ef-2e2d-4b7f-9081-ac2a8e5d6c2b": "",
-  "chains.tekton.dev/payload-taskrun-8404e4ef-2e2d-4b7f-9081-ac2a8e5d6c2b": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjAuMSIsICJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9zbHNhLmRldi9wcm92ZW5hbmNlL3YwLjIiLCAicHJlZGljYXRlIjp7ImJ1aWxkQ29uZmlnIjp7InN0ZXBzIjpbeyJhbm5vdGF0aW9ucyI6bnVsbCwgImFyZ3VtZW50cyI6bnVsbCwgImVudHJ5UG9pbnQiOiJlY2hvIHByZXRlbmQgdGhpcyBidWlsdCBzb21ldGhpbmdcbiIsICJlbnZpcm9ubWVudCI6eyJjb250YWluZXIiOiJidWlsZCIsICJpbWFnZSI6Im9jaTovL2RvY2tlci5pby9saWJyYXJ5L2J1c3lib3hAc2hhMjU2OjczYWFmMDkwZjNkODVhYTM0ZWUxOTk4NTdmMDNmYTNhOTVjOGVkZTJmZmQ0Y2MyY2RiNWI5NGU1NjZiMTE2NjIifX1dfSwgImJ1aWxkVHlwZSI6InRla3Rvbi5kZXYvdjEvVGFza1J1biIsICJidWlsZGVyIjp7ImlkIjoiaHR0cHM6Ly90ZWt0b24uZGV2L2NoYWlucy92MiJ9LCAiaW52b2NhdGlvbiI6eyJjb25maWdTb3VyY2UiOnt9LCAiZW52aXJvbm1lbnQiOnsiYW5ub3RhdGlvbnMiOnsicGlwZWxpbmUudGVrdG9uLmRldi9yZWxlYXNlIjoiZmNiYTUyMiJ9LCAibGFiZWxzIjp7ImFwcC5rdWJlcm5ldGVzLmlvL21hbmFnZWQtYnkiOiJ0ZWt0b24tcGlwZWxpbmVzIn19LCAicGFyYW1ldGVycyI6e319LCAibWF0ZXJpYWxzIjpbeyJkaWdlc3QiOnsic2hhMjU2IjoiNzNhYWYwOTBmM2Q4NWFhMzRlZTE5OTg1N2YwM2ZhM2E5NWM4ZWRlMmZmZDRjYzJjZGI1Yjk0ZTU2NmIxMTY2MiJ9LCAidXJpIjoib2NpOi8vZG9ja2VyLmlvL2xpYnJhcnkvYnVzeWJveCJ9XSwgIm1ldGFkYXRhIjp7ImJ1aWxkRmluaXNoZWRPbiI6IjIwMjYtMTEtMThUMDY6MjY6NThaIiwgImJ1aWxkU3RhcnRlZE9uIjoiMjAyNi0xMS0xOFQwNjoyNjo0N1oiLCAiY29tcGxldGVuZXNzIjp7ImVudmlyb25tZW50IjpmYWxzZSwgIm1hdGVyaWFscyI6ZmFsc2UsICJwYXJhbWV0ZXJzIjpmYWxzZX0sICJyZXByb2R1Y2libGUiOmZhbHNlfX19",
-  "chains.tekton.dev/signature-taskrun-8404e4ef-2e2d-4b7f-9081-ac2a8e5d6c2b": "eyJwYXlsb2FkVHlwZSI6ImFwcGxpY2F0aW9uL3ZuZC5pbi10b3RvK2pzb24iLCJwYXlsb2FkIjoiZXlKZmRIbHdaU0k2SW1oMGRIQnpPaTh2YVc0dGRHOTBieTVwYnk5VGRHRjBaVzFsYm5RdmRqQXVNU0lzSUNKd2NtVmthV05oZEdWVWVYQmxJam9pYUhSMGNITTZMeTl6YkhOaExtUmxkaTl3Y205MlpXNWhibU5sTDNZd0xqSWlMQ0FpY0hKbFpHbGpZWFJsSWpwN0ltSjFhV3hrUTI5dVptbG5JanA3SW5OMFpYQnpJanBiZXlKaGJtNXZkR0YwYVc5dWN5STZiblZzYkN3Z0ltRnlaM1Z0Wlc1MGN5STZiblZzYkN3Z0ltVnVkSEo1VUc5cGJuUWlPaUpsWTJodklIQnlaWFJsYm1RZ2RHaHBjeUJpZFdsc2RDQnpiMjFsZEdocGJtZGNiaUlzSUNKbGJuWnBjbTl1YldWdWRDSTZleUpqYjI1MFlXbHVaWElpT2lKaWRXbHNaQ0lzSUNKcGJXRm5aU0k2SW05amFUb3ZMMlJ2WTJ0bGNpNXBieTlzYVdKeVlYSjVMMkoxYzNsaWIzaEFjMmhoTWpVMk9qY3pZV0ZtTURrd1pqTmtPRFZoWVRNMFpXVXhPVGs0TlRkbU1ETm1ZVE5oT1RWak9HVmtaVEptWm1RMFkyTXlZMlJpTldJNU5HVTFOalppTVRFMk5qSWlmWDFkZlN3Z0ltSjFhV3hrVkhsd1pTSTZJblJsYTNSdmJpNWtaWFl2ZGpFdlZHRnphMUoxYmlJc0lDSmlkV2xzWkdWeUlqcDdJbWxrSWpvaWFIUjBjSE02THk5MFpXdDBiMjR1WkdWMkwyTm9ZV2x1Y3k5Mk1pSjlMQ0FpYVc1MmIyTmhkR2x2YmlJNmV5SmpiMjVtYVdkVGIzVnlZMlVpT250OUxDQWlaVzUyYVhKdmJtMWxiblFpT25zaVlXNXViM1JoZEdsdmJuTWlPbnNpY0dsd1pXeHBibVV1ZEdWcmRHOXVMbVJsZGk5eVpXeGxZWE5sSWpvaVptTmlZVFV5TWlKOUxDQWliR0ZpWld4eklqcDdJbUZ3Y0M1cmRXSmxjbTVsZEdWekxtbHZMMjFoYm1GblpXUXRZbmtpT2lKMFpXdDBiMjR0Y0dsd1pXeHBibVZ6SW4xOUxDQWljR0Z5WVcxbGRHVnljeUk2ZTMxOUxDQWliV0YwWlhKcFlXeHpJanBiZXlKa2FXZGxjM1FpT25zaWMyaGhNalUySWpvaU56TmhZV1l3T1RCbU0yUTROV0ZoTXpSbFpURTVPVGcxTjJZd00yWmhNMkU1TldNNFpXUmxNbVptWkRSall6SmpaR0kxWWprMFpUVTJObUl4TVRZMk1pSjlMQ0FpZFhKcElqb2liMk5wT2k4dlpHOWphMlZ5TG1sdkwyeHBZbkpoY25rdlluVnplV0p2ZUNKOVhTd2dJbTFsZEdGa1lYUmhJanA3SW1KMWFXeGtSbWx1YVhOb1pXUlBiaUk2SWpJd01qWXRNVEV0TVRoVU1EWTZNalk2TlRoYUlpd2dJbUoxYVd4a1UzUmhjblJsWkU5dUlqb2lNakF5TmkweE1TMHhPRlF3TmpveU5qbzBOMW9pTENBaVkyOXRjR3hsZEdWdVpYTnpJanA3SW1WdWRtbHliMjV0Wlc1MElqcG1ZV3h6WlN3Z0ltMWhkR1Z5YVdGc2N5STZabUZzYzJVc0lDSndZWEpoYldWMFpYSnpJanBtWVd4elpYMHNJQ0p5WlhCeWIyUjFZMmxpYkdVaU9tWmhiSE5sZlgxOSIsInNpZ25hdHVyZXMiOlt7ImtleWlkIjoiU0hBMjU2OkRJRjdXU1c1UTlDdUJ2aHFCUFp6V3RRNHdBcVdZZTVvYkdjdWxtZ3hneVEiLCJzaWciOiJNRVFDSUZEcjd6YXF6L0tUczJScE9uR0ZFZFRMUWZUN2N0c3hlc3owaE13aWt0TDZBaUFiVUg3Wk1kL214NTVLeURwRXRHMW1iY1hHWVNKay9uMlNVaDRROHRVRnFRPT0ifV19",
+  "chains.tekton.dev/cert-taskrun-cd48c039-4cbb-4ad9-96e2-7bbb44e9d261": "",
+  "chains.tekton.dev/chain-taskrun-cd48c039-4cbb-4ad9-96e2-7bbb44e9d261": "",
+  "chains.tekton.dev/payload-taskrun-cd48c039-4cbb-4ad9-96e2-7bbb44e9d261": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjAuMSIsICJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9zbHNhLmRldi9wcm92ZW5hbmNlL3YwLjIiLCAicHJlZGljYXRlIjp7ImJ1aWxkQ29uZmlnIjp7InN0ZXBzIjpbeyJhbm5vdGF0aW9ucyI6bnVsbCwgImFyZ3VtZW50cyI6bnVsbCwgImVudHJ5UG9pbnQiOiJlY2hvIHByZXRlbmQgdGhpcyBidWlsdCBzb21ldGhpbmdcbiIsICJlbnZpcm9ubWVudCI6eyJjb250YWluZXIiOiJidWlsZCIsICJpbWFnZSI6Im9jaTovL2RvY2tlci5pby9saWJyYXJ5L2J1c3lib3hAc2hhMjU2OjczYWFmMDkwZjNkODVhYTM0ZWUxOTk4NTdmMDNmYTNhOTVjOGVkZTJmZmQ0Y2MyY2RiNWI5NGU1NjZiMTE2NjIifX1dfSwgImJ1aWxkVHlwZSI6InRla3Rvbi5kZXYvdjEvVGFza1J1biIsICJidWlsZGVyIjp7ImlkIjoiaHR0cHM6Ly90ZWt0b24uZGV2L2NoYWlucy92MiJ9LCAiaW52b2NhdGlvbiI6eyJjb25maWdTb3VyY2UiOnt9LCAiZW52aXJvbm1lbnQiOnsiYW5ub3RhdGlvbnMiOnsicGlwZWxpbmUudGVrdG9uLmRldi9yZWxlYXNlIjoiZmNiYTUyMiJ9LCAibGFiZWxzIjp7ImFwcC5rdWJlcm5ldGVzLmlvL21hbmFnZWQtYnkiOiJ0ZWt0b24tcGlwZWxpbmVzIn19LCAicGFyYW1ldGVycyI6e319LCAibWF0ZXJpYWxzIjpbeyJkaWdlc3QiOnsic2hhMjU2IjoiNzNhYWYwOTBmM2Q4NWFhMzRlZTE5OTg1N2YwM2ZhM2E5NWM4ZWRlMmZmZDRjYzJjZGI1Yjk0ZTU2NmIxMTY2MiJ9LCAidXJpIjoib2NpOi8vZG9ja2VyLmlvL2xpYnJhcnkvYnVzeWJveCJ9XSwgIm1ldGFkYXRhIjp7ImJ1aWxkRmluaXNoZWRPbiI6IjIwMjYtMTEtMThUMDk6MjA6MTZaIiwgImJ1aWxkU3RhcnRlZE9uIjoiMjAyNi0xMS0xOFQwOToyMDowNVoiLCAiY29tcGxldGVuZXNzIjp7ImVudmlyb25tZW50IjpmYWxzZSwgIm1hdGVyaWFscyI6ZmFsc2UsICJwYXJhbWV0ZXJzIjpmYWxzZX0sICJyZXByb2R1Y2libGUiOmZhbHNlfX19",
+  "chains.tekton.dev/signature-taskrun-cd48c039-4cbb-4ad9-96e2-7bbb44e9d261": "eyJwYXlsb2FkVHlwZSI6ImFwcGxpY2F0aW9uL3ZuZC5pbi10b3RvK2pzb24iLCJwYXlsb2FkIjoiZXlKZmRIbHdaU0k2SW1oMGRIQnpPaTh2YVc0dGRHOTBieTVwYnk5VGRHRjBaVzFsYm5RdmRqQXVNU0lzSUNKd2NtVmthV05oZEdWVWVYQmxJam9pYUhSMGNITTZMeTl6YkhOaExtUmxkaTl3Y205MlpXNWhibU5sTDNZd0xqSWlMQ0FpY0hKbFpHbGpZWFJsSWpwN0ltSjFhV3hrUTI5dVptbG5JanA3SW5OMFpYQnpJanBiZXlKaGJtNXZkR0YwYVc5dWN5STZiblZzYkN3Z0ltRnlaM1Z0Wlc1MGN5STZiblZzYkN3Z0ltVnVkSEo1VUc5cGJuUWlPaUpsWTJodklIQnlaWFJsYm1RZ2RHaHBjeUJpZFdsc2RDQnpiMjFsZEdocGJtZGNiaUlzSUNKbGJuWnBjbTl1YldWdWRDSTZleUpqYjI1MFlXbHVaWElpT2lKaWRXbHNaQ0lzSUNKcGJXRm5aU0k2SW05amFUb3ZMMlJ2WTJ0bGNpNXBieTlzYVdKeVlYSjVMMkoxYzNsaWIzaEFjMmhoTWpVMk9qY3pZV0ZtTURrd1pqTmtPRFZoWVRNMFpXVXhPVGs0TlRkbU1ETm1ZVE5oT1RWak9HVmtaVEptWm1RMFkyTXlZMlJpTldJNU5HVTFOalppTVRFMk5qSWlmWDFkZlN3Z0ltSjFhV3hrVkhsd1pTSTZJblJsYTNSdmJpNWtaWFl2ZGpFdlZHRnphMUoxYmlJc0lDSmlkV2xzWkdWeUlqcDdJbWxrSWpvaWFIUjBjSE02THk5MFpXdDBiMjR1WkdWMkwyTm9ZV2x1Y3k5Mk1pSjlMQ0FpYVc1MmIyTmhkR2x2YmlJNmV5SmpiMjVtYVdkVGIzVnlZMlVpT250OUxDQWlaVzUyYVhKdmJtMWxiblFpT25zaVlXNXViM1JoZEdsdmJuTWlPbnNpY0dsd1pXeHBibVV1ZEdWcmRHOXVMbVJsZGk5eVpXeGxZWE5sSWpvaVptTmlZVFV5TWlKOUxDQWliR0ZpWld4eklqcDdJbUZ3Y0M1cmRXSmxjbTVsZEdWekxtbHZMMjFoYm1GblpXUXRZbmtpT2lKMFpXdDBiMjR0Y0dsd1pXeHBibVZ6SW4xOUxDQWljR0Z5WVcxbGRHVnljeUk2ZTMxOUxDQWliV0YwWlhKcFlXeHpJanBiZXlKa2FXZGxjM1FpT25zaWMyaGhNalUySWpvaU56TmhZV1l3T1RCbU0yUTROV0ZoTXpSbFpURTVPVGcxTjJZd00yWmhNMkU1TldNNFpXUmxNbVptWkRSall6SmpaR0kxWWprMFpUVTJObUl4TVRZMk1pSjlMQ0FpZFhKcElqb2liMk5wT2k4dlpHOWphMlZ5TG1sdkwyeHBZbkpoY25rdlluVnplV0p2ZUNKOVhTd2dJbTFsZEdGa1lYUmhJanA3SW1KMWFXeGtSbWx1YVhOb1pXUlBiaUk2SWpJd01qWXRNVEV0TVRoVU1EazZNakE2TVRaYUlpd2dJbUoxYVd4a1UzUmhjblJsWkU5dUlqb2lNakF5TmkweE1TMHhPRlF3T1RveU1Eb3dOVm9pTENBaVkyOXRjR3hsZEdWdVpYTnpJanA3SW1WdWRtbHliMjV0Wlc1MElqcG1ZV3h6WlN3Z0ltMWhkR1Z5YVdGc2N5STZabUZzYzJVc0lDSndZWEpoYldWMFpYSnpJanBtWVd4elpYMHNJQ0p5WlhCeWIyUjFZMmxpYkdVaU9tWmhiSE5sZlgxOSIsInNpZ25hdHVyZXMiOlt7ImtleWlkIjoiU0hBMjU2OmluRm1BVUlPNDVwcUl0M2R0YjV1bVpSNFZDRDg5QTk5Yk9Ic0w1UnJodVEiLCJzaWciOiJNRVVDSUhzNUZwNDZoMjZPK1oySkZCMkptMlhzMDQzcVBwb2RPOHRZeW8xakNSQmxBaUVBeUZ5SHdPNmpUY2RzL1Fjc0hJQ0ZZdEl4MEorbEF2TUlqQWREa2UwWUN5az0ifV19",
   "chains.tekton.dev/signed": "true"
 }</code></pre></details></div>
       <div class="verify"><b>verify:</b> the completed TaskRun carries a <code>chains.tekton.dev/signed</code> annotation set to true, added by a controller the pipeline author never mentioned. If it says <code>failed</code> instead, read the chains-controller log: the reason is almost always the key or the storage backend.</div>
+      <p>To remove Chains, delete the TaskRuns while its controller still runs: it puts a <code>chains.tekton.dev/taskrun</code> finalizer on every TaskRun it has seen, and once it is gone nothing removes those, so the TaskRuns and their pods never delete.</p>
+      <div class="cb" data-lang="bash"><pre><code>kubectl delete taskrun --all -n default
+kubectl delete -f https://storage.googleapis.com/tekton-releases/chains/latest/release.yaml</code></pre></div>
     </div>
 
   </div>

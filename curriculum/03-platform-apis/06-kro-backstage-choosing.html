@@ -101,7 +101,7 @@ spec:
     </ul>
 
     <h3>Conditions to read</h3>
-    <p>An RGD carries <code>GraphRevisionsResolved</code>, <code>GraphAccepted</code>, <code>KindReady</code> (the CRD exists), <code>ControllerReady</code> (the dynamic controller registered) and an aggregate <code>Ready</code>; <code>status.state</code> is <code>Active</code> only when the graph, kind and controller are all good, otherwise <code>Inactive</code> with the failing condition's message (typically a CEL type error or an unknown field, caught by kro's static analysis before anything is created). An instance carries <code>InstanceManaged</code>, <code>GraphResolved</code>, <code>ResourcesReady</code> and <code>Ready</code>, and <code>status.state</code> <code>ACTIVE</code>; RGD authors can replace the wire conditions with their own via <code>schema.status.conditions</code>. To freeze an instance for debugging, annotate it <code>kro.run/reconcile: suspended</code>.</p>
+    <p>An RGD carries <code>ResourceGraphAccepted</code>, <code>KindReady</code> (the CRD exists), <code>ControllerReady</code> (the dynamic controller registered) and an aggregate <code>Ready</code>; <code>status.state</code> is <code>Active</code> only when the graph, kind and controller are all good, otherwise <code>Inactive</code> with the failing condition's message (typically a CEL type error or an unknown field, caught by kro's static analysis before anything is created). An instance carries <code>InstanceSynced</code> and <code>status.state</code> <code>ACTIVE</code>; RGD authors can replace the wire conditions with their own via <code>schema.status.conditions</code>. To freeze an instance for debugging, annotate it <code>kro.run/reconcile: suspended</code>.</p>
 
     <div class="callout trap"><span class="tag">Trap</span><p>kro's controller needs RBAC for every kind an RGD creates. The Helm chart's <code>rbac.mode: unrestricted</code> grants everything; <code>aggregation</code> mode grants only what ClusterRoles labeled <code>rbac.kro.run/aggregate-to-controller: "true"</code> allow. In aggregation mode an RGD that templates a kind nobody granted goes <code>Active</code> and then every instance fails with <code>forbidden</code> from the kro ServiceAccount. Same lesson as the Crossplane and Argo Workflows RBAC ones, one namespace over.</p></div>
   </div>
@@ -239,6 +239,8 @@ kind: TenantSpace
 metadata: { name: team-h, namespace: default }
 spec: { team: team-h, cpu: "2" }
 EOF
+# kro creates the namespace first and the quota a few seconds later
+sleep 20
 kubectl get ns team-h &amp;&amp; kubectl -n team-h get resourcequota tenant-quota</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl get rgd tenantspace -o jsonpath='{.status.state}{"\n"}'   # wants: Active</b>
 Active
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
@@ -248,6 +250,8 @@ Active
 <b>spec: { team: team-h, cpu: "2" }</b>
 <b>EOF</b>
 tenantspace.kro.run/team-h created
+<b>$ # kro creates the namespace first and the quota a few seconds later</b>
+<b>$ sleep 20</b>
 <b>$ kubectl get ns team-h &amp;&amp; kubectl -n team-h get resourcequota tenant-quota</b>
 NAME     STATUS   AGE
 team-h   Active   25s

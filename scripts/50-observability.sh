@@ -74,6 +74,10 @@ metadata: { name: otel, namespace: tracing }
 spec:
   mode: deployment
   config:
+    # health_check makes the operator add readiness and liveness probes: without them the
+    # Service routes to a restarted collector before its receivers listen
+    extensions:
+      health_check: { endpoint: 0.0.0.0:13133 }
     receivers:
       otlp:
         protocols:
@@ -81,19 +85,20 @@ spec:
           http: { endpoint: 0.0.0.0:4318 }
     processors:
       batch: { timeout: 5s }
-      k8sattributes: {}
+      k8s_attributes: {}
     exporters:
-      otlp/jaeger:
+      otlp_grpc/jaeger:
         endpoint: jaeger.tracing.svc.cluster.local:4317
         tls: { insecure: true }
-      otlphttp/prom:
+      otlp_http/prom:
         endpoint: http://prometheus-kube-prometheus-prometheus.monitoring.svc:9090/api/v1/otlp
         tls: { insecure: true }
       debug: { verbosity: basic }
     service:
+      extensions: [health_check]
       pipelines:
-        traces:  { receivers: [otlp], processors: [k8sattributes, batch], exporters: [otlp/jaeger] }
-        metrics: { receivers: [otlp], processors: [batch], exporters: [otlphttp/prom] }
+        traces:  { receivers: [otlp], processors: [k8s_attributes, batch], exporters: [otlp_grpc/jaeger] }
+        metrics: { receivers: [otlp], processors: [batch], exporters: [otlp_http/prom] }
         logs:    { receivers: [otlp], processors: [batch], exporters: [debug] }
 YAML
 # The operator's admission webhook lags pod readiness by a few seconds.
