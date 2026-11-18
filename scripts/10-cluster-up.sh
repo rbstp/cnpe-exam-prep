@@ -38,7 +38,9 @@ sed -e "s|__CLUSTER__|$CLUSTER|g" \
     -e "s|__AUDIT_DIR__|$AUDIT_DIR|g" \
     "$REPO_ROOT/kind/cnpe.yaml.tpl" > /tmp/cnpe-lab/kind-$CLUSTER.yaml
 
+CLUSTER_EXISTED=0
 if cluster_exists "$CLUSTER"; then
+  CLUSTER_EXISTED=1
   ok "cluster '$CLUSTER' already exists (delete with: make down)"
 else
   log "Creating kind cluster '$CLUSTER' (3 nodes)"
@@ -50,6 +52,38 @@ else
   fi
 fi
 kubectl config use-context "kind-$CLUSTER" >/dev/null
+
+# ── an existing cluster settles before anything is installed into it ─────
+# After a restart the nodes come back on new addresses and the admission webhooks
+# come back last. A Helm upgrade that reaches a failing-closed webhook before its
+# pod is ready is refused, which used to stop 'make up' before it repaired anything.
+if [ "$CLUSTER_EXISTED" = 1 ]; then
+  log "Letting the existing cluster settle (after a restart this takes a few minutes)"
+  poll 300 "the API server" kubectl get --raw /readyz || die "the API server of '$CLUSTER' is not answering"
+  kubectl wait --for=condition=Ready nodes --all --timeout=5m >/dev/null || warn "some nodes still NotReady"
+  if [ "$CNI" = "cilium" ] && kubectl -n kube-system get ds cilium >/dev/null 2>&1; then
+    kubectl -n kube-system rollout status ds/cilium --timeout=5m >/dev/null || true
+    # The agents keep the nodes' old addresses cached, and every endpoint sync then
+    # fails with "cannot take ownership of CEP that is not local".
+    if cilium status --context "kind-$CLUSTER" 2>/dev/null | grep -q 'cannot take ownership of CEP'; then
+      log "Restarting the Cilium agents (they still hold the node addresses from before a restart)"
+      kubectl -n kube-system rollout restart ds/cilium >/dev/null
+      kubectl -n kube-system rollout status ds/cilium --timeout=5m >/dev/null || true
+    fi
+  fi
+  # A Deployment's Available condition is the one saved before the shutdown until
+  # the controllers catch up, so ask the webhooks themselves: a server-side dry run
+  # goes through every admission webhook and creates nothing. A policy that denies
+  # it still answered; only "failed calling webhook" means one is not serving yet.
+  webhooks_answer() {
+    local out
+    out=$( { kubectl create namespace cnpe-settle-probe --dry-run=server -o name
+             kubectl -n default create deployment cnpe-settle-probe --image=busybox:1.37 --dry-run=server -o name; } 2>&1 ) || true
+    ! grep -q 'failed calling webhook' <<<"$out"
+  }
+  if poll 300 "the admission webhooks" webhooks_answer; then ok "admission webhooks are answering"
+  else warn "an admission webhook is still not answering; installs it checks may be refused"; fi
+fi
 
 # ── tell every node where the local registry lives ───────────────────────
 if [ "$SMOKE" != 1 ]; then
@@ -91,14 +125,6 @@ if [ "$CNI" = "cilium" ]; then
     --set hubble.relay.enabled=true \
     --set hubble.ui.enabled=true \
     --set envoy.enabled=false
-  # After a reboot the kind nodes come back on new addresses, and the agents keep
-  # the old ones cached: every endpoint sync fails with "cannot take ownership of
-  # CEP that is not local". Restarting the agents is the whole fix.
-  if cilium status --context "kind-$CLUSTER" 2>/dev/null | grep -q 'cannot take ownership of CEP'; then
-    log "Restarting the Cilium agents (they still hold the node addresses from before a restart)"
-    kubectl -n kube-system rollout restart ds/cilium >/dev/null
-    kubectl -n kube-system rollout status ds/cilium --timeout=5m >/dev/null || true
-  fi
   cilium status --wait --wait-duration 3m --context "kind-$CLUSTER" >/dev/null || warn "cilium not fully ready yet"
   log "Waiting for all nodes to reach Ready now that a CNI exists"
   kubectl wait --for=condition=Ready nodes --all --timeout=5m || warn "some nodes still NotReady"
