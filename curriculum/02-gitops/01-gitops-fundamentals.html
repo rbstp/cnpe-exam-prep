@@ -93,7 +93,7 @@
       </table>
     </div>
 
-    <p>In this lab, environments are directories: <code>demo-app/overlays/staging</code> and <code>overlays/prod</code> inside the platform repo, and promotion is a change flowing from one directory to the next, usually as an image tag bump or a kustomize patch. Branches-per-environment exists in the wild and the received wisdom is to avoid it, for exactly the reason above.</p>
+    <p>In this lab, environments are directories: <code>demo-app/overlays/staging</code> and <code>overlays/prod</code> inside the platform repo, and promotion is a change flowing from one directory to the next, usually as an image tag bump or a kustomize patch. Branches-per-environment exists in the wild and the received wisdom is to avoid it, for the reason in the table.</p>
 
     <h3>Templating, both flavors</h3>
     <p><strong>Kustomize</strong> layers patches over a base with no templating language: <code>resources</code>, <code>patches</code> (strategic-merge or JSON6902), <code>images</code>, <code>namePrefix</code>, <code>labels</code> (the v5 replacement for the deprecated <code>commonLabels</code>), <code>configMapGenerator</code>. What you see is YAML all the way down, and <code>kustomize build</code> shows you exactly what will be applied. <strong>Helm</strong> renders Go templates from values, giving conditionals and loops at the cost of "the manifest does not exist until something renders it". Argo CD and Flux both consume both, and both let you post-render one with the other.</p>
@@ -150,7 +150,7 @@
     </ul>
 
     <h3>Rendered manifests</h3>
-    <p>Templating hides the YAML that will actually be applied. The rendered manifests pattern renders it in a pipeline and commits the output to a branch or directory the agent watches, so review sees final YAML and the diff between staging and production is a real diff. Argo CD ships this as the <strong>Source Hydrator</strong> (beta since 3.5): <code>spec.sourceHydrator.drySource</code> names the templated source, <code>syncSource.targetBranch</code> and <code>path</code> name where the hydrated output is pushed and synced from, and a push credential is a repo Secret labeled <code>argocd.argoproj.io/secret-type: repository-write</code>. Flux gets the same effect by having CI run <code>flux push artifact</code> and pointing an <code>OCIRepository</code> at the result.</p>
+    <p>Templating hides the YAML that gets applied. The rendered manifests pattern renders it in a pipeline and commits the output to a branch or directory the agent watches, so review sees final YAML and the diff between staging and production is a real diff. Argo CD ships this as the <strong>Source Hydrator</strong> (beta since 3.5): <code>spec.sourceHydrator.drySource</code> names the templated source, <code>syncSource.targetBranch</code> and <code>path</code> name where the hydrated output is pushed and synced from, and a push credential is a repo Secret labeled <code>argocd.argoproj.io/secret-type: repository-write</code>. Flux gets the same effect by having CI run <code>flux push artifact</code> and pointing an <code>OCIRepository</code> at the result.</p>
 
     <h3>OCI artifacts as a source</h3>
     <ul>
@@ -345,7 +345,7 @@ http://gitea.lab:3000/lab/platform.git
 <b>$ flux get sources git</b>
 NAME    	REVISION          	SUSPENDED	READY	MESSAGE                                           
 platform	main@sha1:c7cb9a1e	False    	True 	stored artifact for revision 'main@sha1:c7cb9a1e'	</code></pre></details></div>
-      <div class="verify"><b>verify:</b> both point at <code>gitea.lab</code> and the Flux GitRepository shows Ready True with a commit SHA. Now you know the truth both engines reconcile from, and it is the same repo you just pushed to.</div>
+      <div class="verify"><b>verify:</b> both point at <code>gitea.lab</code> and the Flux GitRepository shows Ready True with a commit SHA. Both engines reconcile from the repo you just pushed to.</div>
     </div>
 
     <div class="exercise" data-title="Drift, the concept">
@@ -388,7 +388,7 @@ demo-oci	13403b5@sha256:9e73f795	False    	True 	stored artifact for digest '134
     </div>
 
     <div class="exercise" data-title="List what each engine is watching">
-      <p>Before you debug either engine, know what it has been told to look at. The two answers live in completely different places: a labeled Secret for Argo CD, a set of source objects for Flux.</p>
+      <p>Before you debug either engine, know what it has been told to look at. The two answers live in different places: a labeled Secret for Argo CD, a set of source objects for Flux.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd get secret -l argocd.argoproj.io/secret-type=repository -o name
 kubectl -n argocd get secret -l argocd.argoproj.io/secret-type=repository -o jsonpath='{range .items[*]}{.data.url}{"\n"}{end}' | base64 -d
 flux get sources all -A</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n argocd get secret -l argocd.argoproj.io/secret-type=repository -o name</b>
@@ -478,7 +478,7 @@ unset, so the 3.x default is in force
   "app.kubernetes.io/part-of": "demo-app",
   "cost-centre": "team-a"
 }</code></pre></details></div>
-      <div class="verify"><b>verify:</b> <code>argocd-cm</code> has no <code>application.resourceTrackingMethod</code> key at all, which is the 3.x default of <code>annotation</code>, and the annotation on the deployment names the application, the group/kind and the destination namespace in one string.</div>
+      <div class="verify"><b>verify:</b> <code>argocd-cm</code> has no <code>application.resourceTrackingMethod</code> key, so the 3.x default of <code>annotation</code> applies, and the annotation on the deployment names the application, the group/kind and the destination namespace in one string.</div>
     </div>
 
   </div>

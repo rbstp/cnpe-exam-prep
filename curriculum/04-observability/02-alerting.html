@@ -52,12 +52,12 @@
 
     <div class="callout trap">
       <span class="tag">The same selector story as ServiceMonitors</span>
-      <p>Rules are only evaluated if they match the Prometheus object's <code>ruleSelector</code>. This lab's is <code>{}</code> (everything); a stock install's is the release label. An unmatched rule produces <em>no evaluation and no error</em>. Read the selector before blaming the rule, and note that this is yet another place in domain 4 where a selector silently discards correct configuration.</p>
+      <p>Rules are only evaluated if they match the Prometheus object's <code>ruleSelector</code>. This lab's is <code>{}</code> (everything); a stock install's is the release label. An unmatched rule produces <em>no evaluation and no error</em>. Read the selector before blaming the rule: this is another place in domain 4 where a selector silently discards correct configuration.</p>
     </div>
 
     <div class="callout exam">
       <span class="tag">Alert states, and where each is visible</span>
-      <p><em>Inactive</em> → <em>Pending</em> (expression true, <code>for</code> not yet satisfied) → <em>Firing</em>. Pending alerts appear in Prometheus's Alerts page and <strong>nowhere else</strong>; they have not been sent. That matters when someone asks why nothing reached the receiver "even though the alert is showing". Add evaluation interval + <code>for</code> + <code>group_wait</code> to compute how long a fire genuinely takes; on a stock stack that is easily 2–3 minutes.</p>
+      <p><em>Inactive</em> → <em>Pending</em> (expression true, <code>for</code> not yet satisfied) → <em>Firing</em>. Pending alerts appear in Prometheus's Alerts page and <strong>nowhere else</strong>; they have not been sent. That matters when someone asks why nothing reached the receiver "even though the alert is showing". Add evaluation interval + <code>for</code> + <code>group_wait</code> to compute how long a fire takes; on a stock stack that is easily 2–3 minutes.</p>
     </div>
 
 
@@ -121,7 +121,7 @@
     <h3>Inhibition and silences</h3>
     <ul>
       <li>An <code>inhibit_rules[]</code> entry has <code>source_matchers</code> (the alert that must be firing), <code>target_matchers</code> (the alerts to mute) and <code>equal</code> (labels that must carry the same value on both). A missing label and an empty label are treated as equal, so <code>equal: [namespace]</code> with a cluster-wide source inhibits every target that also lacks <code>namespace</code>. An alert matching both sides never inhibits itself.</li>
-      <li>Silences are matchers plus a start, an end and a comment, created in the UI, via <code>amtool silence add alertname=X --duration 2h --comment ...</code>, or by POSTing to <code>/api/v2/silences</code>. They are stored in Alertmanager's own data, not in the config, and are lost with the PVC if there is none. <code>amtool config routes test --config.file am.yml severity=critical team=db</code> prints which receiver a label set lands on; <code>amtool check-config</code> validates the file.</li>
+      <li>Silences are matchers plus a start, an end and a comment, created in the UI, via <code>amtool silence add alertname=X --duration 2h --comment ...</code>, or by POSTing to <code>/api/v2/silences</code>. They are stored in Alertmanager's own data, not in the config, and are lost with the pod if there is no PVC. <code>amtool config routes test --config.file am.yml severity=critical team=db</code> prints which receiver a label set lands on; <code>amtool check-config</code> validates the file.</li>
     </ul>
 
     <h3>Operator-managed routing</h3>
@@ -146,7 +146,7 @@
         </tbody>
       </table>
     </div>
-    <p>For a 99.9% SLO the 1h rule reads <code>error_ratio_1h &gt; 14.4 * 0.001 and error_ratio_5m &gt; 14.4 * 0.001</code>, where each ratio is a recording rule such as <code>sum(rate(http_requests_total{code=~"5.."}[1h])) / sum(rate(http_requests_total[1h]))</code>. Recording rules are not optional here: eight windows of raw division per service is exactly the slow-dashboard problem. Name them <code>slo:sli_error:ratio_rate1h</code> and friends, and put <code>severity</code> on the label so routing follows the table.</p>
+    <p>For a 99.9% SLO the 1h rule reads <code>error_ratio_1h &gt; 14.4 * 0.001 and error_ratio_5m &gt; 14.4 * 0.001</code>, where each ratio is a recording rule such as <code>sum(rate(http_requests_total{code=~"5.."}[1h])) / sum(rate(http_requests_total[1h]))</code>. Recording rules are not optional here: eight windows of raw division per service is the slow-dashboard problem. Name them <code>slo:sli_error:ratio_rate1h</code> and friends, and put <code>severity</code> on the label so routing follows the table.</p>
 
     <h3>Alert hygiene that graders and reviewers look for</h3>
     <ul>
@@ -643,7 +643,7 @@ prometheusrule.monitoring.coreos.com "burn-rate" deleted from monitoring namespa
     </div>
 
     <div class="exercise" data-title="Read the config Alertmanager is really running">
-      <p>The AlertmanagerConfig objects you write are merged into one file by the operator, with a namespace matcher injected into every route. Reading the rendered result is how you find out what your object actually became.</p>
+      <p>The AlertmanagerConfig objects you write are merged into one file by the operator, with a namespace matcher injected into every route. Reading the rendered result is how you find out what your object became.</p>
       <div class="cb" data-lang="bash"><pre><code># nothing of yours is in the rendered file until an AlertmanagerConfig exists
 kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: monitoring.coreos.com/v1alpha1

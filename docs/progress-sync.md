@@ -4,7 +4,7 @@ The study console is local-first and stays that way. `localStorage` is the sourc
 of truth; this is a mirror bolted on top of it, off by default, and everything in
 the console works identically without it.
 
-Concretely, the guarantees the code holds to, each asserted by a browser check in
+The guarantees the code holds to, each asserted by a browser check in
 `curriculum/tools/browser-checks/`, under `sync.js`, `streak.js` or `tabs.js`:
 
 * Over `file://` there is no sync UI and **no request is ever made**.
@@ -48,7 +48,8 @@ the `cnpe:v2` store as JSON. Nothing else. A **fully completed** store, meaning 
 29 sections, all 286 exercises, all 257 drill cards, both mock exams, a full
 window of study days and a finished quest, is about 41 KB against a 64 KB ceiling.
 Two thirds of that is the drill: one record per card, keyed on 48 characters of
-its question.
+its question. The Worker measures the ceiling on the UTF-8 encoded JSON, not the
+JavaScript character count, so multibyte text cannot bypass it.
 
 The quest's bucket (`game`) follows the same rules as the rest. Its counters
 (xp, gold earned and spent, items got and used) are per-browser maps read as
@@ -64,8 +65,6 @@ merge ever lowers a counter to repair it. The mirror case is two tabs of one
 browser, which share a slot: two purchases made in the same instant, before the
 tabs' storage event has merged them, keep only the larger spend. The window is
 the milliseconds between a save and the other tab's reconcile.
-The Worker measures that ceiling on the UTF-8 encoded JSON, not JavaScript
-character count, so multibyte text cannot bypass the limit.
 
 The window is 30 days, the same span the dashboard's heat strip draws, and `KEEP`
 in `merge.js` is the one number that says so. Days older than that are dropped as
@@ -187,7 +186,8 @@ Four checks, and failing any of them falls back to the union:
   see; a row deleted and rebuilt past the old `rev` by a browser that never held
   this one's work, without this browser pulling in between, is not visible to any
   of them.
-* **The account must match.** Belt and braces, since signing out clears the base.
+* **The account must match.** A second, independent check, since signing out
+  already clears the base.
 
 **Reset progress** clears the base as well, which is what keeps it a local wipe
 rather than a mass un-tick: declining the second confirm still syncs the saved copy
@@ -267,8 +267,8 @@ So a reset still only clears the tab it was run in. The others keep what they ho
 in memory, and the first write from any tab, the resetting one included, is enough
 to put that copy back: the reset moves what the tabs agree on to an empty store, so
 everything the stale tab holds reads as new work the next time anyone writes. That
-is where this was before any of this, and the Reset confirm now says so: close or
-reload the other tabs first.
+is how a reset behaved before the tabs merged at all, and the Reset confirm now says
+so: close or reload the other tabs first.
 
 ### What still does not travel
 
@@ -444,7 +444,8 @@ Tick an exercise, wait a few seconds, run it again: `rev` and `bytes` should mov
 ## If you fork this, or rename anything
 
 The Worker origin is one constant, `API`, at the top of
-`curriculum/assets/sync.js`. It must agree with three other places:
+`curriculum/assets/sync.js`. It must agree with the Worker's route and the OAuth
+callback, and a fork sets the two `ALLOWED_*` values beside them:
 
 | Place | What it is |
 |---|---|
@@ -503,8 +504,8 @@ As deployed above, anyone with a GitHub account can sign in and store *their own
 progress, and they never see yours. If you would rather it stayed a guest list, set
 `ALLOWED_LOGINS` in `sync/wrangler.toml` to a comma-separated list of GitHub
 logins; everyone else gets a 403 at the callback and nothing is stored for them.
-Leave it unset and the door is open, which is fine: 5 GB at ~19 KB a head is
-around a quarter of a million completed study records.
+Leave it unset and the door is open, which is fine: 5 GB at ~41 KB a head is
+more than a hundred thousand completed study records.
 
 ## What you are taking on
 
@@ -533,7 +534,7 @@ Worth knowing if you change any of it:
   attribute, which is why the cookie is host-only.
 * `PUT` and `DELETE` require an allowed `Origin` header outright, not merely the
   absence of a disallowed one. `GET` tolerates a missing one so `curl` still works.
-* Bodies are capped at 64 KB, three times a completed store, before and after the
+* Bodies are capped at 64 KB, about one and a half completed stores, before and after the
   JSON round trip. Every query is parameterized through `bind()`.
 * `CNPE_PROGRESS.merge` skips every `Object.prototype` name, not just `__proto__`,
   `constructor` and `prototype`. The base lookup reads through `hasOwnProperty`,
@@ -572,7 +573,8 @@ Worth knowing if you change any of it:
 | `GET` | `/v1/progress` | `{ user, rev, progress, updated }`, or 401 |
 | `PUT` | `/v1/progress` | `{ rev, progress }` → `{ rev, updated }`; 409 carries the current copy |
 | `DELETE` | `/v1/progress` | forget the stored copy |
-| `GET` | `/healthz` | `ok` |
+| `GET` | `/healthz` | `ok`, even half-configured |
+| `GET` | `/readyz` | `{"ready":true}`, or 503 when configuration or D1 is unavailable |
 
 Sign-in intent is recorded in `localStorage` under `cnpe:sync` *before* the
 redirect, which is what tells the returning page to pull. There is no marker

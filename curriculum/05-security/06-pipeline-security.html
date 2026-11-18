@@ -71,7 +71,7 @@
         <tbody>
           <tr><td>Source</td><td>malicious or accidental commit, leaked credential</td><td>branch protection, signed commits, secret scanning, dependency review</td><td>gitleaks or trivy's secret scanner, Dependabot/Renovate, OpenSSF Scorecard</td></tr>
           <tr><td>Build</td><td>compromised or unpinned dependency, tampered build</td><td>pinned base images by digest, hermetic and reproducible builds, provenance</td><td>SLSA levels, Tekton Chains, distroless or Chainguard bases</td></tr>
-          <tr><td>Package</td><td>known vulnerabilities shipped, unsigned artefact</td><td>scan gate, SBOM, signature, attestations in the registry</td><td>trivy, syft/grype, cosign sign/attest</td></tr>
+          <tr><td>Package</td><td>known vulnerabilities shipped, unsigned artifact</td><td>scan gate, SBOM, signature, attestations in the registry</td><td>trivy, syft/grype, cosign sign/attest</td></tr>
           <tr><td>Deploy</td><td>image that bypassed the pipeline, tag moved after verification</td><td>admission verification, digest pinning, registry allow-list</td><td>Kyverno ImageValidatingPolicy, Sigstore policy-controller, Gatekeeper + Ratify</td></tr>
           <tr><td>Run</td><td>CVE published after ship, runtime compromise</td><td>continuous rescanning, runtime detection, PSS</td><td>Trivy Operator, Falco, Pod Security admission</td></tr>
         </tbody>
@@ -84,7 +84,7 @@
       <li><strong>Keyless.</strong> <code>cosign sign &lt;image&gt;</code> with an OIDC login or a CI identity token (<code>--identity-token</code>, GitHub Actions' <code>id-token: write</code> permission) gets a short-lived certificate from Fulcio and logs to Rekor. Verification must pin the identity: <code>cosign verify --certificate-identity &lt;subject&gt; --certificate-oidc-issuer &lt;issuer URL&gt; &lt;image&gt;</code>, or the <code>-regexp</code> variants for a workflow path like <code>https://github.com/org/repo/.github/workflows/build.yaml@refs/heads/main</code> with issuer <code>https://token.actions.githubusercontent.com</code>. Without the identity flags the command refuses to run; that is the point.</li>
       <li><strong>Offline and private.</strong> <code>--insecure-ignore-tlog</code> skips the Rekor check (needed when you signed with <code>--tlog-upload=false</code>); <code>--offline</code> with a bundle; <code>--certificate-chain</code> or <code>--ca-roots</code> for a private Fulcio; <code>--rekor-url</code> for a private Rekor. <code>-a key=value</code> at sign time adds annotations checked with the same flag at verify time.</li>
       <li><strong>Attestations.</strong> <code>cosign attest --predicate file --type slsaprovenance1|spdxjson|cyclonedx|vuln|custom --key ... &lt;image&gt;</code>; <code>cosign verify-attestation --type &lt;type&gt; --key ... &lt;image&gt;</code>, optionally with <code>--policy policy.cue</code> or a Rego file to assert on predicate content (a maximum severity, a builder id). <code>cosign tree &lt;image&gt;</code> lists what is attached; <code>cosign download attestation</code> fetches it.</li>
-      <li><strong>Storage formats.</strong> Signatures live as OCI artefacts next to the image: the legacy tag form <code>sha256-&lt;digest&gt;.sig</code> and <code>.att</code>, or the newer bundle stored via OCI 1.1 referrers (cosign v3 default). A verifier that only understands one form reports <code>no signatures found</code> for an image signed in the other. The lab's <code>--new-bundle-format=false</code> is that mismatch made visible.</li>
+      <li><strong>Storage formats.</strong> Signatures live as OCI artifacts next to the image: the legacy tag form <code>sha256-&lt;digest&gt;.sig</code> and <code>.att</code>, or the newer bundle stored via OCI 1.1 referrers (cosign v3 default). A verifier that only understands one form reports <code>no signatures found</code> for an image signed in the other. The lab's <code>--new-bundle-format=false</code> is that mismatch made visible.</li>
     </ul>
 
     <h3>trivy gate flags</h3>
@@ -138,7 +138,7 @@
       </table>
     </div>
     <p>Digest pinning closes the last gap: verify the digest, then run the digest. Kyverno's <code>mutateDigest</code>, policy-controller's tag resolution and Argo CD's image updater writing digests into git all do it; a Deployment that still says <code>:v1</code> after admission means whoever moves the tag decides what runs.</p>
-    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Sign this image and make the cluster refuse unsigned ones" is cosign plus one of the three objects above, with the registry name as the pods see it and the engine's insecure-registry setting if the lab registry is plain HTTP. "Generate provenance for this pipeline" is Chains configuration plus <code>IMAGE_URL</code>/<code>IMAGE_DIGEST</code> results in the Task. "Fail the build on CRITICAL-severity CVEs but not on unfixable ones" is <code>--severity CRITICAL --exit-code 1 --ignore-unfixed</code> with a dated ignore file for the exceptions. Each is graded on the artefact (a signature you can verify, an attestation you can download, a denied pod), so end by producing that artefact.</p></div>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Sign this image and make the cluster refuse unsigned ones" is cosign plus one of the three objects above, with the registry name as the pods see it and the engine's insecure-registry setting if the lab registry is plain HTTP. "Generate provenance for this pipeline" is Chains configuration plus <code>IMAGE_URL</code>/<code>IMAGE_DIGEST</code> results in the Task. "Fail the build on CRITICAL-severity CVEs but not on unfixable ones" is <code>--severity CRITICAL --exit-code 1 --ignore-unfixed</code> with a dated ignore file for the exceptions. Each is graded on the artifact (a signature you can verify, an attestation you can download, a denied pod), so end by producing that artifact.</p></div>
   </div>
 </section>
 
@@ -199,7 +199,7 @@ unsigned: digest: sha256:7a3ebe5bfd1a4a19797d20b0c0bb39d44393e9a03fd852c0865b0f5
 <b>$ kubectl -n team-b run unsigned --image=kind-registry:5000/demo:unsigned --restart=Never -- sleep 60</b>
 Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "unsigned" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "unsigned" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "unsigned" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "unsigned" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
 Error from server: admission webhook "ivpol.validate.kyverno.svc-fail" denied the request: Policy require-signed-demo failed: demo images must be signed with the platform key</code></pre></details></div>
-      <div class="verify"><b>verify:</b> signed admits, unsigned is rejected with your policy's message. If the signed pod is rejected too, <code>kubectl -n kyverno logs deploy/kyverno-admission-controller | grep -i verif</code> names the real reason (registry scheme, missing <code>.sig</code>, tlog), which is precisely the diagnosis ladder above. Clean up the policy so later sections' pods admit freely.</div>
+      <div class="verify"><b>verify:</b> signed admits, unsigned is rejected with your policy's message. If the signed pod is rejected too, <code>kubectl -n kyverno logs deploy/kyverno-admission-controller | grep -i verif</code> names the real reason (registry scheme, missing <code>.sig</code>, tlog), which is the diagnosis ladder above. Clean up the policy so later sections' pods admit freely.</div>
     </div>
 
     <div class="exercise" data-title="Wire the gate order into one sentence each">
@@ -240,7 +240,7 @@ The following checks were performed on each of these signatures:
   - The cosign claims were validated
   - Existence of the claims in the transparency log was verified offline
   - The code-signing certificate was verified using trusted certificate authority certificates</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the first command refuses with <code>--certificate-identity or --certificate-identity-regexp is required for verification in keyless mode</code>. The second fails with <code>none of the expected identities matched what was in the certificate, got subjects [keyless@projectsigstore.iam.gserviceaccount.com] with issuer https://accounts.google.com</code>, which hands you the answer. The third, using exactly that subject and issuer, prints <code>Verification for ...</code> and the list of checks performed. Note that this release is signed by a Google service account rather than a GitHub Actions workflow, which is why guessing the GitHub identity fails.</div>
+      <div class="verify"><b>verify:</b> the first command refuses with <code>--certificate-identity or --certificate-identity-regexp is required for verification in keyless mode</code>. The second fails with <code>none of the expected identities matched what was in the certificate, got subjects [keyless@projectsigstore.iam.gserviceaccount.com] with issuer https://accounts.google.com</code>, which hands you the answer. The third, using exactly that subject and issuer, prints <code>Verification for ...</code> and the list of checks performed. This release is signed by a Google service account rather than a GitHub Actions workflow, which is why guessing the GitHub identity fails.</div>
     </div>
 
     <div class="exercise" data-title="Attest an SBOM and read it back">
@@ -396,7 +396,7 @@ clusterpolicy.kyverno.io "pin-digest" deleted</code></pre></details></div>
     </div>
 
     <div class="exercise" data-title="Three ways to configure the same gate">
-      <p>A scanner gate is a policy decision expressed as flags, and each flag changes who gets blocked. Run the same scan three ways and watch the verdict move without the image changing at all.</p>
+      <p>A scanner gate is a policy decision expressed as flags, and each flag changes who gets blocked. Run the same scan three ways and watch the verdict move without the image changing.</p>
       <div class="cb" data-lang="bash"><pre><code>trivy image -q --exit-code 1 --severity CRITICAL localhost:5001/demo:v1 &gt; /tmp/scan-strict.txt 2&gt;&amp;1; echo "strict exit: $?"
 trivy image -q --exit-code 1 --severity CRITICAL --ignore-unfixed localhost:5001/demo:v1 &gt; /tmp/scan-unfixed.txt 2&gt;&amp;1; echo "ignore-unfixed exit: $?"
 # every CRITICAL id, not just the first: suppressing one of three moves no exit code

@@ -28,7 +28,7 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 5.3 · audit trails and policy compliance</span></div>
   <div class="pbody">
-    <p class="lede">Three artefacts, three questions. The <strong>audit log</strong> answers "who did what to what, and did it work". <strong>SBOMs</strong> answer "what is inside the thing we shipped". <strong>Compliance reports</strong> answer "which controls are we failing right now". Being able to produce each on demand is the competency.</p>
+    <p class="lede">Three artifacts, three questions. The <strong>audit log</strong> answers "who did what to what, and did it work". <strong>SBOMs</strong> answer "what is inside the thing we shipped". <strong>Compliance reports</strong> answer "which controls are we failing right now". Being able to produce each on demand is the competency.</p>
   </div>
 </section>
 
@@ -69,7 +69,7 @@
 
     <div class="callout trap">
       <span class="tag">One operational failure the repo already documents</span>
-      <p>The apiserver is started with <code>--audit-policy-file</code> pointing into a mounted directory. If that file is missing, <strong>the API server does not start at all</strong>. An audit misconfiguration can therefore present as a completely dead cluster. It is the least intuitive control-plane failure in this curriculum.</p>
+      <p>The apiserver is started with <code>--audit-policy-file</code> pointing into a mounted directory. If that file is missing, <strong>the API server does not start at all</strong>. An audit misconfiguration can therefore present as a dead cluster. It is the least intuitive control-plane failure in this curriculum.</p>
     </div>
 
     <div class="callout exam">
@@ -209,7 +209,7 @@ rules:
     <ul>
       <li><strong>CIS Kubernetes Benchmark</strong> checks the control plane and node configuration (API server flags, kubelet flags, file permissions) and is versioned separately from Kubernetes. <strong>kube-bench</strong> runs it as a Job with a target set (<code>master</code>, <code>node</code>, <code>etcd</code>, <code>policies</code>) and prints PASS/FAIL/WARN with the control number (for example <code>1.2.x</code> API server); <code>--benchmark</code> picks the CIS version and managed-cluster variants (eks, gke, aks) exist. The Trivy Operator's <code>k8s-cis</code> compliance report covers the same ground as CRDs.</li>
       <li><strong>in-toto attestation</strong> is the envelope format everything else uses: a DSSE envelope (<code>payloadType: application/vnd.in-toto+json</code>, signatures) around a <em>Statement</em> (<code>_type: https://in-toto.io/Statement/v1</code>, <code>subject[]</code> with name and <code>digest.sha256</code>, <code>predicateType</code>, <code>predicate</code>). SLSA provenance, SBOMs, vulnerability scan results and VEX are all predicate types. "Attestation" in a task means one of these, signed, attached to an image digest.</li>
-      <li><strong>An evidence pipeline</strong>, in one sentence per stage: build produces the image and its SBOM; scan gates on severity and writes the scan result as an attestation; sign the digest; store SBOM and provenance attestations in the registry beside the image; admission requires signature and attestations; the operator rescans continuously and the compliance reports roll it up. Each stage leaves a queryable artefact, which is what "generating audit trails" means for the supply chain.</li>
+      <li><strong>An evidence pipeline</strong>, in one sentence per stage: build produces the image and its SBOM; scan gates on severity and writes the scan result as an attestation; sign the digest; store SBOM and provenance attestations in the registry beside the image; admission requires signature and attestations; the operator rescans continuously and the compliance reports roll it up. Each stage leaves a queryable artifact, which is what "generating audit trails" means for the supply chain.</li>
     </ul>
     <div class="callout trap"><span class="tag">Trap</span><p>A <code>ClusterComplianceReport</code> is only as current as its <code>spec.cron</code> and the underlying reports; a freshly changed cluster shows yesterday's numbers until the next run. Read <code>status.updateTimestamp</code> before quoting a pass count, and expect graders to check the report after your fix, not the fix itself.</p></div>
   </div>
@@ -278,7 +278,7 @@ rules:
     "authorization.k8s.io/reason": "RBAC: allowed by ClusterRoleBinding \"kyverno:reports-controller\" of ClusterRole \"kyverno:reports-controller\" to ServiceAccount \"kyverno-reports-controller/kyverno\""
   }
 }</code></pre></details></div>
-      <p>Now answer three questions an auditor would ask, each with one jq line: who read any secret today (<code>select(.objectRef.resource=="secrets" and .verb=="get")</code>, print user and name); every delete that succeeded (<code>select(.verb=="delete" and .responseStatus.code&lt;300)</code>); all denied requests (<code>select(.annotations["authorization.k8s.io/decision"]=="forbid")</code>). Then close the loop end to end: do something distinctive (<code>kubectl -n team-a delete pod bare --ignore-not-found</code>, or a <code>kubectl auth can-i</code> as dev-a from 5.1) and find your own action in the log within seconds.</p>
+      <p>Now answer three questions an auditor would ask, each with one jq line: who read any secret today (<code>select(.objectRef.resource=="secrets" and .verb=="get")</code>, print user and name); every delete that succeeded (<code>select(.verb=="delete" and .responseStatus.code&lt;300)</code>); all denied requests (<code>select(.annotations["authorization.k8s.io/decision"]=="forbid")</code>). Then close the loop: do something distinctive (<code>kubectl -n team-a delete pod bare --ignore-not-found</code>, or a <code>kubectl auth can-i</code> as dev-a from 5.1) and find your own action in the log within seconds.</p>
       <div class="verify"><b>verify:</b> an audit trail you have personally queried for your own fingerprints is one you can be examined on.</div>
     </div>
 
@@ -314,7 +314,7 @@ tekton-pipelines	replicaset-6985f46fcc	3	15</code></pre></details></div>
     </div>
 
     <div class="exercise" data-title="Read a compliance rollup">
-      <p><code>kubectl get clustercompliancereports</code> (CIS, NSA, PSS variants), then one in detail: <code>kubectl get clustercompliancereport cis -o jsonpath='{.status.summary}'</code>, and find one failing control's ID and description in the full output.</p>
+      <p><code>kubectl get clustercompliancereports</code> (CIS, NSA, PSS variants), then one in detail: <code>kubectl get clustercompliancereport k8s-cis-1.23 -o jsonpath='{.status.summary}'</code>, and find one failing control's ID and description in the full output.</p>
       <div class="verify"><b>verify:</b> you can trace a failed control to the check behind it and say which earlier curriculum section would fix it. Most CIS findings in this lab trace back to sections 5.1–5.3.</div>
     </div>
 

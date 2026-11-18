@@ -28,14 +28,14 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 3.4 + the judgment call</span></div>
   <div class="pbody">
-    <p class="lede">Everything in domain 3 has been one engine at a time. This section is about how they join up, which is where platform engineering actually happens: a Backstage form that commits to git, that an ApplicationSet notices, that deploys an XR, that a controller reconciles. Being able to <em>narrate</em> that chain is worth more than any single command in it.</p>
+    <p class="lede">Everything in domain 3 has been one engine at a time. This section is about how they join up, which is where platform engineering happens: a Backstage form that commits to git, that an ApplicationSet notices, that deploys an XR, that a controller reconciles. Being able to <em>narrate</em> that chain is worth more than any single command in it.</p>
   </div>
 </section>
 
 <section class="panel accent-c" id="kro">
   <div class="phdr"><h2>kro in one sitting</h2><span class="meta">Crossplane's niche with less machinery</span></div>
   <div class="pbody">
-    <p>kro (Kube Resource Orchestrator) occupies Crossplane's niche with far less apparatus: one <code>ResourceGraphDefinition</code> declares a schema <em>and</em> the resources it expands to; kro generates the CRD and runs the reconciliation. No providers, no functions, no packages. CEL expressions wire fields together, and references between resources (<code>${ns.metadata.name}</code>) build the dependency graph automatically; kro works out the ordering from the references you wrote.</p>
+    <p>kro (Kube Resource Orchestrator) occupies Crossplane's niche with far less apparatus: one <code>ResourceGraphDefinition</code> declares a schema <em>and</em> the resources it expands to; kro generates the CRD and runs the reconciliation. No providers, no functions, no packages. CEL expressions wire fields together, and references between resources (<code>${ns.metadata.name}</code>) build the dependency graph and its ordering automatically.</p>
 
     <div class="cb" data-lang="yaml"><pre><code>apiVersion: kro.run/v1alpha1
 kind: ResourceGraphDefinition
@@ -96,7 +96,7 @@ spec:
       <li><strong><code>readyWhen</code>.</strong> A list of CEL conditions on the resource itself; dependents wait until all are true. Without it a resource counts as ready once it exists and its expressions resolve, which is why a Deployment that never becomes Available can still leave the instance looking fine unless you write <code>readyWhen: [${deployment.status.availableReplicas &gt; 0}]</code>.</li>
       <li><strong><code>includeWhen</code>.</strong> Conditions that decide whether a resource is created at all (<code>${schema.spec.ingress.enabled}</code>), evaluated every reconcile; flipping the field later removes the resource.</li>
       <li><strong><code>forEach</code></strong> turns one resource entry into a collection (one object per list element); <strong><code>externalRef</code></strong> reads an existing object without managing it.</li>
-      <li><strong>Ordering.</strong> The dependency graph is inferred from references; <code>kubectl get rgd &lt;name&gt; -o jsonpath='{.status.topologicalOrder}'</code> prints the computed order, creation follows it and deletion runs it backwards. A cycle (A reads B, B reads A) is rejected at RGD creation; break it by reading <code>schema.spec</code> instead.</li>
+      <li><strong>Ordering.</strong> The dependency graph is inferred from references; <code>kubectl get rgd &lt;name&gt; -o jsonpath='{.status.topologicalOrder}'</code> prints the computed order, creation follows it and deletion runs it backwards. A cycle (A reads B, B reads A) keeps the RGD from going Active; break it by reading <code>schema.spec</code> instead.</li>
       <li><strong>Scope.</strong> <code>schema.scope: Namespaced</code> (default) or <code>Cluster</code>. Namespaced instances can still create cluster-scoped objects (that is what the lab's Namespace example does), because kro tracks ownership with labels following the ApplySet convention rather than <code>ownerReferences</code>, which cannot cross scopes.</li>
     </ul>
 
@@ -123,7 +123,7 @@ spec:
       ▼
 <u>running workload</u>  ── and the component appears in the catalog with its owner</pre>
 
-    <p>Each hop is a thing that can break and a thing you may be asked about: template action failures (credentials to the git host), the generator's filter (which repos match), the generated Application's destination, and the workload itself. Narrating this chain <em>is</em> the "golden path" competency; the commands below just prove each hop.</p>
+    <p>Each hop is a thing that can break and a thing you may be asked about: template action failures (credentials to the git host), the generator's filter (which repos match), the generated Application's destination, and the workload itself. Narrating this chain <em>is</em> the "golden path" competency; the commands below prove each hop.</p>
 
     <div class="callout exam">
       <span class="tag">Why a portal is not a platform</span>
@@ -173,7 +173,7 @@ spec:
     <ul>
       <li><strong><code>parameters</code></strong> is JSON Schema rendered as form steps. <code>ui:field</code> picks special widgets: <code>OwnerPicker</code>, <code>EntityPicker</code>, <code>RepoUrlPicker</code> (with <code>ui:options.allowedHosts</code>, which must list your git host or the form refuses it), <code>Secret</code> (read back as <code>${{ secrets.x }}</code>, never <code>parameters.x</code>).</li>
       <li><strong><code>steps</code></strong> run in order in the scaffolder backend; each has <code>id</code>, <code>action</code>, <code>input</code>, optional <code>if</code>. Built-in actions: <code>fetch:template</code> (copy a skeleton, render <code>${{ values.x }}</code>), <code>fetch:plain</code>, <code>publish:github</code> / <code>publish:gitlab</code> / <code>publish:gitea</code> / <code>publish:bitbucket</code> (create the repo and push), <code>catalog:register</code> (register the new <code>catalog-info.yaml</code> by <code>repoContentsUrl</code> + <code>catalogInfoPath</code>), <code>catalog:write</code>, <code>debug:log</code>, <code>fs:rename</code>, <code>fs:delete</code>. The installed list is at <code>/create/actions</code> in the UI.</li>
-      <li><strong>Templating syntax.</strong> <code>${{ parameters.name }}</code> for inputs, <code>${{ steps['publish'].output.repoContentsUrl }}</code> for prior outputs, <code>output.links</code> for what the user sees at the end. Backstage's <code>${{ }}</code> is Nunjucks and is not the same as kro's <code>${}</code> or Helm's <code>{{ }}</code>; a template that fails to render is very often one of those confused.</li>
+      <li><strong>Templating syntax.</strong> <code>${{ parameters.name }}</code> for inputs, <code>${{ steps['publish'].output.repoContentsUrl }}</code> for prior outputs, <code>output.links</code> for what the user sees at the end. Backstage's <code>${{ }}</code> is Nunjucks and is not the same as kro's <code>${}</code> or Helm's <code>{{ }}</code>; a template that fails to render is often one of those confused.</li>
       <li><strong>Failure points.</strong> Publish actions need an integration token in <code>app-config.yaml</code> (<code>integrations.github/gitlab/gitea</code>) with rights to create repos; <code>catalog:register</code> fails if the repo is created but the URL is not readable by the catalog; a template that succeeds but produces no Application is the ApplicationSet generator's filter, not Backstage.</li>
     </ul>
 
@@ -253,7 +253,7 @@ NAME     STATUS   AGE
 team-h   Active   25s
 NAME           REQUEST             LIMIT   AGE
 tenant-quota   requests.cpu: 0/2           22s</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the RGD is Active (meaning kro generated and established the TenantSpace CRD), and the namespace and quota exist with your values. Then compare effort honestly against 3.5: same result, one file, no providers; also no provider ecosystem, no connection secrets, alpha-grade stability.</div>
+      <div class="verify"><b>verify:</b> the RGD is Active (meaning kro generated and established the TenantSpace CRD), and the namespace and quota exist with your values. Then compare effort against 3.5: same result, one file, no providers; also no provider ecosystem, no connection secrets, alpha-grade stability.</div>
     </div>
 
     <div class="exercise" data-title="Walk the golden path">
@@ -646,12 +646,12 @@ tenant-quota   requests.cpu: 0/3           45s
   "status": "True",
   "reason": "ReconciliationSucceeded"
 }</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the quota exists, then stays deleted while <code>kro.run/reconcile=suspended</code> is on the instance. Removing the annotation does <em>not</em> bring it back: kro reconciles an instance when the instance changes, not when something it composed drifts, so the quota only returns after the <code>cpu</code> patch. Note that <code>InstanceSynced</code> reads <code>True / ReconciliationSucceeded</code> the whole way through, including while the quota is missing, which is exactly the status you must not trust on its own.</div>
+      <div class="verify"><b>verify:</b> the quota exists, then stays deleted while <code>kro.run/reconcile=suspended</code> is on the instance. Removing the annotation does <em>not</em> bring it back: kro reconciles an instance when the instance changes, not when something it composed drifts, so the quota only returns after the <code>cpu</code> patch. <code>InstanceSynced</code> reads <code>True / ReconciliationSucceeded</code> the whole way through, including while the quota is missing, which is the status you must not trust on its own.</div>
     </div>
 
     <div class="exercise" data-title="Give kro permission to create what you asked for">
-      <p>kro's controller can only create what its ServiceAccount may create. A resource type outside that set fails at the instance, not at the RGD, which is a confusing place to find a permissions problem. This block does not narrow anything: it asks for a kind outside the usual set and then reads the two places the answer could be.</p>
-      <p>This block makes the failure deliberately: it narrows the controller's aggregated permissions, applies an RGD that needs the missing verb, then puts the rule back.</p>
+      <p>kro's controller can only create what its ServiceAccount may create. A resource type outside that set fails at the instance, not at the RGD, which is a confusing place to find a permissions problem.</p>
+      <p>This block does not narrow anything: it asks for a kind outside the usual set and then reads the two places the answer could be.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl get clusterrole -o name | grep -i kro
 kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: kro.run/v1alpha1
@@ -745,7 +745,7 @@ resourcegraphdefinition.kro.run "needsmore" deleted
 
     <div class="exercise" data-title="Find the two places a scaffolder template can fail">
       <p>A golden path fails in two places: the form, before anything is created, and the publish step, after the user has already committed to it. This block does not break anything; it reads the template through the Backstage API so you can see both places before you go near them. The form is the <code>allowedHosts</code> list on the RepoUrlPicker, and the publish step is <code>publish:gitea</code>.</p>
-      <p>Backstage runs on the host from <code>make portal</code>, which is not part of <code>make full</code>; start it with <code>cd portal &amp;&amp; yarn start</code>. Its API wants a token even for reads, so the first line trades the guest provider for one. These commands read the API rather than clicking through the UI.</p>
+      <p>Backstage runs on the host from <code>make portal</code>, which is not part of <code>make full</code>; start it with <code>cd portal &amp;&amp; yarn start</code>. Its API wants a token even for reads, so the first line trades the guest provider for one.</p>
       <div class="cb" data-lang="bash"><pre><code>TOKEN=$(curl -s http://localhost:7007/api/auth/guest/refresh | jq -r .backstageIdentity.token)
 curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=template' | jq '.[] | {name: .metadata.name, steps: [.spec.steps[].action]}'
 curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:7007/api/catalog/entities?filter=kind=template' | jq '.[] | .spec.parameters[]? | .properties.repoUrl?."ui:options"?.allowedHosts'
