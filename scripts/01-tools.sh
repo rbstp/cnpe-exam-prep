@@ -9,9 +9,14 @@ RELEASE_ROWS=$(mktemp)
 trap 'rm -rf "$RELEASE_CACHE"; rm -f "$RELEASE_ROWS"' EXIT
 
 pac() {
+  local p repo_ver local_ver
   for p in "$@"; do
-    if ! pacman -Si "$p" >/dev/null 2>&1; then
+    repo_ver=$(pacman -Si "$p" 2>/dev/null | awk -F': ' '/^Version/ {print $2; exit}')
+    local_ver=$(pacman -Q "$p" 2>/dev/null | awk '{print $2}')
+    if [ -z "$repo_ver" ]; then
       warn "pacman: $p not in the repos, will try an upstream binary"
+    elif [ "$repo_ver" = "$local_ver" ]; then
+      ok "$p already matches the repos ($local_ver)"
     elif ! sudo pacman -S --needed --noconfirm "$p"; then
       warn "pacman: installing $p FAILED (it does exist in the repos); see the error above"
     fi
@@ -41,7 +46,7 @@ ver() {
     helm)     timeout 10 "$t" version --short 2>/dev/null | head -1 ;;
     cosign)   timeout 10 "$t" version --json 2>/dev/null | jq -r .gitVersion ;;
     kubeseal) timeout 10 "$t" --version 2>/dev/null | head -1 ;;
-    kubectl-cost) timeout 10 "$t" version 2>/dev/null | awk -F ': +' '$1 ~ /Git Summary/ {print $2; exit}' ;;
+    kubectl-cost) timeout 10 "$t" version 2>&1 | awk -F ': +' '$1 ~ /Git Summary/ {print $2; exit}' ;;
     kubectl-argo-rollouts) timeout 10 "$t" version 2>/dev/null | head -1 ;;
     kind|trivy|kubebuilder|cilium|hubble|argo|tkn|crossplane|cloud-provider-kind)
               timeout 10 "$t" version 2>/dev/null | head -1 ;;
@@ -250,7 +255,8 @@ log "Installed versions"
 report_rows=$(mktemp)
 for t in kubectl helm kind argocd flux tkn crossplane istioctl linkerd cilium hubble \
          argo kubectl-argo-rollouts trivy cosign kubebuilder kubeseal kubectl-cost cloud-provider-kind; do
-  version=$(ver "$t" || echo installed)
+  version=$(ver "$t") || true   # a CLI that dies of SIGPIPE behind head still printed its line
+  version=${version:-installed}
   printf '  %-24s %s\n' "$t" "$version"
   path=$(command -v "$t" 2>/dev/null || true)
   if [ -n "$path" ] && [ -f "$path" ]; then digest=$(sha256sum "$path" | awk '{print $1}'); else digest=""; fi

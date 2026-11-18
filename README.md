@@ -115,7 +115,7 @@ Shell tooling installed by `make tools`:
 [k9s](https://k9scli.io/) ·
 [stern](https://github.com/stern/stern) ·
 [kubectx](https://github.com/ahmetb/kubectx) ·
-[mise](https://mise.jdx.dev/) (pins Node 24 for Backstage)
+[mise](https://mise.jdx.dev/) (pins Node 26 for Backstage)
 
 ## Hardware and build time
 
@@ -259,7 +259,7 @@ Hubble UI         http://localhost:12000   needs a port-forward
 
 Backstage portal (runs on the HOST, not in the cluster)
   Portal           http://localhost:3000     start: cd <clone>/portal && yarn start
-                   backend API on :7007      (needs Node 24; mise.toml pins it)
+                   backend API on :7007      (needs Node 26.13+; mise.toml pins 26)
   Golden path      Create -> "Golden path service" -> publishes to gitea org 'services'
                    Argo CD then generates an Application automatically
 
@@ -346,7 +346,7 @@ These cost me real time, and none of them are obvious from the upstream docs.
 
 **Gateway API v1.5 and later blocks older CRDs.** It ships a ValidatingAdmissionPolicy that rejects any Gateway API CRD before v1.5.0. cloud-provider-kind embeds an older bundle and installs it at startup, so it gets denied and its service controller dies, and no LoadBalancer ever gets an IP. Start it with `--gateway-channel=disabled`.
 
-**Backstage wants Node 22 or 24, not any even LTS.** The app `create-app` scaffolds declares `"node": "22 || 24"`, so 20 is even and still refused. Arch ships 26, and `create-app` fails on it, so `mise.toml` pins 24 for this directory. `create-app` also has no `--name` flag and always prompts, so it hangs when scripted, and the `.yarnrc.yml` it generates sets `npmMinimalAgeGate: 3d`, which can reject one of Backstage's own fresh dependencies.
+**Backstage checks the Node minor, not just the major.** The app `create-app` scaffolds declares `"node": "^24.15.0 || ^26.13.0"`, so 22 is refused, and so is 26.12. `mise.toml` pins 26 for this directory, and `make portal` falls back to any mise-installed Node that meets the floor. `create-app` also has no `--name` flag and always prompts, so it hangs when scripted, and the `.yarnrc.yml` it generates sets `npmMinimalAgeGate: 3d`, which can reject one of Backstage's own fresh dependencies.
 
 **Trivy's node-collector needs a toleration.** It is pinned to each node by nodeSelector but does not tolerate the control-plane taint, so that node silently produces no compliance report. `nodeCollector.tolerations` and `trivyOperator.scanJobTolerations` are separate chart keys and you need both.
 
