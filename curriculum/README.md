@@ -32,19 +32,20 @@ GitHub will not render it in place: read it at [cnpe.rbstp.dev](https://cnpe.rbs
 
 Most command blocks carry a collapsed **output** drawer underneath: the real result of that
 command, so the sections read self-contained even away from a running cluster. Each drawer is
-dated with the day it was captured against the lab. The original blocks carry
-**August 26, 2026**, bar one on the 27th; the 163 exercises added in September carry **September 12** or
-**September 13, 2026**, and were captured on Kubernetes 1.36.1, the `K8S_IMAGE` pin in force at
-the time, before it moved to 1.37.0. Expand a drawer only after predicting what it should say; the lab's tool versions
-float, so details may drift from what your lab prints.
+dated with the day it was captured against the lab. In November 2026 every drawer was re-run,
+in page order, on Kubernetes 1.37.0 with every tool at its then-current release. A drawer whose
+output still said the same thing kept its original date (**August 26-27** or **September 12-13,
+2026**, captured on 1.36.1); one that changed was recaptured and carries **November 17** or
+**November 18, 2026**. Expand a drawer only after predicting what it should say; the lab's tool
+versions float, so details may drift from what your lab prints.
 
-The cluster those September drawers were captured against reported:
+The cluster the November drawers were captured against reported:
 
 ```
 $ kubectl version
-Client Version: v1.36.4
+Client Version: v1.37.1
 Kustomize Version: v5.8.1
-Server Version: v1.36.1
+Server Version: v1.37.0
 ```
 
 No drawer is a placeholder: every one holds output that a real cluster produced. (Manifest
