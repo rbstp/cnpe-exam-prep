@@ -3,8 +3,8 @@
 This lab follows current upstream releases on purpose. Run `make tools` to compare
 the installed CLIs with each project's latest GitHub release and upgrade anything
 that is behind. It also refreshes every configured Helm repository index. Arch
-packages come from the current pacman repositories, and `sudo` is only asked for
-when one of them is behind, so a run with nothing to upgrade needs no password.
+packages come from the current pacman repositories. Upgrading one needs root, so
+when one is behind the run reports it and carries on; it never prompts.
 GitHub release assets use the SHA-256 digest published by GitHub when one is
 available. A CLI whose download fails keeps the version it had, and the next run
 tries the upgrade again.
