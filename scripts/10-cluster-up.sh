@@ -104,6 +104,17 @@ if [ "$CNI" = "cilium" ]; then
   kubectl wait --for=condition=Ready nodes --all --timeout=5m || warn "some nodes still NotReady"
 fi
 
+# A reboot kills Job pods mid-run; once their Job is gone (Trivy deletes its scan
+# Jobs), nothing ever removes them, and they fail 'make validate'.
+if cluster_exists "$CLUSTER"; then
+  kubectl get pods -A --field-selector=status.phase=Failed -o json \
+    | jq -r --argjson jobs "$(kubectl get jobs -A -o json | jq '[.items[].metadata.uid]')" \
+      '.items[] | select(.metadata.ownerReferences[0].kind == "Job")
+       | select(.metadata.ownerReferences[0].uid as $u | ($jobs | index($u)) == null)
+       | "\(.metadata.namespace) \(.metadata.name)"' \
+    | while read -r ns pod; do kubectl -n "$ns" delete pod "$pod" --wait=false >/dev/null && ok "removed orphaned pod $ns/$pod"; done
+fi
+
 # ── make the registry resolvable from pods, not just from containerd ─────
 if [ "$SMOKE" != 1 ]; then
   coredns_host "$(kind_fixed_ip 6)" "$REGISTRY_NAME"
