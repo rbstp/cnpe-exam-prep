@@ -160,7 +160,7 @@ make host                       # sysctls, docker, kernel limits. needs sudo
 make tools                      # every CLI into ~/.local/bin
 make core                       # cluster + git server + Argo CD/Flux/Rollouts/Workflows
 make cicd api obs sec spire     # the rest, one at a time
-make validate                   # 71 functional checks
+make validate                   # 72 functional checks
 make urls                       # where everything is
 ```
 
@@ -237,7 +237,7 @@ The part I care about most. It checks behavior, not pod status.
   ✓ Applications auto-generated from git           1
 
 ──────────────────────────────────────────────
-  PASS 71   FAIL 0   SKIP 0
+  PASS 72   FAIL 0   SKIP 0
 ──────────────────────────────────────────────
 
 Lab is fully functional.
