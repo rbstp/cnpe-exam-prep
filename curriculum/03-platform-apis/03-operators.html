@@ -46,7 +46,7 @@
     <p>If they differ, the controller has not yet processed your latest edit, and whatever status says describes a <em>previous</em> spec. Checking this first avoids diagnosing stale information, and almost nobody does it. <code>metadata.generation</code> increments on spec changes only, <em>provided the CRD has the status subresource</em>. Without it, status writes bump generation too, and <code>observedGeneration</code> tells you nothing. That is one more reason the subresource is not optional for a real API (section 3.2).</p>
 
     <h3>3 · Owner references</h3>
-    <p>Operator-created resources carry <code>ownerReferences</code> pointing at their parent. This answers "what keeps recreating this thing", drives cascade deletion (foreground, background, or orphan), and lets you reconstruct an operator's whole object tree without documentation. Note the rules: an owner must be in the same namespace (or be cluster-scoped), and a namespaced object cannot own a cluster-scoped one, the constraint behind Crossplane's design in 3.5.</p>
+    <p>Operator-created resources carry <code>ownerReferences</code> pointing at their parent. This answers "what keeps recreating this thing", drives cascade deletion (foreground, background, or orphan), and lets you reconstruct an operator's whole object tree without documentation. The rules: an owner must be in the same namespace (or be cluster-scoped), and a namespaced object cannot own a cluster-scoped one, the constraint behind Crossplane's design in 3.5.</p>
 
     <h3>4 · Finalizers</h3>
     <p>A deletion sticks in <em>Terminating</em> while a finalizer is present, because the controller is doing teardown work, or is dead and cannot. A stuck namespace or CR almost always means "find whose finalizer, and why its controller is not running". Removing the finalizer by hand is the last resort, and it leaks whatever the teardown was supposed to clean up (external volumes, cloud resources, DNS records). Accept that trade knowingly before you do it.</p>
@@ -170,7 +170,7 @@ secret/pg-app   kubernetes.io/basic-auth   11     4m1s
     <ul>
       <li><strong>Operator capability levels</strong> (the OperatorHub model): 1 basic install → 2 seamless upgrades → 3 full lifecycle (backup, failover) → 4 deep insights (metrics, alerts) → 5 auto-pilot (auto-scaling, auto-tuning). A useful yardstick when a scenario asks whether to adopt an operator or run something yourself.</li>
       <li><strong>OLM</strong> (Operator Lifecycle Manager): installs and upgrades operators from catalogs. Not installed here; know the name.</li>
-      <li><strong>Kubebuilder / Operator SDK / controller-runtime</strong>: the scaffolding. <code>kubebuilder</code> is on your PATH from <code>make tools</code>, and scaffolding a controller once (<code>kubebuilder init</code>, <code>kubebuilder create api</code>) is genuinely instructive for understanding what operators are made of. It is also beyond what the CNPE tests.</li>
+      <li><strong>Kubebuilder / Operator SDK / controller-runtime</strong>: the scaffolding. <code>kubebuilder</code> is on your PATH from <code>make tools</code>, and scaffolding a controller once (<code>kubebuilder init</code>, <code>kubebuilder create api</code>) shows what operators are made of. It is also beyond what the CNPE tests.</li>
       <li><strong>Reconcile loop hazards</strong> worth naming: hot loops (a controller that writes status on every pass and re-triggers itself), requeue backoff, leader election (why an operator's Deployment is usually 1 replica or uses a lease), and cache staleness right after a write.</li>
       <li><strong>Operator vs controller vs webhook</strong>: a controller reconciles; an operator is a controller plus domain knowledge shipped with its CRDs; a webhook intercepts writes synchronously. Different failure modes: a dead controller means nothing converges, a dead webhook (with <code>failurePolicy: Fail</code>) means nothing it matches can be written at all.</li>
     </ul>
@@ -270,7 +270,7 @@ secret/pg-app   kubernetes.io/basic-auth   11     4m1s
       <li>Finalizers: a CR in Terminating with the operator's finalizer and no operator is the leak trade-off from the panel above; a CR with a finalizer from an operator that was uninstalled needs the operator back, or a deliberate finalizer removal accepting whatever external resource it leaves behind.</li>
     </ol>
 
-    <div class="callout exam"><span class="tag">How this gets tested</span><p>"The database CR has been Progressing for twenty minutes" is graded on whether you find the actual cause: an RBAC Forbidden in the operator log, a NetworkPolicy blocking the init Job, a quota refusing the StatefulSet's pods, a webhook with no endpoints. Each leaves a different artefact (log line, Hubble drop, ReplicaSet event, webhook failure text). Naming the artefact and fixing that object is the task; deleting and recreating the CR is a level-based no-op that changes nothing.</p></div>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"The database CR has been Progressing for twenty minutes" is graded on whether you find the cause: an RBAC Forbidden in the operator log, a NetworkPolicy blocking the init Job, a quota refusing the StatefulSet's pods, a webhook with no endpoints. Each leaves a different artifact (log line, Hubble drop, ReplicaSet event, webhook failure text). Naming the artifact and fixing that object is the task; deleting and recreating the CR is a level-based no-op that changes nothing.</p></div>
   </div>
 </section>
 
@@ -279,7 +279,7 @@ secret/pg-app   kubernetes.io/basic-auth   11     4m1s
   <div class="pbody">
 
     <div class="exercise" data-title="Run a real database through its operator">
-      <p>In <code>default</code> (deliberately; the tenant-namespace variant comes last):</p>
+      <p>In <code>default</code> (deliberately; the tenant-namespace variant comes later):</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
@@ -335,13 +335,13 @@ pg     2m25s   2           2       Cluster in healthy state                     
     </div>
 
     <div class="exercise" data-title="Read a stuck operator without the answer key">
-      <p>The lab ships a deliberately broken manifest: <code>examples/crossplane/pg-cluster.yaml</code> targets <code>team-a</code>, where the default-deny NetworkPolicy silently blocks the instance's access to the API server. (team-a comes from <code>make sec</code>; if you skipped that layer, <code>kubectl apply -f examples/multitenancy/team-a.yaml</code> stages the same trap.) Apply it, and diagnose from evidence only: conditions say Initialized True but Ready False, phase "Setting up primary" forever, and <code>kubectl -n team-a logs job/pg-1-initdb</code> ends in <code>dial tcp 10.96.0.1:443: i/o timeout</code>. The file's comments explain why the obvious ipBlock fix fails (ClusterIP is DNAT'd before policy evaluation) and give the Cilium <code>toEntities: [kube-apiserver]</code> answer; do not read them until you have formed your own theory.</p>
-      <div class="verify"><b>verify:</b> after applying the CiliumNetworkPolicy from the comments, the cluster converges Ready in team-a.</div>
+      <p>The lab ships a deliberately broken manifest: <code>examples/crossplane/pg-cluster.yaml</code> targets <code>team-a</code>, where the default-deny NetworkPolicy silently blocks the instance's access to the API server. (team-a comes from <code>make sec</code>; if you skipped that layer, <code>kubectl apply -f examples/multitenancy/team-a.yaml</code> stages the same trap.) Apply it, and diagnose from evidence only: conditions say Initialized True but Ready False, phase "Setting up primary" forever, and <code>kubectl -n team-a logs job/pg-1-initdb</code> ends in <code>dial tcp 10.96.0.1:443: i/o timeout</code>. Form your own theory before reading on. The obvious ipBlock fix fails (ClusterIP is DNAT'd before policy evaluation); the answer is a CiliumNetworkPolicy in team-a with <code>endpointSelector: {}</code> and one egress rule, <code>toEntities: [kube-apiserver]</code>.</p>
+      <div class="verify"><b>verify:</b> after applying that CiliumNetworkPolicy, the cluster converges Ready in team-a.</div>
     </div>
 
     <div class="exercise" data-title="Operators as platform integration">
       <p>Pick two operators you have installed and, for each, name the watched kind, find one owned resource via ownerReferences, and locate the controller deployment.</p>
-      <div class="verify"><b>verify:</b> <code>kubectl api-resources --api-group=&lt;group&gt;</code> and a one-line answer each. The point is transferable fluency: an unfamiliar operator on the exam is the same four questions.</div>
+      <div class="verify"><b>verify:</b> <code>kubectl api-resources --api-group=&lt;group&gt;</code> and a one-line answer each. An unfamiliar operator on the exam is the same four questions.</div>
     </div>
 
     <div class="exercise" data-title="Find the leader">
@@ -669,7 +669,7 @@ DESCRIPTION:
   <div class="pbody">
     <ul class="docs">
       <li><b>kubernetes.io</b>: Operator pattern; Controllers; Owners and Dependents (cascade deletion); Finalizers.</li>
-      <li><b>github.com/kubernetes/community</b>: the API conventions doc's conditions section, for what Reason/Message actually promise.</li>
+      <li><b>github.com/kubernetes/community</b>: the API conventions doc's conditions section, for what Reason/Message promise.</li>
       <li><b>cloudnative-pg.io</b>: the Cluster API reference, mostly to practice navigating a big operator's docs quickly.</li>
       <li><b>Offline:</b> <code>kubectl explain cluster.status.conditions</code>, <code>kubectl get &lt;res&gt; -o jsonpath='{.metadata.ownerReferences}'</code>, <code>kubectl api-resources --api-group=&lt;g&gt;</code>.</li>
     
