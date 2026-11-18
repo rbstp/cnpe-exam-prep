@@ -361,7 +361,7 @@ kubectl get pod burst -o jsonpath='{.status.containerStatuses[0].allocatedResour
 kubectl get pod burst -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'
 kubectl patch pod burst --subresource resize --patch '{"spec":{"containers":[{"name":"burst","resources":{"requests":{"cpu":"64","memory":"64Mi"},"limits":{"cpu":"80","memory":"128Mi"}}}]}}'
 kubectl get pod burst -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
-kubectl delete pod burst</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl run burst --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"containers":[{"name":"burst","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"100m","memory":"64Mi"},"limits":{"cpu":"200m","memory":"128Mi"}}}]}}'</b>
+kubectl delete pod burst</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-17</span></summary><pre><code><b>$ kubectl run burst --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"containers":[{"name":"burst","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"100m","memory":"64Mi"},"limits":{"cpu":"200m","memory":"128Mi"}}}]}}'</b>
 pod/burst created
 <b>$ kubectl wait --for=condition=Ready pod/burst --timeout=90s</b>
 pod/burst condition met
@@ -373,6 +373,11 @@ pod/burst patched
 {"cpu":"200m","memory":"64Mi"}
 0
 <b>$ kubectl get pod burst -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason}'</b>
+{
+  "type": "PodResizeInProgress",
+  "status": "True",
+  "reason": null
+}
 {
   "type": "PodReadyToStartContainers",
   "status": "True",
@@ -628,7 +633,7 @@ kubectl run urgentpod --image=nginx:1.27-alpine --restart=Never --overrides='{"s
 sleep 30
 kubectl get pods filler batchpod urgentpod -o wide
 kubectl delete pod filler batchpod urgentpod --ignore-not-found
-kubectl delete priorityclass batch urgent</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create priorityclass batch --value=1000 --preemption-policy=Never</b>
+kubectl delete priorityclass batch urgent</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl create priorityclass batch --value=1000 --preemption-policy=Never</b>
 priorityclass.scheduling.k8s.io/batch created
 <b>$ kubectl create priorityclass urgent --value=1000</b>
 priorityclass.scheduling.k8s.io/urgent created
@@ -645,15 +650,15 @@ batchpod   0/1     Pending   0          20s   &lt;none&gt;   &lt;none&gt;   &lt;
 <b>$ kubectl describe pod batchpod | tail -4</b>
   Type     Reason            Age   From               Message
   ----     ------            ----  ----               -------
-  Warning  PolicyViolation   20s   kyverno-admission  policy require-resource-requests/ fail: every container must set cpu and memory requests
-  Warning  FailedScheduling  20s   default-scheduler  0/3 nodes are available: 1 Insufficient cpu, 1 node(s) didn't match Pod's node affinity/selector, 1 node(s) had untolerated taint(s). no new claims to deallocate, preemption: not eligible due to preemptionPolicy=Never.
+  Warning  PolicyViolation   21s   kyverno-admission  policy require-resource-requests/validation fail: every container must set cpu and memory requests
+  Warning  FailedScheduling  21s   default-scheduler  0/3 nodes are available: 1 Insufficient cpu, 1 node(s) didn't match Pod's node affinity/selector, 1 node(s) had untolerated taint(s). preemption: not eligible due to preemptionPolicy=Never.
 <b>$ kubectl run urgentpod --image=nginx:1.27-alpine --restart=Never --overrides='{"spec":{"priorityClassName":"urgent","nodeSelector":{"kubernetes.io/hostname":"cnpe-worker2"},"containers":[{"name":"urgentpod","image":"nginx:1.27-alpine","resources":{"requests":{"cpu":"8"}}}]}}'</b>
 pod/urgentpod created
 <b>$ sleep 30</b>
 <b>$ kubectl get pods filler batchpod urgentpod -o wide</b>
-NAME        READY   STATUS    RESTARTS   AGE   IP            NODE           NOMINATED NODE   READINESS GATES
-batchpod    0/1     Pending   0          51s   &lt;none&gt;        &lt;none&gt;         &lt;none&gt;           &lt;none&gt;
-urgentpod   1/1     Running   0          31s   10.244.2.42   cnpe-worker2   &lt;none&gt;           &lt;none&gt;
+NAME        READY   STATUS    RESTARTS   AGE   IP             NODE           NOMINATED NODE   READINESS GATES
+batchpod    0/1     Pending   0          52s   &lt;none&gt;         &lt;none&gt;         &lt;none&gt;           &lt;none&gt;
+urgentpod   1/1     Running   0          31s   10.244.1.209   cnpe-worker2   &lt;none&gt;           &lt;none&gt;
 Error from server (NotFound): pods "filler" not found
 <b>$ kubectl delete pod filler batchpod urgentpod --ignore-not-found</b>
 pod "batchpod" deleted from default namespace
@@ -673,7 +678,7 @@ kubectl get hpa hpademo -o jsonpath='{.spec.behavior}{"\n"}'
 kubectl get hpa hpademo -o yaml | sed -n '/^spec:/,/^status:/p'
 kubectl explain hpa.spec.behavior.scaleDown
 kubectl delete hpa hpademo
-kubectl delete deployment hpademo</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create deployment hpademo --image=nginx:1.27-alpine</b>
+kubectl delete deployment hpademo</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl create deployment hpademo --image=nginx:1.27-alpine</b>
 deployment.apps/hpademo created
 <b>$ kubectl set resources deployment hpademo --requests=cpu=50m</b>
 deployment.apps/hpademo resource requirements updated
@@ -720,8 +725,7 @@ DESCRIPTION:
     safest value from the stabilization window is chosen.
     
     The tolerance is applied to the metric values and prevents scaling too
-    eagerly for small metric variations. (Note that setting a tolerance requires
-    the beta HPAConfigurableTolerance feature gate to be enabled.)
+    eagerly for small metric variations.
     
 FIELDS:
   policies	&lt;[]HPAScalingPolicy&gt;
@@ -738,7 +742,7 @@ FIELDS:
     stabilizationWindowSeconds is the number of seconds for which past
     recommendations should be considered while scaling up or scaling down.
     StabilizationWindowSeconds must be greater than or equal to zero and less
-<i>... 17 more lines</i>
+<i>... 14 more lines</i>
 <b>$ kubectl delete hpa hpademo</b>
 horizontalpodautoscaler.autoscaling "hpademo" deleted from default namespace
 <b>$ kubectl delete deployment hpademo</b>

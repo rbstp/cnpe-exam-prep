@@ -298,7 +298,7 @@ kubectl -n team-a create configmap two --from-literal=a=1
 kubectl -n team-a create configmap three --from-literal=a=1
 kubectl -n team-a get quota objs -o jsonpath='{.status.used}' | jq
 kubectl -n team-a delete configmap one two three --ignore-not-found
-kubectl -n team-a delete quota objs</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl create quota objs -n team-a --hard=count/configmaps=3,count/analysistemplates.argoproj.io=1</b>
+kubectl -n team-a delete quota objs</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl create quota objs -n team-a --hard=count/configmaps=3,count/analysistemplates.argoproj.io=1</b>
 resourcequota/objs created
 <b>$ kubectl -n team-a get quota objs -o jsonpath='{.status}' | jq</b>
 {
@@ -307,23 +307,24 @@ resourcequota/objs created
     "count/configmaps": "3"
   },
   "used": {
-    "count/analysistemplates.argoproj.io": "1",
-    "count/configmaps": "2"
+    "count/analysistemplates.argoproj.io": "0",
+    "count/configmaps": "1"
   }
 }
 <b>$ kubectl -n team-a create configmap one --from-literal=a=1</b>
 configmap/one created
 <b>$ kubectl -n team-a create configmap two --from-literal=a=1</b>
-error: failed to create configmap: configmaps "two" is forbidden: exceeded quota: objs, requested: count/configmaps=1, used: count/configmaps=3, limited: count/configmaps=3
+configmap/two created
 <b>$ kubectl -n team-a create configmap three --from-literal=a=1</b>
 error: failed to create configmap: configmaps "three" is forbidden: exceeded quota: objs, requested: count/configmaps=1, used: count/configmaps=3, limited: count/configmaps=3
 <b>$ kubectl -n team-a get quota objs -o jsonpath='{.status.used}' | jq</b>
 {
-  "count/analysistemplates.argoproj.io": "1",
+  "count/analysistemplates.argoproj.io": "0",
   "count/configmaps": "3"
 }
 <b>$ kubectl -n team-a delete configmap one two three --ignore-not-found</b>
 configmap "one" deleted from team-a namespace
+configmap "two" deleted from team-a namespace
 <b>$ kubectl -n team-a delete quota objs</b>
 resourcequota "objs" deleted from team-a namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> <code>status.used</code> tracks both keys the moment the quota is created: <code>count/configmaps</code> at 2, because team-a already holds <code>kube-root-ca.crt</code> and one more before you create anything, and <code>count/analysistemplates.argoproj.io</code> at 1 for the <code>success-rate</code> template. So the limit of 3 leaves room for exactly one, <code>one</code> is created and <code>two</code> is refused with a message naming <code>objs</code> and both numbers. Count quotas are charged against what is already there, not against what you add.</div>

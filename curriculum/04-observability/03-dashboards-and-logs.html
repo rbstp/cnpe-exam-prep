@@ -244,8 +244,11 @@ metadata:
   namespace: monitoring
   labels: { grafana_datasource: "1" }
 data:
-  loki.yaml: |
+  loki-linked.yaml: |
     apiVersion: 1
+    # the Loki added earlier on this page has the same name and a generated uid: replace it
+    deleteDatasources:
+      - { name: Loki, orgId: 1 }
     datasources:
       - name: Loki
         type: loki
@@ -269,9 +272,10 @@ curl -s -u admin:admin 127.0.0.1:3300/api/datasources | jq '[.[] | {name, uid, t
 curl -s -u admin:admin 127.0.0.1:3300/api/datasources/uid/loki-lab | jq '.jsonData'
 kill $PF1
 kubectl -n monitoring delete cm jaeger-datasource
-kubectl -n monitoring delete cm loki-datasource-linked --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ # port 3000 on this host is Backstage, not Grafana: a curl there returns HTML and jq says 'Invalid numeric literal'</b>
+kubectl -n monitoring delete cm loki-datasource-linked --ignore-not-found</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ # port 3000 on this host is Backstage, not Grafana: a curl there returns HTML and jq says 'Invalid numeric literal'</b>
 <b>$ # and the derived field needs a Jaeger datasource with the uid it points at</b>
 <b>$ kubectl -n monitoring delete cm loki-datasource --ignore-not-found</b>
+configmap "loki-datasource" deleted from monitoring namespace
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: v1</b>
 <b>kind: ConfigMap</b>
@@ -292,7 +296,6 @@ kubectl -n monitoring delete cm loki-datasource-linked --ignore-not-found</code>
 configmap/jaeger-datasource created
 <b>$ kubectl -n monitoring get cm -l grafana_datasource=1 -o name</b>
 configmap/jaeger-datasource
-configmap/loki-datasource-linked
 configmap/prometheus-kube-prometheus-grafana-datasource
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: v1</b>
@@ -302,8 +305,11 @@ configmap/prometheus-kube-prometheus-grafana-datasource
 <b>  namespace: monitoring</b>
 <b>  labels: { grafana_datasource: "1" }</b>
 <b>data:</b>
-<b>  loki.yaml: |</b>
+<b>  loki-linked.yaml: |</b>
 <b>    apiVersion: 1</b>
+<b>    # the Loki added earlier on this page has the same name and a generated uid: replace it</b>
+<b>    deleteDatasources:</b>
+<b>      - { name: Loki, orgId: 1 }</b>
 <b>    datasources:</b>
 <b>      - name: Loki</b>
 <b>        type: loki</b>
@@ -318,7 +324,7 @@ configmap/prometheus-kube-prometheus-grafana-datasource
 <b>              url: "$${__value.raw}"</b>
 <b>              datasourceUid: jaeger-lab</b>
 <b>EOF</b>
-configmap/loki-datasource-linked unchanged
+configmap/loki-datasource-linked created
 <b>$ kubectl -n monitoring wait --for=condition=available deploy/prometheus-grafana --timeout=180s</b>
 deployment.apps/prometheus-grafana condition met
 <b>$ sleep 45</b>
