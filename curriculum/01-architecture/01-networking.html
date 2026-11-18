@@ -197,7 +197,7 @@
 <section class="panel accent-c" id="gateway-fields">
   <div class="phdr"><h2>Gateway API, field by field</h2><span class="meta">listeners · matches · filters · weights · ReferenceGrant · status reasons</span></div>
   <div class="pbody">
-    <p>The role table above is the model. A task hands you the fields. Gateway API v1.5 (April 2026) is the current release; everything below is Standard channel unless marked. On the exam cluster, <code>kubectl explain gateway.spec.listeners --recursive</code> and <code>kubectl explain httproute.spec.rules --recursive</code> print the same fields, version-correct.</p>
+    <p>The role table above is the model. A task hands you the fields. Gateway API v1.7 (October 2026) is the current release and the one the lab installs; everything below is Standard channel unless marked. On the exam cluster, <code>kubectl explain gateway.spec.listeners --recursive</code> and <code>kubectl explain httproute.spec.rules --recursive</code> print the same fields, version-correct.</p>
 
     <h3>Gateway listeners</h3>
     <ul>
@@ -214,6 +214,7 @@
       <li><strong><code>filters</code></strong>: <code>RequestHeaderModifier</code>, <code>ResponseHeaderModifier</code>, <code>RequestRedirect</code>, <code>URLRewrite</code> (these two cannot be combined), <code>RequestMirror</code>, <code>CORS</code> (Standard since v1.5) and <code>ExtensionRef</code> for vendor CRDs. Filters replace almost every Ingress annotation you used to write.</li>
       <li><strong><code>backendRefs</code></strong>: <code>name</code>, <code>port</code>, optional <code>namespace</code> (needs a ReferenceGrant) and <code>weight</code> (default 1). Weights are shares of the total: 90 and 10 split 90/10, 3 and 1 split 75/25. A rule with no backendRefs and no redirect answers 500. A missing Service gives <code>ResolvedRefs: False</code>, <code>BackendNotFound</code>.</li>
       <li><strong><code>timeouts</code></strong> (Standard since v1.2): <code>request</code> for the whole exchange, <code>backendRequest</code> for one attempt; <code>backendRequest</code> may not exceed <code>request</code>; <code>0s</code> disables.</li>
+      <li><strong><code>retry</code></strong> (Standard since v1.7): <code>attempts</code> (retries on top of the first try; <code>0</code> disables), <code>codes</code> (status codes to retry, unique) and <code>backoff</code> (a base interval; the curve and jitter are up to the implementation). Support is Extended, so check your controller before relying on it.</li>
     </ul>
 
     <div class="cb" data-lang="yaml"><pre><code>apiVersion: gateway.networking.k8s.io/v1
@@ -247,7 +248,7 @@ spec:
       <li><strong>ReferenceGrant</strong> is <code>v1</code> since v1.5: <code>from</code> (group, kind, namespace of the referrer) and <code>to</code> (group, kind, optionally name) in the namespace being referenced. It is consent, never a route: it grants nothing by itself.</li>
       <li><strong>BackendTLSPolicy</strong> (Standard since v1.4) configures TLS from the Gateway to the backend pods: <code>targetRefs</code> a Service, <code>validation.hostname</code> as SNI, and either <code>caCertificateRefs</code> or <code>wellKnownCACertificates: System</code>. Same namespace as the Service, by design.</li>
       <li><strong>ListenerSet</strong> (Standard since v1.5) lets a team add listeners to a shared Gateway without editing it; the Gateway must opt in with <code>spec.allowedListeners.namespaces.from</code> (default <code>None</code>). Parent listeners win conflicts. It also lifts the 64-listener ceiling.</li>
-      <li><strong>TLSRoute</strong> is <code>v1</code> since v1.5; GRPCRoute has been Standard since v1.1.</li>
+      <li><strong>TLSRoute</strong> is <code>v1</code> since v1.5, and <strong>TCPRoute</strong> and <strong>UDPRoute</strong> since v1.6 (their <code>v1alpha2</code> is deprecated); GRPCRoute has been Standard since v1.1.</li>
     </ul>
 
     <h3>Ingress to Gateway, mapped</h3>

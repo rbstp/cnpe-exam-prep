@@ -206,10 +206,10 @@
 </section>
 
 <section class="panel accent-y" id="resize-and-recent">
-  <div class="phdr"><h2>In-place resize and what else moved recently</h2><span class="meta">version status stated precisely · Kubernetes 1.36 cluster</span></div>
+  <div class="phdr"><h2>In-place resize and what else moved recently</h2><span class="meta">version status stated precisely · Kubernetes 1.37 cluster</span></div>
   <div class="pbody">
     <h3>In-place pod resize</h3>
-    <p><code>InPlacePodVerticalScaling</code> is GA since Kubernetes 1.35 (alpha 1.27, beta and on by default 1.33), so on a 1.36 cluster the <code>pods/resize</code> subresource exists and the schema check the panel above warns about is moot. The mechanics:</p>
+    <p><code>InPlacePodVerticalScaling</code> is GA since Kubernetes 1.35 (alpha 1.27, beta and on by default 1.33), so on a 1.37 cluster the <code>pods/resize</code> subresource exists and the schema check the panel above warns about is moot. The mechanics:</p>
     <ul>
       <li>You patch through the subresource: <code>kubectl patch pod x --subresource resize --patch '{...}'</code> (also <code>kubectl edit pod x --subresource resize</code>). A plain patch of <code>spec.containers[].resources</code> is rejected as immutable.</li>
       <li><code>resizePolicy</code> per container and per resource: <code>restartPolicy: NotRequired</code> (default, apply live) or <code>RestartContainer</code>. A pod with <code>restartPolicy: Never</code> may only use <code>NotRequired</code>.</li>
@@ -230,7 +230,7 @@
 
     <h3>HPA details that decide behavior</h3>
     <ul>
-      <li>Tolerance is 10% globally; per-HPA <code>spec.behavior.scaleUp.tolerance</code> / <code>scaleDown.tolerance</code> is beta in 1.35 and 1.36 (off by default until GA in 1.37), so do not rely on it in a task unless the cluster shows the field.</li>
+      <li>Tolerance is 10% globally; per-HPA <code>spec.behavior.scaleUp.tolerance</code> / <code>scaleDown.tolerance</code> is GA in 1.37 (beta and off by default in 1.35 and 1.36), so the lab has it; on an older exam cluster, check that <code>kubectl explain hpa.spec.behavior.scaleUp</code> shows the field before relying on it.</li>
       <li>Not-ready pods and pods with missing metrics are set aside; on scale-down they are assumed to be at 100% of target, on scale-up at 0%, which dampens both directions. CPU metrics from a pod that became ready in the last 30 s (<code>--horizontal-pod-autoscaler-initial-readiness-delay</code>) are ignored.</li>
       <li><code>behavior.scaleDown.stabilizationWindowSeconds</code> defaults to 300, scale-up to 0; <code>policies</code> combine by <code>selectPolicy: Max</code> (default), <code>Min</code>, or <code>Disabled</code> to freeze a direction.</li>
       <li><code>ContainerResource</code> metrics target one container's usage rather than the pod sum, the fix for sidecar-heavy pods.</li>
@@ -768,7 +768,7 @@ deployment.apps "hpademo" deleted from default namespace</code></pre></details><
       <div class="answer"><p>A PodDisruptionBudget that cannot be satisfied (often <code>minAvailable</code> equal to the replica count), or unmanaged pods: bare pods with no controller, which <code>kubectl drain</code> refuses to evict without <code>--force</code>. Both are voluntary-disruption mechanics; neither has anything to do with node health.</p></div></details>
   
 
-    <details class="quiz"><summary>Is in-place pod resize usable on a Kubernetes 1.36 cluster, and what does the request look like?</summary>
+    <details class="quiz"><summary>Is in-place pod resize usable on a Kubernetes 1.37 cluster, and what does the request look like?</summary>
       <div class="answer"><p>Yes: <code>InPlacePodVerticalScaling</code> has been GA since 1.35 (beta and default-on since 1.33). You patch the <code>resize</code> subresource (<code>kubectl patch pod x --subresource resize ...</code>); a plain spec patch is rejected as immutable. Watch <code>PodResizePending</code> (Infeasible or Deferred) and <code>PodResizeInProgress</code> conditions, and remember the QoS class cannot change.</p></div></details>
 
     <details class="quiz"><summary>Karpenter refuses to consolidate a node you consider empty enough. Where is the reason, and name two things it could be.</summary>
