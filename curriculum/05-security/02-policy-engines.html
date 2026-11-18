@@ -56,17 +56,17 @@
         <thead><tr><th>Aspect</th><th>Kyverno</th><th>Gatekeeper (OPA)</th><th>ValidatingAdmissionPolicy</th></tr></thead>
         <tbody>
           <tr><td>Language</td><td>YAML + CEL</td><td>Rego</td><td>CEL</td></tr>
-          <tr><td>Objects</td><td><code>ClusterPolicy</code>/<code>Policy</code> (classic), and <code>ValidatingPolicy</code>/<code>MutatingPolicy</code>/<code>ImageValidatingPolicy</code> (newer, CEL)</td><td><code>ConstraintTemplate</code> → generated CRD → <code>Constraint</code></td><td><code>ValidatingAdmissionPolicy</code> + <code>…Binding</code></td></tr>
+          <tr><td>Objects</td><td><code>ValidatingPolicy</code>/<code>MutatingPolicy</code>/<code>GeneratingPolicy</code>/<code>ImageValidatingPolicy</code> (CEL); <code>ClusterPolicy</code>/<code>Policy</code> (classic, read-only from 1.20)</td><td><code>ConstraintTemplate</code> → generated CRD → <code>Constraint</code></td><td><code>ValidatingAdmissionPolicy</code> + <code>…Binding</code></td></tr>
           <tr><td>Can mutate</td><td class="ok">yes</td><td>assign mutations (separate CRDs)</td><td class="dimtext">a Mutating counterpart exists in newer versions</td></tr>
           <tr><td>Can generate</td><td class="ok">yes (create resources on events)</td><td class="bad">no</td><td class="bad">no</td></tr>
           <tr><td>Reporting</td><td><code>PolicyReport</code> CRs</td><td>violation counts on the Constraint, via audit sweeps</td><td>none built in</td></tr>
           <tr><td>Runs as</td><td>a webhook (a Deployment you must keep alive)</td><td>a webhook</td><td class="ok">in-process in the API server</td></tr>
-          <tr><td>Enforcement dial</td><td>classic: <code>spec.validationFailureAction: Audit|Enforce</code> · newer: <code>spec.validationActions: [Audit|Deny|Warn]</code></td><td><code>enforcementAction: deny|warn|dryrun</code></td><td><code>validationActions</code> on the binding</td></tr>
+          <tr><td>Enforcement dial</td><td><code>spec.validationActions: [Audit|Deny|Warn]</code> · classic: <code>validationFailureAction: Audit|Enforce</code></td><td><code>enforcementAction: deny|warn|dryrun</code></td><td><code>validationActions</code> on the binding</td></tr>
         </tbody>
       </table>
     </div>
 
-    <p><strong>Kyverno speaks two dialects, and you need both.</strong> The classic one is <code>ClusterPolicy</code>/<code>Policy</code>: a list of typed rules (<code>validate</code>, <code>mutate</code>, <code>generate</code>, <code>verifyImages</code>) with <code>match</code>/<code>exclude</code> blocks and a JMESPath-flavored pattern language. It switches between reporting and enforcement via <code>spec.validationFailureAction: Audit|Enforce</code>. It is fully supported and it is what most installed Kyverno runs. The newer dialect (<code>ValidatingPolicy</code>, <code>MutatingPolicy</code>, <code>ImageValidatingPolicy</code>, CEL expressions, <code>spec.validationActions: [Audit|Deny|Warn]</code>) arrived in Kyverno 1.14/1.15 and is what this lab installs. You do not get to choose which one the exam's cluster has, so recognize both, and let <code>kubectl api-resources | grep kyverno</code> plus <code>kubectl explain</code> settle which is in front of you. The lab's <code>examples/kyverno/</code> pair is the newer form: <code>require-resources.yaml</code> validates that every container declares requests (in Audit mode; flip to Deny to enforce), and <code>add-tenant-label.yaml</code> mutates a cost-centre label onto Deployments at admission.</p>
+    <p><strong>Kyverno has two dialects, and from 1.20 only one of them accepts writes.</strong> The current one is CEL: <code>ValidatingPolicy</code>, <code>MutatingPolicy</code>, <code>GeneratingPolicy</code>, <code>ImageValidatingPolicy</code> and <code>DeletingPolicy</code>, with <code>spec.validationActions: [Audit|Deny|Warn]</code>. It arrived in Kyverno 1.14/1.15 and is what this lab installs and exercises. The classic one is <code>ClusterPolicy</code>/<code>Policy</code>: a list of typed rules (<code>validate</code>, <code>mutate</code>, <code>generate</code>, <code>verifyImages</code>) with <code>match</code>/<code>exclude</code> blocks and a JMESPath-flavored pattern language, switched between reporting and enforcement via <code>spec.validationFailureAction: Audit|Enforce</code>. Kyverno 1.20 still serves it for read, list and delete, but refuses to create or update it and no longer executes it. You will still meet it on older clusters and in most samples online, so recognize both, and let <code>kubectl api-resources | grep kyverno</code>, <code>kubectl explain</code> and the cluster's answer to a write settle which is in front of you. The lab's <code>examples/kyverno/</code> pair is the CEL form: <code>require-resources.yaml</code> validates that every container declares requests (in Audit mode; flip to Deny to enforce), and <code>add-tenant-label.yaml</code> mutates a cost-centre label onto Deployments at admission.</p>
 
     <p><strong>Gatekeeper</strong> is two-step by design: a ConstraintTemplate defines a parameterized policy in Rego <em>and generates a CRD</em>; a Constraint is an instance of that CRD binding it to resources with parameters. That indirection is what makes a library of reusable policies possible, and the <code>gatekeeper-library</code> repo is that library. This is also where the exam's "OPA" lives in practice: Rego inside templates.</p>
 
@@ -87,15 +87,15 @@
       <table>
         <thead><tr><th class="mono">Kind</th><th class="mono">API</th><th>Since</th><th>Status</th></tr></thead>
         <tbody>
-          <tr><td class="mono">ValidatingPolicy, ImageValidatingPolicy</td><td class="mono">policies.kyverno.io/v1</td><td>1.14 (Apr 2025)</td><td>stable since 1.18 (Apr 2026); <code>v1alpha1</code> deprecated</td></tr>
-          <tr><td class="mono">MutatingPolicy, GeneratingPolicy, DeletingPolicy</td><td class="mono">policies.kyverno.io/v1</td><td>1.15 (Jul 2025)</td><td>stable since 1.18</td></tr>
+          <tr><td class="mono">ValidatingPolicy, ImageValidatingPolicy</td><td class="mono">policies.kyverno.io/v1</td><td>1.14 (Apr 2025)</td><td><code>v1</code> since 1.17 (Feb 2026); <code>v1alpha1</code> deprecated</td></tr>
+          <tr><td class="mono">MutatingPolicy, GeneratingPolicy, DeletingPolicy</td><td class="mono">policies.kyverno.io/v1</td><td>1.15 (Jul 2025)</td><td><code>v1</code> since 1.17</td></tr>
           <tr><td class="mono">Namespaced* variants</td><td class="mono">policies.kyverno.io/v1</td><td>with the above</td><td>same policy, scoped to one namespace</td></tr>
-          <tr><td class="mono">PolicyException</td><td class="mono">policies.kyverno.io/v1</td><td>1.14</td><td>stable since 1.19; the <code>kyverno.io</code> one is deprecated</td></tr>
-          <tr><td class="mono">ClusterPolicy / Policy, CleanupPolicy</td><td class="mono">kyverno.io/v1, kyverno.io/v2</td><td>the classic API</td><td>deprecation marked 1.17 (Feb 2026), bug fixes only 1.18, deprecated 1.19 (Aug 2026), removal planned 1.20 (about Nov 2026)</td></tr>
+          <tr><td class="mono">PolicyException</td><td class="mono">policies.kyverno.io/v1</td><td>1.14</td><td><code>v1</code> since 1.17; the <code>kyverno.io/v2</code> one is refused from 1.20</td></tr>
+          <tr><td class="mono">ClusterPolicy / Policy, CleanupPolicy</td><td class="mono">kyverno.io/v1, kyverno.io/v2</td><td>the classic API</td><td>deprecation marked 1.17 (Feb 2026), bug fixes only 1.18, deprecated 1.19 (Aug 2026), execution removed 1.20 (Nov 2026): read, list and delete only</td></tr>
         </tbody>
       </table>
     </div>
-    <p>From 1.19 creating a classic policy returns an admission warning and increments <code>kyverno_deprecated_api_requests_total</code>; <code>kubectl api-resources | grep kyverno</code> and the warnings tell you which generation the exam cluster runs. Both still work in 2026, and an exam task may hand you either; recognize the fields of each.</p>
+    <p>On 1.19 creating a classic policy returns an admission warning and increments <code>kyverno_deprecated_api_requests_total</code>. On 1.20 the same request is denied by Kyverno's own webhook ("Kyverno v1.20 removed execution of legacy kyverno.io policy types and no longer accepts create or update requests for them"), while reads still return a deprecation warning, and the CLI refuses to load a classic file. <code>kubectl api-resources | grep kyverno</code> lists both groups either way, so the deployed version and the response to a write are what tell you which generation the exam cluster runs. Write the CEL kinds; read the classic fields when a cluster or a doc hands them to you.</p>
 
     <h3>CEL-based policy fields</h3>
     <ul>
@@ -108,13 +108,13 @@
     </ul>
 
     <h3>Classic ClusterPolicy fields, still worth reading</h3>
-    <p>A rule is <code>match.any[]</code>/<code>exclude.any[]</code> blocks of <code>resources.kinds</code>, <code>namespaces</code>, <code>selector</code>, <code>subjects</code>, then one of <code>validate</code> (<code>pattern</code>, <code>anyPattern</code>, <code>deny.conditions</code>, <code>cel.expressions</code>, <code>podSecurity</code>), <code>mutate</code> (<code>patchStrategicMerge</code>, <code>patchesJson6902</code>, <code>targets</code> for existing objects), <code>generate</code> (<code>data</code> or <code>clone</code>, <code>synchronize</code>) or <code>verifyImages</code>. Enforcement is <code>validate.failureAction: Audit|Enforce</code> per rule (the older <code>spec.validationFailureAction</code> and <code>spec.webhookTimeoutSeconds</code>, <code>spec.failurePolicy</code> are deprecated since 1.13 and the default action is <code>Audit</code>, so a copied sample policy never blocks anything until you change it). <code>spec.background: true</code> (default) drives report generation for existing objects. Pattern anchors: <code>=(field)</code> conditional, <code>+(field)</code> add if missing, <code>X(field)</code> negation, <code>&lt;(field)</code> global, wildcards <code>"*"</code> and <code>"?*"</code>.</p>
+    <p>Kyverno 1.20 only lets you read these, but older clusters and most samples are written in them. A rule is <code>match.any[]</code>/<code>exclude.any[]</code> blocks of <code>resources.kinds</code>, <code>namespaces</code>, <code>selector</code>, <code>subjects</code>, then one of <code>validate</code> (<code>pattern</code>, <code>anyPattern</code>, <code>deny.conditions</code>, <code>cel.expressions</code>, <code>podSecurity</code>), <code>mutate</code> (<code>patchStrategicMerge</code>, <code>patchesJson6902</code>, <code>targets</code> for existing objects), <code>generate</code> (<code>data</code> or <code>clone</code>, <code>synchronize</code>) or <code>verifyImages</code>. Enforcement is <code>validate.failureAction: Audit|Enforce</code> per rule (the older <code>spec.validationFailureAction</code> and <code>spec.webhookTimeoutSeconds</code>, <code>spec.failurePolicy</code> are deprecated since 1.13 and the default action is <code>Audit</code>, so a copied sample policy never blocks anything until you change it). <code>spec.background: true</code> (default) drives report generation for existing objects. Pattern anchors: <code>=(field)</code> conditional, <code>+(field)</code> add if missing, <code>X(field)</code> negation, <code>&lt;(field)</code> global, wildcards <code>"*"</code> and <code>"?*"</code>.</p>
 
     <h3>Exceptions, reports, CLI, configuration</h3>
     <ul>
-      <li><strong>PolicyException</strong> (<code>policies.kyverno.io/v1</code>): <code>policyRefs[].name/kind</code> plus <code>matchConditions</code> in CEL; works in admission and background and shows up in the report as a <code>skip</code> with the exception's name. Exceptions are off until the controllers run with <code>--enablePolicyException=true</code> and <code>--exceptionNamespace=&lt;ns&gt;</code> (Helm values of the same names); a task that says "exempt this workload" fails silently if that flag is off.</li>
+      <li><strong>PolicyException</strong> (<code>policies.kyverno.io/v1</code>): <code>policyRefs[].name/kind</code> plus <code>matchConditions</code> in CEL; works in admission and background and shows up in the report as a <code>skip</code> with the exception's name. Exceptions are off until the controllers run with <code>--enablePolicyException=true</code> (Helm <code>features.policyExceptions.enabled</code>); <code>--exceptionNamespace=&lt;ns&gt;</code> (<code>features.policyExceptions.namespace</code>) restricts where they may live, and without it every exception you create warns "The exceptionNamespace flag is not set". A task that says "exempt this workload" fails silently if the first flag is off.</li>
       <li><strong>Reports.</strong> <code>PolicyReport</code> (namespaced) and <code>ClusterPolicyReport</code> in <code>wgpolicyk8s.io/v1alpha2</code>, one per resource, with <code>results[].result</code> in <code>pass|fail|warn|error|skip</code> and a <code>summary</code>. Generated by admission events and by the background scan in the reports controller; <code>--allowedResults=fail</code> (1.17+) stores only failures to keep etcd small. Enforced (Deny) failures are not reported because the object never existed.</li>
-      <li><strong>CLI.</strong> <code>kyverno apply policy.yaml --resource pod.yaml</code> (or <code>--cluster</code>) prints pass/fail per rule; <code>kyverno test .</code> runs a <code>kyverno-test.yaml</code> declaring policies, resources and expected <code>results[].result</code> per rule and resource, which is how policies get unit tests in CI; <code>kyverno apply ... -o out/</code> shows mutated output. The CLI warns on classic kinds and <code>--warnings-as-errors</code> fails the run.</li>
+      <li><strong>CLI.</strong> <code>kyverno apply policy.yaml --resource pod.yaml</code> (or <code>--cluster</code>) prints pass/fail per rule; <code>kyverno test .</code> runs a <code>kyverno-test.yaml</code> declaring policies, resources and expected <code>results[].result</code> per rule and resource, which is how policies get unit tests in CI; <code>kyverno apply ... -o out/</code> shows mutated output. The 1.20 CLI refuses to load a classic kind at all (<code>failed to load file</code>, quoting the same removal message as the webhook); 1.19 only warned, and <code>--warnings-as-errors</code> failed the run.</li>
       <li><strong>Configuration.</strong> The <code>kyverno</code> ConfigMap's <code>resourceFilters</code> (<code>[Kind,namespace,name]</code> triples, wildcards allowed) exclude objects from admission; <code>excludeGroups</code> defaults to <code>system:serviceaccounts:kube-system,system:nodes</code> and <code>excludeUsernames</code> to <code>!system:kube-scheduler</code>. Kyverno's own namespace is excluded by default and <code>kube-system</code> is not. The webhooks that matter are <code>kyverno-resource-validating-webhook-cfg</code> and <code>kyverno-resource-mutating-webhook-cfg</code>; deleting them is the documented emergency step when every write times out because the admission controller is down, and Kyverno recreates them when it recovers. <code>--forceFailurePolicyIgnore</code> flips every generated webhook to <code>Ignore</code>.</li>
     </ul>
   </div>
@@ -189,89 +189,89 @@
       <div class="cb" data-lang="bash"><pre><code>kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations
 kubectl get policyreports -A                    # kyverno findings, governance-as-data
 kubectl get constraints                         # gatekeeper, with violation counts
-kubectl -n kyverno logs deploy/kyverno-admission-controller | tail -50</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations</b>
+kubectl -n kyverno logs deploy/kyverno-admission-controller | tail -50</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations</b>
 NAME                                                                                                        WEBHOOKS   AGE
-validatingwebhookconfiguration.admissionregistration.k8s.io/cnpg-validating-webhook-configuration           5          52m
-validatingwebhookconfiguration.admissionregistration.k8s.io/config.webhook.pipeline.tekton.dev              1          55m
-validatingwebhookconfiguration.admissionregistration.k8s.io/config.webhook.triggers.tekton.dev              1          55m
-validatingwebhookconfiguration.admissionregistration.k8s.io/crossplane-no-usages                            1          53m
-validatingwebhookconfiguration.admissionregistration.k8s.io/externalsecret-validate                         1          39m
-validatingwebhookconfiguration.admissionregistration.k8s.io/gatekeeper-validating-webhook-configuration     2          41m
-validatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-cel-exception-validating-webhook-cfg    1          41m
-validatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-cleanup-validating-webhook-cfg          1          42m
-validatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-exception-validating-webhook-cfg        1          41m
-validatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-global-context-validating-webhook-cfg   1          41m
-validatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-policy-validating-webhook-cfg           1          41m
-validatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-resource-validating-webhook-cfg         1          41m
-validatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-ttl-validating-webhook-cfg              1          42m
-validatingwebhookconfiguration.admissionregistration.k8s.io/opentelemetry-operator-validation               4          46m
-validatingwebhookconfiguration.admissionregistration.k8s.io/prometheus-kube-prometheus-admission            2          50m
-validatingwebhookconfiguration.admissionregistration.k8s.io/secretstore-validate                            2          39m
-validatingwebhookconfiguration.admissionregistration.k8s.io/spire-spire-controller-manager-webhook          2          37m
-validatingwebhookconfiguration.admissionregistration.k8s.io/validation.webhook.pipeline.tekton.dev          1          55m
-validatingwebhookconfiguration.admissionregistration.k8s.io/validation.webhook.triggers.tekton.dev          1          55m
+validatingwebhookconfiguration.admissionregistration.k8s.io/cnpg-validating-webhook-configuration           5          5h30m
+validatingwebhookconfiguration.admissionregistration.k8s.io/config.webhook.pipeline.tekton.dev              1          5h33m
+validatingwebhookconfiguration.admissionregistration.k8s.io/config.webhook.triggers.tekton.dev              1          5h33m
+validatingwebhookconfiguration.admissionregistration.k8s.io/crossplane-no-usages                            1          5h31m
+validatingwebhookconfiguration.admissionregistration.k8s.io/externalsecret-validate                         1          5h17m
+validatingwebhookconfiguration.admissionregistration.k8s.io/gatekeeper-validating-webhook-configuration     2          5h18m
+validatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-cel-exception-validating-webhook-cfg    1          5h18m
+validatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-cleanup-validating-webhook-cfg          1          5h18m
+validatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-exception-validating-webhook-cfg        1          5h18m
+validatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-global-context-validating-webhook-cfg   1          5h18m
+validatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-policy-validating-webhook-cfg           1          5h18m
+validatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-resource-validating-webhook-cfg         2          5h18m
+validatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-ttl-validating-webhook-cfg              1          5h18m
+validatingwebhookconfiguration.admissionregistration.k8s.io/opentelemetry-operator-validation               4          5h23m
+validatingwebhookconfiguration.admissionregistration.k8s.io/prometheus-kube-prometheus-admission            2          5h28m
+validatingwebhookconfiguration.admissionregistration.k8s.io/secretstore-validate                            2          5h17m
+validatingwebhookconfiguration.admissionregistration.k8s.io/spire-spire-controller-manager-webhook          2          5h15m
+validatingwebhookconfiguration.admissionregistration.k8s.io/validation.webhook.pipeline.tekton.dev          1          5h33m
+validatingwebhookconfiguration.admissionregistration.k8s.io/validation.webhook.triggers.tekton.dev          1          5h33m
 
 NAME                                                                                                  WEBHOOKS   AGE
-mutatingwebhookconfiguration.admissionregistration.k8s.io/cnpg-mutating-webhook-configuration         4          52m
-mutatingwebhookconfiguration.admissionregistration.k8s.io/gatekeeper-mutating-webhook-configuration   1          41m
-mutatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-policy-mutating-webhook-cfg         1          41m
-mutatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-resource-mutating-webhook-cfg       1          41m
-mutatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-verify-mutating-webhook-cfg         1          41m
-mutatingwebhookconfiguration.admissionregistration.k8s.io/opentelemetry-operator-mutation             3          46m
-mutatingwebhookconfiguration.admissionregistration.k8s.io/prometheus-kube-prometheus-admission        1          50m
-mutatingwebhookconfiguration.admissionregistration.k8s.io/vpa-webhook-config                          1          59m
-mutatingwebhookconfiguration.admissionregistration.k8s.io/webhook.pipeline.tekton.dev                 1          55m
-mutatingwebhookconfiguration.admissionregistration.k8s.io/webhook.triggers.tekton.dev                 1          55m
+mutatingwebhookconfiguration.admissionregistration.k8s.io/cnpg-mutating-webhook-configuration         4          5h30m
+mutatingwebhookconfiguration.admissionregistration.k8s.io/gatekeeper-mutating-webhook-configuration   1          5h18m
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-policy-mutating-webhook-cfg         1          5h18m
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-resource-mutating-webhook-cfg       1          5h18m
+mutatingwebhookconfiguration.admissionregistration.k8s.io/kyverno-verify-mutating-webhook-cfg         1          5h18m
+mutatingwebhookconfiguration.admissionregistration.k8s.io/opentelemetry-operator-mutation             3          5h23m
+mutatingwebhookconfiguration.admissionregistration.k8s.io/prometheus-kube-prometheus-admission        1          5h28m
+mutatingwebhookconfiguration.admissionregistration.k8s.io/vpa-webhook-config                          1          5h37m
+mutatingwebhookconfiguration.admissionregistration.k8s.io/webhook.pipeline.tekton.dev                 1          5h33m
+mutatingwebhookconfiguration.admissionregistration.k8s.io/webhook.triggers.tekton.dev                 1          5h33m
 <b>$ kubectl get policyreports -A                    # kyverno findings, governance-as-data</b>
 NAMESPACE                       NAME                                   KIND          NAME                                                         PASS   FAIL   WARN   ERROR   SKIP   AGE
-argo-rollouts                   1086be52-6ae4-473e-adc9-539fecd83956   Pod           argo-rollouts-dashboard-768976b9f-pc4p7                      0      1      0      0       0      37m
-argo-rollouts                   2b7dcfb8-31f3-4310-bc83-2cdf44fe01da   Deployment    argo-rollouts-dashboard                                      0      2      0      0       0      37m
-argo-rollouts                   62bcfbc0-50de-47d1-8d4c-03cea8a7ada1   Pod           argo-rollouts-6c7457465f-ntvlt                               0      1      0      0       0      37m
-argo-rollouts                   67550dfb-4b01-4853-8444-129e737f9de8   Pod           argo-rollouts-6c7457465f-mdx8c                               0      1      0      0       0      37m
-argo-rollouts                   73977456-456f-498a-83b2-212c09d728b5   ReplicaSet    argo-rollouts-dashboard-768976b9f                            0      1      0      0       0      36m
-argo-rollouts                   b1a56daf-7c4f-4e69-9006-6f4179ffe6a9   Deployment    argo-rollouts                                                0      2      0      0       0      37m
-argo-rollouts                   b4f220d3-9df7-4917-930d-8dc71c5340a3   ReplicaSet    argo-rollouts-6c7457465f                                     0      1      0      0       0      36m
-argo                            78dd4a7d-eae4-457e-9225-2944d01b88cd   Deployment    argo-workflows-server                                        0      2      0      0       0      37m
-argo                            934e7f1b-532a-4feb-b8dd-455a293461f5   Pod           argo-workflows-server-68f86c79dc-s9xbn                       0      1      0      0       0      37m
-argo                            b8bb7d41-6271-4f35-8a11-7ab70a5c9f0f   Deployment    argo-workflows-workflow-controller                           0      2      0      0       0      37m
-argo                            e6b28c00-42d8-4682-b002-104ccee47f45   Pod           argo-workflows-workflow-controller-58b6c468bd-kgcpk          0      1      0      0       0      37m
-argo                            f136c264-4b50-4677-a421-5e0efc391872   ReplicaSet    argo-workflows-server-68f86c79dc                             0      1      0      0       0      36m
-argo                            fa9fb582-c591-4921-bb9d-6ff429152cbd   ReplicaSet    argo-workflows-workflow-controller-58b6c468bd                0      1      0      0       0      36m
-argocd                          003a3a4b-490a-4c3f-b0d9-dc75f07e3f64   Pod           argocd-server-5dfccb7d6b-gnwnl                               0      1      0      0       0      37m
-argocd                          4688cafe-d911-4b2b-8bb9-c3748d513b4e   Deployment    argocd-server                                                0      2      0      0       0      37m
-argocd                          4f081113-6567-4441-b698-326bd9b0ef60   ReplicaSet    argocd-applicationset-controller-54db99f499                  0      1      0      0       0      36m
-argocd                          6060093b-3490-4e57-a3dd-a313b25daddf   Pod           argocd-application-controller-0                              0      1      0      0       0      37m
-argocd                          70b2a469-5782-4484-b1b2-91d3cc99c945   ReplicaSet    argocd-redis-546d94bfb4                                      0      1      0      0       0      36m
-argocd                          8302c045-638c-4b05-8797-1bb9639e7a67   Deployment    argocd-repo-server                                           0      2      0      0       0      37m
+argo-rollouts                   1952b422-6d06-4d6d-adca-957d6c269cb7   Deployment    argo-rollouts                                                0      2      0      0       0      5h15m
+argo-rollouts                   694dc1ee-2548-4efa-8522-030edfc26627   Deployment    argo-rollouts-dashboard                                      0      2      0      0       0      5h15m
+argo-rollouts                   7db78b1f-caad-4cb4-b996-a67f8420630c   ReplicaSet    argo-rollouts-dashboard-79999f8d8f                           0      1      0      0       0      5h14m
+argo-rollouts                   c84caa68-f9bb-4243-8d33-7a84ec8385b4   Pod           argo-rollouts-dashboard-79999f8d8f-xmkc4                     0      1      0      0       0      5h15m
+argo-rollouts                   d4a6e4d3-c524-4cda-9707-96a50b9023c7   ReplicaSet    argo-rollouts-78bf9b9d5b                                     0      1      0      0       0      5h14m
+argo-rollouts                   d9a42b95-2dac-43ed-990c-8247bf9169e8   Pod           argo-rollouts-78bf9b9d5b-k75nh                               0      1      0      0       0      5h15m
+argo-rollouts                   f252a2e4-1b9f-4afd-8cb4-586dd48c9048   Pod           argo-rollouts-78bf9b9d5b-9wbj2                               0      1      0      0       0      5h15m
+argo                            1ec4863a-e173-400b-9acb-2632d4282178   Deployment    argo-workflows-workflow-controller                           0      2      0      0       0      5h15m
+argo                            231278ea-e174-4699-bfba-704f3dc0e784   ReplicaSet    argo-workflows-workflow-controller-9b67bbc99                 0      1      0      0       0      70m
+argo                            4c46e2be-2ce6-43ec-8d04-c3c89c8f8e01   ReplicaSet    argo-workflows-workflow-controller-698c7b65c4                0      1      0      0       0      71m
+argo                            517d7abf-f4df-4e5d-95b2-711eb02c6d56   ReplicaSet    argo-workflows-server-5f8b6f7594                             0      1      0      0       0      5h14m
+argo                            9368514e-6215-4309-9330-157cf1c1e768   Deployment    argo-workflows-server                                        0      2      0      0       0      5h15m
+argo                            97b9ec88-7fa3-44a6-b807-579a6e1abdd7   ReplicaSet    argo-workflows-workflow-controller-55df46c7b                 0      1      0      0       0      5h14m
+argo                            b2682b5c-e83e-499b-beab-039f48edf603   Pod           argo-workflows-workflow-controller-9b67bbc99-2x8mk           0      1      0      0       0      70m
+argo                            f50d5b4f-aee1-40d4-9e5d-61776d0b85ea   Pod           argo-workflows-server-5f8b6f7594-bsv5g                       0      1      0      0       0      5h15m
+argocd                          0161576c-30c7-4620-80d2-fc457492ddae   Pod           argocd-application-controller-0                              0      1      0      0       0      5h15m
+argocd                          0cd82edf-80e9-4061-b5b6-c187bcc2a703   Pod           argocd-server-658c67c549-b2ncm                               0      1      0      0       0      5h15m
+argocd                          2142d0d0-e40d-49ba-a63b-e11f30e0ded9   StatefulSet   argocd-application-controller                                0      1      0      0       0      5h14m
+argocd                          25fad52e-c6f3-4030-9220-7425928107bc   ReplicaSet    argocd-repo-server-5dc4468bc9                                0      1      0      0       0      5h14m
 <b>$ kubectl get constraints                         # gatekeeper, with violation counts</b>
 error: the server doesn't have a resource type "constraints"
 <b>$ kubectl -n kyverno logs deploy/kyverno-admission-controller | tail -50</b>
 Defaulted container "kyverno" out of: kyverno, kyverno-pre (init)
-2026-08-27T02:02:23Z INF sigs.k8s.io/controller-runtime@v0.24.1/pkg/internal/controller/controller.go:305 &gt; Starting workers controller=mutatingpolicy controllerGroup=policies.kyverno.io controllerKind=MutatingPolicy v=0 worker count=1
-2026-08-27T02:02:23Z INF sigs.k8s.io/controller-runtime@v0.24.1/pkg/internal/controller/controller.go:302 &gt; Starting Controller controller=namespacedvalidatingpolicy controllerGroup=policies.kyverno.io controllerKind=NamespacedValidatingPolicy v=0
-2026-08-27T02:02:23Z INF sigs.k8s.io/controller-runtime@v0.24.1/pkg/internal/controller/controller.go:302 &gt; Starting Controller controller=imagevalidatingpolicy controllerGroup=policies.kyverno.io controllerKind=ImageValidatingPolicy v=0
-2026-08-27T02:02:23Z INF sigs.k8s.io/controller-runtime@v0.24.1/pkg/internal/controller/controller.go:302 &gt; Starting Controller controller=namespacedmutatingpolicy controllerGroup=policies.kyverno.io controllerKind=NamespacedMutatingPolicy v=0
-2026-08-27T02:02:23Z INF sigs.k8s.io/controller-runtime@v0.24.1/pkg/internal/controller/controller.go:305 &gt; Starting workers controller=namespacedvalidatingpolicy controllerGroup=policies.kyverno.io controllerKind=NamespacedValidatingPolicy v=0 worker count=1
-2026-08-27T02:02:23Z INF sigs.k8s.io/controller-runtime@v0.24.1/pkg/internal/controller/controller.go:305 &gt; Starting workers controller=namespacedmutatingpolicy controllerGroup=policies.kyverno.io controllerKind=NamespacedMutatingPolicy v=0 worker count=1
-2026-08-27T02:02:23Z INF sigs.k8s.io/controller-runtime@v0.24.1/pkg/internal/controller/controller.go:305 &gt; Starting workers controller=imagevalidatingpolicy controllerGroup=policies.kyverno.io controllerKind=ImageValidatingPolicy v=0 worker count=1
-2026-08-27T02:02:23Z INF sigs.k8s.io/controller-runtime@v0.24.1/pkg/internal/controller/controller.go:302 &gt; Starting Controller controller=namespacedimagevalidatingpolicy controllerGroup=policies.kyverno.io controllerKind=NamespacedImageValidatingPolicy v=0
-2026-08-27T02:02:23Z INF sigs.k8s.io/controller-runtime@v0.24.1/pkg/internal/controller/controller.go:305 &gt; Starting workers controller=namespacedimagevalidatingpolicy controllerGroup=policies.kyverno.io controllerKind=NamespacedImageValidatingPolicy v=0 worker count=1
-2026-08-27T02:02:23Z TRC k8s.io/client-go@v0.36.3/tools/cache/reflector.go:507 &gt; Caches populated logger=klog reflector=k8s.io/client-go@v0.36.3/tools/cache/reflector.go:343 type=*v1beta1.PolicyException v=2
-2026-08-27T02:02:23Z INF k8s.io/client-go@v0.36.3/tools/leaderelection/leaderelection.go:258 &gt; Attempting to acquire leader lease... lock=kyverno/kyverno logger=klog v=0
-2026-08-27T02:02:23Z TRC github.com/kyverno/kyverno/cmd/internal/controller.go:32 &gt; starting controller logger=setup name=kyverno-events v=2 workers=3
-2026-08-27T02:02:23Z TRC github.com/kyverno/kyverno/cmd/internal/controller.go:32 &gt; starting controller logger=setup name=global-context v=2 workers=1
-2026-08-27T02:02:23Z TRC github.com/kyverno/kyverno/pkg/event/controller.go:125 &gt; start logger=EventGenerator v=2
-2026-08-27T02:02:23Z TRC github.com/kyverno/kyverno/cmd/internal/controller.go:32 &gt; starting controller logger=setup/controllers name=policycache-controller v=2 workers=3
-2026-08-27T02:02:23Z INF k8s.io/client-go@v0.36.3/tools/leaderelection/leaderelection.go:272 &gt; Successfully acquired lease lock=kyverno/kyverno logger=klog v=0
-2026-08-27T02:02:23Z TRC github.com/kyverno/kyverno/pkg/leaderelection/leaderelection.go:82 &gt; started leading id=kyverno-admission-controller-5b78bf8c6b-sxsh4 logger=setup/leader-election v=2
-2026-08-27T02:02:23Z INF github.com/kyverno/kyverno/cmd/kyverno/main.go:320 &gt; Initializing MutatingAdmissionPolicy informers for v1 v=0
-2026-08-27T02:02:23Z TRC k8s.io/client-go@v0.36.3/tools/cache/reflector.go:507 &gt; Caches populated logger=klog reflector=k8s.io/client-go@v0.36.3/tools/cache/reflector.go:343 type=*v1beta1.NamespacedValidatingPolicy v=2
-2026-08-27T02:02:23Z TRC k8s.io/client-go@v0.36.3/tools/cache/reflector.go:507 &gt; Caches populated logger=klog reflector=k8s.io/client-go@v0.36.3/tools/cache/reflector.go:343 type=*v1.Lease v=2
-2026-08-27T02:02:23Z TRC k8s.io/client-go@v0.36.3/tools/cache/reflector.go:507 &gt; Caches populated logger=klog reflector=k8s.io/client-go@v0.36.3/tools/cache/reflector.go:343 type=*v1.MutatingAdmissionPolicyBinding v=2
-2026-08-27T02:02:23Z TRC k8s.io/client-go@v0.36.3/tools/cache/reflector.go:507 &gt; Caches populated logger=klog reflector=k8s.io/client-go@v0.36.3/tools/cache/reflector.go:343 type=*v1beta1.ImageValidatingPolicy v=2
-2026-08-27T02:02:23Z TRC k8s.io/client-go@v0.36.3/tools/cache/reflector.go:507 &gt; Caches populated logger=klog reflector=k8s.io/client-go@v0.36.3/tools/cache/reflector.go:343 type=*v2.PolicyException v=2
-2026-08-27T02:02:23Z TRC k8s.io/client-go@v0.36.3/tools/cache/reflector.go:507 &gt; Caches populated logger=klog reflector=k8s.io/client-go@v0.36.3/tools/cache/reflector.go:343 type=*v1.ValidatingAdmissionPolicyBinding v=2
-2026-08-27T02:02:23Z TRC k8s.io/client-go@v0.36.3/tools/cache/reflector.go:507 &gt; Caches populated logger=klog reflector=k8s.io/client-go@v0.36.3/tools/cache/reflector.go:343 type=*v1.MutatingAdmissionPolicy v=2
+2026-11-18T09:21:18Z TRC github.com/kyverno/kyverno/pkg/informers/health/tracker.go:101 &gt; admission informer stream recovered logger=setup/informer-health stream=*v1beta1.PolicyException/3 v=2
+2026-11-18T09:21:31Z INF k8s.io/client-go@v0.37.1/rest/warnings.go:107 &gt; Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/ logger=klog v=0
+2026-11-18T09:21:31Z INF k8s.io/client-go@v0.37.1/rest/warnings.go:107 &gt; Warning: kyverno.io/v1 Policy is deprecated and will be removed in a future release; migrate to NamespacedValidatingPolicy and the other namespaced policy types (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/ logger=klog v=0
+2026-11-18T09:21:31Z INF k8s.io/client-go@v0.37.1/rest/warnings.go:107 &gt; Warning: kyverno.io/v2 PolicyException is deprecated and will be removed in a future release; migrate to PolicyException (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/ logger=klog v=0
+2026-11-18T09:22:01Z INF k8s.io/client-go@v0.37.1/rest/warnings.go:107 &gt; Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/ logger=klog v=0
+2026-11-18T09:22:01Z INF k8s.io/client-go@v0.37.1/rest/warnings.go:107 &gt; Warning: kyverno.io/v1 Policy is deprecated and will be removed in a future release; migrate to NamespacedValidatingPolicy and the other namespaced policy types (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/ logger=klog v=0
+2026-11-18T09:22:01Z INF k8s.io/client-go@v0.37.1/rest/warnings.go:107 &gt; Warning: kyverno.io/v2 PolicyException is deprecated and will be removed in a future release; migrate to PolicyException (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/ logger=klog v=0
+2026-11-18T09:22:19Z TRC github.com/kyverno/kyverno/pkg/informers/health/tracker.go:82 &gt; admission informer stream interrupted logger=setup/informer-health stream=*v1beta1.NamespacedValidatingPolicy/6 v=2
+2026-11-18T09:22:20Z TRC github.com/kyverno/kyverno/pkg/informers/health/tracker.go:101 &gt; admission informer stream recovered logger=setup/informer-health stream=*v1beta1.NamespacedValidatingPolicy/6 v=2
+2026-11-18T09:22:31Z INF k8s.io/client-go@v0.37.1/rest/warnings.go:107 &gt; Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/ logger=klog v=0
+2026-11-18T09:22:32Z INF k8s.io/client-go@v0.37.1/rest/warnings.go:107 &gt; Warning: kyverno.io/v1 Policy is deprecated and will be removed in a future release; migrate to NamespacedValidatingPolicy and the other namespaced policy types (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/ logger=klog v=0
+2026-11-18T09:22:32Z INF k8s.io/client-go@v0.37.1/rest/warnings.go:107 &gt; Warning: kyverno.io/v2 PolicyException is deprecated and will be removed in a future release; migrate to PolicyException (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/ logger=klog v=0
+2026-11-18T09:23:02Z INF k8s.io/client-go@v0.37.1/rest/warnings.go:107 &gt; Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/ logger=klog v=0
+2026-11-18T09:23:02Z INF k8s.io/client-go@v0.37.1/rest/warnings.go:107 &gt; Warning: kyverno.io/v1 Policy is deprecated and will be removed in a future release; migrate to NamespacedValidatingPolicy and the other namespaced policy types (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/ logger=klog v=0
+2026-11-18T09:23:02Z INF k8s.io/client-go@v0.37.1/rest/warnings.go:107 &gt; Warning: kyverno.io/v2 PolicyException is deprecated and will be removed in a future release; migrate to PolicyException (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/ logger=klog v=0
+2026-11-18T09:23:32Z INF k8s.io/client-go@v0.37.1/rest/warnings.go:107 &gt; Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/ logger=klog v=0
+2026-11-18T09:23:32Z INF k8s.io/client-go@v0.37.1/rest/warnings.go:107 &gt; Warning: kyverno.io/v1 Policy is deprecated and will be removed in a future release; migrate to NamespacedValidatingPolicy and the other namespaced policy types (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/ logger=klog v=0
+2026-11-18T09:23:32Z INF k8s.io/client-go@v0.37.1/rest/warnings.go:107 &gt; Warning: kyverno.io/v2 PolicyException is deprecated and will be removed in a future release; migrate to PolicyException (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/ logger=klog v=0
+2026-11-18T09:24:02Z INF k8s.io/client-go@v0.37.1/rest/warnings.go:107 &gt; Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/ logger=klog v=0
+2026-11-18T09:24:02Z INF k8s.io/client-go@v0.37.1/rest/warnings.go:107 &gt; Warning: kyverno.io/v1 Policy is deprecated and will be removed in a future release; migrate to NamespacedValidatingPolicy and the other namespaced policy types (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/ logger=klog v=0
+2026-11-18T09:24:02Z INF k8s.io/client-go@v0.37.1/rest/warnings.go:107 &gt; Warning: kyverno.io/v2 PolicyException is deprecated and will be removed in a future release; migrate to PolicyException (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/ logger=klog v=0
+2026-11-18T09:24:10Z TRC github.com/kyverno/kyverno/pkg/informers/health/tracker.go:82 &gt; admission informer stream interrupted logger=setup/informer-health stream=*v1beta1.ImageValidatingPolicy/1 v=2
+2026-11-18T09:24:11Z TRC github.com/kyverno/kyverno/pkg/informers/health/tracker.go:101 &gt; admission informer stream recovered logger=setup/informer-health stream=*v1beta1.ImageValidatingPolicy/1 v=2
+2026-11-18T09:24:30Z TRC github.com/kyverno/kyverno/pkg/informers/health/tracker.go:82 &gt; admission informer stream interrupted logger=setup/informer-health stream=*v1beta1.NamespacedImageValidatingPolicy/7 v=2
+2026-11-18T09:24:31Z TRC github.com/kyverno/kyverno/pkg/informers/health/tracker.go:101 &gt; admission informer stream recovered logger=setup/informer-health stream=*v1beta1.NamespacedImageValidatingPolicy/7 v=2
 <i>… (rest of the tail omitted)</i></code></pre></details></div>
       <p>A cluster that rejects everything mysteriously usually has a policy engine's webhook with a dead backend; the first command finds it, and <code>failurePolicy</code> explains it.</p>
     </div>
@@ -286,16 +286,19 @@ Defaulted container "kyverno" out of: kyverno, kyverno-pre (init)
       <p>One trap to dodge first: the tenant namespaces cannot demonstrate this policy at all. Their LimitRanges inject requests, and LimitRanger is a built-in <em>mutating</em> admission plugin that runs before validating webhooks. By the time Kyverno sees a team-a or team-b pod, it already has requests. So drill in a namespace with no LimitRange:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl create ns policy-test
 kubectl -n policy-test run naked --image=busybox:1.37 --restart=Never -- sleep 60   # succeeds: Audit
+for i in $(seq 18); do kubectl get policyreports -n policy-test --no-headers 2&gt;/dev/null | grep -q naked &amp;&amp; break; sleep 5; done; echo "report after ~$((i*5))s"
 kubectl get policyreports -n policy-test    # the violation is recorded instead
 kubectl patch validatingpolicy require-resource-requests --type=merge \
   -p '{"spec":{"validationActions":["Deny"]}}'
-kubectl -n policy-test run naked2 --image=busybox:1.37 --restart=Never -- sleep 60</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl create ns policy-test</b>
+kubectl -n policy-test run naked2 --image=busybox:1.37 --restart=Never -- sleep 60</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl create ns policy-test</b>
 namespace/policy-test created
 <b>$ kubectl -n policy-test run naked --image=busybox:1.37 --restart=Never -- sleep 60   # succeeds: Audit</b>
 pod/naked created
+<b>$ for i in $(seq 18); do kubectl get policyreports -n policy-test --no-headers 2&gt;/dev/null | grep -q naked &amp;&amp; break; sleep 5; done; echo "report after ~$((i*5))s"</b>
+report after ~25s
 <b>$ kubectl get policyreports -n policy-test    # the violation is recorded instead</b>
 NAME                                   KIND   NAME    PASS   FAIL   WARN   ERROR   SKIP   AGE
-f60c73a9-33c8-4479-8708-7cbc10ad5c62   Pod    naked   0      1      0      0       0      25s
+d9ad627a-588a-42a9-af8f-b1417a1f572d   Pod    naked   0      1      0      0       0      2s
 <b>$ kubectl patch validatingpolicy require-resource-requests --type=merge \</b>
 <b>  -p '{"spec":{"validationActions":["Deny"]}}'</b>
 validatingpolicy.policies.kyverno.io/require-resource-requests patched
@@ -325,7 +328,7 @@ Error from server: admission webhook "vpol.validate.kyverno.svc-fail" denied the
     </div>
 
     <div class="exercise" data-title="Find out which Kyverno API you are on">
-      <p>Kyverno has two policy APIs at once: the classic <code>ClusterPolicy</code> and the CEL-based <code>ValidatingPolicy</code>. Which one a cluster prefers changes the answer to every policy task, and the API server tells you.</p>
+      <p>Kyverno serves two policy APIs, the classic <code>ClusterPolicy</code> and the CEL-based <code>ValidatingPolicy</code>, but from 1.20 only the CEL one accepts writes. Older clusters and most of the documentation you will find still use the classic kind, so ask the cluster in front of you which one it takes before you author anything.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl api-resources | grep -E 'kyverno'
 kubectl -n kyverno get deploy -o jsonpath='{range .items[*]}{.metadata.name} {.spec.template.spec.containers[0].image}{"\n"}{end}'
 kubectl apply -f - &lt;&lt;'EOF'
@@ -346,7 +349,27 @@ spec:
             labels:
               team: "?*"
 EOF
-kubectl delete clusterpolicy legacy-shape</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl api-resources | grep -E 'kyverno'</b>
+kubectl apply -f - &lt;&lt;'EOF'
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata: { name: team-label }
+spec:
+  validationActions: [Audit]
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: default }
+  validations:
+    - expression: "has(object.metadata.labels) &amp;&amp; object.metadata.labels.?team.orValue('') != ''"
+      message: "pods should carry a team label"
+EOF
+sleep 5
+kubectl get validatingpolicy team-label
+kubectl delete validatingpolicy team-label</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl api-resources | grep -E 'kyverno'</b>
 cleanuppolicies                                cleanpol                               kyverno.io/v2                             true         CleanupPolicy
 clustercleanuppolicies                         ccleanpol                              kyverno.io/v2                             false        ClusterCleanupPolicy
 clusterpolicies                                cpol                                   kyverno.io/v1                             false        ClusterPolicy
@@ -368,10 +391,10 @@ validatingpolicies                             vpol                             
 clusterephemeralreports                        cephr                                  reports.kyverno.io/v1                     false        ClusterEphemeralReport
 ephemeralreports                               ephr                                   reports.kyverno.io/v1                     true         EphemeralReport
 <b>$ kubectl -n kyverno get deploy -o jsonpath='{range .items[*]}{.metadata.name} {.spec.template.spec.containers[0].image}{"\n"}{end}'</b>
-kyverno-admission-controller reg.kyverno.io/kyverno/kyverno:v1.19.1
-kyverno-background-controller reg.kyverno.io/kyverno/background-controller:v1.19.1
-kyverno-cleanup-controller reg.kyverno.io/kyverno/cleanup-controller:v1.19.1
-kyverno-reports-controller reg.kyverno.io/kyverno/reports-controller:v1.19.1
+kyverno-admission-controller reg.kyverno.io/kyverno/kyverno:v1.20.0
+kyverno-background-controller reg.kyverno.io/kyverno/background-controller:v1.20.0
+kyverno-cleanup-controller reg.kyverno.io/kyverno/cleanup-controller:v1.20.0
+kyverno-reports-controller reg.kyverno.io/kyverno/reports-controller:v1.20.0
 <b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: kyverno.io/v1</b>
 <b>kind: ClusterPolicy</b>
@@ -391,11 +414,33 @@ kyverno-reports-controller reg.kyverno.io/kyverno/reports-controller:v1.19.1
 <b>              team: "?*"</b>
 <b>EOF</b>
 Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
-clusterpolicy.kyverno.io/legacy-shape created
-<b>$ kubectl delete clusterpolicy legacy-shape</b>
-Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
-clusterpolicy.kyverno.io "legacy-shape" deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the resource list shows both API groups, and the apply either succeeds silently or prints a deprecation warning naming the replacement. Whichever you get, write down which API the cluster in front of you prefers before you author anything.</div>
+Error from server: error when creating "STDIN": admission webhook "validate-policy.kyverno.svc" denied the request: kyverno.io/v1 ClusterPolicy: Kyverno v1.20 removed execution of legacy kyverno.io policy types and no longer accepts create or update requests for them; the API remains available for read, list, export, and delete. Migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
+<b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+<b>apiVersion: policies.kyverno.io/v1</b>
+<b>kind: ValidatingPolicy</b>
+<b>metadata: { name: team-label }</b>
+<b>spec:</b>
+<b>  validationActions: [Audit]</b>
+<b>  matchConstraints:</b>
+<b>    resourceRules:</b>
+<b>      - apiGroups: [""]</b>
+<b>        apiVersions: [v1]</b>
+<b>        operations: [CREATE, UPDATE]</b>
+<b>        resources: [pods]</b>
+<b>    namespaceSelector:</b>
+<b>      matchLabels: { kubernetes.io/metadata.name: default }</b>
+<b>  validations:</b>
+<b>    - expression: "has(object.metadata.labels) &amp;&amp; object.metadata.labels.?team.orValue('') != ''"</b>
+<b>      message: "pods should carry a team label"</b>
+<b>EOF</b>
+validatingpolicy.policies.kyverno.io/team-label created
+<b>$ sleep 5</b>
+<b>$ kubectl get validatingpolicy team-label</b>
+NAME         AGE   READY
+team-label   6s    true
+<b>$ kubectl delete validatingpolicy team-label</b>
+validatingpolicy.policies.kyverno.io "team-label" deleted</code></pre></details></div>
+      <div class="verify"><b>verify:</b> the resource list still shows both API groups, Kyverno's own webhook refuses the classic policy and names the kinds that replace it, and the same rule as a <code>ValidatingPolicy</code> is created and reports READY. On an older Kyverno the classic apply succeeds instead (with a deprecation warning on 1.19); either way, the response tells you which API to write.</div>
     </div>
 
     <div class="exercise" data-title="Deny at the Deployment, not the ReplicaSet">
@@ -502,6 +547,8 @@ metadata: { name: no-latest }
 spec:
   validationActions: [Deny]
   autogen:
+    # pod-controller autogen is on by default, and while it is on Kyverno skips VAP generation
+    podControllers: { controllers: ["none"] }
     validatingAdmissionPolicy: { enabled: true }
   matchConstraints:
     resourceRules:
@@ -518,14 +565,16 @@ kubectl get validatingadmissionpolicies
 kubectl get validatingadmissionpolicybindings
 kubectl get validatingadmissionpolicy -o jsonpath='{range .items[*]}{.metadata.name} {.spec.validations[*].expression}{"\n"}{end}'
 kubectl get validatingpolicy no-latest -o jsonpath='{.spec.autogen}{"\n"}'
-kubectl -n kyverno logs deploy/kyverno-admission-controller --tail=50 | grep -i -m5 'validatingadmissionpolicy' || true
-kubectl delete validatingpolicy no-latest</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
+kubectl get validatingpolicy no-latest -o jsonpath='{.status.generated} {.status.conditionStatus.message}{"\n"}'
+kubectl delete validatingpolicy no-latest</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: policies.kyverno.io/v1</b>
 <b>kind: ValidatingPolicy</b>
 <b>metadata: { name: no-latest }</b>
 <b>spec:</b>
 <b>  validationActions: [Deny]</b>
 <b>  autogen:</b>
+<b>    # pod-controller autogen is on by default, and while it is on Kyverno skips VAP generation</b>
+<b>    podControllers: { controllers: ["none"] }</b>
 <b>    validatingAdmissionPolicy: { enabled: true }</b>
 <b>  matchConstraints:</b>
 <b>    resourceRules:</b>
@@ -541,22 +590,22 @@ validatingpolicy.policies.kyverno.io/no-latest created
 <b>$ sleep 60</b>
 <b>$ kubectl get validatingadmissionpolicies</b>
 NAME                                      VALIDATIONS   PARAMKIND   AGE
-safe-upgrades.gateway.networking.k8s.io   2             &lt;unset&gt;     20h
+safe-upgrades.gateway.networking.k8s.io   2             &lt;unset&gt;     5h45m
 vpol-no-latest                            1             &lt;unset&gt;     60s
 <b>$ kubectl get validatingadmissionpolicybindings</b>
 NAME                                      POLICYNAME                                PARAMREF   AGE
-safe-upgrades.gateway.networking.k8s.io   safe-upgrades.gateway.networking.k8s.io   &lt;unset&gt;    20h
+safe-upgrades.gateway.networking.k8s.io   safe-upgrades.gateway.networking.k8s.io   &lt;unset&gt;    5h45m
 vpol-no-latest-binding                    vpol-no-latest                            &lt;unset&gt;    60s
 <b>$ kubectl get validatingadmissionpolicy -o jsonpath='{range .items[*]}{.metadata.name} {.spec.validations[*].expression}{"\n"}{end}'</b>
-safe-upgrades.gateway.networking.k8s.io object.spec.group != 'gateway.networking.k8s.io' || oldObject == null || ( has(object.metadata.annotations) &amp;&amp; object.metadata.annotations.exists(k, k == 'gateway.networking.k8s.io/channel') &amp;&amp; object.metadata.annotations['gateway.networking.k8s.io/channel'] == 'standard' ) || ( oldObject != null &amp;&amp; has(oldObject.metadata.annotations) &amp;&amp; oldObject.metadata.annotations.exists(k, k == 'gateway.networking.k8s.io/channel') &amp;&amp; oldObject.metadata.annotations['gateway.networking.k8s.io/channel'] == 'experimental' ) object.spec.group != 'gateway.networking.k8s.io' || (has(object.metadata.annotations) &amp;&amp; object.metadata.annotations.exists(k, k == 'gateway.networking.k8s.io/bundle-version') &amp;&amp; ( matches(object.metadata.annotations['gateway.networking.k8s.io/bundle-version'], '-(rc)') || ( !matches(object.metadata.annotations['gateway.networking.k8s.io/bundle-version'], 'v1.[0-5].\\d+') &amp;&amp; !matches(object.metadata.annotations['gateway.networking.k8s.io/bundle-version'], 'v0') ) ))
+safe-upgrades.gateway.networking.k8s.io object.spec.group != 'gateway.networking.k8s.io' || oldObject == null || ( has(object.metadata.annotations) &amp;&amp; object.metadata.annotations.exists(k, k == 'gateway.networking.k8s.io/channel') &amp;&amp; object.metadata.annotations['gateway.networking.k8s.io/channel'] == 'standard' ) || ( oldObject != null &amp;&amp; has(oldObject.metadata.annotations) &amp;&amp; oldObject.metadata.annotations.exists(k, k == 'gateway.networking.k8s.io/channel') &amp;&amp; oldObject.metadata.annotations['gateway.networking.k8s.io/channel'] == 'experimental' ) object.spec.group != 'gateway.networking.k8s.io' || (has(object.metadata.annotations) &amp;&amp; object.metadata.annotations.exists(k, k == 'gateway.networking.k8s.io/bundle-version') &amp;&amp; !matches(object.metadata.annotations['gateway.networking.k8s.io/bundle-version'], 'v1.[0-6].\\d+') &amp;&amp; !matches(object.metadata.annotations['gateway.networking.k8s.io/bundle-version'], 'v0'))
 vpol-no-latest object.spec.containers.all(c, !c.image.endsWith(':latest'))
 <b>$ kubectl get validatingpolicy no-latest -o jsonpath='{.spec.autogen}{"\n"}'</b>
-{"validatingAdmissionPolicy":{"enabled":true}}
-<b>$ kubectl -n kyverno logs deploy/kyverno-admission-controller --tail=50 | grep -i -m5 'validatingadmissionpolicy' || true</b>
-Defaulted container "kyverno" out of: kyverno, kyverno-pre (init)
+{"podControllers":{"controllers":["none"]},"validatingAdmissionPolicy":{"enabled":true}}
+<b>$ kubectl get validatingpolicy no-latest -o jsonpath='{.status.generated} {.status.conditionStatus.message}{"\n"}'</b>
+true 
 <b>$ kubectl delete validatingpolicy no-latest</b>
 validatingpolicy.policies.kyverno.io "no-latest" deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the stored spec still carries the <code>validatingAdmissionPolicy</code> autogen block you asked for, and a ValidatingAdmissionPolicy and binding named <code>no-latest</code> appear alongside the pre-existing <code>safe-upgrades.gateway.networking.k8s.io</code>, carrying your CEL expression. If the autogen block reads back empty, the field was pruned by the API version you applied and nothing will ever be generated. If it is present and no policy appears, the admission controller log names the reason.</div>
+      <div class="verify"><b>verify:</b> the stored spec still carries the <code>validatingAdmissionPolicy</code> autogen block you asked for, and a ValidatingAdmissionPolicy and binding named <code>vpol-no-latest</code> appear alongside the pre-existing <code>safe-upgrades.gateway.networking.k8s.io</code>, carrying your CEL expression, and <code>status.generated</code> reads <code>true</code>. If the autogen block reads back empty, the field was pruned by the API version you applied and nothing will ever be generated. If it is present and no policy appears, the status message names the reason: drop the <code>podControllers</code> line and it reads "skip generating ValidatingAdmissionPolicy: pod controllers autogen is enabled."</div>
     </div>
 
     <div class="exercise" data-title="Grant one exception, on the record">
@@ -582,7 +631,7 @@ kubectl -n default get policyreport
 kubectl -n default get policyreport -o json | jq -r '.items[] | select(.scope.name=="legacy") | .results[] | "\(.policy) \(.result)"'
 kubectl -n default delete pod legacy --ignore-not-found
 kubectl -n policy-exception delete policyexceptions.policies.kyverno.io legacy-job
-kubectl delete ns policy-exception</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl -n kyverno get deploy kyverno-admission-controller -o jsonpath='{.spec.template.spec.containers[0].args}' | jq</b>
+kubectl delete ns policy-exception</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl -n kyverno get deploy kyverno-admission-controller -o jsonpath='{.spec.template.spec.containers[0].args}' | jq</b>
 [
   "--caSecretName=kyverno-svc.kyverno.svc.kyverno-tls-ca",
   "--tlsSecretName=kyverno-svc.kyverno.svc.kyverno-tls-pair",
@@ -616,6 +665,7 @@ kubectl delete ns policy-exception</code></pre><details class="out"><summary>out
   "--omitEvents=PolicyApplied,PolicySkipped",
   "--enablePolicyException=true",
   "--protectManagedResources=false",
+  "--protectGenerationLabels=true",
   "--allowInsecureRegistry=true",
   "--registryCredentialHelpers=default,google,amazon,azure,github",
   "--enableReporting=validate,mutate,mutateExisting,imageVerify,generate"
@@ -634,6 +684,7 @@ namespace/policy-exception created
 <b>    - name: only-the-legacy-pod</b>
 <b>      expression: "object.metadata.name == 'legacy'"</b>
 <b>EOF</b>
+Warning: The exceptionNamespace flag is not set
 policyexception.policies.kyverno.io/legacy-job created
 <b>$ kubectl -n default run legacy --image=nginx:1.27-alpine --restart=Never</b>
 pod/legacy created
@@ -642,7 +693,7 @@ pod/legacy created
 report after ~25s
 <b>$ kubectl -n default get policyreport</b>
 NAME                                   KIND   NAME     PASS   FAIL   WARN   ERROR   SKIP   AGE
-7a647270-939c-44f6-a2cf-126b21a8210d   Pod    legacy   0      0      0      0       1      1s
+773aadc5-ef4a-4a3e-bdc0-b66756345fbd   Pod    legacy   0      0      0      0       1      2s
 <b>$ kubectl -n default get policyreport -o json | jq -r '.items[] | select(.scope.name=="legacy") | .results[] | "\(.policy) \(.result)"'</b>
 require-resource-requests skip
 <b>$ kubectl -n default delete pod legacy --ignore-not-found</b>
@@ -662,7 +713,7 @@ URL=$(curl -s https://api.github.com/repos/kyverno/kyverno/releases/latest | jq 
 rm -rf /tmp/kyverno-cli &amp;&amp; mkdir -p /tmp/kyverno-cli &amp;&amp; curl -sL "$URL" | tar xz -C /tmp/kyverno-cli &amp;&amp; install /tmp/kyverno-cli/kyverno "$HOME/.local/bin/"
 kyverno version | head -2
 rm -rf /tmp/kyverno-test &amp;&amp; mkdir -p /tmp/kyverno-test &amp;&amp; cd /tmp/kyverno-test
-cp "$REPO_ROOT"/examples/kyverno/require-resources.yaml policy.yaml
+cp "$START"/examples/kyverno/require-resources.yaml policy.yaml   # START is the repo root you ran this from
 cat &gt; good-pod.yaml &lt;&lt;'EOF'
 apiVersion: v1
 kind: Pod
@@ -701,16 +752,16 @@ results:
     result: fail
 EOF
 kyverno test .
-cd "$START"</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ START=$PWD   # the cd below would otherwise follow you into every later command</b>
+cd "$START"</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ START=$PWD   # the cd below would otherwise follow you into every later command</b>
 <b>$ mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"</b>
 <b>$ URL=$(curl -s https://api.github.com/repos/kyverno/kyverno/releases/latest | jq -r '.assets[] | select(.name | startswith("kyverno-cli_") and endswith("_linux_x86_64.tar.gz")) | .browser_download_url'); echo "$URL"</b>
-https://github.com/kyverno/kyverno/releases/download/v1.19.1/kyverno-cli_v1.19.1_linux_x86_64.tar.gz
+https://github.com/kyverno/kyverno/releases/download/v1.20.0/kyverno-cli_v1.20.0_linux_x86_64.tar.gz
 <b>$ rm -rf /tmp/kyverno-cli &amp;&amp; mkdir -p /tmp/kyverno-cli &amp;&amp; curl -sL "$URL" | tar xz -C /tmp/kyverno-cli &amp;&amp; install /tmp/kyverno-cli/kyverno "$HOME/.local/bin/"</b>
 <b>$ kyverno version | head -2</b>
-Version: 1.19.1
-Time: 2026-09-10T05:20:21Z
+Version: v1.20.0
+Time: 2026-11-11T12:42:56Z
 <b>$ rm -rf /tmp/kyverno-test &amp;&amp; mkdir -p /tmp/kyverno-test &amp;&amp; cd /tmp/kyverno-test</b>
-<b>$ cp "$REPO_ROOT"/examples/kyverno/require-resources.yaml policy.yaml</b>
+<b>$ cp "$START"/examples/kyverno/require-resources.yaml policy.yaml   # START is the repo root you ran this from</b>
 <b>$ cat &gt; good-pod.yaml &lt;&lt;'EOF'</b>
 <b>apiVersion: v1</b>
 <b>kind: Pod</b>
@@ -735,7 +786,7 @@ Time: 2026-09-10T05:20:21Z
 
 Applying 1 policy rule(s) to 2 resource(s)...
 policy require-resource-requests -&gt; resource default/Pod/bad failed:
-1 -  every container must set cpu and memory requests
+1 - validation every container must set cpu and memory requests
 
 pass: 1, fail: 1, warn: 0, error: 0, skip: 0 
 <b>$ cat &gt; kyverno-test.yaml &lt;&lt;'EOF'</b>
@@ -755,7 +806,7 @@ pass: 1, fail: 1, warn: 0, error: 0, skip: 0
 <b>    result: fail</b>
 <b>EOF</b>
 <b>$ kyverno test .</b>
-Loading test  ( kyverno-test.yaml ) ...
+Loading test require-resources ( kyverno-test.yaml ) ...
   Loading values/variables ...
   Loading policies ...
   Loading resources ...
@@ -763,12 +814,12 @@ Loading test  ( kyverno-test.yaml ) ...
   Applying 1 policy to 2 resources with 0 exceptions ...
   Checking results ...
 
-│────│───────────────────────────│──────│─────────────────────│────────│────────│
-│ ID │ POLICY                    │ RULE │ RESOURCE            │ RESULT │ REASON │
-│────│───────────────────────────│──────│─────────────────────│────────│────────│
-│ 1  │ require-resource-requests │      │ v1/Pod/default/good │ Pass   │ Ok     │
-│ 2  │ require-resource-requests │      │ v1/Pod/default/bad  │ Pass   │ Ok     │
-│────│───────────────────────────│──────│─────────────────────│────────│────────│
+│────│───────────────────────────│────────────│─────────────────────│────────│────────│
+│ ID │ POLICY                    │ RULE       │ RESOURCE            │ RESULT │ REASON │
+│────│───────────────────────────│────────────│─────────────────────│────────│────────│
+│ 1  │ require-resource-requests │ validation │ v1/Pod/default/good │ Pass   │ Ok     │
+│ 2  │ require-resource-requests │ validation │ v1/Pod/default/bad  │ Pass   │ Ok     │
+│────│───────────────────────────│────────────│─────────────────────│────────│────────│
 
 
 Test Summary: 2 tests passed and 0 tests failed
@@ -1283,7 +1334,7 @@ mutatingadmissionpolicy.admissionregistration.k8s.io "add-platform-label" delete
       <div class="answer"><p>Nothing: admission is write-time. They keep running until their next write (a rollout, a scale, a controller re-create), and then they fail, possibly at 3am. That is why the Audit → report → fix → Enforce sequence exists, and why you check the reports before flipping the dial.</p></div></details>
 
     <details class="quiz"><summary>Which engine would you pick to also <em>create</em> a default NetworkPolicy in every new namespace?</summary>
-      <div class="answer"><p>Kyverno: generation is a first-class capability there (generate rules that create and keep resources in sync). Gatekeeper validates and can mutate but does not generate; ValidatingAdmissionPolicy only validates. Matching capability to requirement is the whole question.</p></div></details>
+      <div class="answer"><p>Kyverno: generation is a first-class capability there (a <code>GeneratingPolicy</code>, or a classic <code>generate</code> rule on older clusters, creates resources and keeps them in sync). Gatekeeper validates and can mutate but does not generate; ValidatingAdmissionPolicy only validates. Matching capability to requirement is the whole question.</p></div></details>
 
     <details class="quiz"><summary>Why might a platform team prefer ValidatingAdmissionPolicy for a simple rule?</summary>
       <div class="answer"><p>No extra controller, no webhook, no availability dependency, no version skew; the API server evaluates CEL in-process. The trade is a narrower feature set (no mutation in older versions, no generation, no reporting), so it suits simple invariants rather than a governance program.</p></div></details>
@@ -1292,8 +1343,8 @@ mutatingadmissionpolicy.admissionregistration.k8s.io "add-platform-label" delete
     <details class="quiz"><summary>A Kyverno ValidatingPolicy denies bare pods but a Deployment with the same violating template is admitted. Field?</summary>
       <div class="answer"><p><code>spec.autogen.podControllers.controllers</code> listing <code>deployments</code> (and statefulsets, daemonsets, jobs, cronjobs as needed). Autogen rewrites the Pod rule to match the controller's <code>spec.template</code>. Without it the Deployment passes and its pods are rejected one level down at the ReplicaSet, the same indirection as PSS. Note autogen and <code>autogen.validatingAdmissionPolicy</code> are mutually exclusive.</p></div></details>
 
-    <details class="quiz"><summary>Which two Kyverno controller flags must be on before a <code>PolicyException</code> has any effect, and how does the report show an applied exception?</summary>
-      <div class="answer"><p><code>--enablePolicyException=true</code> and <code>--exceptionNamespace=&lt;namespace&gt;</code> (only exceptions created in that namespace count). When applied, the PolicyReport records the rule as <code>skip</code> with the exception's name in the result properties, in both admission and background modes.</p></div></details>
+    <details class="quiz"><summary>Which Kyverno controller flag must be on before a <code>PolicyException</code> has any effect, and how does the report show an applied exception?</summary>
+      <div class="answer"><p>Only <code>--enablePolicyException=true</code> is required. The usual second one, <code>--exceptionNamespace=&lt;namespace&gt;</code>, is optional: set it and only exceptions created in that namespace count; leave it out and exceptions work from any namespace, each one warning "The exceptionNamespace flag is not set" when you create it (this lab runs that way). When applied, the PolicyReport records the rule as <code>skip</code> with the exception's name in the result properties, in both admission and background modes.</p></div></details>
 
     <details class="quiz"><summary>A Gatekeeper Constraint is applied, the violating object is still admitted, and <code>status.totalViolations</code> grows. Two likely settings?</summary>
       <div class="answer"><p><code>spec.enforcementAction: dryrun</code> (or <code>warn</code>) on the Constraint, or the webhook running with <code>failurePolicy: Ignore</code> (Gatekeeper's install default) while the webhook pod is unhealthy or timing out. Audit still records violations in both cases, which is why the count grows without any denial. Set <code>deny</code>, and check the webhook's <code>failurePolicy</code> and <code>timeoutSeconds</code>.</p></div></details>

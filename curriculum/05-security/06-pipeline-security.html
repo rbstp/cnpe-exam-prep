@@ -186,19 +186,20 @@ The following checks were performed on each of these signatures:
       <p>The policy: match pods, <code>matchImageReferences</code> glob <code>kind-registry:5000/demo*</code>, one attestor with <code>cosign.key.data</code> holding your <code>cosign.pub</code> (plus <code>cosign.ctlog.insecureIgnoreTlog: true</code>, since the legacy signature skipped the transparency log), and one validation expression from the Kyverno docs' IVP examples: <code>images.containers.map(image, verifyImageSignatures(image, [attestors.keyed])).all(e, e &gt; 0)</code>. Then:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n team-b run signed --image=kind-registry:5000/demo:v1 --restart=Never -- sleep 60
 docker tag busybox:1.37 localhost:5001/demo:unsigned &amp;&amp; docker push localhost:5001/demo:unsigned
-kubectl -n team-b run unsigned --image=kind-registry:5000/demo:unsigned --restart=Never -- sleep 60</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n team-b run signed --image=kind-registry:5000/demo:v1 --restart=Never -- sleep 60</b>
+kubectl -n team-b run unsigned --image=kind-registry:5000/demo:unsigned --restart=Never -- sleep 60</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl -n team-b run signed --image=kind-registry:5000/demo:v1 --restart=Never -- sleep 60</b>
 Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "signed" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "signed" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "signed" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "signed" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
 pod/signed created
 <b>$ docker tag busybox:1.37 localhost:5001/demo:unsigned &amp;&amp; docker push localhost:5001/demo:unsigned</b>
 The push refers to repository [localhost:5001/demo]
-436a1b1fd078: Layer already exists
-unsigned: digest: sha256:7a3ebe5bfd1a4a19797d20b0c0bb39d44393e9a03fd852c0865b0f540d868df0 size: 610
+68fe9bff2ad4: Unavailable
+68fe9bff2ad4: Mounted from validate
+unsigned: digest: sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4 size: 610
 
  Info -&gt; Not all multiplatform-content is present and only the available single-platform image was pushed
-         sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0 -&gt; sha256:7a3ebe5bfd1a4a19797d20b0c0bb39d44393e9a03fd852c0865b0f540d868df0
+         sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec -&gt; sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4
 <b>$ kubectl -n team-b run unsigned --image=kind-registry:5000/demo:unsigned --restart=Never -- sleep 60</b>
 Warning: would violate PodSecurity "restricted:latest": allowPrivilegeEscalation != false (container "unsigned" must set securityContext.allowPrivilegeEscalation=false), unrestricted capabilities (container "unsigned" must set securityContext.capabilities.drop=["ALL"]), runAsNonRoot != true (pod or container "unsigned" must set securityContext.runAsNonRoot=true), seccompProfile (pod or container "unsigned" must set securityContext.seccompProfile.type to "RuntimeDefault" or "Localhost")
-Error from server: admission webhook "ivpol.validate.kyverno.svc-fail" denied the request: Policy require-signed-demo failed: demo images must be signed with the platform key</code></pre></details></div>
+Error from server: admission webhook "ivpol.validate.kyverno.svc-fail" denied the request: Policy require-signed-demo failed: demo images must be signed with the platform key; verification details: image "kind-registry:5000/demo:unsigned@sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4", attestor "keyed": failed to verify cosign signatures: no signatures found</code></pre></details></div>
       <div class="verify"><b>verify:</b> signed admits, unsigned is rejected with your policy's message. If the signed pod is rejected too, <code>kubectl -n kyverno logs deploy/kyverno-admission-controller | grep -i verif</code> names the real reason (registry scheme, missing <code>.sig</code>, tlog), which is the diagnosis ladder above. Clean up the policy so later sections' pods admit freely.</div>
     </div>
 
@@ -218,22 +219,22 @@ cosign verify ghcr.io/sigstore/cosign/cosign:v2.4.1 \
 # the identity the certificate really carries
 cosign verify ghcr.io/sigstore/cosign/cosign:v2.4.1 \
   --certificate-identity=keyless@projectsigstore.iam.gserviceaccount.com \
-  --certificate-oidc-issuer=https://accounts.google.com 2&gt;&amp;1 | head -6</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ # no identity at all: cosign will not answer the question</b>
+  --certificate-oidc-issuer=https://accounts.google.com 2&gt;&amp;1 | head -6</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ # no identity at all: cosign will not answer the question</b>
 <b>$ cosign verify ghcr.io/sigstore/cosign/cosign:v2.4.1 2&gt;&amp;1 | head -3</b>
 Error: --certificate-identity or --certificate-identity-regexp is required for verification in keyless mode
 error during command execution: --certificate-identity or --certificate-identity-regexp is required for verification in keyless mode
 <b>$ # an identity that does not match: the error names the one that is actually on the certificate</b>
 <b>$ cosign verify ghcr.io/sigstore/cosign/cosign:v2.4.1 \</b>
-<b>    --certificate-identity-regexp='^https://github.com/sigstore/cosign/.*' \</b>
-<b>    --certificate-oidc-issuer=https://token.actions.githubusercontent.com 2&gt;&amp;1 | head -4</b>
+<b>  --certificate-identity-regexp='^https://github.com/sigstore/cosign/.*' \</b>
+<b>  --certificate-oidc-issuer=https://token.actions.githubusercontent.com 2&gt;&amp;1 | head -4</b>
 Error: no matching signatures: error verifying bundle: empty key
  none of the expected identities matched what was in the certificate, got subjects [keyless@projectsigstore.iam.gserviceaccount.com] with issuer https://accounts.google.com
 error during command execution: no matching signatures: error verifying bundle: empty key
  none of the expected identities matched what was in the certificate, got subjects [keyless@projectsigstore.iam.gserviceaccount.com] with issuer https://accounts.google.com
 <b>$ # the identity the certificate really carries</b>
 <b>$ cosign verify ghcr.io/sigstore/cosign/cosign:v2.4.1 \</b>
-<b>    --certificate-identity=keyless@projectsigstore.iam.gserviceaccount.com \</b>
-<b>    --certificate-oidc-issuer=https://accounts.google.com 2&gt;&amp;1 | head -6</b>
+<b>  --certificate-identity=keyless@projectsigstore.iam.gserviceaccount.com \</b>
+<b>  --certificate-oidc-issuer=https://accounts.google.com 2&gt;&amp;1 | head -6</b>
 
 Verification for ghcr.io/sigstore/cosign/cosign:v2.4.1 --
 The following checks were performed on each of these signatures:
@@ -307,44 +308,43 @@ The following checks were performed on each of these signatures:
     </div>
 
     <div class="exercise" data-title="Rewrite the tag to a digest">
-      <p>A tag is a mutable pointer, so verifying a tag and then running it is a race. <code>mutateDigest</code> makes the policy rewrite the pod spec to the digest it verified, which closes the gap in the object itself.</p>
+      <p>A tag is a mutable pointer, so verifying a tag and then running it is a race. <code>mutateDigest</code> makes the policy rewrite the pod spec to the digest it verified, which closes the gap in the object itself. In an ImageValidatingPolicy it sits under <code>validationConfigurations</code> and is on by default; the classic <code>verifyImages</code> rule you will find in older docs had it as <code>mutateDigest: true</code> on the rule, and Kyverno 1.20 refuses that kind.</p>
       <div class="cb" data-lang="bash"><pre><code>[ -f /tmp/cosign.pub ] || COSIGN_PASSWORD='' cosign generate-key-pair --output-key-prefix /tmp/cosign
 # Kyverno's verifier reads the legacy .sig tag, so the image needs a signature in that format
 DIGEST=$(skopeo inspect --tls-verify=false docker://localhost:5001/demo:v1 | jq -r .Digest)
 COSIGN_PASSWORD='' cosign sign --key /tmp/cosign.key --allow-http-registry -y --use-signing-config=false --new-bundle-format=false --tlog-upload=false localhost:5001/demo@$DIGEST
 kubectl apply -f - &lt;&lt;EOF
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
 metadata: { name: pin-digest }
 spec:
-  validationFailureAction: Enforce
-  rules:
-    - name: verify-and-pin
-      match:
-        any:
-          - resources:
-              kinds: [Pod]
-              namespaces: [default]
-      verifyImages:
-        - imageReferences: ["kind-registry:5000/demo:v1"]
-          mutateDigest: true
-          verifyDigest: false
-          required: false
-          attestors:
-            - entries:
-                - keys:
-                    publicKeys: |-
-$(sed 's/^/                      /' /tmp/cosign.pub)
-                    rekor:
-                      ignoreTlog: true
-                    ctlog:
-                      ignoreSCT: true
+  validationActions: [Deny]
+  matchConstraints:
+    resourceRules:
+      - { apiGroups: [""], apiVersions: [v1], operations: [CREATE], resources: [pods] }
+    namespaceSelector:
+      matchLabels: { kubernetes.io/metadata.name: default }
+  matchImageReferences:
+    - glob: "kind-registry:5000/demo:v1"
+  validationConfigurations:
+    mutateDigest: true   # the default, spelled out: rewrite the tag to the digest it verified
+  attestors:
+    - name: keyed
+      cosign:
+        key:
+          data: |-
+$(sed 's/^/            /' /tmp/cosign.pub)
+        ctlog:
+          insecureIgnoreTlog: true
+  validations:
+    - expression: images.containers.map(image, verifyImageSignatures(image, [attestors.keyed])).all(e, e &gt; 0)
+      message: the demo image must carry the lab key's signature
 EOF
 sleep 20
 kubectl -n default run pinned --image=kind-registry:5000/demo:v1 --restart=Never
 kubectl -n default get pod pinned -o jsonpath='{.spec.containers[0].image}{"\n"}'
 kubectl -n default delete pod pinned --ignore-not-found
-kubectl delete clusterpolicy pin-digest</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ [ -f /tmp/cosign.pub ] || COSIGN_PASSWORD='' cosign generate-key-pair --output-key-prefix /tmp/cosign</b>
+kubectl delete imagevalidatingpolicy pin-digest</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ [ -f /tmp/cosign.pub ] || COSIGN_PASSWORD='' cosign generate-key-pair --output-key-prefix /tmp/cosign</b>
 <b>$ # Kyverno's verifier reads the legacy .sig tag, so the image needs a signature in that format</b>
 <b>$ DIGEST=$(skopeo inspect --tls-verify=false docker://localhost:5001/demo:v1 | jq -r .Digest)</b>
 <b>$ COSIGN_PASSWORD='' cosign sign --key /tmp/cosign.key --allow-http-registry -y --use-signing-config=false --new-bundle-format=false --tlog-upload=false localhost:5001/demo@$DIGEST</b>
@@ -353,35 +353,33 @@ Flag --tlog-upload has been deprecated, prefer using a --signing-config file wit
 Signing artifact...
 Pushing signature to: localhost:5001/demo
 <b>$ kubectl apply -f - &lt;&lt;EOF</b>
-<b>apiVersion: kyverno.io/v1</b>
-<b>kind: ClusterPolicy</b>
+<b>apiVersion: policies.kyverno.io/v1</b>
+<b>kind: ImageValidatingPolicy</b>
 <b>metadata: { name: pin-digest }</b>
 <b>spec:</b>
-<b>  validationFailureAction: Enforce</b>
-<b>  rules:</b>
-<b>    - name: verify-and-pin</b>
-<b>      match:</b>
-<b>        any:</b>
-<b>          - resources:</b>
-<b>              kinds: [Pod]</b>
-<b>              namespaces: [default]</b>
-<b>      verifyImages:</b>
-<b>        - imageReferences: ["kind-registry:5000/demo:v1"]</b>
-<b>          mutateDigest: true</b>
-<b>          verifyDigest: false</b>
-<b>          required: false</b>
-<b>          attestors:</b>
-<b>            - entries:</b>
-<b>                - keys:</b>
-<b>                    publicKeys: |-</b>
-<b>$(sed 's/^/                      /' /tmp/cosign.pub)</b>
-<b>                    rekor:</b>
-<b>                      ignoreTlog: true</b>
-<b>                    ctlog:</b>
-<b>                      ignoreSCT: true</b>
+<b>  validationActions: [Deny]</b>
+<b>  matchConstraints:</b>
+<b>    resourceRules:</b>
+<b>      - { apiGroups: [""], apiVersions: [v1], operations: [CREATE], resources: [pods] }</b>
+<b>    namespaceSelector:</b>
+<b>      matchLabels: { kubernetes.io/metadata.name: default }</b>
+<b>  matchImageReferences:</b>
+<b>    - glob: "kind-registry:5000/demo:v1"</b>
+<b>  validationConfigurations:</b>
+<b>    mutateDigest: true   # the default, spelled out: rewrite the tag to the digest it verified</b>
+<b>  attestors:</b>
+<b>    - name: keyed</b>
+<b>      cosign:</b>
+<b>        key:</b>
+<b>          data: |-</b>
+<b>$(sed 's/^/            /' /tmp/cosign.pub)</b>
+<b>        ctlog:</b>
+<b>          insecureIgnoreTlog: true</b>
+<b>  validations:</b>
+<b>    - expression: images.containers.map(image, verifyImageSignatures(image, [attestors.keyed])).all(e, e &gt; 0)</b>
+<b>      message: the demo image must carry the lab key's signature</b>
 <b>EOF</b>
-Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
-clusterpolicy.kyverno.io/pin-digest created
+imagevalidatingpolicy.policies.kyverno.io/pin-digest created
 <b>$ sleep 20</b>
 <b>$ kubectl -n default run pinned --image=kind-registry:5000/demo:v1 --restart=Never</b>
 pod/pinned created
@@ -389,9 +387,8 @@ pod/pinned created
 kind-registry:5000/demo:v1@sha256:ed73e9871dfba28276b28daab3463cc2f9b3c15337dfe0445e8b0f79694e0cd6
 <b>$ kubectl -n default delete pod pinned --ignore-not-found</b>
 pod "pinned" deleted from default namespace
-<b>$ kubectl delete clusterpolicy pin-digest</b>
-Warning: kyverno.io/v1 ClusterPolicy is deprecated and will be removed in a future release; migrate to ValidatingPolicy, MutatingPolicy, GeneratingPolicy or ImageValidatingPolicy (policies.kyverno.io), see https://kyverno.io/docs/guides/migration-to-cel/
-clusterpolicy.kyverno.io "pin-digest" deleted</code></pre></details></div>
+<b>$ kubectl delete imagevalidatingpolicy pin-digest</b>
+imagevalidatingpolicy.policies.kyverno.io "pin-digest" deleted</code></pre></details></div>
       <div class="verify"><b>verify:</b> the running pod's image is <code>...@sha256:...</code> even though you asked for a tag.</div>
     </div>
 

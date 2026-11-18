@@ -15,8 +15,10 @@ helmi kyverno kyverno/kyverno kyverno \
 
 log "OPA Gatekeeper (the other engine on the exam list; know both)"
 repo_add gatekeeper https://open-policy-agent.github.io/gatekeeper/charts
+# The audit lists every kind in the cluster by default and outgrows its 512Mi limit on the
+# full lab (OOMKilled, so status.violations stays empty); audit only the kinds constraints name.
 helmi gatekeeper gatekeeper/gatekeeper gatekeeper-system \
-  --set replicas=1 --set audit.replicas=1
+  --set replicas=1 --set audit.replicas=1 --set auditMatchKindOnly=true
 
 log "Sealed Secrets + External Secrets (secret delivery patterns)"
 repo_add sealed-secrets https://bitnami.github.io/sealed-secrets

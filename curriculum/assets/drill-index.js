@@ -221,7 +221,7 @@ window.CNPE_DRILL_INDEX = [
 {"id": "5.2#which-engine-would-you-pick-to-also-create-a-def", "sec": "5.2"},
 {"id": "5.2#why-might-a-platform-team-prefer-validatingadmis", "sec": "5.2"},
 {"id": "5.2#a-kyverno-validatingpolicy-denies-bare-pods-but-", "sec": "5.2"},
-{"id": "5.2#which-two-kyverno-controller-flags-must-be-on-be", "sec": "5.2"},
+{"id": "5.2#which-kyverno-controller-flag-must-be-on-before-", "sec": "5.2"},
 {"id": "5.2#a-gatekeeper-constraint-is-applied-the-violating", "sec": "5.2"},
 {"id": "5.2#you-write-a-validatingadmissionpolicy-with-a-mis", "sec": "5.2"},
 {"id": "5.3#name-the-three-profiles-in-one-clause-each", "sec": "5.3"},
