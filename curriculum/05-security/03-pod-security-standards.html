@@ -237,7 +237,7 @@ EOF
 sleep 20
 kubectl -n hardened get pod rootimage -o jsonpath='{.status.containerStatuses[0].state}' | jq
 kubectl -n hardened describe pod rootimage | sed -n '/Events/,$p'
-kubectl -n hardened delete pod rootimage</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl create ns hardened --dry-run=client -o yaml | kubectl apply -f -</b>
+kubectl -n hardened delete pod rootimage</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl create ns hardened --dry-run=client -o yaml | kubectl apply -f -</b>
 namespace/hardened created
 <b>$ kubectl label ns hardened pod-security.kubernetes.io/enforce=restricted --overwrite</b>
 namespace/hardened labeled
@@ -261,7 +261,7 @@ pod/rootimage created
 <b>$ kubectl -n hardened get pod rootimage -o jsonpath='{.status.containerStatuses[0].state}' | jq</b>
 {
   "waiting": {
-    "message": "container has runAsNonRoot and image will run as root (pod: \"rootimage_hardened(b1353a96-63bb-4895-b6f2-838249d72469)\", container: c)",
+    "message": "container has runAsNonRoot and image will run as root (pod: \"rootimage_hardened(ea1bc5ba-ec01-4f25-8a09-2531b28d3296)\", container: c)",
     "reason": "CreateContainerConfigError"
   }
 }
@@ -269,10 +269,10 @@ pod/rootimage created
 Events:
   Type     Reason           Age               From               Message
   ----     ------           ----              ----               -------
-  Warning  PolicyViolation  21s               kyverno-admission  policy require-resource-requests/ fail: every container must set cpu and memory requests
-  Normal   Scheduled        21s               default-scheduler  Successfully assigned hardened/rootimage to cnpe-worker
-  Normal   Pulled           7s (x3 over 19s)  kubelet            spec.containers{c}: Container image "nginx:1.27-alpine" already present on machine and can be accessed by the pod
-  Warning  Failed           7s (x3 over 19s)  kubelet            spec.containers{c}: Error: container has runAsNonRoot and image will run as root (pod: "rootimage_hardened(b1353a96-63bb-4895-b6f2-838249d72469)", container: c)
+  Warning  PolicyViolation  20s               kyverno-admission  policy require-resource-requests/validation fail: every container must set cpu and memory requests
+  Normal   Scheduled        20s               default-scheduler  Successfully assigned hardened/rootimage to cnpe-worker
+  Normal   Pulled           4s (x3 over 18s)  kubelet            spec.containers{c}: Container image "nginx:1.27-alpine" already present on machine and can be accessed by the pod
+  Warning  Failed           4s (x3 over 18s)  kubelet            spec.containers{c}: Error: container has runAsNonRoot and image will run as root (pod: "rootimage_hardened(ea1bc5ba-ec01-4f25-8a09-2531b28d3296)", container: c)
 <b>$ kubectl -n hardened delete pod rootimage</b>
 pod "rootimage" deleted from hardened namespace</code></pre></details></div>
       <div class="verify"><b>verify:</b> admission accepts the pod and the container status is <code>CreateContainerConfigError</code> with an event saying the container has runAsNonRoot and the image will run as root.</div>
@@ -323,10 +323,10 @@ spec:
 EOF
 sleep 30
 kubectl -n default get pod userns -o jsonpath='{.status.phase} {.status.conditions[*].message}{"\n"}'
-kubectl -n default get events --field-selector involvedObject.name=userns -o jsonpath='{range .items[*]}{.reason}: {.message}{"\n"}{end}' | tail -1
+kubectl -n default get events --field-selector involvedObject.name=userns,reason=FailedCreatePodSandBox -o jsonpath='{range .items[*]}{.reason}: {.message}{"\n"}{end}' | tail -1
 kubectl -n default exec userns -- cat /proc/self/uid_map
 kubectl -n default exec userns -- id
-kubectl -n default delete pod userns</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-13</span></summary><pre><code><b>$ kubectl -n default apply -f - &lt;&lt;'EOF'</b>
+kubectl -n default delete pod userns</code></pre><details class="out"><summary>output<span class="when">captured 2026-11-18</span></summary><pre><code><b>$ kubectl -n default apply -f - &lt;&lt;'EOF'</b>
 <b>apiVersion: v1</b>
 <b>kind: Pod</b>
 <b>metadata: { name: userns }</b>
@@ -340,9 +340,9 @@ kubectl -n default delete pod userns</code></pre><details class="out"><summary>o
 pod/userns created
 <b>$ sleep 30</b>
 <b>$ kubectl -n default get pod userns -o jsonpath='{.status.phase} {.status.conditions[*].message}{"\n"}'</b>
-Pending containers with unready status: [c] containers with unready status: [c]
-<b>$ kubectl -n default get events --field-selector involvedObject.name=userns -o jsonpath='{range .items[*]}{.reason}: {.message}{"\n"}{end}' | tail -1</b>
-FailedCreatePodSandBox: Failed to create pod sandbox: rpc error: code = Unknown desc = failed to start sandbox "8f8262b522a1e5b8f11a084559e731dd00390acf1c8d8f4ebddd62f0452dc38d": failed to create containerd task: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: error mounting "sysfs" to rootfs at "/sys": mount src=sysfs, dst=/sys, dstFd=/proc/thread-self/fd/11, flags=MS_RDONLY|MS_NOSUID|MS_NODEV|MS_NOEXEC: operation not permitted
+Pending no pod sandbox exists containers with unready status: [c] containers with unready status: [c]
+<b>$ kubectl -n default get events --field-selector involvedObject.name=userns,reason=FailedCreatePodSandBox -o jsonpath='{range .items[*]}{.reason}: {.message}{"\n"}{end}' | tail -1</b>
+FailedCreatePodSandBox: Failed to create pod sandbox: rpc error: code = Unknown desc = failed to start sandbox "cc4756c58ce6e33dcde4c9a6536a43339c2c0a971b3ace9f2acbc19db0c39503": failed to create containerd task: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: error mounting "sysfs" to rootfs at "/sys": mount src=sysfs, dst=/sys, dstFd=/proc/thread-self/fd/11, flags=MS_RDONLY|MS_NOSUID|MS_NODEV|MS_NOEXEC: operation not permitted
 <b>$ kubectl -n default exec userns -- cat /proc/self/uid_map</b>
 error: unable to upgrade connection: container not found ("c")
 <b>$ kubectl -n default exec userns -- id</b>
