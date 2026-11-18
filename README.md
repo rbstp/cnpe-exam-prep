@@ -168,7 +168,7 @@ More than just `make host`, so it is worth knowing before you run any of it:
 
 - `make host` adds you to the `docker` group (root-equivalent), writes `/etc/sysctl.d/99-cnpe-lab.conf` and a systemd drop-in for docker, and creates `/etc/docker/daemon.json` only if absent. It restarts dockerd when the limits drop-in changes, which bounces every container on the machine, and it warns before doing so.
 - `make gitea` appends one line to `/etc/hosts` mapping `gitea.lab`, and only when the entry is missing or the IP moved.
-- `make up` starts `cloud-provider-kind` under `sudo -b` so LoadBalancer Services get real IPs. It needs root to bind ports 80 and 443, it records its PID, and it skips itself with a warning if sudo would prompt.
+- `make up` starts `cloud-provider-kind` in the background so LoadBalancer Services get real IPs. On Linux each load balancer is a container on the kind network, so it runs as you with docker access and needs no root. It records its PID for `make down`.
 - `make down` stops that process by the recorded PID.
 - `make portal` runs `sudo npm i -g yarn` only if yarn is missing.
 
@@ -282,7 +282,7 @@ SPIRE identities kubectl -n spire exec sts/spire-server -c spire-server -- \
 Golden path apps kubectl -n argocd get applicationset,applications
 ```
 
-Real LoadBalancer IPs need `cloud-provider-kind`, which wants root to bind ports 80 and 443. Skip it and use `make forward` instead if you would rather not run a root process.
+Real LoadBalancer IPs need `cloud-provider-kind`, which `make up` starts for you. If it is not running, `make forward` gives every UI a localhost port instead.
 
 ## make break
 

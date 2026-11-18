@@ -9,7 +9,7 @@ case "$MODE" in
     if [ -f /tmp/cnpe-lab/cpk.pid ]; then
       CPK_PID=$(cat /tmp/cnpe-lab/cpk.pid 2>/dev/null || true)
       if [ -n "${CPK_PID:-}" ] && kill -0 "$CPK_PID" 2>/dev/null; then
-        sudo kill "$CPK_PID" 2>/dev/null && ok "stopped cloud-provider-kind (pid $CPK_PID)" || true
+        { kill "$CPK_PID" 2>/dev/null || sudo kill "$CPK_PID" 2>/dev/null; } && ok "stopped cloud-provider-kind (pid $CPK_PID)" || true
       fi
       rm -f /tmp/cnpe-lab/cpk.pid
     else

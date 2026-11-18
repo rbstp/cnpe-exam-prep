@@ -122,20 +122,26 @@ fi
 if [ "$SMOKE" != 1 ] && ! pgrep -f cloud-provider-kind >/dev/null 2>&1; then
   if command -v cloud-provider-kind >/dev/null; then
     log "Starting cloud-provider-kind (gives Services type=LoadBalancer real IPs)"
-    # sudo resets PATH, so cloud-provider-kind has to be called by absolute path.
+    # On Linux each load balancer is a container on the kind network, so the
+    # docker socket is all it needs. sudo resets PATH, hence the absolute path.
     CPK="$(command -v cloud-provider-kind)"
-    if sudo -n true 2>/dev/null; then
+    if docker info >/dev/null 2>&1; then
+      setsid nohup "$CPK" --gateway-channel=disabled > /tmp/cnpe-lab/cpk.log 2>&1 < /dev/null &
+      echo $! > /tmp/cnpe-lab/cpk.pid
+    elif sudo -n true 2>/dev/null; then
       # shellcheck disable=SC2024
       sudo -b nohup "$CPK" --gateway-channel=disabled > /tmp/cnpe-lab/cpk.log 2>&1
       sleep 2
       pgrep -f "$CPK --gateway-channel=disabled" | head -1 > /tmp/cnpe-lab/cpk.pid 2>/dev/null || true
+    fi
+    if [ -s /tmp/cnpe-lab/cpk.pid ]; then
       sleep 5
       if pgrep -f "$CPK" >/dev/null; then ok "cloud-provider-kind running"
       else warn "cloud-provider-kind died; see /tmp/cnpe-lab/cpk.log"; fi
     else
-      warn "sudo needs a password; skipping cloud-provider-kind for now."
+      warn "no docker access and sudo needs a password; skipping cloud-provider-kind."
       warn "LoadBalancer Services stay <pending> until you run, in another shell:"
-      warn "  sudo -b nohup $CPK --gateway-channel=disabled > /tmp/cnpe-lab/cpk.log 2>&1"
+      warn "  setsid nohup $CPK --gateway-channel=disabled > /tmp/cnpe-lab/cpk.log 2>&1 &"
     fi
   else
     warn "cloud-provider-kind missing; LoadBalancer Services will stay <pending>"
@@ -145,7 +151,7 @@ fi
 # ── Gateway API CRDs (Istio, Linkerd, Argo Rollouts, Cilium all use these) ─
 if [ "$SMOKE" != 1 ]; then
   log "Installing Gateway API CRDs (standard channel)"
-  kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.1/standard-install.yaml
+  kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.7.0/standard-install.yaml
 
   # ── metrics-server: required for HPA, kubectl top, VPA recommendations ──
   log "Installing metrics-server"

@@ -28,9 +28,9 @@ if [ "$CPK_UP" = yes ]; then
   ok "cloud-provider-kind is running; LoadBalancer IPs below are reachable directly"
 else
   warn "cloud-provider-kind is NOT running, so LoadBalancer IPs stay <pending>."
-  warn "Start it (needs root to bind :80/:443):"
-  warn "    sudo -b nohup $(command -v cloud-provider-kind 2>/dev/null || echo cloud-provider-kind) \\"
-warn "      --gateway-channel=disabled > /tmp/cnpe-lab/cpk.log 2>&1"
+  warn "Start it (it needs the docker socket, not root):"
+  warn "    setsid nohup $(command -v cloud-provider-kind 2>/dev/null || echo cloud-provider-kind) \\"
+  warn "      --gateway-channel=disabled > /tmp/cnpe-lab/cpk.log 2>&1 &"
   warn "Until then use the port-forward commands below."
 fi
 printf '%s\n\n' "──────────────────────────────────────────────────────────────────────────────"

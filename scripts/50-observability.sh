@@ -5,9 +5,13 @@ need helm; need kubectl
 
 log "kube-prometheus-stack (Prometheus Operator CRDs, Alertmanager, Grafana)"
 repo_add prometheus-community https://prometheus-community.github.io/helm-charts
+# Grafana's first boot runs ~730 database migrations. Under install load that
+# outlasts the chart's liveness budget (60s + 10 x 10s), the kubelet kills it
+# mid-migration, and the install waits out a second boot.
 helmi prometheus prometheus-community/kube-prometheus-stack monitoring \
   --set grafana.service.type=LoadBalancer \
   --set grafana.adminPassword=admin \
+  --set grafana.livenessProbe.initialDelaySeconds=300 \
   --set prometheus.service.type=LoadBalancer \
   --set prometheus.prometheusSpec.retention=6h \
   --set prometheus.prometheusSpec.resources.requests.memory=512Mi \

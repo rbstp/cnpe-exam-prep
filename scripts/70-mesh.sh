@@ -14,7 +14,7 @@ CTX="kind-$MESH_CLUSTER"
 kubectl config use-context "$CTX" >/dev/null
 
 log "Gateway API CRDs"
-kubectl --context "$CTX" apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.1/standard-install.yaml
+kubectl --context "$CTX" apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.7.0/standard-install.yaml
 
 case "$MESH" in
   istio)
