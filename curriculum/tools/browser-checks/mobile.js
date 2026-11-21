@@ -105,23 +105,27 @@ module.exports = async function (h) {
       await laidOut(page);
       return page.evaluate(() => {
         const r = (/** @type {Element | null} */ e) => e ? Math.round(e.getBoundingClientRect().width) : null;
-        /* A block that hangs its content off a rule or a number owns that
-           indent; what has to match is the width it has left. */
-        const indent = (/** @type {string} */ sel) => {
+        /* A block that frames its content owns its horizontal padding and border;
+           what has to match is the interior width it has left. */
+        const inset = (/** @type {string} */ sel) => {
           const e = document.querySelector(sel);
           if (!e) return null;
           const cs = getComputedStyle(e);
-          return Math.round(parseFloat(cs.paddingLeft) + parseFloat(cs.borderLeftWidth));
+          return Math.round(
+            parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) +
+            parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth)
+          );
         };
+        const exCard = inset('.exercise'), exBody = inset('.exercise .body');
         return {
           col: r(document.querySelector('.panel .pbody')),
           para: r(document.querySelector('.panel .pbody p')),
           quiz: r(document.querySelector('.quiz .answer')),
           callout: r(document.querySelector('.callout p')),
-          coIndent: indent('.callout'),
+          coIndent: inset('.callout'),
           // the exercise bodies never set a measure, so they are the reference
           exercise: r(document.querySelector('.exercise .body p')),
-          exIndent: indent('.exercise .body')
+          exIndent: exCard !== null && exBody !== null ? exCard + exBody : null
         };
       });
     };
