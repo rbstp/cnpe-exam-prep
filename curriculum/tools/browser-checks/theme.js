@@ -105,7 +105,7 @@ module.exports = async function (h) {
     await page.emulateMedia({ colorScheme: 'light' });
     await page.goto(url('game.html'));
     let s = await state(page);
-    assert(s.pref === 'dark' && s.attr === 'dark' && s.ink === '#171c1d', 'quest uses the same dark-default page shell as the lessons');
+    assert(s.pref === 'dark' && s.attr === 'dark' && s.ink === '#0f1114', 'quest uses the same dark-default page shell as the lessons');
     await page.click('.themebtn');
     assert((await state(page)).pref === 'light', 'quest switches to the shared light theme');
     await page.click('.themebtn');
@@ -118,15 +118,15 @@ module.exports = async function (h) {
     });
     const questShell = await shell();
     await page.goto(url('console.html') + '#2.2');
-    assert((await state(page)).ink === '#171c1d', 'bundle starts with the study palette');
+    assert((await state(page)).ink === '#0f1114', 'bundle starts with the study palette');
     assert(JSON.stringify(await shell()) === JSON.stringify(questShell), 'quest and lessons share header, typography and sidebar layout');
     await page.evaluate(() => { location.hash = '#GM'; });
     await page.waitForSelector('#game-app canvas');
-    assert((await state(page)).ink === '#171c1d', 'bundled quest keeps the same page palette');
+    assert((await state(page)).ink === '#0f1114', 'bundled quest keeps the same page palette');
     assert(await page.locator('.reading-size').count() === 0, 'quest keeps reading-only controls out of the game');
     await page.evaluate(() => { location.hash = '#2.2'; });
     await page.waitForSelector('.reading-modes');
-    assert((await state(page)).ink === '#171c1d', 'returning to study keeps the chosen theme');
+    assert((await state(page)).ink === '#0f1114', 'returning to study keeps the chosen theme');
     assert(page.errors.length === 0, 'no console errors: ' + page.errors.join(' | '));
     await ctx.close();
   });

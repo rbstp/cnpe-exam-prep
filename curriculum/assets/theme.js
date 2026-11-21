@@ -13,7 +13,7 @@
   })();
 
   // browser chrome, kept in sync with --ink in style.css and the theme-color metas (check-site.sh)
-  var CHROME = { dark: "#171c1d", light: "#f6f5f0" };
+  var CHROME = { dark: "#0f1114", light: "#f6f5f1" };
 
   function paint() {
     root.setAttribute("data-theme", pref);

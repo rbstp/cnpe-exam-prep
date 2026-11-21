@@ -65,8 +65,8 @@ HEAD = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#171c1d" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f6f5f0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1114" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f5f1" media="(prefers-color-scheme: light)">
 <meta name="description" content="An interactive study console for the Certified Cloud Native Platform Engineer (CNPE) exam: 29 sections across all five domains, hands-on exercises against a local lab, and two timed mock exams.">
 <link rel="icon" type="image/svg+xml" href="%s">
 """ % favicon_uri()
