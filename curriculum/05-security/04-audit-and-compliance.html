@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#171c1d" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f5f0" media="(prefers-color-scheme: light)">
-<meta name="description" content="This competency is listed explicitly in the official PDF and is the least practiced in the domain, because almost no home lab turns on API audit logging. This lab does, at cluster build.">
+<meta name="description" content="API audit logging, SBOMs, and continuous compliance reports: the explicit CNPE competency almost no home lab turns on, wired right into this cluster from build time.">
 <title>5.4 Audit trails, SBOMs, and compliance reports · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
 <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
@@ -18,7 +18,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum">This competency is listed explicitly in the official PDF and is the least practiced in the domain, because almost no home lab turns on API audit logging. This lab does, at cluster build.</p>
+  <p class="sum">Audit trails and compliance reporting are called out explicitly in the exam blueprint, yet almost nobody practices them because home labs rarely turn on API audit logging. This lab turns it on right when the cluster is built, so you can query real events.</p>
 </header>
 
 <div class="stats"></div>
@@ -28,53 +28,53 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 5.3 · audit trails and policy compliance</span></div>
   <div class="pbody">
-    <p class="lede">Three artifacts, three questions. The <strong>audit log</strong> answers "who did what to what, and did it work". <strong>SBOMs</strong> answer "what is inside the thing we shipped". <strong>Compliance reports</strong> answer "which controls are we failing right now". Being able to produce each on demand is the competency.</p>
+    <p class="lede">Three artifacts, three concrete questions. The <strong>audit log</strong> answers "who did what to what, and did it work?". <strong>SBOMs</strong> answer "what's actually inside the thing we shipped?". <strong>Compliance reports</strong> answer "which controls are we failing right now?". Being able to produce and query all three on demand is the competency.</p>
   </div>
 </section>
 
 <section class="panel accent-c" id="audit">
   <div class="phdr"><h2>API server audit logs</h2><span class="meta">policy · levels · stages · the event schema</span></div>
   <div class="pbody">
-    <p>The pipeline: a <strong>policy file</strong> tells the API server what to record and at what level; a <strong>backend</strong> (here, a log file on the control-plane node; in production often a webhook to a SIEM) receives one JSON event per stage of each request.</p>
+    <p>Here's how the pipeline works: a <strong>policy file</strong> tells <code>kube-apiserver</code> what to record and at what detail level, and a <strong>backend</strong> (a log file on the control-plane node here, or a webhook to a SIEM in production) writes one JSON event per stage of every matching request.</p>
 
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Level</th><th>Records</th><th>Use for</th></tr></thead>
         <tbody>
-          <tr><td class="mono">None</td><td>nothing</td><td>noise: leases, events, health endpoints</td></tr>
-          <tr><td class="mono">Metadata</td><td>who, what, when, verb, response code</td><td>the sensible catch-all</td></tr>
-          <tr><td class="mono">Request</td><td>+ the request body</td><td>RBAC and policy changes</td></tr>
-          <tr><td class="mono">RequestResponse</td><td>+ the response body</td><td>the highest-value resources only; it is enormous</td></tr>
+          <tr><td class="mono">None</td><td>Nothing</td><td>High-volume noise: leases, events, health endpoints</td></tr>
+          <tr><td class="mono">Metadata</td><td>Who, what, when, verb, and response code</td><td>The sensible catch-all (and Secrets, so values stay out of logs)</td></tr>
+          <tr><td class="mono">Request</td><td>Metadata + the request body</td><td>Writes where you want the input without redundant response bloat</td></tr>
+          <tr><td class="mono">RequestResponse</td><td>Metadata + both request and response bodies</td><td>High-value changes only (RBAC, policy); output grows fast</td></tr>
         </tbody>
       </table>
     </div>
 
-    <p><strong>Stages</strong>: <code>RequestReceived</code>, <code>ResponseStarted</code> (long-running watches), <code>ResponseComplete</code>, <code>Panic</code>. Most analysis uses ResponseComplete. Policy rules match <em>in order, first hit wins</em> (the same mental model as Alertmanager routes), so the file reads as: drop the noise, raise the sensitive, catch everything else at Metadata. Read <code>kind/audit-policy.yaml</code> in this repo and you will see exactly that.</p>
+    <p><strong>Stages</strong> mark where in the request lifecycle the event fires: <code>RequestReceived</code>, <code>ResponseStarted</code> (for long-running streams like watches), <code>ResponseComplete</code>, and <code>Panic</code>. Almost all analysis filters on <code>ResponseComplete</code>. Policy rules match <em>top to bottom, first hit wins</em> (just like Alertmanager routes), so a well-structured policy always reads in three bands: drop noise first, elevate sensitive kinds next, and catch everything else at <code>Metadata</code>. Open <code>kind/audit-policy.yaml</code> in this repo and you'll see that exact layout.</p>
 
     <h3>Fields that answer real questions</h3>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th class="mono">Field</th><th>Answers</th></tr></thead>
         <tbody>
-          <tr><td class="mono">user.username, user.groups</td><td>who (a person, or <code>system:serviceaccount:ns:name</code>)</td></tr>
-          <tr><td class="mono">verb, objectRef.{resource,namespace,name}</td><td>did what, to what</td></tr>
-          <tr><td class="mono">responseStatus.code</td><td>did it work (403 = denied, 201 = created)</td></tr>
-          <tr><td class="mono">sourceIPs, userAgent</td><td>from where, with which client</td></tr>
-          <tr><td class="mono">annotations["authorization.k8s.io/decision"]</td><td>allow or forbid (the reason sits beside it in <code>…/reason</code>)</td></tr>
-          <tr><td class="mono">annotations["pod-security.kubernetes.io/audit-violations"]</td><td>PSS violations from section 5.3, recorded quietly</td></tr>
-          <tr><td class="mono">stageTimestamp, auditID</td><td>when, and how to correlate the stages of one request</td></tr>
+          <tr><td class="mono">user.username, user.groups</td><td>Who called (a person, or <code>system:serviceaccount:ns:name</code>)</td></tr>
+          <tr><td class="mono">verb, objectRef.{resource,namespace,name}</td><td>What they did, and to which object</td></tr>
+          <tr><td class="mono">responseStatus.code</td><td>Whether it worked (403 = denied, 201 = created)</td></tr>
+          <tr><td class="mono">sourceIPs, userAgent</td><td>Where the call came from and which client sent it</td></tr>
+          <tr><td class="mono">annotations["authorization.k8s.io/decision"]</td><td>Whether RBAC said <code>allow</code> or <code>forbid</code> (with the matching rule in <code>…/reason</code>)</td></tr>
+          <tr><td class="mono">annotations["pod-security.kubernetes.io/audit-violations"]</td><td>PSS violations from section 5.3, logged quietly without blocking</td></tr>
+          <tr><td class="mono">stageTimestamp, auditID</td><td>When it happened, and how to tie multiple stages of one request together</td></tr>
         </tbody>
       </table>
     </div>
 
     <div class="callout trap">
       <span class="tag">One operational failure the repo already documents</span>
-      <p>The apiserver is started with <code>--audit-policy-file</code> pointing into a mounted directory. If that file is missing, <strong>the API server does not start at all</strong>. An audit misconfiguration can therefore present as a dead cluster. It is the least intuitive control-plane failure in this curriculum.</p>
+      <p>The API server starts with <code>--audit-policy-file</code> pointing at a mounted file. If that file is missing or malformed, <strong>the API server refuses to start at all</strong>. An audit config typo therefore looks like a completely dead cluster, making it one of the nastiest control-plane failure modes in this curriculum.</p>
     </div>
 
     <div class="callout exam">
       <span class="tag">What audit is and is not</span>
-      <p>It records <em>API requests</em>. It does not record what happened inside a container, what a pod did on the network, or anything that bypassed the API server. Pair it with Falco-style runtime detection, network flow logs (Hubble), and image scanning for the other layers, and say so if a scenario asks for "a complete audit trail".</p>
+      <p>Audit logging only sees <em>Kubernetes API requests</em>. It won't see a shell spawned inside a container, lateral network traffic between pods, or anything bypassing the API server. Pair it with Falco-style runtime detection, network flow logs (Hubble), and image scanning to cover the other layers, and say so explicitly whenever a scenario asks for a "complete audit trail".</p>
     </div>
   </div>
 </section>
@@ -83,7 +83,7 @@
   <div class="phdr"><h2>Audit policy and backends, field by field</h2><span class="meta">rule fields, ordering, the flags, what a good policy records</span></div>
   <div class="pbody">
     <h3>Rule fields</h3>
-    <p>A <code>Policy</code> (<code>audit.k8s.io/v1</code>) has <code>rules[]</code> and a top-level <code>omitStages</code>. Each rule sets a <code>level</code> and narrows by any of <code>users</code>, <code>userGroups</code>, <code>verbs</code>, <code>resources[]</code> (each with <code>group</code>, <code>resources</code> such as <code>pods</code> or <code>pods/exec</code>, and optional <code>resourceNames</code>), <code>namespaces</code>, <code>nonResourceURLs</code> (<code>/healthz*</code>, <code>/metrics</code>, <code>/version</code>), plus a per-rule <code>omitStages</code> and <code>omitManagedFields</code>. A request is matched against rules top to bottom and the first match sets the level, so the file is ordered: drop noise, raise sensitive things, catch the rest.</p>
+    <p>An audit <code>Policy</code> (<code>audit.k8s.io/v1</code>) consists of <code>rules[]</code> plus an optional top-level <code>omitStages</code>. Each rule sets a <code>level</code> and filters by any mix of <code>users</code>, <code>userGroups</code>, <code>verbs</code>, <code>resources[]</code> (each taking <code>group</code>, <code>resources</code> like <code>pods</code> or <code>pods/exec</code>, and optional <code>resourceNames</code>), <code>namespaces</code>, and <code>nonResourceURLs</code> (<code>/healthz*</code>, <code>/metrics</code>, <code>/version</code>), along with per-rule <code>omitStages</code> and <code>omitManagedFields</code>. Because Kubernetes evaluates rules top to bottom and stops on the first match, order them cleanly: drop noise, protect sensitive bodies, raise RBAC/policy diffs, then catch everything else.</p>
     <div class="cb" data-lang="yaml"><pre><code>apiVersion: audit.k8s.io/v1
 kind: Policy
 omitStages: [RequestReceived]          # one event per request, not two
@@ -108,9 +108,9 @@ rules:
 - level: Metadata                      # everything else
   omitStages: [RequestReceived]</code></pre></div>
     <ul>
-      <li><strong>Why those levels.</strong> <code>Request</code>/<code>RequestResponse</code> on Secrets writes secret values into the log; Metadata still records who read which Secret and whether it succeeded. <code>pods/exec</code> at Metadata answers "who shelled into production". RBAC and policy objects at <code>RequestResponse</code> give you the before/after for a permissions change. <code>Request</code> alone suits high-volume writes where the response body is redundant (a Deployment update).</li>
-      <li><strong>Stages.</strong> <code>RequestReceived</code> fires before authorization, so it records requests that are later denied; most policies omit it and rely on <code>ResponseComplete</code>, which carries <code>responseStatus.code</code>. <code>ResponseStarted</code> exists only for long-running requests (watch, exec, port-forward). <code>Panic</code> is rare. Both events of one request share <code>auditID</code>.</li>
-      <li><strong>Event fields you will grep for</strong> beyond the table above: <code>level</code>, <code>stage</code>, <code>requestURI</code>, <code>impersonatedUser</code> (present when <code>--as</code> was used; <code>user</code> is then the real caller), <code>requestObject</code>/<code>responseObject</code> at the higher levels, <code>requestReceivedTimestamp</code>. <code>omitManagedFields: true</code> strips the noisy <code>managedFields</code> block out of both bodies.</li>
+      <li><strong>Why those levels.</strong> Setting <code>Request</code> or <code>RequestResponse</code> on Secrets dumps plaintext credentials straight into your log files; keeping them at <code>Metadata</code> still tells you who accessed which Secret and whether they succeeded. Logging <code>pods/exec</code> at <code>Metadata</code> answers "who shelled into production?". Putting RBAC and policy kinds at <code>RequestResponse</code> captures the full diff for permissions changes, while <code>Request</code> fits busy writes (like Deployment updates) where the response body adds noise.</li>
+      <li><strong>Stages.</strong> <code>RequestReceived</code> fires before authorization, so it catches requests before they're rejected; most policies omit it and inspect <code>ResponseComplete</code> instead, since that event already includes <code>responseStatus.code</code>. <code>ResponseStarted</code> only applies to streaming requests (watch, exec, port-forward), and <code>Panic</code> is rare. All events from a single request share the same <code>auditID</code>.</li>
+      <li><strong>Extra fields you'll grep for:</strong> <code>level</code>, <code>stage</code>, <code>requestURI</code>, <code>impersonatedUser</code> (populated whenever <code>--as</code> was used, while <code>user</code> records the real caller), <code>requestObject</code> / <code>responseObject</code> at higher levels, and <code>requestReceivedTimestamp</code>. Adding <code>omitManagedFields: true</code> strips the verbose <code>managedFields</code> noise from both bodies.</li>
     </ul>
 
     <h3>Backends and their flags</h3>
@@ -118,74 +118,75 @@ rules:
       <table>
         <thead><tr><th class="mono">Flag</th><th>Backend</th><th>Means</th></tr></thead>
         <tbody>
-          <tr><td class="mono">--audit-policy-file</td><td>both</td><td>the Policy above; if absent, nothing is logged; if the path is wrong, the API server does not start</td></tr>
-          <tr><td class="mono">--audit-log-path</td><td>log</td><td>JSON lines file (<code>-</code> for stdout); the flag that enables the log backend</td></tr>
-          <tr><td class="mono">--audit-log-maxage / -maxbackup / -maxsize</td><td>log</td><td>rotation: days to keep, number of files, MB per file</td></tr>
-          <tr><td class="mono">--audit-log-format</td><td>log</td><td><code>json</code> (default) or <code>legacy</code></td></tr>
-          <tr><td class="mono">--audit-log-mode</td><td>log</td><td><code>blocking</code> (default), <code>blocking-strict</code> (a logging failure at RequestReceived fails the request), <code>batch</code></td></tr>
-          <tr><td class="mono">--audit-webhook-config-file</td><td>webhook</td><td>a kubeconfig naming the remote sink (a SIEM, Falco's k8saudit plugin, a Fluent Bit input)</td></tr>
-          <tr><td class="mono">--audit-webhook-mode</td><td>webhook</td><td><code>batch</code> (default), <code>blocking</code>, <code>blocking-strict</code></td></tr>
-          <tr><td class="mono">--audit-webhook-batch-buffer-size / -max-size / -max-wait</td><td>webhook</td><td>10000 events buffered, 400 per batch, 30s max wait; overflow drops events</td></tr>
-          <tr><td class="mono">--audit-webhook-initial-backoff</td><td>webhook</td><td>retry delay after the first failed delivery (exponential after)</td></tr>
+          <tr><td class="mono">--audit-policy-file</td><td>Both</td><td>Path to the Policy YAML above; omit it and nothing is logged, get the path wrong and the API server won't start</td></tr>
+          <tr><td class="mono">--audit-log-path</td><td>Log</td><td>JSON-lines output file (or <code>-</code> for stdout); this flag activates the log backend</td></tr>
+          <tr><td class="mono">--audit-log-maxage / -maxbackup / -maxsize</td><td>Log</td><td>Log rotation: retention days, max backup files, and max MB per file</td></tr>
+          <tr><td class="mono">--audit-log-format</td><td>Log</td><td><code>json</code> (default) or <code>legacy</code></td></tr>
+          <tr><td class="mono">--audit-log-mode</td><td>Log</td><td><code>blocking</code> (default), <code>blocking-strict</code> (a write failure at RequestReceived fails the API call itself), or <code>batch</code></td></tr>
+          <tr><td class="mono">--audit-webhook-config-file</td><td>Webhook</td><td>A kubeconfig pointing at the remote sink (a SIEM, Falco's <code>k8saudit</code> plugin, or a Fluent Bit input)</td></tr>
+          <tr><td class="mono">--audit-webhook-mode</td><td>Webhook</td><td><code>batch</code> (default), <code>blocking</code>, or <code>blocking-strict</code></td></tr>
+          <tr><td class="mono">--audit-webhook-batch-buffer-size / -max-size / -max-wait</td><td>Webhook</td><td>Defaults: 10000 buffered events, 400 per batch, 30s max wait; overflowing the buffer drops events</td></tr>
+          <tr><td class="mono">--audit-webhook-initial-backoff</td><td>Webhook</td><td>Wait time before the first retry after a failed delivery (exponential backoff afterward)</td></tr>
         </tbody>
       </table>
     </div>
-    <p>Static-pod control planes (kubeadm, kind) need the policy file and the log directory mounted as <code>hostPath</code> volumes into the <code>kube-apiserver</code> manifest; a missing mount is the "dead cluster" failure the callout above describes. On managed control planes you cannot set any of this; you consume the provider's audit stream instead, and the exam's equivalent question becomes "what would you look for in it".</p>
+    <p>On static-pod control planes (kubeadm, kind), remember to mount both the policy file and the log directory as <code>hostPath</code> volumes on <code>kube-apiserver</code>; forgetting a mount triggers the dead-cluster failure above. On managed Kubernetes, you don't touch these flags at all: you consume the cloud provider's audit stream, so exam questions there pivot to "what do you query for?".</p>
 
     <h3>Annotations other controls leave in the audit event</h3>
     <ul>
-      <li><code>authorization.k8s.io/decision</code> and <code>authorization.k8s.io/reason</code>: RBAC's verdict and the rule that produced it.</li>
-      <li><code>pod-security.kubernetes.io/audit-violations</code>: the PSS <code>audit</code> label's findings, per pod.</li>
-      <li><code>validation.policy.admission.k8s.io/validation_failure</code>: a ValidatingAdmissionPolicy binding with <code>validationActions: [Audit]</code> records here; the policy's own <code>auditAnnotations</code> add custom keys.</li>
-      <li><code>mutation.webhook.admission.k8s.io/round_0_index_N</code> and <code>patch.webhook.admission.k8s.io/...</code>: which mutating webhooks touched the object and what they changed, when the level is <code>Request</code> or higher.</li>
+      <li><code>authorization.k8s.io/decision</code> and <code>authorization.k8s.io/reason</code>: RBAC's verdict and the exact rule that matched.</li>
+      <li><code>pod-security.kubernetes.io/audit-violations</code>: findings recorded by a namespace's PSS <code>audit</code> label, per pod.</li>
+      <li><code>validation.policy.admission.k8s.io/validation_failure</code>: failures from a <code>ValidatingAdmissionPolicyBinding</code> with <code>validationActions: [Audit]</code>, alongside any custom keys from the policy's <code>auditAnnotations</code>.</li>
+      <li><code>mutation.webhook.admission.k8s.io/round_0_index_N</code> and <code>patch.webhook.admission.k8s.io/...</code>: which mutating webhooks modified the object and what they patched (recorded at level <code>Request</code> or higher).</li>
     </ul>
-    <div class="callout exam"><span class="tag">How this gets tested</span><p>Two kinds of task. Write or fix a policy: "record who reads Secrets without logging their contents, and drop health checks" is a Metadata rule on <code>secrets</code> plus a <code>None</code> rule on <code>nonResourceURLs</code>, in that order relative to the catch-all. Query the log: "which ServiceAccount deleted the Deployment" is a <code>jq</code> filter on <code>verb</code>, <code>objectRef.resource</code>, <code>objectRef.name</code> and <code>user.username</code>. Both are graded on the output, so run the query after the change.</p></div>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>Expect two task styles. Writing or fixing a policy: "log who reads Secrets without recording their values, and drop health checks" maps to a <code>Metadata</code> rule on <code>secrets</code> plus a <code>None</code> rule on <code>nonResourceURLs</code>, both placed <em>above</em> the catch-all. Querying the log: "which ServiceAccount deleted the Deployment?" becomes a <code>jq</code> filter over <code>verb</code>, <code>objectRef.resource</code>, <code>objectRef.name</code>, and <code>user.username</code>. Both get verified on real output, so always run the query after making your edit.</p></div>
   </div>
 </section>
 
 <section class="panel accent-p" id="supplychain">
   <div class="phdr"><h2>Supply-chain paper trail: Trivy Operator</h2><span class="meta">compliance as queryable API objects</span></div>
   <div class="pbody">
-    <p>The operator rescans continuously and materializes results <em>as CRs</em>, which is the platform move: compliance as queryable API objects rather than PDF attachments. That means kubectl, RBAC, GitOps and dashboards all work on your compliance data for free.</p>
+    <p>The Trivy Operator rescans running workloads continuously and stores every finding <em>as a Kubernetes CR</em>. That's the core platform-engineering move: turning compliance from PDF attachments into queryable API objects so kubectl, RBAC, GitOps, and Grafana dashboards all work on compliance data out of the box.</p>
 
     <div class="tbl-wrap">
       <table>
         <thead><tr><th class="mono">Kind</th><th>Holds</th></tr></thead>
         <tbody>
-          <tr><td class="mono">vulnerabilityreports</td><td>CVEs per workload image, with severity counts and fix versions</td></tr>
+          <tr><td class="mono">vulnerabilityreports</td><td>CVEs per workload image, including severity totals and fixed versions</td></tr>
           <tr><td class="mono">sbomreports</td><td>CycloneDX component inventory per image</td></tr>
-          <tr><td class="mono">configauditreports</td><td>misconfigurations in the workload spec itself</td></tr>
-          <tr><td class="mono">exposedsecretreports</td><td>credentials found baked into images</td></tr>
-          <tr><td class="mono">rbacassessmentreports</td><td>risky RBAC rules</td></tr>
-          <tr><td class="mono">clusterinfraassessmentreports</td><td>per-node control-plane and kubelet checks</td></tr>
-          <tr><td class="mono">clustercompliancereports</td><td>CIS, NSA and PSS rollups built from the above</td></tr>
+          <tr><td class="mono">configauditreports</td><td>Security misconfigurations in the workload spec itself</td></tr>
+          <tr><td class="mono">exposedsecretreports</td><td>Hard-coded credentials found inside image layers</td></tr>
+          <tr><td class="mono">rbacassessmentreports</td><td>Overly permissive or risky RBAC rules</td></tr>
+          <tr><td class="mono">clusterinfraassessmentreports</td><td>Per-node control-plane and kubelet checks</td></tr>
+          <tr><td class="mono">clustercompliancereports</td><td>CIS, NSA, and PSS rollups aggregated from the reports above</td></tr>
         </tbody>
       </table>
     </div>
 
-    <p><code>make validate</code> demands minimum counts of these, so a fresh <code>cicd</code> layer gives you a populated dataset to practice queries on.</p>
+    <p><code>make validate</code> asserts minimum counts for these reports, so a fresh <code>cicd</code> layer gives you live data to practice real queries against.</p>
 
     <h3>SBOM vocabulary, because the words get tested</h3>
     <ul>
-      <li><strong>CycloneDX</strong> and <strong>SPDX</strong> are the two standard formats; Trivy emits both, and "which format" is a compatibility question, not a quality one.</li>
-      <li>An SBOM lists <em>components and versions</em>. It is not a vulnerability report; you join it against a CVE database, which is why an SBOM generated at build time stays useful after new CVEs are published.</li>
-      <li>The one-sentence purpose: <em>when the next log4shell drops, you query your SBOMs for the package instead of rescanning the world.</em></li>
-      <li>Neighbors: <strong>provenance/attestation</strong> (how it was built; see section 5.6), <strong>signatures</strong> (who vouches for it). Three different documents, one trust story.</li>
+      <li><strong>CycloneDX</strong> and <strong>SPDX</strong> are the two standard formats. Trivy outputs both, so picking one is a tooling compatibility question rather than a quality debate.</li>
+      <li>An SBOM lists <em>components and versions</em>; it isn't a vulnerability report on its own. You join it against a CVE feed, which is why an SBOM generated at build time stays valuable long after new CVEs drop.</li>
+      <li>The one-sentence pitch: <em>when the next log4shell hits, you query your SBOMs for the affected package in seconds instead of rescanning the entire fleet.</em></li>
+      <li>Its neighbors: <strong>provenance/attestations</strong> (how the artifact was built; see section 5.6) and <strong>signatures</strong> (who vouches for these bytes). Three distinct documents forming one trust story.</li>
     </ul>
   </div>
 </section>
 
 <section class="panel accent-p" id="evidence">
-  <div class="phdr"><h2>Runtime detection, SBOM tooling and compliance evidence</h2><span class="meta">Falco, syft/grype/trivy, the Trivy Operator's report kinds, kube-bench, in-toto</span></div>
+  <div class="phdr"><h2>Runtime detection, SBOM tooling, and compliance evidence</h2><span class="meta">Falco, syft/grype/trivy, the Trivy Operator's report kinds, kube-bench, in-toto</span></div>
   <div class="pbody">
     <h3>Falco fills the gap the API audit leaves</h3>
-    <p>The API server never sees a shell spawned inside a container, a file written under <code>/etc</code>, or an outbound connection to an unexpected host. Falco does: a kernel driver (modern eBPF by default) or a plugin (the <code>k8saudit</code> plugin consumes the audit webhook stream above, so one Falco can watch both layers) produces events, and rules match them. A rule has <code>rule</code>, <code>desc</code>, <code>condition</code> (a filter over event fields such as <code>proc.name</code>, <code>container.image.repository</code>, <code>k8s.ns.name</code>, <code>fd.sip</code>), <code>output</code> (a format string), <code>priority</code> (EMERGENCY to DEBUG) and <code>tags</code>; <code>macro</code> and <code>list</code> entries factor conditions. Rules ship in maturity tiers (stable rules are bundled; incubating and sandbox are opt-in) and are customized by override files rather than edits. Alerts go to stdout, a file, gRPC or HTTP; Falcosidekick fans them out to Slack, Loki, Alertmanager and the like. "Detect a shell in a production container" or "alert on writes below /etc" is a Falco question; "who created that pod" is an audit-log question.</p>
+    <p>The API server never sees a shell spawned inside a container, a file modified under <code>/etc</code>, or an unexpected outbound socket. Falco does. Its kernel driver (modern eBPF by default) watches syscalls, and its <code>k8saudit</code> plugin can ingest the API audit webhook stream too, letting one tool cover both runtime and control-plane events.</p>
+    <p>Every Falco rule defines <code>rule</code>, <code>desc</code>, <code>condition</code> (filtering fields like <code>proc.name</code>, <code>container.image.repository</code>, <code>k8s.ns.name</code>, and <code>fd.sip</code>), <code>output</code> (a format string), <code>priority</code> (EMERGENCY down to DEBUG), and <code>tags</code>, with <code>macro</code> and <code>list</code> blocks factoring out repeated logic. Rules ship in maturity tiers (stable bundled by default; incubating and sandbox opt-in) and should be tuned via override files rather than editing defaults. Alerts stream to stdout, files, gRPC, or HTTP, and Falcosidekick routes them to Slack, Loki, or Alertmanager. Keep the boundary clean: "alert on a shell in production or writes under <code>/etc</code>" is Falco; "who created that pod?" is the API audit log.</p>
 
     <h3>SBOM and scanner tooling, one line each</h3>
     <ul>
-      <li><strong>Formats.</strong> SPDX (ISO/IEC 5962, tag-value or JSON) and CycloneDX (OWASP, JSON or XML); both list components with versions, licenses and hashes. <code>trivy image --format cyclonedx|spdx-json</code>, <code>syft &lt;image&gt; -o cyclonedx-json</code>. An SBOM is input to a scanner (<code>trivy sbom sbom.json</code>, <code>grype sbom:sbom.json</code>), which is why generating it at build time and rescanning later works.</li>
-      <li><strong>Attaching it to the image.</strong> <code>cosign attest --predicate sbom.json --type cyclonedx &lt;image@digest&gt;</code> stores it as a signed in-toto attestation next to the image; admission policies can then require it (5.6).</li>
-      <li><strong>VEX</strong> (Vulnerability Exploitability eXchange, OpenVEX or CSAF) is the vendor's or your statement that a CVE does not affect a product as shipped; <code>trivy --vex &lt;file&gt;</code> or <code>--vex repo</code> suppresses those findings with a recorded justification, which is the auditable alternative to a growing ignore file.</li>
+      <li><strong>Formats.</strong> SPDX (ISO/IEC 5962, tag-value or JSON) and CycloneDX (OWASP, JSON or XML) both capture components, versions, licenses, and hashes: run <code>trivy image --format cyclonedx|spdx-json</code> or <code>syft &lt;image&gt; -o cyclonedx-json</code>. Any SBOM feeds straight back into a vulnerability scanner (<code>trivy sbom sbom.json</code>, <code>grype sbom:sbom.json</code>), which is why build-time SBOMs can be rescanned later without pulling the image again.</li>
+      <li><strong>Attaching it to the image.</strong> <code>cosign attest --predicate sbom.json --type cyclonedx &lt;image@digest&gt;</code> stores the SBOM as a signed in-toto attestation right beside the image, ready for admission policies to verify (5.6).</li>
+      <li><strong>VEX</strong> (Vulnerability Exploitability eXchange, in OpenVEX or CSAF) records a vendor's or platform team's statement that a CVE doesn't actually affect a shipped product. Passing <code>trivy --vex &lt;file&gt;</code> or <code>--vex repo</code> suppresses those findings with a written justification, giving you an auditable alternative to an ever-growing ignore file.</li>
     </ul>
 
     <h3>The Trivy Operator's report kinds</h3>
@@ -193,25 +194,25 @@ rules:
       <table>
         <thead><tr><th class="mono">Kind (aquasecurity.github.io/v1alpha1)</th><th>Scope</th><th>Holds</th></tr></thead>
         <tbody>
-          <tr><td class="mono">VulnerabilityReport</td><td>namespaced, one per container of a workload; named <code>&lt;kind&gt;-&lt;name&gt;-&lt;container&gt;</code>, owned by the ReplicaSet or controller so it is garbage-collected with it</td><td><code>report.summary.criticalCount|highCount|...</code>, <code>report.vulnerabilities[]</code> with <code>vulnerabilityID</code>, <code>installedVersion</code>, <code>fixedVersion</code>, <code>severity</code>, <code>primaryLink</code></td></tr>
-          <tr><td class="mono">SbomReport / ClusterSbomReport</td><td>per container</td><td>a CycloneDX BOM under <code>report.components</code></td></tr>
-          <tr><td class="mono">ConfigAuditReport / ClusterConfigAuditReport</td><td>per workload / per cluster object</td><td>misconfiguration checks (<code>AVD-KSV-*</code> ids): privileged, missing limits, root user</td></tr>
-          <tr><td class="mono">ExposedSecretReport</td><td>per container</td><td>credentials found in image layers</td></tr>
-          <tr><td class="mono">RbacAssessmentReport / ClusterRbacAssessmentReport</td><td>per Role / ClusterRole</td><td>risky rules (wildcards, secrets access, escalate)</td></tr>
-          <tr><td class="mono">InfraAssessmentReport / ClusterInfraAssessmentReport</td><td>per node component</td><td>kubelet, API server and etcd checks, the kube-bench territory</td></tr>
-          <tr><td class="mono">ClusterComplianceReport</td><td>cluster</td><td><code>spec.compliance.id</code> in <code>k8s-cis-1.23</code>, <code>k8s-nsa-1.0</code>, <code>k8s-pss-baseline-0.1</code>, <code>k8s-pss-restricted-0.1</code>; <code>spec.cron</code> and <code>spec.reportType: summary|all</code>; <code>status.summary.passCount/failCount</code> and per-control results mapping to the check ids above</td></tr>
+          <tr><td class="mono">VulnerabilityReport</td><td>Namespaced, one per workload container; named <code>&lt;kind&gt;-&lt;name&gt;-&lt;container&gt;</code> and owned by the ReplicaSet/controller so it garbage-collects automatically</td><td><code>report.summary.criticalCount|highCount|...</code> and <code>report.vulnerabilities[]</code> (<code>vulnerabilityID</code>, <code>installedVersion</code>, <code>fixedVersion</code>, <code>severity</code>, <code>primaryLink</code>)</td></tr>
+          <tr><td class="mono">SbomReport / ClusterSbomReport</td><td>Per container</td><td>A CycloneDX BOM under <code>report.components</code></td></tr>
+          <tr><td class="mono">ConfigAuditReport / ClusterConfigAuditReport</td><td>Per workload / per cluster object</td><td>Misconfiguration checks (<code>AVD-KSV-*</code> IDs): privileged pods, missing limits, root users</td></tr>
+          <tr><td class="mono">ExposedSecretReport</td><td>Per container</td><td>Credentials detected inside image layers</td></tr>
+          <tr><td class="mono">RbacAssessmentReport / ClusterRbacAssessmentReport</td><td>Per Role / ClusterRole</td><td>Risky RBAC rules (wildcards, secrets reads, <code>escalate</code>)</td></tr>
+          <tr><td class="mono">InfraAssessmentReport / ClusterInfraAssessmentReport</td><td>Per node component</td><td>Kubelet, API server, and etcd checks (the same ground as kube-bench)</td></tr>
+          <tr><td class="mono">ClusterComplianceReport</td><td>Cluster-scoped</td><td><code>spec.compliance.id</code> in <code>k8s-cis-1.23</code>, <code>k8s-nsa-1.0</code>, <code>k8s-pss-baseline-0.1</code>, <code>k8s-pss-restricted-0.1</code>; <code>spec.cron</code> and <code>spec.reportType: summary|all</code>; <code>status.summary.passCount/failCount</code> plus per-control results mapped to the check IDs above</td></tr>
         </tbody>
       </table>
     </div>
-    <p>Reports carry labels <code>trivy-operator.resource.kind</code>, <code>trivy-operator.resource.name</code>, <code>trivy-operator.container.name</code>, so <code>-l trivy-operator.resource.name=payments</code> narrows a query without parsing names. Scans run as short-lived jobs in the operator's namespace (or the workload's, per <code>OPERATOR_SCAN_JOB_...</code> settings), which is why a NetworkPolicy or a registry pull secret can stop reports from appearing: the scan job is a pod like any other. Rescans happen on a TTL (<code>OPERATOR_VULNERABILITY_SCANNER_REPORT_TTL</code>) and when the image digest changes.</p>
+    <p>Every report carries <code>trivy-operator.resource.kind</code>, <code>trivy-operator.resource.name</code>, and <code>trivy-operator.container.name</code> labels, so <code>-l trivy-operator.resource.name=payments</code> filters cleanly without string-parsing report names. Because scans run as short-lived Kubernetes Jobs (in the operator's namespace or the workload's, per <code>OPERATOR_SCAN_JOB_...</code>), a strict NetworkPolicy or missing registry pull secret can silently block reports from ever showing up: a scan job is just a pod. Rescans trigger on a TTL (<code>OPERATOR_VULNERABILITY_SCANNER_REPORT_TTL</code>) and whenever an image digest changes.</p>
 
     <h3>Benchmarks and attestations</h3>
     <ul>
-      <li><strong>CIS Kubernetes Benchmark</strong> checks the control plane and node configuration (API server flags, kubelet flags, file permissions) and is versioned separately from Kubernetes. <strong>kube-bench</strong> runs it as a Job with a target set (<code>master</code>, <code>node</code>, <code>etcd</code>, <code>policies</code>) and prints PASS/FAIL/WARN with the control number (for example <code>1.2.x</code> API server); <code>--benchmark</code> picks the CIS version and managed-cluster variants (eks, gke, aks) exist. The Trivy Operator's <code>k8s-cis</code> compliance report covers the same ground as CRDs.</li>
-      <li><strong>in-toto attestation</strong> is the envelope format everything else uses: a DSSE envelope (<code>payloadType: application/vnd.in-toto+json</code>, signatures) around a <em>Statement</em> (<code>_type: https://in-toto.io/Statement/v1</code>, <code>subject[]</code> with name and <code>digest.sha256</code>, <code>predicateType</code>, <code>predicate</code>). SLSA provenance, SBOMs, vulnerability scan results and VEX are all predicate types. "Attestation" in a task means one of these, signed, attached to an image digest.</li>
-      <li><strong>An evidence pipeline</strong>, in one sentence per stage: build produces the image and its SBOM; scan gates on severity and writes the scan result as an attestation; sign the digest; store SBOM and provenance attestations in the registry beside the image; admission requires signature and attestations; the operator rescans continuously and the compliance reports roll it up. Each stage leaves a queryable artifact, which is what "generating audit trails" means for the supply chain.</li>
+      <li><strong>CIS Kubernetes Benchmark</strong> audits control-plane and node hardening (API server flags, kubelet settings, file permissions) and versions independently of Kubernetes. <strong>kube-bench</strong> runs it as a Job against specific targets (<code>master</code>, <code>node</code>, <code>etcd</code>, <code>policies</code>) and prints PASS/FAIL/WARN with control IDs (like <code>1.2.x</code> for the API server). Use <code>--benchmark</code> to pin a CIS version or pick managed-cluster profiles (eks, gke, aks). The Trivy Operator's <code>k8s-cis</code> compliance report covers the same controls as native CRDs.</li>
+      <li><strong>in-toto attestation</strong> is the standard wrapper everything shares: a DSSE envelope (<code>payloadType: application/vnd.in-toto+json</code> plus signatures) enclosing a <em>Statement</em> (<code>_type: https://in-toto.io/Statement/v1</code>, <code>subject[]</code> with name and <code>digest.sha256</code>, <code>predicateType</code>, and <code>predicate</code>). SLSA provenance, SBOMs, scan results, and VEX are all just predicate types inside that envelope. Whenever a task says "attestation", picture one of these signed envelopes attached to an image digest.</li>
+      <li><strong>An end-to-end evidence pipeline:</strong> the build produces the image and SBOM; the scan gates on severity and emits a scan attestation; cosign signs the digest; SBOM and provenance attestations live in the registry next to the image; admission enforces signatures and attestations; and the Trivy Operator continuously rescans running workloads while compliance reports roll everything up. Every hop leaves a queryable artifact, which is what "generating audit trails" means for a software supply chain.</li>
     </ul>
-    <div class="callout trap"><span class="tag">Trap</span><p>A <code>ClusterComplianceReport</code> is only as current as its <code>spec.cron</code> and the underlying reports; a freshly changed cluster shows yesterday's numbers until the next run. Read <code>status.updateTimestamp</code> before quoting a pass count, and expect graders to check the report after your fix, not the fix itself.</p></div>
+    <div class="callout trap"><span class="tag">Trap</span><p>A <code>ClusterComplianceReport</code> is only as fresh as its <code>spec.cron</code> schedule and the underlying reports. After fixing a cluster issue, the rollup still shows yesterday's numbers until the next scheduled run. Always check <code>status.updateTimestamp</code> before quoting a pass count, and remember exam graders often verify the refreshed report rather than just your underlying fix.</p></div>
   </div>
 </section>
 
@@ -220,7 +221,7 @@ rules:
   <div class="pbody">
 
     <div class="exercise" data-title="Interrogate the audit log">
-      <p>It lives on the control-plane node, reachable through docker:</p>
+      <p>The audit log sits on the control-plane node, reachable straight through Docker:</p>
       <div class="cb" data-lang="bash"><pre><code>docker exec cnpe-control-plane tail -1 /var/log/kubernetes/audit.log | jq .</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ docker exec cnpe-control-plane tail -1 /var/log/kubernetes/audit.log | jq .</b>
 {
   "kind": "Event",
@@ -278,17 +279,17 @@ rules:
     "authorization.k8s.io/reason": "RBAC: allowed by ClusterRoleBinding \"kyverno:reports-controller\" of ClusterRole \"kyverno:reports-controller\" to ServiceAccount \"kyverno-reports-controller/kyverno\""
   }
 }</code></pre></details></div>
-      <p>Now answer three questions an auditor would ask, each with one jq line: who read any secret today (<code>select(.objectRef.resource=="secrets" and .verb=="get")</code>, print user and name); every delete that succeeded (<code>select(.verb=="delete" and .responseStatus.code&lt;300)</code>); all denied requests (<code>select(.annotations["authorization.k8s.io/decision"]=="forbid")</code>). Then close the loop: do something distinctive (<code>kubectl -n team-a delete pod bare --ignore-not-found</code>, or a <code>kubectl auth can-i</code> as dev-a from 5.1) and find your own action in the log within seconds.</p>
-      <div class="verify"><b>verify:</b> an audit trail you have personally queried for your own fingerprints is one you can be examined on.</div>
+      <p>Now answer three classic auditor questions, one <code>jq</code> pipeline each: who read a Secret today (<code>select(.objectRef.resource=="secrets" and .verb=="get")</code>, printing user and name), every delete that succeeded (<code>select(.verb=="delete" and .responseStatus.code&lt;300)</code>), and all denied requests (<code>select(.annotations["authorization.k8s.io/decision"]=="forbid")</code>). Then close the loop: run something unmistakable (like <code>kubectl -n team-a delete pod bare --ignore-not-found</code>, or a <code>kubectl auth can-i</code> as <code>dev-a</code> from 5.1) and spot your own fingerprints in the log within seconds.</p>
+      <div class="verify"><b>verify:</b> once you've personally pulled your own trail out of the audit log, no exam query on it will rattle you.</div>
     </div>
 
     <div class="exercise" data-title="Find the PSS echo">
-      <p>With 5.3 done, grep the audit log for <code>pod-security.kubernetes.io</code> in annotations.</p>
-      <div class="verify"><b>verify:</b> the lazy pod's restricted violations were recorded by the namespace's <code>audit: restricted</code> label, timestamped and attributed. That one log line ties sections 5.2, 5.3 and 5.4 together, which is roughly how a real compliance program works.</div>
+      <p>After running through 5.3, grep the audit log for <code>pod-security.kubernetes.io</code> inside annotations.</p>
+      <div class="verify"><b>verify:</b> the lazy pod's restricted violations show up timestamped and attributed, recorded quietly by the namespace's <code>audit: restricted</code> label. That single log line ties sections 5.2, 5.3, and 5.4 together, mirroring how real compliance programs operate.</div>
     </div>
 
     <div class="exercise" data-title="Mine the vulnerability data">
-      <p>Not "are there reports" but questions with answers:</p>
+      <p>Skip "do reports exist?" and ask a real triage question:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl get vulnerabilityreports -A -o json | jq -r '
   .items[] | [.metadata.namespace, .metadata.name,
   (.report.summary.criticalCount|tostring), (.report.summary.highCount|tostring)] | @tsv' | sort -t$'\t' -k3 -rn | head</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl get vulnerabilityreports -A -o json | jq -r '</b>
@@ -304,22 +305,22 @@ tekton-pipelines	replicaset-tekton-triggers-webhook-5ddd9c4cbd-webhook	3	10
 tekton-pipelines	replicaset-tekton-pipelines-webhook-5568b6-webhook	3	10
 tekton-pipelines	replicaset-7c789d7fd9	3	10
 tekton-pipelines	replicaset-6985f46fcc	3	15</code></pre></details></div>
-      <p>Pick the top image and drill in: which CVE, which package, is there a fix version (<code>.report.vulnerabilities[] | select(.severity=="CRITICAL")</code>).</p>
-      <div class="verify"><b>verify:</b> a ranked worst-offenders list, and one actionable package bump identified. That triage, from fleet view to one action, is the whole vulnerability-management job in miniature.</div>
+      <p>Pick the top offender and drill in: which CVE, which package, and whether a fixed version exists (<code>.report.vulnerabilities[] | select(.severity=="CRITICAL")</code>).</p>
+      <div class="verify"><b>verify:</b> you have a ranked list of worst offenders and one concrete package bump to ship. Moving from a fleet-wide view down to a single actionable fix is the whole vulnerability-management job in miniature.</div>
     </div>
 
     <div class="exercise" data-title="Produce and read an SBOM">
-      <p>Fleet-side: <code>kubectl get sbomreports -A | head</code>, then extract one and count its components (<code>kubectl get sbomreport &lt;name&gt; -n &lt;ns&gt; -o jsonpath='{.report.components.components}' | jq length</code>). Artifact-side, the pipeline angle from 2.4: <code>trivy image --format cyclonedx --output sbom.json ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine</code> and confirm both SBOMs speak the same CycloneDX.</p>
-      <div class="verify"><b>verify:</b> you can say what an SBOM is <em>for</em> in one sentence (when the next log4shell drops, you query your SBOMs for the package instead of rescanning the world).</div>
+      <p>Fleet side: run <code>kubectl get sbomreports -A | head</code>, then pick one and count its components (<code>kubectl get sbomreport &lt;name&gt; -n &lt;ns&gt; -o jsonpath='{.report.components.components}' | jq length</code>). Pipeline side (from 2.4): run <code>trivy image --format cyclonedx --output sbom.json ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine</code> and confirm both SBOMs speak the same CycloneDX schema.</p>
+      <div class="verify"><b>verify:</b> you can sum up why SBOMs exist in one crisp sentence: when the next log4shell drops, you query your SBOMs for that package instead of rescanning the world.</div>
     </div>
 
     <div class="exercise" data-title="Read a compliance rollup">
-      <p><code>kubectl get clustercompliancereports</code> (CIS, NSA, PSS variants), then one in detail: <code>kubectl get clustercompliancereport k8s-cis-1.23 -o jsonpath='{.status.summary}'</code>, and find one failing control's ID and description in the full output.</p>
-      <div class="verify"><b>verify:</b> you can trace a failed control to the check behind it and say which earlier curriculum section would fix it. Most CIS findings in this lab trace back to sections 5.1–5.3.</div>
+      <p>Run <code>kubectl get clustercompliancereports</code> (CIS, NSA, and PSS profiles), inspect one summary via <code>kubectl get clustercompliancereport k8s-cis-1.23 -o jsonpath='{.status.summary}'</code>, then dig into the full output to pull out one failing control's ID and description.</p>
+      <div class="verify"><b>verify:</b> you can trace a failed control back to the underlying check and name which earlier section fixes it. Most CIS failures in this lab map directly to sections 5.1–5.3.</div>
     </div>
 
     <div class="exercise" data-title="Two SBOMs of the same image">
-      <p>An SBOM is only useful if you can scan it and compare it. Produce one with each tool, feed it back to the scanner, and then suppress a finding with VEX so the exception is a document rather than a flag.</p>
+      <p>An SBOM only pays off if you can scan it and compare it. Generate one with Trivy and one with Syft, feed it back into the scanner, then suppress one CVE with a VEX document so the exception lives in a reviewable file rather than a CLI flag.</p>
       <div class="cb" data-lang="bash"><pre><code>trivy image --format spdx-json --output /tmp/sbom-trivy.json ghcr.io/stefanprodan/podinfo:6.7.1
 jq '{name: .name, packages: (.packages | length)}' /tmp/sbom-trivy.json
 mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"
@@ -515,11 +516,11 @@ Legend:
 ghcr.io/stefanprodan/podinfo:6.7.1 (alpine 3.20.3)
 ==================================================
 Total: 19 (HIGH: 17, CRITICAL: 2)</code></pre></details></div>
-      <div class="verify"><b>verify:</b> two SBOM files exist, both list the alpine packages plus the Go module list, and <code>comm</code> shows where the two catalogers disagree. The counts are close but not identical, which is the honest result: each tool decides for itself what counts as a package. <code>trivy sbom</code> accepts either file as input. Then the VEX half: the same image rescanned with <code>--vex</code> reports 19 alpine findings where the plain scan reported 21, and trivy says so in a line of its own, "Some vulnerabilities have been ignored/suppressed". An exception you can diff, not a flag someone remembered to pass.</div>
+      <div class="verify"><b>verify:</b> both SBOMs list the Alpine packages and Go modules, and <code>comm</code> highlights where the two catalogers disagree. Slightly different counts are completely normal: each tool draws its own line on what counts as a package, and <code>trivy sbom</code> happily scans either file. On the VEX half, rescanning with <code>--vex</code> drops Alpine findings from 21 to 19 and prints a clear notice ("Some vulnerabilities have been ignored/suppressed"): an auditable exception you can review in git, not an ad-hoc flag someone remembered to type.</div>
     </div>
 
     <div class="exercise" data-title="Force a compliance report to refresh">
-      <p>A ClusterComplianceReport is generated on a schedule, so a stale timestamp means you are reading yesterday's answer. Changing the cron is the supported way to force a rerun, and the timestamp proves it happened.</p>
+      <p>Because a <code>ClusterComplianceReport</code> runs on a cron schedule, a stale timestamp means you're staring at yesterday's picture. Patching <code>spec.cron</code> is the supported way to trigger a fresh rollup, and <code>status.updateTimestamp</code> proves it ran.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl get clustercompliancereport
 BEFORE=$(kubectl get clustercompliancereport k8s-cis-1.23 -o jsonpath='{.status.updateTimestamp}'); echo "before: $BEFORE"
 kubectl get clustercompliancereport k8s-cis-1.23 -o jsonpath='{.spec.cron}{"\n"}'
@@ -547,11 +548,11 @@ after:  2026-09-13T10:49:49Z (took 10s)
 }
 <b>$ kubectl patch clustercompliancereport k8s-cis-1.23 --type merge -p '{"spec":{"cron":"0 */6 * * *"}}'</b>
 clustercompliancereport.aquasecurity.github.io/k8s-cis-1.23 patched</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the timestamp moves and the summary counts fail and pass totals.</div>
+      <div class="verify"><b>verify:</b> the timestamp advances and the summary reports updated pass and fail totals.</div>
     </div>
 
     <div class="exercise" data-title="Run kube-bench against the node">
-      <p>CIS benchmark output is the format compliance conversations happen in: a control id, a verdict, and a remediation. Run it once so the ids mean something when a task quotes one at you.</p>
+      <p>CIS benchmark output is the lingua franca of cluster compliance: a control ID, a verdict, and a concrete remediation step. Run it once so those numbered IDs click immediately when a task quotes one at you.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: batch/v1
 kind: Job
@@ -639,7 +640,7 @@ on the control plane node and ensure the correct value for the --bind-address pa
 0 checks INFO
 <b>$ kubectl delete job kube-bench</b>
 job.batch "kube-bench" deleted from default namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> you can quote one PASS and one FAIL with their control ids, and read the remediation text for the failure.</div>
+      <div class="verify"><b>verify:</b> you can cite one PASS and one FAIL with their control IDs and read the exact remediation text for the failure.</div>
     </div>
 
   </div>
@@ -649,29 +650,29 @@ job.batch "kube-bench" deleted from default namespace</code></pre></details></di
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>Which audit level would you set for Secrets, and which for Events? Why?</summary>
-      <div class="answer"><p>Secrets: <code>Metadata</code>, never Request or RequestResponse, or you write secret values into a log file. Events: <code>None</code>; they are high-volume and low-value, and dropping them keeps the log readable. First-match-wins ordering makes those two rules the top of the file.</p></div></details>
+      <div class="answer"><p>Secrets go at <code>Metadata</code>, never <code>Request</code> or <code>RequestResponse</code>, so you don't leak secret values straight into log files. Events go at <code>None</code> because they're noisy, high-volume, and low-value. Because rules are first-match-wins, put both near the top of your policy file.</p></div></details>
 
     <details class="quiz"><summary>Find every request a specific ServiceAccount was denied. What does the query look like?</summary>
-      <div class="answer"><p>Filter on <code>.user.username == "system:serviceaccount:&lt;ns&gt;:&lt;name&gt;"</code> and either <code>.responseStatus.code == 403</code> or <code>.annotations["authorization.k8s.io/decision"] == "forbid"</code>, then print verb and objectRef. That is the audit-log form of the RBAC debugging you did in 5.1.</p></div></details>
+      <div class="answer"><p>Filter on <code>.user.username == "system:serviceaccount:&lt;ns&gt;:&lt;name&gt;"</code> paired with either <code>.responseStatus.code == 403</code> or <code>.annotations["authorization.k8s.io/decision"] == "forbid"</code>, then project out <code>verb</code> and <code>objectRef</code>. That's the audit-log twin of the RBAC debugging you practiced in 5.1.</p></div></details>
 
     <details class="quiz"><summary>An SBOM and a vulnerability report: what is the difference and why keep both?</summary>
-      <div class="answer"><p>The SBOM is an inventory of components; the vulnerability report is that inventory joined against a CVE database at a point in time. Keep both because the inventory stays true while the CVE list changes daily; that is exactly why continuous rescanning (the operator) matters more than a scan at build time alone.</p></div></details>
+      <div class="answer"><p>An SBOM is a static inventory of components and versions; a vulnerability report is that inventory matched against a CVE database at one moment in time. Keep both because the inventory stays constant while new CVEs appear every day, which is why continuous rescanning via an operator beats scanning only at build time.</p></div></details>
 
     <details class="quiz"><summary>Why is "compliance as CRDs" a platform-engineering idea rather than a Trivy feature?</summary>
-      <div class="answer"><p>Because it makes compliance data a first-class API object: queryable with kubectl, protected by RBAC, watchable by controllers, graphable in Grafana, and reviewable in git. The alternative, reports as files in a bucket, cannot be joined to anything the platform already does.</p></div></details>
+      <div class="answer"><p>Because storing compliance findings as Kubernetes API objects makes them queryable with kubectl, governed by RBAC, watchable by controllers, graphable in Grafana, and reviewable in git. Static reports dumped into an object bucket can't integrate cleanly with anything else your platform already runs.</p></div></details>
 
     <details class="quiz"><summary>Your cluster's API server will not start after an audit change. First hypothesis?</summary>
-      <div class="answer"><p>The audit policy file is missing or unparseable at the path given by <code>--audit-policy-file</code> (or the volume mount is wrong). The API server refuses to start rather than run unaudited: a safety choice that presents as a dead control plane.</p></div></details>
+      <div class="answer"><p>The policy file at <code>--audit-policy-file</code> is missing, unreadable, or has invalid YAML (or its <code>hostPath</code> mount in the static pod manifest is broken). By design, <code>kube-apiserver</code> refuses to start rather than run silently unaudited, so a small audit mistake looks like a dead control plane.</p></div></details>
   
 
     <details class="quiz"><summary>Your audit policy puts the catch-all <code>Metadata</code> rule first and the Secrets rule after it. What is wrong, and what else should precede the catch-all?</summary>
-      <div class="answer"><p>First match wins, so the Secrets rule never applies and every request lands at Metadata (harmless for Secrets in this case, but the same mistake with a <code>None</code> rule after the catch-all means the noise is never dropped, and a <code>RequestResponse</code> rule after it never raises RBAC changes). Order: <code>None</code> for health URLs, leases and kube-proxy watches; <code>Metadata</code> for secrets, configmaps, tokenreviews and <code>pods/exec</code>; <code>RequestResponse</code> for RBAC and policy groups; then the catch-all.</p></div></details>
+      <div class="answer"><p>First match wins, so putting the catch-all first makes every rule below it dead code. Here Secrets still land at <code>Metadata</code> by luck, but any <code>None</code> rule below the catch-all stops filtering noise, and any <code>RequestResponse</code> rule below it stops capturing RBAC diffs. Always order from top to bottom: <code>None</code> for health URLs, leases, and kube-proxy watches; <code>Metadata</code> for secrets, configmaps, tokenreviews, and <code>pods/exec</code>; <code>RequestResponse</code> for RBAC and policy groups; and the catch-all last.</p></div></details>
 
     <details class="quiz"><summary>Which layer catches each: a user reads a Secret; a process in a container starts <code>/bin/sh</code>; an image contains a package with a new CVE; a node's kubelet allows anonymous auth?</summary>
-      <div class="answer"><p>API audit log (Metadata on <code>secrets</code>); Falco syscall rules; the Trivy Operator's VulnerabilityReport on rescan (or a pipeline scan at build); kube-bench or the Trivy Operator's InfraAssessmentReport and CIS compliance report. Four different sensors, one compliance story; naming which sees what is the answer to "design a complete audit trail".</p></div></details>
+      <div class="answer"><p>In order: the API audit log (<code>Metadata</code> rule on <code>secrets</code>), Falco syscall rules, the Trivy Operator's <code>VulnerabilityReport</code> on rescan (or a pipeline scan at build time), and <code>kube-bench</code> or the Trivy Operator's <code>InfraAssessmentReport</code> / CIS compliance report. Four distinct sensors telling one compliance story; naming which layer catches what is how you nail "design a complete audit trail".</p></div></details>
 
     <details class="quiz"><summary>What is the difference between an SBOM attestation and a VEX document, and why keep both?</summary>
-      <div class="answer"><p>The SBOM lists what is inside the artefact; VEX states whether known vulnerabilities in those components actually affect it (not affected, affected, fixed, under investigation) with a justification. Scanners join the SBOM against CVE feeds and then apply VEX to suppress non-applicable findings with a recorded reason, which is auditable in a way a bare <code>.trivyignore</code> line is not.</p></div></details>
+      <div class="answer"><p>The SBOM lists every component inside an artifact, while VEX states whether specific CVEs in those components actually affect the product (not affected, affected, fixed, or under investigation) along with a justification. Scanners match the SBOM against CVE feeds and then apply VEX to suppress non-applicable findings with a documented rationale, which is auditable in a way a bare <code>.trivyignore</code> entry isn't.</p></div></details>
   </div>
 </section>
 
@@ -681,11 +682,11 @@ job.batch "kube-bench" deleted from default namespace</code></pre></details></di
     <ul class="docs">
       <li><b>kubernetes.io</b>: Auditing (policy levels, stages, and the event schema).</li>
       <li><b>aquasecurity.github.io/trivy-operator</b>: the CRD reference pages, one per report kind.</li>
-      <li><b>cyclonedx.org</b> / <b>spdx.dev</b>: enough to know which is which.</li>
-      <li><b>Offline:</b> <code>jq</code> against the log file, and <code>kubectl explain clustercompliancereport.status</code>.</li>
+      <li><b>cyclonedx.org</b> / <b>spdx.dev</b>: just enough to tell the two formats apart cleanly.</li>
+      <li><b>Offline:</b> <code>jq</code> against the audit log file, plus <code>kubectl explain clustercompliancereport.status</code>.</li>
     
-      <li><b>kubernetes.io/docs/tasks/debug/debug-cluster/audit</b>: rule fields, stages, and the full flag list for both backends; the <code>Policy</code> API reference under <code>audit.k8s.io/v1</code> for <code>omitManagedFields</code>.</li>
-      <li><b>aquasecurity.github.io/trivy-operator/latest/docs/crds</b> (one page per report kind) and <b>/docs/compliance</b> (the four compliance spec ids); <b>aquasecurity.github.io/trivy/latest/docs/configuration/filtering</b> for VEX and ignore files.</li>
+      <li><b>kubernetes.io/docs/tasks/debug/debug-cluster/audit</b>: rule fields, stages, and every flag for both backends; check the <code>audit.k8s.io/v1</code> <code>Policy</code> API reference for <code>omitManagedFields</code>.</li>
+      <li><b>aquasecurity.github.io/trivy-operator/latest/docs/crds</b> (per-kind references) and <b>/docs/compliance</b> (the four compliance spec IDs); <b>aquasecurity.github.io/trivy/latest/docs/configuration/filtering</b> for VEX and ignore files.</li>
       <li><b>falco.org/docs/rules</b> for rule syntax and <b>github.com/in-toto/attestation/tree/main/spec</b> for the Statement and DSSE layout.</li>
     </ul>
   </div>

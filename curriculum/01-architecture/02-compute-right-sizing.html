@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#171c1d" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f5f0" media="(prefers-color-scheme: light)">
-<meta name="description" content="Requests and limits look like beginner material and then show up everywhere: quotas count requests, OpenCost bills requests, LimitRanges inject them, Kyverno policies demand them, HPAs divide by them, and the resources">
+<meta name="description" content="Master Kubernetes requests, limits, QoS classes, scheduling levers, HPA, VPA, node autoscaling, and in-place pod resizing.">
 <title>1.2 Compute: requests, limits, QoS, scheduling, autoscaling · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
 <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
@@ -18,7 +18,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum">Requests and limits look like beginner material and then show up everywhere: quotas count requests, OpenCost bills requests, LimitRanges inject them, Kyverno policies demand them, HPAs divide by them, and the <code>resources</code> break drill corrupts them. Get the mechanics exact and four other sections get easier.</p>
+  <p class="sum">Requests and limits look like Kubernetes 101 until you realize they show up everywhere: quotas count requests, OpenCost bills requests, LimitRanges inject them, Kyverno policies require them, HPAs divide by them, and our <code>resources</code> break drill corrupts them. Lock down these mechanics and four other sections immediately click into place.</p>
 </header>
 
 <div class="stats"></div>
@@ -28,19 +28,19 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 1.1 + 1.2 · compute and scaling</span></div>
   <div class="pbody">
-    <p class="lede">Two numbers per container decide scheduling, cost, eviction order, throttling, and whether your workload survives a noisy neighbor. This section states what each number does at each layer.</p>
+    <p class="lede">Just two numbers per container control scheduling, cost, eviction order, CPU throttling, and whether your app survives a noisy neighbor. Let's trace exactly what each number does at every layer.</p>
     <div class="callout model">
-      <span class="tag">One sentence to hold everything together</span>
-      <p>A <strong>request</strong> is a claim against the scheduler's arithmetic; a <strong>limit</strong> is a ceiling enforced by the kernel at runtime. Nothing reconciles the two after scheduling, which is how a node can be 30% used and 100% requested at the same time. Section 1.5 turns that gap into money.</p>
+      <span class="tag">One sentence that ties it all together</span>
+      <p>A <strong>request</strong> is a reservation the scheduler uses for placement math; a <strong>limit</strong> is a hard ceiling the kernel enforces at runtime. Nothing reconciles the two after scheduling, which is how a node can burn 30% CPU while sitting 100% requested. Section 1.5 puts a dollar figure on that exact gap.</p>
     </div>
   </div>
 </section>
 
 <section class="panel accent-c" id="mechanics">
-  <div class="phdr"><h2>How requests and limits are enforced</h2><span class="meta">scheduler arithmetic · cgroup enforcement</span></div>
+  <div class="phdr"><h2>How requests and limits actually work</h2><span class="meta">scheduler arithmetic · cgroup enforcement</span></div>
   <div class="pbody">
     <h3>What the scheduler does with requests</h3>
-    <p>The scheduler sums the requests of all non-terminated pods on a node and compares against the node's <strong>allocatable</strong>, not its capacity. Allocatable is capacity minus <code>kube-reserved</code>, <code>system-reserved</code>, and the eviction threshold. Live usage is never consulted. A node running at 5% CPU with every millicore requested is, to the scheduler, completely full.</p>
+    <p>The scheduler adds up the requests of every non-terminated pod on a node and checks the sum against the node's <strong>allocatable</strong> resources (not total capacity; allocatable is capacity minus <code>kube-reserved</code>, <code>system-reserved</code>, and eviction thresholds). Live CPU and memory usage never enter the equation. If a node is sitting at 5% real CPU with 100% of its millicores requested, the scheduler treats it as completely full.</p>
 
     <pre class="diagram"><b>node capacity</b>          ████████████████████████████████████████  4000m
 <b>allocatable</b>            ██████████████████████████████████░░░░░░  3800m  (minus kubelet/system/eviction)
@@ -48,7 +48,7 @@
 <u>actual usage</u>           ██████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  1100m  ← what <em>you</em> actually use; the rest is paid for anyway
                                  └────────────────────┘
                                   the right-sizing gap: 2500m reserved and never used</pre>
-    <p>The four numbers, live: drag the requests up until the node refuses another pod, then drag usage down and watch what you are paying for:</p>
+    <p>Try it live: push requests up until the node stops accepting pods, then drop live usage and watch how much idle capacity you're still paying for:</p>
     <div class="widget" data-widget="capacity"></div>
 
 
@@ -57,186 +57,186 @@
       <table>
         <thead><tr><th>Resource</th><th>request becomes</th><th>limit becomes</th><th>over the limit</th></tr></thead>
         <tbody>
-          <tr><td class="mono">cpu</td><td class="mono">cpu.weight (relative share)</td><td class="mono">cpu.max (quota per 100ms period)</td><td class="warn">throttled: silently, no event, no restart</td></tr>
-          <tr><td class="mono">memory</td><td class="mono">eviction ranking only</td><td class="mono">memory.max</td><td class="bad">OOMKilled: instant, by the kernel</td></tr>
+          <tr><td class="mono">cpu</td><td class="mono">cpu.weight (relative share)</td><td class="mono">cpu.max (quota per 100ms period)</td><td class="warn">throttled silently: no event, no restart</td></tr>
+          <tr><td class="mono">memory</td><td class="mono">eviction ranking only</td><td class="mono">memory.max</td><td class="bad">OOMKilled instantly by the kernel</td></tr>
           <tr><td class="mono">ephemeral-storage</td><td>scheduling claim</td><td>kubelet-enforced</td><td class="bad">pod evicted</td></tr>
-          <tr><td class="mono">hugepages / devices</td><td colspan="3">requests must equal limits; no overcommit possible</td></tr>
+          <tr><td class="mono">hugepages / devices</td><td colspan="3">requests must equal limits; zero overcommit allowed</td></tr>
         </tbody>
       </table>
     </div>
 
-    <p>CPU is compressible: exceed the limit and the CFS scheduler stops giving you cycles until the next 100ms period. Latency-sensitive services with a tight CPU limit get periodic stalls that look like network problems; <code>container_cpu_cfs_throttled_periods_total</code> is where the truth lives, and a nonzero rate on a healthy-looking service is a real finding. Memory is incompressible: there is no "slow down", only the OOM killer.</p>
+    <p>CPU is compressible: blow past your limit and the CFS scheduler simply pauses your container until the next 100ms window. Latency-sensitive services with tight CPU limits suffer mysterious periodic stalls that masquerade as network blips. Check <code>container_cpu_cfs_throttled_periods_total</code> to spot it fast. Memory is incompressible: you can't "slow down" RAM, so crossing the ceiling brings down the OOM killer immediately.</p>
 
     <div class="callout exam">
-      <span class="tag">Know which field holds the evidence</span>
-      <p>For a pod with <code>--restart=Never</code>, an OOM kill lands in <code>.status.containerStatuses[0].state.terminated.reason</code>. In a crash-looping Deployment, the container has already restarted, so the same evidence is in <code>lastState.terminated.reason</code> and <code>state</code> shows <em>waiting: CrashLoopBackOff</em>. Reading the wrong field and concluding "no OOM here" is a classic self-inflicted wound.</p>
+      <span class="tag">Check the right status field</span>
+      <p>On a one-shot pod (<code>--restart=Never</code>), an OOMKill appears in <code>.status.containerStatuses[0].state.terminated.reason</code>. On a crash-looping Deployment, the container has already bounced, so the proof lives in <code>lastState.terminated.reason</code> while <code>state</code> only shows <em>waiting: CrashLoopBackOff</em>. Looking at <code>state</code> alone and declaring "not an OOM" is an easy trap to avoid.</p>
     </div>
 
-    <h3>QoS, derived not memorized</h3>
+    <h3>QoS classes: derive them, don't memorize them</h3>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Class</th><th>Condition</th><th>Eviction order</th><th class="mono">oom_score_adj</th></tr></thead>
         <tbody>
-          <tr><td class="ok mono">Guaranteed</td><td>every container: requests == limits for <em>both</em> cpu and memory</td><td>last</td><td class="mono">-997</td></tr>
-          <tr><td class="warn mono">Burstable</td><td>at least one request or limit set, but not Guaranteed</td><td>middle: those exceeding requests first</td><td class="mono">2–999, scaled</td></tr>
-          <tr><td class="bad mono">BestEffort</td><td>nothing set at all</td><td>first</td><td class="mono">1000</td></tr>
+          <tr><td class="ok mono">Guaranteed</td><td>every container sets requests == limits for <em>both</em> CPU and memory</td><td>last</td><td class="mono">-997</td></tr>
+          <tr><td class="warn mono">Burstable</td><td>at least one request or limit set, without qualifying for Guaranteed</td><td>middle: pods exceeding requests first</td><td class="mono">2–999, scaled</td></tr>
+          <tr><td class="bad mono">BestEffort</td><td>no requests or limits set at all</td><td>first</td><td class="mono">1000</td></tr>
         </tbody>
       </table>
     </div>
 
-    <p>Derive it rather than recall it. Set the four numbers and read the class, the eviction rank and the two runtime behaviors:</p>
+    <p>Don't rely on rote recall: tweak the four numbers below and watch the QoS class, eviction rank, and runtime behavior update live:</p>
     <div class="widget" data-widget="qos"></div>
-    <p>Under node memory pressure the kubelet ranks victims in a specific order: pods whose usage exceeds their requests first, then by <strong>Pod Priority</strong> (lowest goes first), then by how far over the request they are. QoS class is a consequence of that first test rather than an input: a BestEffort pod requested nothing, so it always exceeds. The practical corollary: a high-priority Burstable pod outlives a low-priority BestEffort one, which is why <code>PriorityClass</code> protects platform components from <em>eviction</em>, not just from preemption. The same ranking is mirrored to the kernel via <code>oom_score_adj</code> so a system-level OOM picks the same victim. CPU pressure never evicts anything; it only throttles. If someone tells you a pod was "evicted for CPU", they are describing something else.</p>
+    <p>When a node hits memory pressure, kubelet picks eviction victims in a clear order: pods exceeding their requests go first, ranked by <strong>Pod Priority</strong> (lowest first) and then by how far over their request they are. QoS class falls straight out of that rule: a BestEffort pod requested zero, so it's always over. Notice the practical takeaway: a high-priority Burstable pod outlives a low-priority BestEffort one, which is why <code>PriorityClass</code> shields platform agents from eviction as well as preemption. The kernel mirrors this ranking through <code>oom_score_adj</code> so node-level OOMs pick the same victim. And remember: CPU pressure never evicts pods, it only throttles them.</p>
   </div>
 </section>
 
 <section class="panel accent-p" id="placement">
-  <div class="phdr"><h2>Placement: the levers, in the order you reach for them</h2><span class="meta">and what each one costs</span></div>
+  <div class="phdr"><h2>Placement levers, in the order you reach for them</h2><span class="meta">and what each one costs</span></div>
   <div class="pbody">
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Lever</th><th>Direction</th><th>Hard or soft</th><th>Reach for it when</th></tr></thead>
         <tbody>
-          <tr><td class="mono">nodeSelector</td><td>pod → node labels</td><td>hard only</td><td>trivially simple pinning; blunt</td></tr>
-          <tr><td class="mono">nodeAffinity</td><td>pod → node labels</td><td><code>required…</code> / <code>preferred…</code> with weights</td><td>expressive pinning, operators (In, NotIn, Exists, Gt, Lt)</td></tr>
-          <tr><td class="mono">podAffinity / podAntiAffinity</td><td>pod → other pods, within a <code>topologyKey</code></td><td>both</td><td>co-locate with a cache; spread replicas across nodes</td></tr>
+          <tr><td class="mono">nodeSelector</td><td>pod → node labels</td><td>hard only</td><td>quick, blunt pinning</td></tr>
+          <tr><td class="mono">nodeAffinity</td><td>pod → node labels</td><td><code>required…</code> / <code>preferred…</code> with weights</td><td>flexible pinning using operators (In, NotIn, Exists, Gt, Lt)</td></tr>
+          <tr><td class="mono">podAffinity / podAntiAffinity</td><td>pod → other pods within a <code>topologyKey</code></td><td>both</td><td>co-locating with a cache or spreading replicas apart</td></tr>
           <tr><td class="mono">taints + tolerations</td><td>node repels pods</td><td><code>NoSchedule</code>, <code>PreferNoSchedule</code>, <code>NoExecute</code></td><td>dedicated pools, control planes, GPU nodes</td></tr>
-          <tr><td class="mono">topologySpreadConstraints</td><td>even distribution over a label domain</td><td><code>DoNotSchedule</code> / <code>ScheduleAnyway</code></td><td>zone/node spread with a bounded skew, the modern default</td></tr>
-          <tr><td class="mono">priorityClass</td><td>who wins when the node is full</td><td>preemption</td><td>platform components must outrank tenant workloads</td></tr>
+          <tr><td class="mono">topologySpreadConstraints</td><td>even spread across a label domain</td><td><code>DoNotSchedule</code> / <code>ScheduleAnyway</code></td><td>zone or node balance with bounded skew (the modern default)</td></tr>
+          <tr><td class="mono">priorityClass</td><td>decides who wins on a full node</td><td>preemption</td><td>protecting platform components over tenant workloads</td></tr>
         </tbody>
       </table>
     </div>
 
-    <p>Three details that decide tasks. Taints repel <em>pods</em>, tolerations do not attract: a toleration only says "I can live here", never "put me here". Pairing a taint with a matching nodeAffinity is how you actually dedicate a pool. <code>NoExecute</code> evicts already-running pods that lack the toleration, and <code>tolerationSeconds</code> is what makes the node-not-ready eviction delay configurable. And anti-affinity is expensive to evaluate at scale, which is why <code>topologySpreadConstraints</code> exists: same intent, bounded cost, plus <code>maxSkew</code> to say <em>how</em> even is even enough.</p>
+    <p>Three subtleties show up constantly in tasks. First, taints repel pods, while tolerations only <em>allow</em> placement; they never attract pods on their own. To truly dedicate a node pool, pair a taint with a matching <code>nodeAffinity</code>. Second, <code>NoExecute</code> evicts already-running pods that lack the toleration (with optional <code>tolerationSeconds</code> grace delay). Third, pod anti-affinity gets expensive on large clusters, which is why <code>topologySpreadConstraints</code> is the preferred modern tool: cleaner intent, bounded cost, and explicit <code>maxSkew</code>.</p>
 
     <div class="callout lab">
-      <span class="tag">This cluster is built for it</span>
-      <p>The kind config labels its workers into two zones (<code>topology.kubernetes.io/zone</code>) so spread constraints do something observable. <code>kubectl get nodes -L topology.kubernetes.io/zone</code> shows the domains before you write the constraint. Read the labels first, or you will write a constraint against a key no node carries, which fails <em>open</em> under <code>ScheduleAnyway</code> and <em>closed</em> under <code>DoNotSchedule</code>.</p>
+      <span class="tag">Built right into this cluster</span>
+      <p>Our kind config stamps its workers into two zones via <code>topology.kubernetes.io/zone</code> so you can actually test spread constraints. Run <code>kubectl get nodes -L topology.kubernetes.io/zone</code> before writing your manifest, because targeting a label key no node carries silently fails open under <code>ScheduleAnyway</code> and locks everything Pending under <code>DoNotSchedule</code>.</p>
     </div>
 
-    <p>One neighbor worth naming because availability tasks touch it: a <strong>PodDisruptionBudget</strong> constrains <em>voluntary</em> disruptions (drains, node upgrades) with <code>minAvailable</code> or <code>maxUnavailable</code>. It does nothing about crashes or node failures. A PDB of <code>minAvailable: 100%</code> is the classic way to make a cluster upgrade hang forever, and recognizing that stalled-drain symptom is worth a mark.</p>
+    <p>One availability neighbor worth keeping top of mind: a <strong>PodDisruptionBudget</strong> limits <em>voluntary</em> disruptions (node drains, cluster upgrades) using <code>minAvailable</code> or <code>maxUnavailable</code>. It won't stop crashes or hardware failures. Watch out for <code>minAvailable: 100%</code>: it's the fastest way to hang a cluster upgrade forever, and spotting that stalled-drain symptom is an easy exam win.</p>
   </div>
 </section>
 
 <section class="panel accent-y" id="autoscaling">
-  <div class="phdr"><h2>Autoscaling: three different scalers, three different jobs</h2><span class="meta">HPA · VPA · node scaling</span></div>
+  <div class="phdr"><h2>Autoscaling: different scalers for different jobs</h2><span class="meta">HPA · VPA · node scaling</span></div>
   <div class="pbody">
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Scaler</th><th>Changes</th><th>Input</th><th>Gotcha</th></tr></thead>
         <tbody>
-          <tr><td class="mono">HPA</td><td>replica count</td><td>live metrics (Resource, Pods, Object, External)</td><td>needs metrics-server; percentage targets are relative to <em>requests</em></td></tr>
-          <tr><td class="mono">VPA</td><td>the requests themselves</td><td>historical usage</td><td>fights an HPA on the same resource; <code>updateMode: Off</code> makes it advisory</td></tr>
-          <tr><td class="mono">Cluster Autoscaler / Karpenter</td><td>node count / node size</td><td>unschedulable pods</td><td>reacts to <em>Pending</em> pods, so it is downstream of requests too</td></tr>
-          <tr><td class="mono">KEDA</td><td>replicas, including 0</td><td>queue depth, topic lag, cron, any external source</td><td>a <code>ScaledObject</code> generates an HPA underneath; it is the thing that produces those "External" metrics, and the only way to scale to zero</td></tr>
+          <tr><td class="mono">HPA</td><td>replica count</td><td>live metrics (Resource, Pods, Object, External)</td><td>requires metrics-server; percentage targets divide by <em>requests</em></td></tr>
+          <tr><td class="mono">VPA</td><td>container requests</td><td>historical usage</td><td>fights HPA if both watch the same metric; <code>updateMode: Off</code> keeps it safely advisory</td></tr>
+          <tr><td class="mono">Cluster Autoscaler / Karpenter</td><td>node count or size</td><td>unschedulable pods</td><td>triggers on <em>Pending</em> pods, so it's downstream of requests too</td></tr>
+          <tr><td class="mono">KEDA</td><td>replicas, all the way to 0</td><td>queue depth, topic lag, cron, external triggers</td><td>generates an HPA under the hood for External metrics, and handles scale-to-zero</td></tr>
         </tbody>
       </table>
     </div>
 
-    <h3>The HPA formula, which explains every surprise</h3>
+    <h3>The HPA formula behind every scaling surprise</h3>
     <div class="cb" data-lang="text"><pre><code>desiredReplicas = ceil( currentReplicas × ( currentMetricValue / desiredMetricValue ) )</code></pre></div>
-    <p>With one caveat that explains most "why didn't it scale" moments: the HPA does nothing while the ratio sits inside its <strong>tolerance</strong> (10% by default), and pods that are unready or missing metrics are left out of the average entirely. With <code>--cpu-percent=20</code> and containers requesting 25m, the target is 5m of actual usage per pod. That is why a demo app with a tiny request scales up under a trivial load: the percentage is a fraction of the request, not of the node. Change the request and you change the autoscaler's behavior without touching the HPA.</p>
-    <p>Scaling up is fast; scaling down waits out a stabilization window (300s by default) so a brief dip cannot flap your fleet. Both directions are configurable per-HPA under <code>spec.behavior</code> with policies (pods or percent, per period) and <code>selectPolicy</code>. Knowing that downscale lag exists, and that it is deliberate, is worth a mark on its own.</p>
+    <p>Keep two details in mind whenever an HPA seems stubborn: it ignores changes inside its <strong>tolerance</strong> band (10% by default), and it treats unready pods or pods with missing metrics specially. Also notice the denominator: with <code>--cpu-percent=20</code> on containers requesting 25m CPU, the threshold is just 5m of actual CPU per pod. That's why tiny demo requests scale up under lightweight traffic: percentage targets are always relative to container <em>requests</em>, never node capacity.</p>
+    <p>By default, scale-up reacts fast while scale-down waits through a 300-second stabilization window to prevent flapping. You can tune both directions per HPA under <code>spec.behavior</code> using pod/percent policies and <code>selectPolicy</code>. Simply knowing that scale-down lag is deliberate saves you from chasing phantom bugs.</p>
 
-    <h3>VPA modes</h3>
+    <h3>VPA update modes</h3>
     <ul>
-      <li><code>Off</code>: compute recommendations only. <strong>The exam-relevant one</strong>: a pure right-sizing oracle you can read without letting anything evict.</li>
-      <li><code>Initial</code>: apply recommendations at pod creation only.</li>
-      <li><code>Auto</code> / <code>Recreate</code>: evict and recreate pods to resize them. Disruptive by design, because changing a running pod's requests historically required a new pod.</li>
+      <li><code>Off</code>: calculates recommendations without touching pods. <strong>The exam workhorse</strong>: gives you pure right-sizing data with zero disruption.</li>
+      <li><code>Initial</code>: injects recommendations only when new pods are created.</li>
+      <li><code>Auto</code> / <code>Recreate</code>: evicts and recreates pods to resize them (disruptive by design unless using in-place resize).</li>
     </ul>
-    <p>Newer clusters can resize CPU and memory in place, which softens that trade-off. Do not test for it with <code>kubectl explain pod.spec.containers.resizePolicy</code>; that field has been in the schema since 1.27 whether or not the feature is on. The reliable check is whether the subresource exists: <code>kubectl get --raw /api/v1 | grep -o 'pods/resize'</code>, or try the patch and read the error.</p>
+    <p>Modern Kubernetes clusters support resizing CPU and memory in place, softening that disruption trade-off. Don't probe for support with <code>kubectl explain pod.spec.containers.resizePolicy</code>, because that field has been in the schema since 1.27 regardless of whether the feature is enabled. Instead, check whether the <code>pods/resize</code> subresource exists via <code>kubectl get --raw /api/v1 | grep -o 'pods/resize'</code> (or test a patch directly).</p>
 
     <div class="callout reflex">
       <span class="tag">Command reflex</span>
-      <p><code>kubectl top pod --containers</code> for the instantaneous truth, <code>kubectl describe node</code> for the requests-vs-allocatable table at the bottom (the single most useful capacity view kubectl gives you), and <code>kubectl get vpa -o jsonpath='{.items[*].status.recommendation…}'</code> for what the numbers ought to be.</p>
+      <p>Keep three commands in muscle memory: <code>kubectl top pod --containers</code> for live usage, <code>kubectl describe node</code> for the requests-vs-allocatable summary at the bottom (the best capacity snapshot in <code>kubectl</code>), and <code>kubectl get vpa -o jsonpath='{.items[*].status.recommendation…}'</code> for recommended targets.</p>
     </div>
   </div>
 </section>
 
 <section class="panel accent-c" id="node-scaling">
-  <div class="phdr"><h2>Node scaling and the disruption vocabulary</h2><span class="meta">Cluster Autoscaler vs Karpenter · PDB semantics · PriorityClass · kubelet reservations</span></div>
+  <div class="phdr"><h2>Node scaling and disruption mechanics</h2><span class="meta">Cluster Autoscaler vs Karpenter · PDB semantics · PriorityClass · kubelet reservations</span></div>
   <div class="pbody">
-    <p>The autoscaling table above names the node scalers; a scenario question names their fields. Both react to the same input (Pending pods whose requests fit nowhere) and both consolidate on requests, never on live usage, which is why right-sizing requests (1.5) is the precondition for any node-level saving.</p>
+    <p>Both Cluster Autoscaler and Karpenter react to the exact same trigger (Pending pods that can't fit on existing nodes), and both evaluate consolidation based on pod requests, never live usage. That's why right-sizing requests (1.5) has to come before expecting node-level savings.</p>
 
     <h3>Cluster Autoscaler vs Karpenter</h3>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Aspect</th><th>Cluster Autoscaler</th><th>Karpenter</th></tr></thead>
         <tbody>
-          <tr><td>Unit it manages</td><td>pre-configured node groups (cloud VM groups); picks the group via an expander (<code>least-waste</code> default, <code>priority</code>, <code>most-pods</code>, <code>random</code>)</td><td><code>NodePool</code> constraints (instance families, zones, arch, <code>karpenter.sh/capacity-type</code> spot/on-demand) and per-node <code>NodeClaim</code>s; auto-provisions the cheapest instance that fits</td></tr>
-          <tr><td>Scale-down</td><td>node unneeded for <code>--scale-down-unneeded-time</code> (10m default) below <code>--scale-down-utilization-threshold</code> (0.5)</td><td><code>spec.disruption.consolidationPolicy</code>: <code>WhenEmpty</code>, <code>WhenEmptyOrUnderutilized</code>; <code>consolidateAfter</code> (or <code>Never</code>); can replace a node with a cheaper one</td></tr>
-          <tr><td>Lifecycle</td><td>autoscaling only</td><td>also drift (re-create nodes when NodePool or AMI changes) and expiry (<code>expireAfter</code>, default 720h)</td></tr>
-          <tr><td>Rate limiting</td><td>flags</td><td><code>spec.disruption.budgets</code> (default <code>nodes: 10%</code>, optional cron <code>schedule</code>/<code>duration</code> and <code>reasons</code>); <code>spec.limits</code> caps total CPU/memory a pool may own</td></tr>
+          <tr><td>Unit it manages</td><td>pre-defined cloud node groups; selects a group via an expander (<code>least-waste</code> default, <code>priority</code>, <code>most-pods</code>, <code>random</code>)</td><td><code>NodePool</code> constraints (families, zones, arch, <code>karpenter.sh/capacity-type</code> spot/on-demand) and per-node <code>NodeClaim</code>s; provisions the cheapest fitting instance directly</td></tr>
+          <tr><td>Scale-down</td><td>node idle for <code>--scale-down-unneeded-time</code> (10m default) below <code>--scale-down-utilization-threshold</code> (0.5)</td><td><code>spec.disruption.consolidationPolicy</code> (<code>WhenEmpty</code>, <code>WhenEmptyOrUnderutilized</code>) + <code>consolidateAfter</code> (or <code>Never</code>); can swap nodes for cheaper instances</td></tr>
+          <tr><td>Lifecycle</td><td>autoscaling only</td><td>also handles drift (replacing nodes when NodePool/AMI updates) and expiry (<code>expireAfter</code>, default 720h)</td></tr>
+          <tr><td>Rate limiting</td><td>CLI flags</td><td><code>spec.disruption.budgets</code> (default <code>nodes: 10%</code>, optional cron schedules/reasons); <code>spec.limits</code> caps total pool CPU/memory</td></tr>
           <tr><td>Pod opt-out</td><td class="mono">cluster-autoscaler.kubernetes.io/safe-to-evict: "false"</td><td class="mono">karpenter.sh/do-not-disrupt: "true" (or a duration)</td></tr>
-          <tr><td>What blocks removal</td><td colspan="2">a restrictive PDB, pods with no controller, pods with local storage (CA), kube-system pods without a PDB (CA); both engines respect PDBs and both give up on a node whose eviction is refused</td></tr>
+          <tr><td>What blocks removal</td><td colspan="2">restrictive PDBs, bare pods with no controller, local-storage pods (CA), kube-system pods lacking a PDB (CA); both engines honor PDBs and back off when eviction is denied</td></tr>
         </tbody>
       </table>
     </div>
-    <p>Karpenter posts <code>Unconsolidatable</code> events on the node that name the blocker ("pdb default/x prevents pod evictions", "can't replace with a lower-priced node"), which is where to look when a node you expected to disappear is still there.</p>
+    <p>Whenever a Karpenter node refuses to consolidate, check its events for <code>Unconsolidatable</code>, which spells out the exact blocker (like a PDB or missing cheaper replacement).</p>
 
-    <h3>PodDisruptionBudget</h3>
+    <h3>PodDisruptionBudget details</h3>
     <ul>
-      <li>One of <code>minAvailable</code> or <code>maxUnavailable</code>, integer or percentage; the intended count comes from the owning workload's <code>.spec.replicas</code> via ownerReferences, so a PDB over bare pods cannot use percentages.</li>
-      <li>It gates the <strong>Eviction API</strong> only (drain, autoscaler consolidation, descheduler). Node crashes, OOM kills and rolling updates are not evictions; they still count against the budget but are not blocked by it.</li>
-      <li><code>unhealthyPodEvictionPolicy</code> (GA since 1.31): <code>IfHealthyBudget</code> (default) refuses to evict even unhealthy pods until the budget is met, which is how a crash-looping app stalls a drain; <code>AlwaysAllow</code> lets unhealthy pods go. Kubernetes' own recommendation is <code>AlwaysAllow</code> for anything that may misbehave.</li>
-      <li>Scheduler preemption respects PDBs on a best-effort basis only: if no PDB-safe victim exists, it preempts anyway.</li>
+      <li>Specify either <code>minAvailable</code> or <code>maxUnavailable</code> (integer or percentage). Percentages read <code>.spec.replicas</code> from the owning controller, so bare unmanaged pods can't use percentage budgets.</li>
+      <li>PDBs only guard the <strong>Eviction API</strong> (node drains, autoscaler consolidation, descheduler). Hardware failures, OOMKills, and rolling updates bypass it (though they still eat into available headroom).</li>
+      <li><code>unhealthyPodEvictionPolicy</code> (GA since 1.31): <code>IfHealthyBudget</code> (default) blocks evicting even broken pods until the budget is satisfied, which is how a crash-looping app stalls a drain; <code>AlwaysAllow</code> lets unhealthy pods get evicted cleanly and is Kubernetes' recommended setting for flaky workloads.</li>
+      <li>Scheduler preemption treats PDBs as best-effort: if no PDB-safe victim exists, it preempts anyway.</li>
     </ul>
 
-    <h3>PriorityClass, the fields</h3>
+    <h3>PriorityClass fields</h3>
     <ul>
-      <li>Cluster-scoped; <code>value</code> up to 1000000000 for user classes; <code>system-cluster-critical</code> (2000000000) and <code>system-node-critical</code> (2000001000) are reserved for the control plane and node agents.</li>
-      <li><code>globalDefault: true</code> on at most one class applies to pods with no <code>priorityClassName</code>; otherwise the default priority is 0. It does not retroactively change running pods.</li>
-      <li><code>preemptionPolicy: Never</code> makes a class queue ahead of lower priorities without evicting anyone: the batch-job pattern. The default <code>PreemptLowerPriority</code> evicts.</li>
-      <li>A preempting pod gets <code>status.nominatedNodeName</code> while victims drain; victims receive their full <code>terminationGracePeriodSeconds</code>.</li>
-      <li>Quota can fence a class: a ResourceQuota with <code>scopeSelector</code> <code>scopeName: PriorityClass, operator: In, values: [high]</code> caps how much a tenant may run at that priority (1.4).</li>
+      <li>Cluster-scoped; user values go up to <code>1000000000</code>, while <code>system-cluster-critical</code> (<code>2000000000</code>) and <code>system-node-critical</code> (<code>2000001000</code>) are reserved for control plane and node agents.</li>
+      <li>At most one class can set <code>globalDefault: true</code> for pods that omit <code>priorityClassName</code> (otherwise priority defaults to 0); changing it doesn't alter already-running pods.</li>
+      <li><code>preemptionPolicy: Never</code> lets a workload jump ahead in the scheduling queue without kicking off lower-priority pods, making it ideal for batch jobs. The default <code>PreemptLowerPriority</code> evicts victims.</li>
+      <li>A preempting pod records <code>status.nominatedNodeName</code> while victims shut down gracefully over their <code>terminationGracePeriodSeconds</code>.</li>
+      <li>Use a ResourceQuota with <code>scopeSelector</code> (<code>scopeName: PriorityClass, operator: In, values: [high]</code>) to stop tenants from abusing privileged priority lanes (section 1.4).</li>
     </ul>
 
     <h3>Where allocatable comes from</h3>
-    <p><code>allocatable = capacity - kubeReserved - systemReserved - evictionHard</code>. The kubelet fields are <code>kubeReserved</code> (kubelet, container runtime), <code>systemReserved</code> (sshd, kernel, journald) and <code>evictionHard</code>, whose defaults are <code>memory.available: 100Mi</code>, <code>nodefs.available: 10%</code>, <code>nodefs.inodesFree: 5%</code>, <code>imagefs.available: 15%</code>. <code>enforceNodeAllocatable: [pods]</code> is the default enforcement; adding <code>kube-reserved</code> or <code>system-reserved</code> enforces those cgroups too and is where clusters get hurt when the estimate is wrong. Read all four numbers from <code>kubectl describe node</code> (Capacity vs Allocatable) before you reason about why a pod does not fit.</p>
+    <p><code>allocatable = capacity - kubeReserved - systemReserved - evictionHard</code>. Kubelet subtracts <code>kubeReserved</code> (kubelet, runtime), <code>systemReserved</code> (sshd, kernel, journald), and <code>evictionHard</code> thresholds (defaults: <code>memory.available: 100Mi</code>, <code>nodefs.available: 10%</code>, <code>nodefs.inodesFree: 5%</code>, <code>imagefs.available: 15%</code>). By default <code>enforceNodeAllocatable: [pods]</code> only enforces pod cgroups; enforcing <code>kube-reserved</code> or <code>system-reserved</code> as well can hurt nodes if your estimates run tight. Always check Capacity vs. Allocatable in <code>kubectl describe node</code> before guessing why a pod won't schedule.</p>
 
     <h3>Node sizing rules of thumb</h3>
     <ul>
-      <li>Default cap is 110 pods per node (<code>maxPods</code>); DaemonSets cost one pod and their requests on every node, so many small nodes multiply that overhead, while few huge nodes widen the blast radius of a node failure and make bin-packing lumpier. Two to three zones with at least one spare node's worth of headroom per zone is the usual middle.</li>
-      <li>Request-heavy, bursty workloads pack better on larger nodes; Guaranteed pods (requests equal limits) pack worst because nothing can borrow their slack.</li>
-      <li>Spot or preemptible capacity belongs in its own NodePool with a taint, for replaceable workloads with a PDB, never for anything holding a single-writer volume.</li>
+      <li>Nodes default to 110 pods max (<code>maxPods</code>). Because DaemonSets run on every node, lots of tiny nodes multiply DaemonSet overhead, whereas a few giant nodes widen single-node blast radius and make bin-packing chunky. Two to three zones with at least one spare node's headroom per zone is a solid sweet spot.</li>
+      <li>Bursty, request-heavy apps pack much more smoothly onto larger nodes; Guaranteed pods (requests == limits) pack tightest since nothing can share their slack.</li>
+      <li>Isolate spot or preemptible capacity in a tainted NodePool reserved for stateless, PDB-backed workloads, never single-writer databases.</li>
     </ul>
 
-    <div class="callout exam"><span class="tag">How this gets tested</span><p>"A node has been unschedulable and cordoned for an hour; the drain never finishes" is a PDB task: <code>kubectl get pdb -A</code>, find the one whose <code>ALLOWED DISRUPTIONS</code> is 0, and decide whether the right fix is scaling the workload up, relaxing <code>minAvailable</code>, or setting <code>unhealthyPodEvictionPolicy: AlwaysAllow</code> because the pods are unhealthy anyway. Deleting the PDB is the answer only when the task says so.</p></div>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"A node has been cordoned for an hour and the drain still won't finish" is a textbook PDB puzzle. Run <code>kubectl get pdb -A</code>, find the budget showing <code>ALLOWED DISRUPTIONS: 0</code>, and choose the right fix: scale the Deployment up, loosen <code>minAvailable</code>, or switch to <code>unhealthyPodEvictionPolicy: AlwaysAllow</code> if the blocking pods are already unhealthy. Only delete the PDB outright if the prompt explicitly asks for it.</p></div>
   </div>
 </section>
 
 <section class="panel accent-y" id="resize-and-recent">
-  <div class="phdr"><h2>In-place resize and what else moved recently</h2><span class="meta">version status stated precisely · Kubernetes 1.37 cluster</span></div>
+  <div class="phdr"><h2>In-place resize and recent Kubernetes upgrades</h2><span class="meta">version status stated precisely · Kubernetes 1.37 cluster</span></div>
   <div class="pbody">
     <h3>In-place pod resize</h3>
-    <p><code>InPlacePodVerticalScaling</code> is GA since Kubernetes 1.35 (alpha 1.27, beta and on by default 1.33), so on a 1.37 cluster the <code>pods/resize</code> subresource exists and the schema check the panel above warns about is moot. The mechanics:</p>
+    <p><code>InPlacePodVerticalScaling</code> reached GA in Kubernetes 1.35 (alpha 1.27, beta and default-on in 1.33), so on our 1.37 lab cluster the <code>pods/resize</code> subresource is ready to go. Here's how it works:</p>
     <ul>
-      <li>You patch through the subresource: <code>kubectl patch pod x --subresource resize --patch '{...}'</code> (also <code>kubectl edit pod x --subresource resize</code>). A plain patch of <code>spec.containers[].resources</code> is rejected as immutable.</li>
-      <li><code>resizePolicy</code> per container and per resource: <code>restartPolicy: NotRequired</code> (default, apply live) or <code>RestartContainer</code>. A pod with <code>restartPolicy: Never</code> may only use <code>NotRequired</code>.</li>
-      <li>Progress is in pod conditions: <code>PodResizePending</code> with reason <code>Infeasible</code> (node can never fit it) or <code>Deferred</code> (retry later, for example when another pod leaves); <code>PodResizeInProgress</code> while the kubelet actuates, with <code>reason: Error</code> if the runtime refused. <code>status.containerStatuses[].allocatedResources</code> shows what was granted, and <code>status.observedGeneration</code> tells you whether the kubelet has seen your latest spec.</li>
-      <li>Only CPU and memory; QoS class is fixed at creation (a Guaranteed pod must stay requests-equal-limits, a Burstable pod may not become Guaranteed, a BestEffort pod may not gain requests); you cannot remove a request once set; memory decrease below current usage is skipped and stays In Progress; non-restartable init containers and ephemeral containers cannot be resized; Windows and static CPU-manager pods are excluded.</li>
-      <li>VPA caught up: <code>updateMode: InPlaceOrRecreate</code> is GA in VPA 1.6 and resizes without eviction where the kubelet allows it, falling back to recreation. That removes the old objection to running VPA in an active mode on latency-sensitive services, though the HPA conflict on the same metric remains.</li>
+      <li>Patch via the subresource: <code>kubectl patch pod x --subresource resize --patch '{...}'</code> (or <code>kubectl edit pod x --subresource resize</code>). A regular patch against <code>spec.containers[].resources</code> gets rejected as immutable.</li>
+      <li>Configure per-container, per-resource <code>resizePolicy</code>: <code>restartPolicy: NotRequired</code> (default, resize live) or <code>RestartContainer</code>. Pods with <code>restartPolicy: Never</code> only allow <code>NotRequired</code>.</li>
+      <li>Track progress through pod conditions: <code>PodResizePending</code> with reason <code>Infeasible</code> (node can never fit it) or <code>Deferred</code> (waiting for space to free up), and <code>PodResizeInProgress</code> while kubelet applies it (with <code>reason: Error</code> if the runtime refuses). Check <code>status.containerStatuses[].allocatedResources</code> for what's actually granted and <code>status.observedGeneration</code> to confirm kubelet processed your latest change.</li>
+      <li>Constraints to remember: CPU and memory only; QoS class is locked at pod creation (Guaranteed must stay requests == limits, Burstable can't become Guaranteed, BestEffort can't gain requests); you can't remove a request once set; shrinking memory below live usage stays In Progress; non-restartable init containers, ephemeral containers, Windows pods, and static CPU-manager pods can't resize in place.</li>
+      <li>VPA caught up too: <code>updateMode: InPlaceOrRecreate</code> is GA in VPA 1.6, resizing live whenever kubelet permits and falling back to recreation only when necessary. That eliminates the old eviction penalty for latency-sensitive apps (though the HPA conflict on the same metric still applies).</li>
     </ul>
 
     <h3>Pod-level resources</h3>
-    <p><code>spec.resources</code> on the Pod itself (beta since 1.34, on by default) sets a budget for the whole pod; containers may leave their own requests unset and share it. Pod-level values take precedence for scheduling and QoS. In-place resize of the pod-level budget is beta in 1.36. Quota and LimitRange count it like any other request. Say the version when you mention it; it is new enough to be a trap.</p>
+    <p><code>spec.resources</code> on the Pod object itself (beta and default-on since 1.34) defines a shared resource envelope across all containers in the pod, taking precedence for scheduling and QoS. In-place resizing of pod-level budgets hit beta in 1.36. Quotas and LimitRanges count it just like container requests, so always check your cluster version before reaching for it.</p>
 
-    <h3>Topology spread, the optional fields</h3>
+    <h3>Optional topology spread fields</h3>
     <ul>
-      <li><code>minDomains</code> (only with <code>DoNotSchedule</code>): treat fewer eligible domains than this as skew, forcing the autoscaler to open a new zone rather than piling into two.</li>
-      <li><code>nodeAffinityPolicy</code> and <code>nodeTaintsPolicy</code> (GA since 1.33): <code>Honor</code> or <code>Ignore</code> whether nodes excluded by affinity or taints count as domains. Default honors affinity and ignores taints, which is why tainted spare nodes can distort skew.</li>
-      <li><code>matchLabelKeys</code> (typically <code>pod-template-hash</code>): spread each ReplicaSet revision independently so a rolling update does not fight the constraint.</li>
+      <li><code>minDomains</code> (with <code>DoNotSchedule</code>): treats fewer eligible domains than this minimum as skew, nudging the autoscaler to spin up another zone rather than crowding into two.</li>
+      <li><code>nodeAffinityPolicy</code> and <code>nodeTaintsPolicy</code> (GA since 1.33): set <code>Honor</code> or <code>Ignore</code> to control whether excluded nodes count toward skew. By default Kubernetes honors affinity and ignores taints, which is why tainted spare nodes can skew your counts.</li>
+      <li><code>matchLabelKeys</code> (typically <code>pod-template-hash</code>): spreads each ReplicaSet revision independently so rolling updates don't fight your spread rule.</li>
     </ul>
 
-    <h3>HPA details that decide behavior</h3>
+    <h3>HPA edge cases worth knowing</h3>
     <ul>
-      <li>Tolerance is 10% globally; per-HPA <code>spec.behavior.scaleUp.tolerance</code> / <code>scaleDown.tolerance</code> is GA in 1.37 (beta and off by default in 1.35 and 1.36), so the lab has it; on an older exam cluster, check that <code>kubectl explain hpa.spec.behavior.scaleUp</code> shows the field before relying on it.</li>
-      <li>Not-ready pods and pods with missing metrics are set aside; on scale-down they are assumed to be at 100% of target, on scale-up at 0%, which dampens both directions. CPU metrics from a pod that became ready in the last 30 s (<code>--horizontal-pod-autoscaler-initial-readiness-delay</code>) are ignored.</li>
-      <li><code>behavior.scaleDown.stabilizationWindowSeconds</code> defaults to 300, scale-up to 0; <code>policies</code> combine by <code>selectPolicy: Max</code> (default), <code>Min</code>, or <code>Disabled</code> to freeze a direction.</li>
-      <li><code>ContainerResource</code> metrics target one container's usage rather than the pod sum, the fix for sidecar-heavy pods.</li>
+      <li>Global tolerance defaults to 10%; per-HPA <code>spec.behavior.scaleUp.tolerance</code> and <code>scaleDown.tolerance</code> hit GA in 1.37 (beta/off-by-default in 1.35–1.36). Verify with <code>kubectl explain hpa.spec.behavior.scaleUp</code> on older exam clusters before using them.</li>
+      <li>Unready pods and pods missing metrics are handled conservatively: assumed to be at 100% of target during scale-down and 0% during scale-up to dampen wild swings. CPU samples from pods ready for under 30s (<code>--horizontal-pod-autoscaler-initial-readiness-delay</code>) are ignored.</li>
+      <li><code>behavior.scaleDown.stabilizationWindowSeconds</code> defaults to 300 (scale-up defaults to 0); combine <code>policies</code> via <code>selectPolicy: Max</code> (default), <code>Min</code>, or <code>Disabled</code> to freeze scaling in one direction.</li>
+      <li><code>ContainerResource</code> metrics measure a single container rather than the pod sum, which is essential when heavy sidecars would otherwise distort scaling.</li>
     </ul>
 
-    <div class="callout reflex"><span class="tag">Reflex</span><p>Before resizing anything, <code>kubectl get pod x -o jsonpath='{.status.qosClass}'</code>. The class cannot change, so a request that would flip it is refused with a validation error rather than deferred, and the message names the field.</p></div>
+    <div class="callout reflex"><span class="tag">Reflex</span><p>Before resizing a live pod, run <code>kubectl get pod x -o jsonpath='{.status.qosClass}'</code>. Because QoS class can never change after creation, any resize that crosses a QoS boundary fails fast with a validation error naming the exact violation.</p></div>
   </div>
 </section>
 
@@ -757,32 +757,32 @@ deployment.apps "hpademo" deleted from default namespace</code></pre></details><
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>A node shows 25% CPU usage and refuses to schedule a pod requesting 200m. Explain, in one sentence.</summary>
-      <div class="answer"><p>The scheduler counts <em>requests</em> against <em>allocatable</em>, not usage: the node's requests are already at allocatable even though the processes are idle. Fix by right-sizing the existing requests (or adding capacity), not by adding CPU headroom that already exists.</p></div></details>
+      <div class="answer"><p>The scheduler checks pod <em>requests</em> against <em>allocatable</em> capacity, never live usage, so the node's CPU requests are already maxed out even though the running pods are mostly idle. Fix it by right-sizing inflated requests (or adding nodes).</p></div></details>
 
     <details class="quiz"><summary>Which pod does the kubelet evict first under memory pressure, and why?</summary>
-      <div class="answer"><p>BestEffort, because it declared no memory request at all and therefore ranks worst. Then Burstable pods exceeding their requests, ordered by how far over they are. Guaranteed last. The kernel's <code>oom_score_adj</code> mirrors that ranking so a system-level OOM picks the same victim.</p></div></details>
+      <div class="answer"><p>BestEffort goes first because it declared no memory request at all. Next are Burstable pods exceeding their requests, ordered by how far over they are, with Guaranteed pods last. The kernel's <code>oom_score_adj</code> mirrors that exact ranking so node-level OOMs choose the same victim.</p></div></details>
 
     <details class="quiz"><summary>Your service has p99 latency spikes every few seconds; CPU usage sits at 60% of the limit. First metric you check?</summary>
-      <div class="answer"><p><code>rate(container_cpu_cfs_throttled_periods_total[5m])</code>. Average usage below the limit hides per-period throttling: the container burns its 100ms quota early and stalls until the next period. Average utilization is the wrong lens for CPU limits.</p></div></details>
+      <div class="answer"><p>Check <code>rate(container_cpu_cfs_throttled_periods_total[5m])</code>. A comfortable 60% average hides bursty per-period throttling: the container burns its 100ms CFS quota early and freezes until the next period starts.</p></div></details>
 
     <details class="quiz"><summary>Why can a VPA in <code>Auto</code> mode and an HPA on CPU not coexist on the same workload?</summary>
-      <div class="answer"><p>They form a loop: the HPA scales replicas based on usage-against-requests while the VPA rewrites those same requests, so each one keeps invalidating the other's denominator. Standard resolution: HPA on CPU with VPA in <code>Off</code> (advisory), or HPA on a custom/external metric while VPA owns the resources.</p></div></details>
+      <div class="answer"><p>They fight in a feedback loop: HPA scales replicas off usage divided by requests while VPA keeps rewriting those requests underneath it. The clean fix is running HPA on CPU with VPA in <code>Off</code> (advisory) mode, or driving HPA from a custom/external metric while VPA manages CPU/memory.</p></div></details>
 
     <details class="quiz"><summary>A drain hangs forever on one node. What are the two usual causes?</summary>
-      <div class="answer"><p>A PodDisruptionBudget that cannot be satisfied (often <code>minAvailable</code> equal to the replica count), or unmanaged pods: bare pods with no controller, which <code>kubectl drain</code> refuses to evict without <code>--force</code>. Both are voluntary-disruption mechanics; neither has anything to do with node health.</p></div></details>
+      <div class="answer"><p>Either a PodDisruptionBudget with zero allowed disruptions (like <code>minAvailable</code> equal to total replicas), or unmanaged bare pods with no controller that <code>kubectl drain</code> refuses to evict unless you pass <code>--force</code>.</p></div></details>
   
 
     <details class="quiz"><summary>Is in-place pod resize usable on a Kubernetes 1.37 cluster, and what does the request look like?</summary>
-      <div class="answer"><p>Yes: <code>InPlacePodVerticalScaling</code> has been GA since 1.35 (beta and default-on since 1.33). You patch the <code>resize</code> subresource (<code>kubectl patch pod x --subresource resize ...</code>); a plain spec patch is rejected as immutable. Watch <code>PodResizePending</code> (Infeasible or Deferred) and <code>PodResizeInProgress</code> conditions, and remember the QoS class cannot change.</p></div></details>
+      <div class="answer"><p>Yes: <code>InPlacePodVerticalScaling</code> hit GA in 1.35 (beta/default-on in 1.33). Patch through the <code>resize</code> subresource (<code>kubectl patch pod x --subresource resize ...</code>), since plain spec patches are rejected as immutable. Watch <code>PodResizePending</code> (<code>Infeasible</code> / <code>Deferred</code>) and <code>PodResizeInProgress</code> conditions, and remember QoS class can never change.</p></div></details>
 
     <details class="quiz"><summary>Karpenter refuses to consolidate a node you consider empty enough. Where is the reason, and name two things it could be.</summary>
-      <div class="answer"><p>Events on the node with reason <code>Unconsolidatable</code>. Typical messages: a PDB prevents pod evictions, a pod carries <code>karpenter.sh/do-not-disrupt</code>, no cheaper replacement exists, or the NodePool's disruption budget is exhausted. Cluster Autoscaler's equivalents are the safe-to-evict annotation, uncontrolled pods and local storage.</p></div></details>
+      <div class="answer"><p>Look for <code>Unconsolidatable</code> events on the node. Common blockers include a restrictive PDB, a pod carrying <code>karpenter.sh/do-not-disrupt</code>, no cheaper instance replacement available, or an exhausted NodePool disruption budget (Cluster Autoscaler has analogous blockers like <code>safe-to-evict: "false"</code>, bare pods, and local storage).</p></div></details>
 
     <details class="quiz"><summary>A PDB has minAvailable 2 for a 2-replica Deployment whose pods are CrashLoopBackOff. Drain hangs. Fix without deleting the PDB?</summary>
-      <div class="answer"><p>Set <code>unhealthyPodEvictionPolicy: AlwaysAllow</code> on the PDB: the default <code>IfHealthyBudget</code> refuses to evict unhealthy pods until the budget is met, which can never happen here. Alternatively scale the Deployment so the budget is satisfiable. Deleting the PDB removes the protection permanently rather than for the drain.</p></div></details>
+      <div class="answer"><p>Patch the PDB with <code>unhealthyPodEvictionPolicy: AlwaysAllow</code>. The default <code>IfHealthyBudget</code> refuses to evict even unhealthy pods while the budget isn't met, deadlocking the drain. Alternatively, scale the Deployment up temporarily, since deleting the PDB strips protection permanently.</p></div></details>
 
     <details class="quiz"><summary>What is allocatable, and which four kubelet settings subtract from capacity?</summary>
-      <div class="answer"><p>Allocatable is what the scheduler may hand to pods: capacity minus <code>kubeReserved</code>, <code>systemReserved</code> and the <code>evictionHard</code> thresholds (defaults memory.available 100Mi, nodefs.available 10%, nodefs.inodesFree 5%, imagefs.available 15%). <code>enforceNodeAllocatable</code> decides which of those cgroups are actually enforced; <code>pods</code> is the default.</p></div></details>
+      <div class="answer"><p>Allocatable is the slice of node capacity available for scheduling pods: total capacity minus <code>kubeReserved</code>, <code>systemReserved</code>, and <code>evictionHard</code> thresholds (defaults: <code>memory.available</code> 100Mi, <code>nodefs.available</code> 10%, <code>nodefs.inodesFree</code> 5%, <code>imagefs.available</code> 15%). <code>enforceNodeAllocatable</code> chooses which cgroups are enforced (default: <code>pods</code>).</p></div></details>
   </div>
 </section>
 

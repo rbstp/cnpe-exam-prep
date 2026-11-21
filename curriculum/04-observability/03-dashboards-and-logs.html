@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#171c1d" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f5f0" media="(prefers-color-scheme: light)">
-<meta name="description" content="Grafana is the pane of glass over both halves of this section: Prometheus metrics through dashboards, Loki logs through Explore. Credentials are genuinely admin/admin here; address from make urls.">
+<meta name="description" content="Ship Grafana dashboards as code, master RED/USE design, and query Loki logs with LogQL, Alloy, structured metadata, and derived trace links.">
 <title>4.3 Grafana dashboards and Loki logs · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
 <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
@@ -18,7 +18,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum">Grafana is the pane of glass over both halves of this section: Prometheus metrics through dashboards, Loki logs through Explore. Credentials are genuinely admin/admin here; address from <code>make urls</code>.</p>
+  <p class="sum">Grafana sits as the single pane of glass over both halves of this lesson: Prometheus metrics via provisioned dashboards, and Loki logs via Explore. Credentials in this lab really are <code>admin</code> / <code>admin</code>; grab the URL from <code>make urls</code>.</p>
 </header>
 
 <div class="stats"></div>
@@ -28,60 +28,60 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 4.1 · logging and actionable dashboards</span></div>
   <div class="pbody">
-    <p class="lede">The competency wording is "dashboards that provide actionable insight", which is a judgment claim, not a tooling claim. Two things make it real: dashboards shipped as code, and dashboards designed around a question someone asks during an incident.</p>
+    <p class="lede">The blueprint asks for "dashboards that provide actionable insight": that's a design judgment, not a UI click-through. Two habits make it real: shipping dashboards as versioned code, and building every panel around a specific question an on-call engineer actually asks.</p>
   </div>
 </section>
 
 <section class="panel accent-c" id="dashboards">
   <div class="phdr"><h2>Dashboards as code</h2><span class="meta">the sidecar pattern</span></div>
   <div class="pbody">
-    <p>The exam-relevant fact about Grafana in a kube-prometheus-stack world: dashboards are <strong>provisioned, not clicked together</strong>. A sidecar container in the Grafana pod watches for ConfigMaps labeled <code>grafana_dashboard: "1"</code> and loads any dashboard JSON it finds inside. That is why the stack's forty-odd dashboards exist without anyone importing them, and it is how <em>you</em> ship a dashboard in a GitOps world: JSON in a ConfigMap in a git repo. Datasources provision the same way with <code>grafana_datasource: "1"</code>.</p>
+    <p>In a <code>kube-prometheus-stack</code> cluster, dashboards are <strong>provisioned from Git, never hand-clicked in the UI</strong>. A sidecar container inside the Grafana pod watches for ConfigMaps labeled <code>grafana_dashboard: "1"</code> and hot-loads every dashboard JSON inside them. That's how the stack ships 40+ dashboards out of the box, and how your platform ships team dashboards through GitOps. Datasources follow the exact same pattern using <code>grafana_datasource: "1"</code>.</p>
 
     <pre class="diagram"><b>git</b> ──▶ ConfigMap (label <i>grafana_dashboard=1</i>) ──▶ <b>sidecar</b> writes /tmp/dashboards ──▶ <u>Grafana loads it</u>
                                                                                      │
    a dashboard clicked together in the UI lives only in Grafana's database           │
    and dies with the pod ────────────────────────────────────────────────────────────┘</pre>
 
-    <h3>What makes a dashboard actionable rather than decorative</h3>
+    <h3>What makes a dashboard genuinely actionable</h3>
     <ul>
-      <li><strong>Lead with the user-facing symptom.</strong> <strong>RED</strong> for services (Rate, Errors, Duration); <strong>USE</strong> for resources (Utilization, Saturation, Errors); the four <strong>golden signals</strong> (latency, traffic, errors, saturation) if you prefer that vocabulary. Know all three acronyms and which applies to what; it is a cheap question to set.</li>
-      <li><strong>Template over a variable</strong> (<code>$namespace</code>, <code>$pod</code>) instead of hardcoding, so one dashboard serves every tenant. Variables come from <code>label_values()</code> queries, which is how the stock dashboards populate their dropdowns.</li>
-      <li><strong>Every panel answers a question someone would ask during an incident.</strong> Forty panels of everything is a wall, not a dashboard.</li>
-      <li><strong>Annotations and links.</strong> Deployment markers turn "when did this start" into a glance, and a panel link to the matching logs query turns a metric spike into a root cause.</li>
+      <li><strong>Lead with user-visible symptoms.</strong> Use <strong>RED</strong> for services (Rate, Errors, Duration), <strong>USE</strong> for infrastructure resources (Utilization, Saturation, Errors), or the four <strong>golden signals</strong> (latency, traffic, errors, saturation). Know all three frameworks cold and which workload each fits.</li>
+      <li><strong>Use template variables</strong> (<code>$namespace</code>, <code>$pod</code>) driven by <code>label_values()</code> queries instead of hardcoding names, so one dashboard serves every tenant.</li>
+      <li><strong>Earn every panel.</strong> If a panel doesn't answer an incident question, cut it. A 40-panel wall of noise slows diagnosis down.</li>
+      <li><strong>Connect signals with annotations and links.</strong> Deployment markers immediately answer "did this start after a rollout?", and panel links straight into Loki Explore turn a spike into a root cause in one click.</li>
     </ul>
-    <p>Grafana specifics worth naming once: <em>datasources</em> (Prometheus and Alertmanager ship with the chart here; Loki and Jaeger are yours to add, as the exercises do), <em>panels</em> with unit and threshold settings, <em>alerting</em> (Grafana has its own alert engine, deliberately unused in this lab; Prometheus rules are the exam's model), and <em>folders + permissions</em> for multi-team setups.</p>
+    <p>Quick tour of Grafana's pieces: <em>datasources</em> (Prometheus and Alertmanager come pre-wired here; you'll wire up Loki and Jaeger in the exercises), <em>panels</em> with clean units and thresholds, <em>Grafana alerting</em> (intentionally skipped in our lab since Prometheus rules are the exam focus), and <em>folders + permissions</em> for multi-team orgs.</p>
   </div>
 </section>
 
 <section class="panel accent-p" id="loki">
   <div class="phdr"><h2>Loki and LogQL</h2><span class="meta">index labels, not content</span></div>
   <div class="pbody">
-    <p>Loki indexes <strong>labels</strong>, not content: log lines are stored against a small label set (namespace, pod, container, app) and content matching happens at query time by scanning the selected streams. That is why it is cheap to run, and why every query must start from a label selector before filtering. It is also why label cardinality discipline matters even more than in Prometheus: a label per request ID would create a stream per request.</p>
+    <p>Loki takes a deliberately lean design: it indexes <strong>labels</strong>, not full log text. Lines are grouped into streams by a compact label set (namespace, pod, container, app), and text filtering scans only the matching streams at query time. That keeps storage cheap, requires every query to start with a stream selector, and makes label discipline critical, since slapping a request ID into a label would explode streams immediately.</p>
 
-    <p>Collection here is <strong>Alloy</strong>, a single-replica deployment in <code>monitoring</code> that tails every pod through the kubelet API and pushes to Loki; Loki itself stores the logs as a StatefulSet next door. That is two hops, and <code>make validate</code> proves the pair works by demanding Loki returns streams. A running Loki with no shipper looks healthy and holds nothing.</p>
+    <p>In our lab, <strong>Alloy</strong> runs in <code>monitoring</code>, tailing pod logs via the kubelet API and shipping them to the <strong>Loki</strong> StatefulSet next door. That's two moving parts, which is why <code>make validate</code> queries Loki for actual streams rather than just checking pod readiness, because a healthy Loki with a broken shipper stays silently empty.</p>
 
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>LogQL piece</th><th>Example</th><th>Does</th></tr></thead>
         <tbody>
-          <tr><td>stream selector</td><td class="mono">{namespace="team-a"}</td><td>required first step; picks streams</td></tr>
-          <tr><td>line filter</td><td class="mono">|= "error" · != "/healthz" · |~ "5[0-9]{2}"</td><td>substring / regex match on the line</td></tr>
-          <tr><td>parser</td><td class="mono">| json · | logfmt · | pattern</td><td>extract fields into labels for filtering</td></tr>
-          <tr><td>label filter</td><td class="mono">| status &gt;= 500</td><td>filter on extracted fields</td></tr>
-          <tr><td>metric query</td><td class="mono">sum by (pod) (rate({namespace="x"} |= "error" [5m]))</td><td>turns logs into a graphable series</td></tr>
+          <tr><td>stream selector</td><td class="mono">{namespace="team-a"}</td><td>mandatory first step; picks log streams</td></tr>
+          <tr><td>line filter</td><td class="mono">|= "error" · != "/healthz" · |~ "5[0-9]{2}"</td><td>fast substring or regex match before parsing</td></tr>
+          <tr><td>parser</td><td class="mono">| json · | logfmt · | pattern</td><td>extracts structured fields into temporary labels</td></tr>
+          <tr><td>label filter</td><td class="mono">| status &gt;= 500</td><td>filters on parsed fields</td></tr>
+          <tr><td>metric query</td><td class="mono">sum by (pod) (rate({namespace="x"} |= "error" [5m]))</td><td>turns log streams into alertable time series</td></tr>
         </tbody>
       </table>
     </div>
-    <p>Those five constructs cover exam depth. The one to internalize is the last: a metric query over logs is how you alert on something that only exists in text, and it is the bridge between this section and 4.2.</p>
+    <p>Master those five building blocks and you can handle almost any exam log prompt. Pay special attention to the fifth one: metric queries over logs let you alert on failures that only ever show up in text logs.</p>
 
     <div class="callout reflex">
-      <span class="tag">Terminal beats UI, often</span>
-      <p><code>stern &lt;pattern&gt; -n &lt;ns&gt;</code> tails many pods at once with color-coded names, and <code>kubectl logs --previous</code> is the only way to read a crashed container's last words. Loki is for "what happened an hour ago across the fleet"; stern and kubectl are for "what is happening right now". Knowing which question you are asking picks the tool.</p>
+      <span class="tag">Often the terminal beats the UI</span>
+      <p>Use <code>stern &lt;pattern&gt; -n &lt;ns&gt;</code> to tail multiple pods live with color-coded prefixes, and <code>kubectl logs --previous</code> to catch a crashed container's dying output. Reach for Loki when asking "what happened an hour ago across the fleet?", and reach for <code>stern</code> / <code>kubectl</code> when asking "what is happening right this second?"</p>
     </div>
 
     <div class="callout exam">
-      <span class="tag">The three signals, and when logs are the right one</span>
-      <p>Metrics answer "how much / how often" cheaply over long windows. Logs answer "what exactly happened to this one thing", at higher cost per query. Traces (4.4) answer "where in the request path did it go wrong". An exam scenario that says "find the error message" is a log question; "how many failed" is a metric question; "which service is slow" is a trace question. Choosing wrong costs minutes.</p>
+      <span class="tag">Picking the right signal fast</span>
+      <p>Metrics answer "how much / how often?" cheaply across long windows. Logs answer "what exact error did this pod print?" Traces (4.4) answer "which hop in the call chain slowed down or broke?" Picking the right signal on the first try saves precious minutes under exam pressure.</p>
     </div>
   </div>
 </section>
@@ -89,62 +89,62 @@
 <section class="panel accent-c" id="provisioning">
   <div class="phdr"><h2>Provisioning, field by field</h2><span class="meta">datasource and dashboard files, sidecar knobs, the Grafana Operator</span></div>
   <div class="pbody">
-    <h3>Grafana's own provisioning format</h3>
-    <p>Files under <code>provisioning/datasources/*.yaml</code> and <code>provisioning/dashboards/*.yaml</code> start with <code>apiVersion: 1</code>. A datasource entry has <code>name</code>, <code>type</code> (<code>prometheus</code>, <code>loki</code>, <code>jaeger</code>, <code>tempo</code>), <code>url</code>, <code>access: proxy</code>, an optional stable <code>uid</code> (dashboards reference datasources by uid, so set it or every exported dashboard breaks on import), <code>isDefault</code>, <code>editable: false</code> to stop UI drift, and two maps: <code>jsonData</code> for settings (<code>httpMethod: POST</code>, <code>timeInterval</code>, Loki's <code>derivedFields</code> that turn a trace ID in a log line into a Tempo/Jaeger link, and <code>alertmanagerUid</code>) and <code>secureJsonData</code> for credentials, which Grafana encrypts at rest. <code>deleteDatasources</code> removes entries by name before applying. A dashboard provider entry names a <code>folder</code>, <code>type: file</code> and <code>options.path</code>, plus <code>foldersFromFilesStructure</code>, <code>allowUiUpdates</code> (default false: the file wins) and <code>disableDeletion</code>.</p>
-    <p>In kube-prometheus-stack the sidecar generates those provider files for you: ConfigMaps labeled <code>grafana_dashboard: "1"</code> land in the General folder, and a <code>grafana_folder: &lt;name&gt;</code> annotation moves them only when the chart sets <code>sidecar.dashboards.folderAnnotation</code> (this lab does not); ConfigMaps or Secrets labeled <code>grafana_datasource: "1"</code> are datasource files. The sidecar watches every namespace by default (<code>sidecar.dashboards.searchNamespace</code>), so a dashboard shipped with a team's Helm chart appears in the platform Grafana without anyone in <code>monitoring</code> touching anything.</p>
+    <h3>Grafana's native provisioning files</h3>
+    <p>Files under <code>provisioning/datasources/*.yaml</code> and <code>provisioning/dashboards/*.yaml</code> begin with <code>apiVersion: 1</code>. A datasource specifies <code>name</code>, <code>type</code> (<code>prometheus</code>, <code>loki</code>, <code>jaeger</code>, <code>tempo</code>), <code>url</code>, <code>access: proxy</code>, a stable <code>uid</code> (set this explicitly so exported dashboards never break on import), <code>isDefault</code>, <code>editable: false</code> to block UI drift, plus <code>jsonData</code> (<code>httpMethod: POST</code>, <code>timeInterval</code>, Loki's <code>derivedFields</code> linking trace IDs to Jaeger/Tempo, <code>alertmanagerUid</code>) and <code>secureJsonData</code> for encrypted credentials. Use <code>deleteDatasources</code> to replace entries cleanly by name. Dashboard provider files set <code>folder</code>, <code>type: file</code>, <code>options.path</code>, <code>foldersFromFilesStructure</code>, <code>allowUiUpdates</code> (default false), and <code>disableDeletion</code>.</p>
+    <p>In <code>kube-prometheus-stack</code>, the sidecar handles this plumbing automatically: ConfigMaps labeled <code>grafana_dashboard: "1"</code> load into the General folder (a <code>grafana_folder: &lt;name&gt;</code> annotation only routes them into folders if <code>sidecar.dashboards.folderAnnotation</code> is enabled in chart values; our lab leaves it off), and ConfigMaps/Secrets labeled <code>grafana_datasource: "1"</code> register datasources. Because the sidecar watches all namespaces by default, any team's Helm chart can ship its own dashboards automatically.</p>
 
-    <h3>The Grafana Operator, when the exam gives you CRDs</h3>
+    <h3>The Grafana Operator (when an exam hands you CRDs)</h3>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th class="mono">Kind (grafana.integreatly.org/v1beta1)</th><th>Holds</th><th>Field to watch</th></tr></thead>
         <tbody>
-          <tr><td class="mono">Grafana</td><td>an instance (or an external one via <code>spec.external.url</code> plus admin credentials)</td><td>its labels are what every other kind selects with <code>instanceSelector</code></td></tr>
-          <tr><td class="mono">GrafanaDashboard</td><td>one dashboard from <code>json</code>, <code>gzipJson</code>, <code>url</code>, <code>configMapRef</code>, <code>jsonnet</code> or <code>grafanaCom.id</code></td><td><code>instanceSelector</code>, <code>folder</code>/<code>folderRef</code>, <code>resyncPeriod</code>, <code>datasources[]</code> to rewrite <code>${DS_PROMETHEUS}</code> inputs</td></tr>
-          <tr><td class="mono">GrafanaDatasource</td><td>one datasource with the same fields as the provisioning file (<code>datasource.jsonData</code>, <code>secureJsonData</code>, <code>valuesFrom</code> for Secret refs)</td><td><code>instanceSelector</code>; <code>allowCrossNamespaceImport: true</code> on the Grafana when the datasource lives elsewhere</td></tr>
-          <tr><td class="mono">GrafanaFolder</td><td>a folder, optionally with <code>parentFolderRef</code> and <code>permissions</code></td><td>dashboards point at it by <code>folderRef</code></td></tr>
-          <tr><td class="mono">GrafanaAlertRuleGroup / GrafanaContactPoint / GrafanaNotificationPolicy / GrafanaMuteTiming</td><td>Grafana-managed alerting as code</td><td>irrelevant if Prometheus rules are the model, but a task may hand you one</td></tr>
+          <tr><td class="mono">Grafana</td><td>a Grafana instance (managed or external via <code>spec.external.url</code>)</td><td>its labels are what every other CRD targets via <code>instanceSelector</code></td></tr>
+          <tr><td class="mono">GrafanaDashboard</td><td>a dashboard from <code>json</code>, <code>gzipJson</code>, <code>url</code>, <code>configMapRef</code>, <code>jsonnet</code>, or <code>grafanaCom.id</code></td><td><code>instanceSelector</code>, <code>folder</code>/<code>folderRef</code>, <code>resyncPeriod</code>, and <code>datasources[]</code> to bind <code>${DS_PROMETHEUS}</code> inputs</td></tr>
+          <tr><td class="mono">GrafanaDatasource</td><td>datasource spec (<code>datasource.jsonData</code>, <code>secureJsonData</code>, <code>valuesFrom</code> for Secret refs)</td><td><code>instanceSelector</code>; requires <code>allowCrossNamespaceImport: true</code> on the Grafana CR for cross-namespace imports</td></tr>
+          <tr><td class="mono">GrafanaFolder</td><td>a folder with optional <code>parentFolderRef</code> and <code>permissions</code></td><td>referenced by dashboards via <code>folderRef</code></td></tr>
+          <tr><td class="mono">GrafanaAlertRuleGroup / GrafanaContactPoint / GrafanaNotificationPolicy / GrafanaMuteTiming</td><td>Grafana-managed alerting as code</td><td>secondary when Prometheus rules are in use, though worth recognizing by name</td></tr>
         </tbody>
       </table>
     </div>
-    <p>The failure that recurs: a <code>GrafanaDashboard</code> whose <code>instanceSelector.matchLabels</code> matches no <code>Grafana</code> object is accepted and does nothing; its <code>status</code> stays empty. Same selector story as ServiceMonitors, one CRD family over. In every model, the JSON is the artifact: export with "export for sharing externally" off so datasource uids stay literal, keep <code>id: null</code> and a stable <code>uid</code> in the JSON, and template with <code>label_values(kube_pod_info, namespace)</code> variables rather than hardcoding a tenant.</p>
+    <p>Same familiar trap here too: a <code>GrafanaDashboard</code> whose <code>instanceSelector.matchLabels</code> matches no <code>Grafana</code> CR applies cleanly and silently does nothing. Whenever exporting dashboard JSON for GitOps, leave "export for sharing externally" turned off so datasource UIDs stay literal, keep <code>id: null</code> with a stable <code>uid</code>, and use <code>label_values(kube_pod_info, namespace)</code> variables.</p>
   </div>
 </section>
 
 <section class="panel accent-p" id="loki-deeper">
-  <div class="phdr"><h2>Loki under the hood, and LogQL past the first five constructs</h2><span class="meta">components, labels vs structured metadata, parsers, shippers, retention</span></div>
+  <div class="phdr"><h2>Loki internals and deeper LogQL</h2><span class="meta">components, labels vs structured metadata, parsers, shippers, retention</span></div>
   <div class="pbody">
-    <h3>Components and deployment modes</h3>
-    <p>The write path is <em>distributor</em> (validates, hashes each stream to a ring position) → <em>ingester</em> (builds chunks in memory, flushes to object storage) with a quorum of replicas acknowledging. The read path is <em>query-frontend</em> (splits and queues) → <em>query-scheduler</em> → <em>querier</em> (asks ingesters for recent data, then the store). The <em>compactor</em> merges index files and applies retention; the <em>ruler</em> evaluates alerting and recording rules; the <em>index gateway</em> serves index lookups. Everything persists to one object store (S3, GCS, Azure, MinIO) with the TSDB index shipped alongside the chunks. Three deployment modes: single binary (<code>-target=all</code>), simple scalable (<code>read</code>, <code>write</code>, <code>backend</code> targets, the Helm default at scale) and full microservices. "Loki is up but returns nothing" in simple scalable mode is usually the write path (shipper cannot push, ingester ring unhealthy) rather than the read path.</p>
+    <h3>Architecture and deployment modes</h3>
+    <p>Writes flow from the <em>distributor</em> (validates and hashes streams onto the ring) to the <em>ingester</em> (batches chunks in memory before flushing to object storage) with quorum acks. Reads flow through <em>query-frontend</em> → <em>query-scheduler</em> → <em>querier</em> (pulling fresh lines from ingesters and older chunks from object storage). Supporting roles: <em>compactor</em> (merges TSDB indexes and enforces retention), <em>ruler</em> (evaluates LogQL alerting/recording rules), and <em>index gateway</em> (serves index lookups). Everything persists to one object store (S3, GCS, Azure, MinIO). You'll see three deployment topologies: single binary (<code>-target=all</code>), simple scalable (<code>read</code>, <code>write</code>, <code>backend</code>), and full microservices. When a scalable Loki returns empty results, suspect the write path first.</p>
 
-    <h3>Labels, cardinality, structured metadata</h3>
-    <p>Every unique label set is a stream, every stream has its own chunks and index entries, and Loki caps streams per tenant (<code>max_streams_per_user</code>) and labels per stream (15 by default). Labels should be low-cardinality and long-lived: <code>namespace</code>, <code>app</code>, <code>container</code>, <code>level</code> at most. Anything high-cardinality that you still want to filter on quickly (pod name, trace ID, request ID) belongs in <em>structured metadata</em>, per-line key-value pairs stored with the chunk and queryable with the same label-filter syntax, without creating streams. The OTLP endpoint (<code>/otlp/v1/logs</code>) maps resource attributes such as <code>service.name</code> and <code>k8s.namespace.name</code> to index labels and the rest to structured metadata automatically; the docs now recommend moving <code>k8s.pod.name</code> off the index label list.</p>
+    <h3>Labels vs. structured metadata</h3>
+    <p>Every distinct label combination spawns a stream with its own chunks and index entries (capped by <code>max_streams_per_user</code> and 15 labels per stream by default). Keep index labels low-cardinality and steady: <code>namespace</code>, <code>app</code>, <code>container</code>, and <code>level</code>. High-cardinality fields you still want fast filtering on (trace ID, request ID, even ephemeral pod names) belong in <em>structured metadata</em>, stored per line inside chunks and queryable with identical filter syntax without creating streams. Loki's OTLP ingest (<code>/otlp/v1/logs</code>) automatically routes core resource attributes (<code>service.name</code>, <code>k8s.namespace.name</code>) to index labels and the rest to structured metadata.</p>
 
-    <h3>LogQL you have not used yet</h3>
+    <h3>LogQL constructs beyond the basics</h3>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th class="mono">Construct</th><th>Example</th><th>Note</th></tr></thead>
         <tbody>
-          <tr><td class="mono">| pattern</td><td><code>| pattern "&lt;ip&gt; - - &lt;_&gt; \"&lt;method&gt; &lt;path&gt; &lt;_&gt;\" &lt;status&gt;"</code></td><td>fast field extraction for fixed-format lines; <code>&lt;_&gt;</code> skips</td></tr>
-          <tr><td class="mono">| regexp</td><td><code>| regexp "(?P&lt;user&gt;\\w+) logged in"</code></td><td>named groups become labels; slowest parser</td></tr>
-          <tr><td class="mono">| json a="b.c"</td><td>extract only named paths</td><td>bare <code>| json</code> flattens everything, which explodes label counts on wide events</td></tr>
-          <tr><td class="mono">| line_format / | label_format</td><td><code>| line_format "{{.method}} {{.status}}"</code></td><td>Go templates; rewrite the line before further filters</td></tr>
-          <tr><td class="mono">| __error__=""</td><td>drop lines the parser could not read</td><td>parse failures are not dropped by default; they get an <code>__error__</code> label</td></tr>
-          <tr><td class="mono">| unwrap duration</td><td><code>quantile_over_time(0.95, {app="api"} | logfmt | unwrap duration [5m]) by (path)</code></td><td>turns an extracted number into samples; <code>unwrap duration_seconds(x)</code> and <code>bytes(x)</code> convert units</td></tr>
-          <tr><td class="mono">count_over_time / bytes_rate / absent_over_time</td><td><code>absent_over_time({job="backup"} |= "completed" [25h])</code></td><td>the "the nightly job did not log success" alert</td></tr>
-          <tr><td class="mono">offset</td><td><code>count_over_time({app="x"}[5m] offset 1w)</code></td><td>inside the range brackets, unlike PromQL's position</td></tr>
-          <tr><td class="mono">| drop / | keep</td><td><code>| keep status, path</code></td><td>trim labels before an aggregation</td></tr>
+          <tr><td class="mono">| pattern</td><td><code>| pattern "&lt;ip&gt; - - &lt;_&gt; \"&lt;method&gt; &lt;path&gt; &lt;_&gt;\" &lt;status&gt;"</code></td><td>blazing-fast extraction for fixed formats; <code>&lt;_&gt;</code> skips fields</td></tr>
+          <tr><td class="mono">| regexp</td><td><code>| regexp "(?P&lt;user&gt;\\w+) logged in"</code></td><td>named capture groups become labels; slowest option</td></tr>
+          <tr><td class="mono">| json a="b.c"</td><td>extract specific JSON paths only</td><td>bare <code>| json</code> flattens every field and can blow label limits on big payloads</td></tr>
+          <tr><td class="mono">| line_format / | label_format</td><td><code>| line_format "{{.method}} {{.status}}"</code></td><td>Go templates to reshape lines mid-pipeline</td></tr>
+          <tr><td class="mono">| __error__=""</td><td>filter out unparseable lines</td><td>failed parses stay in the output tagged with <code>__error__</code> unless dropped</td></tr>
+          <tr><td class="mono">| unwrap duration</td><td><code>quantile_over_time(0.95, {app="api"} | logfmt | unwrap duration [5m]) by (path)</code></td><td>converts an extracted number into numeric samples (<code>duration_seconds(x)</code> and <code>bytes(x)</code> handle units)</td></tr>
+          <tr><td class="mono">count_over_time / bytes_rate / absent_over_time</td><td><code>absent_over_time({job="backup"} |= "completed" [25h])</code></td><td>clean pattern for alerting when a scheduled job stays silent</td></tr>
+          <tr><td class="mono">offset</td><td><code>count_over_time({app="x"}[5m] offset 1w)</code></td><td>placed <em>inside</em> the range expression, unlike PromQL</td></tr>
+          <tr><td class="mono">| drop / | keep</td><td><code>| keep status, path</code></td><td>trim clutter before aggregating</td></tr>
         </tbody>
       </table>
     </div>
-    <p>Two syntax facts that cost minutes: label matchers in the stream selector are fully anchored regexes, line filters (<code>|~</code>) are not; and the log range must come immediately after the pipeline, so <code>rate({a="b"} |= "x" [5m])</code> is right and <code>rate({a="b"}[5m] |= "x")</code> is a parse error.</p>
+    <p>Two syntax details that save real debugging time: stream-selector regexes are fully anchored, while line-filter regexes (<code>|~</code>) are not; and range brackets must sit right after the log pipeline (<code>rate({a="b"} |= "x" [5m])</code> works, while <code>rate({a="b"}[5m] |= "x")</code> won't parse).</p>
 
-    <h3>Shippers, retention, rules</h3>
+    <h3>Log shippers, retention, and rules</h3>
     <ul>
-      <li><strong>Promtail is end-of-life</strong> (LTS ended February 2026, EOL 2 March 2026). <strong>Alloy</strong> is the replacement: <code>discovery.kubernetes</code> → <code>loki.source.kubernetes</code> (or <code>loki.source.file</code> with a hostPath mount) → <code>loki.process</code> (stages: <code>stage.json</code>, <code>stage.labels</code>, <code>stage.drop</code>) → <code>loki.write</code>. <code>alloy convert --source-format=promtail</code> translates an old config. The <strong>OpenTelemetry Collector</strong> with a <code>filelog</code> receiver and an <code>otlp_http</code> exporter to Loki's <code>/otlp</code> endpoint, and <strong>Fluent Bit</strong> with its <code>loki</code> output, are the other two shippers a task may hand you; all three usually run as DaemonSets that tail <code>/var/log/pods</code> and enrich with Kubernetes metadata.</li>
-      <li><strong>Retention</strong> is the compactor's job: <code>compactor.retention_enabled: true</code> plus <code>limits_config.retention_period</code> (global) or per-tenant/per-stream <code>retention_stream</code> overrides. Without the compactor flag, data is kept forever regardless of the period.</li>
-      <li><strong>The ruler</strong> takes Prometheus-format rule groups whose <code>expr</code> is LogQL, from local files or object storage (<code>ruler.storage</code>), and sends alerts to <code>ruler.alertmanager_url</code>; recording rules can <code>remote_write</code> the resulting series into Prometheus so metrics derived from logs join the normal dashboards.</li>
+      <li><strong>Promtail is EOL</strong> (LTS ended Feb 2026, full EOL March 2, 2026). <strong>Grafana Alloy</strong> replaces it with composable blocks (<code>discovery.kubernetes</code> → <code>loki.source.kubernetes</code> or <code>loki.source.file</code> → <code>loki.process</code> → <code>loki.write</code>), and <code>alloy convert --source-format=promtail</code> migrates legacy configs automatically. You may also encounter the <strong>OpenTelemetry Collector</strong> (<code>filelog</code> receiver → <code>otlp_http</code> exporter to Loki's <code>/otlp</code>) or <strong>Fluent Bit</strong>; all three typically run as DaemonSets tailing <code>/var/log/pods</code>.</li>
+      <li><strong>Retention</strong> requires the compactor: enable <code>compactor.retention_enabled: true</code> alongside <code>limits_config.retention_period</code> (or per-stream <code>retention_stream</code> rules). Leave the compactor flag off and Loki keeps chunks forever regardless of the retention period.</li>
+      <li><strong>Ruler:</strong> evaluates Prometheus-style rule groups written in LogQL, sends firing alerts to <code>ruler.alertmanager_url</code>, and can <code>remote_write</code> log-derived recording rules straight into Prometheus.</li>
     </ul>
-    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Find the pod that logged X in the last hour" is a stream selector plus <code>|=</code>; "count errors per service over time" is <code>sum by (app) (count_over_time(... |= "error" [5m]))</code>; "p95 latency from access logs" is <code>logfmt</code> or <code>pattern</code>, <code>unwrap</code>, <code>quantile_over_time</code>. Recognizing which of the three you are being asked for is most of the time saved.</p></div>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Find which pod logged X in the past hour" → stream selector + <code>|=</code>. "Count errors per service over time" → <code>sum by (app) (count_over_time(... |= "error" [5m]))</code>. "Compute p95 latency from access logs" → <code>logfmt</code> or <code>pattern</code> + <code>unwrap</code> + <code>quantile_over_time</code>. Spot which of the three patterns a prompt is asking for and you're already halfway done.</p></div>
   </div>
 </section>
 
@@ -667,29 +667,29 @@ storage-loki-0   Bound    pvc-4589502f-0ed6-4923-9993-473e891d6ebf   10Gi       
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>How does a dashboard get into Grafana in a GitOps platform, and why not click it?</summary>
-      <div class="answer"><p>JSON in a ConfigMap labeled <code>grafana_dashboard: "1"</code>, delivered from git; the sidecar loads it. A clicked dashboard lives only in Grafana's database: unreviewable, unversioned, and gone with the pod unless persistence is configured.</p></div></details>
+      <div class="answer"><p>Ship the dashboard JSON inside a ConfigMap labeled <code>grafana_dashboard: "1"</code> from Git, and let Grafana's sidecar load it. Dashboards clicked together in the UI live only inside Grafana's database: unreviewed, unversioned, and wiped out on pod restarts without persistent storage.</p></div></details>
 
     <details class="quiz"><summary>Explain RED and USE, and which you would use for a queue worker.</summary>
-      <div class="answer"><p>RED = Rate, Errors, Duration, for request-driven services. USE = Utilization, Saturation, Errors, for resources. A queue worker is best served by both plus queue depth: USE for the worker pool, RED-ish for message processing, and saturation is really "is the backlog growing".</p></div></details>
+      <div class="answer"><p><strong>RED</strong> (Rate, Errors, Duration) fits request-driven services; <strong>USE</strong> (Utilization, Saturation, Errors) fits hardware and pools. A queue worker benefits from both plus queue depth: USE for worker pool capacity, RED-like metrics for message processing, and backlog growth as your saturation signal.</p></div></details>
 
     <details class="quiz"><summary>Loki returns nothing for <code>{namespace="team-a"}</code>. Two hops to check, in order.</summary>
-      <div class="answer"><p>The shipper first (Alloy running, not erroring on push, actually tailing that namespace), then Loki (ingester healthy, retention not eating the window, right tenant/org headers if multi-tenancy is on). A healthy Loki with no shipper looks fine and holds nothing, which is why <code>make validate</code> demands streams, not readiness.</p></div></details>
+      <div class="answer"><p>Check the shipper first (is Alloy running, tailing that namespace, and pushing without errors?), then Loki (is the ingester healthy, is retention dropping the window, and are multi-tenant org headers right?). A healthy Loki with a broken shipper stays quietly empty.</p></div></details>
 
     <details class="quiz"><summary>Why is a per-request-ID label a bad idea in Loki?</summary>
-      <div class="answer"><p>Labels define streams, and Loki's index is per stream. A unique label value per request creates a stream per request: index explosion, slow queries, high memory. Put high-cardinality identifiers in the log <em>line</em> and filter or parse them at query time; that is what Loki's design is optimized for.</p></div></details>
+      <div class="answer"><p>Every unique label set spawns a new stream and index entry. A per-request label creates millions of tiny streams, thrashing memory and slowing queries. Keep high-cardinality IDs in the log body (or structured metadata) and filter them at query time.</p></div></details>
 
     <details class="quiz"><summary>Turn "alert me when payments start failing" into a LogQL-based rule, conceptually.</summary>
-      <div class="answer"><p>A metric query over logs: <code>sum(rate({namespace="payments"} |= "payment_failed" [5m])) &gt; 0.1</code>, evaluated by Loki's ruler (or mirrored into Prometheus via a recording pipeline). Same alerting mechanics as 4.2; the only difference is where the series comes from.</p></div></details>
+      <div class="answer"><p>Write a LogQL metric query such as <code>sum(rate({namespace="payments"} |= "payment_failed" [5m])) &gt; 0.1</code> and evaluate it in Loki's ruler (or remote-write it into Prometheus via a recording rule). From there, Alertmanager routes it just like any Prometheus alert.</p></div></details>
   
 
     <details class="quiz"><summary>A dashboard imported from a ConfigMap shows "datasource not found" on every panel. What did the export get wrong, and what is the durable fix?</summary>
-      <div class="answer"><p>The JSON was exported "for sharing externally", so datasources are <code>${DS_PROMETHEUS}</code> inputs (or reference a uid that does not exist here). Fix by provisioning the datasource with a stable <code>uid</code> and exporting with the sharing option off so the uid is literal, or with the Grafana Operator's <code>GrafanaDashboard.spec.datasources[]</code> mapping <code>inputName</code> to <code>datasourceName</code>.</p></div></details>
+      <div class="answer"><p>It was exported with "export for sharing externally" enabled (turning datasources into unbound <code>${DS_PROMETHEUS}</code> variables) or references a random UID that doesn't exist in this cluster. Fix it by provisioning datasources with explicit stable <code>uid</code>s and exporting with external sharing off, or mapping <code>datasources[]</code> in a Grafana Operator <code>GrafanaDashboard</code>.</p></div></details>
 
     <details class="quiz"><summary>Why is a trace ID a bad Loki label but a good candidate for structured metadata, and how do you still search it quickly?</summary>
-      <div class="answer"><p>A label defines a stream; a unique value per request means a stream per request, which blows up the index and chunk count. Structured metadata attaches key-values to individual lines without creating streams and remains filterable with label-filter syntax (<code>| trace_id="abc"</code>). Alloy and the OTLP ingest path put high-cardinality attributes there by default.</p></div></details>
+      <div class="answer"><p>As an index label, every unique trace ID mints a separate stream and blows up Loki's index. As structured metadata, key-value pairs ride inside the chunks without spawning streams while staying fast to filter using regular label syntax (<code>| trace_id="abc"</code>). Alloy and OTLP ingest route high-cardinality attributes there automatically.</p></div></details>
 
     <details class="quiz"><summary>Your shipper is a Promtail DaemonSet from an older tutorial. Why is that a problem in 2026, and what replaces it?</summary>
-      <div class="answer"><p>Promtail reached end-of-life on 2 March 2026: no patches, no security fixes. Grafana Alloy replaces it (<code>discovery.kubernetes</code>, <code>loki.source.kubernetes</code>, <code>loki.process</code>, <code>loki.write</code>), and <code>alloy convert --source-format=promtail</code> migrates the configuration. An OpenTelemetry Collector with the <code>filelog</code> receiver or Fluent Bit are the vendor-neutral alternatives.</p></div></details>
+      <div class="answer"><p>Promtail hit end-of-life on March 2, 2026 with no further security or bug fixes. Migrate to Grafana Alloy (<code>alloy convert --source-format=promtail</code> handles the config translation), or use vendor-neutral shippers like the OpenTelemetry Collector (<code>filelog</code> receiver) or Fluent Bit.</p></div></details>
   </div>
 </section>
 

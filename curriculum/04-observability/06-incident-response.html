@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#171c1d" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f5f0" media="(prefers-color-scheme: light)">
-<meta name="description" content="This is the section that pays back the most study time. Incident tasks are where exam time goes, and make break exists because this skill comes from practice, not reading.">
+<meta name="description" content="Master incident diagnosis under a 7-minute clock: four-step triage, Kubernetes exit codes, cluster failure modes, kubectl debug, rollbacks, and make break reps.">
 <title>4.6 Incident response: diagnosis under a clock · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
 <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
@@ -18,7 +18,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum">This is the section that pays back the most study time. Incident tasks are where exam time goes, and <code>make break</code> exists because this skill comes from practice, not reading. The concepts fit on half a page; the rest is reps.</p>
+  <p class="sum">This section gives you the highest return per study hour in the whole curriculum. Incident tasks are where exam minutes evaporate, and <code>make break</code> exists because troubleshooting speed comes from live reps, not reading. The framework fits on half a page; the rest is muscle memory.</p>
 </header>
 
 <div class="stats"></div>
@@ -28,7 +28,7 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 4.3 · diagnosing and remediating incidents</span></div>
   <div class="pbody">
-    <p class="lede">Under a clock, the difference between five minutes and twenty is not knowledge; it is having a method you follow instead of improvising. Learn the method, then burn it in with drills until it runs without conscious effort.</p>
+    <p class="lede">Under a ticking clock, the gap between a 5-minute fix and a 20-minute spiral isn't raw Kubernetes trivia: it's following a calm, repeatable method instead of guessing. Internalize the four steps below, then drill them with <code>make break</code> until they run on autopilot.</p>
   </div>
 </section>
 
@@ -36,37 +36,37 @@
   <div class="phdr"><h2>The method</h2><span class="meta">four steps, in order</span></div>
   <div class="pbody">
     <ol>
-      <li><strong>Blast radius first.</strong> What is broken and what still works. <code>kubectl get pods -A | grep -v Running</code>, <code>make status</code>, the top-level dashboards. One namespace or all? Data plane or control plane? This bounds everything that follows and stops you debugging a symptom two layers from the cause.</li>
-      <li><strong>Timeline second.</strong> What changed. <code>kubectl get events -A --sort-by=.lastTimestamp | tail -30</code>, recent syncs in Argo CD, <code>helm list -A</code> for fresh revisions, <code>kubectl rollout history</code>. <em>Most incidents turn out to be a recent deployment.</em></li>
-      <li><strong>Descend one resource at a time.</strong> describe → events → logs → previous logs (<code>--previous</code>, for crash loops) → exec/debug. Resist skipping levels; the fast-looking jump is where wrong theories come from.</li>
-      <li><strong>Fix the cause, then prove recovery with the same signal that showed the failure.</strong> If you found it via a failing curl, the incident ends with that curl succeeding, not with a pod showing Running.</li>
+      <li><strong>Scope the blast radius first.</strong> Find out what's broken and what's still healthy: <code>kubectl get pods -A | grep -v Running</code>, <code>make status</code>, top-level dashboards. One namespace or the whole cluster? Workloads or control plane? Bounding the problem early keeps you from debugging two layers away from the real cause.</li>
+      <li><strong>Check the timeline second.</strong> Ask what just changed: <code>kubectl get events -A --sort-by=.lastTimestamp | tail -30</code>, recent Argo CD syncs, <code>helm list -A</code>, and <code>kubectl rollout history</code>. <em>Most real incidents trace straight back to a recent change.</em></li>
+      <li><strong>Descend one layer at a time.</strong> Walk cleanly through <code>describe</code> → events → logs → previous logs (<code>--previous</code> for crash loops) → <code>exec</code> / <code>debug</code>. Resist jumping straight to guesses; skipping steps is where rabbit holes start.</li>
+      <li><strong>Fix the cause, then prove recovery with the exact same check that failed.</strong> If you caught the bug via a failing <code>curl</code>, the incident isn't over until that <code>curl</code> returns 200; never stop at "the pod says Running."</li>
     </ol>
 
     <div class="callout model">
-      <span class="tag">The signal-to-layer map, worth memorizing</span>
+      <span class="tag">The signal-to-layer map (know this cold)</span>
       <div class="tbl-wrap">
         <table>
           <thead><tr><th>Symptom</th><th>Layer</th><th>First command</th></tr></thead>
           <tbody>
-            <tr><td class="warn">Pending</td><td>scheduling: resources, taints, PVC, quota, affinity</td><td class="mono">kubectl describe pod (events at the bottom)</td></tr>
-            <tr><td class="bad">ImagePullBackOff / ErrImagePull</td><td>registry, tag, pull secret, network</td><td class="mono">kubectl describe pod</td></tr>
-            <tr><td class="bad">CrashLoopBackOff</td><td>the app itself</td><td class="mono">kubectl logs --previous</td></tr>
+            <tr><td class="warn">Pending</td><td>scheduling: requests, taints, PVC, quota, affinity</td><td class="mono">kubectl describe pod (events at the bottom)</td></tr>
+            <tr><td class="bad">ImagePullBackOff / ErrImagePull</td><td>registry, tag, pull Secret, network</td><td class="mono">kubectl describe pod</td></tr>
+            <tr><td class="bad">CrashLoopBackOff</td><td>the application itself</td><td class="mono">kubectl logs --previous</td></tr>
             <tr><td class="bad">OOMKilled</td><td>memory limit (1.2)</td><td class="mono">…state.terminated.reason / lastState</td></tr>
-            <tr><td class="warn">CreateContainerConfigError</td><td>missing ConfigMap/Secret key</td><td class="mono">kubectl describe pod</td></tr>
-            <tr><td class="warn">Running but broken</td><td>NetworkPolicy, DNS, config, RBAC</td><td>Hubble, <code>auth can-i</code>, app logs</td></tr>
-            <tr><td class="warn">Terminating forever</td><td>finalizer, dead controller (3.3)</td><td class="mono">kubectl get -o yaml | grep finalizers</td></tr>
+            <tr><td class="warn">CreateContainerConfigError</td><td>missing ConfigMap, Secret, or key</td><td class="mono">kubectl describe pod</td></tr>
+            <tr><td class="warn">Running but broken</td><td>NetworkPolicy, DNS, app config, RBAC</td><td>Hubble, <code>auth can-i</code>, app logs</td></tr>
+            <tr><td class="warn">Terminating forever</td><td>stuck finalizer or dead controller (3.3)</td><td class="mono">kubectl get -o yaml | grep finalizers</td></tr>
             <tr><td class="bad">Forbidden in a controller log</td><td>RBAC, not the workload</td><td class="mono">kubectl auth can-i --as=system:serviceaccount:…</td></tr>
-            <tr><td class="bad">Everything failing to admit</td><td>a webhook backend is down (5.2)</td><td class="mono">kubectl get validatingwebhookconfigurations</td></tr>
+            <tr><td class="bad">Everything fails admission</td><td>webhook backend is down (5.2)</td><td class="mono">kubectl get validatingwebhookconfigurations</td></tr>
           </tbody>
         </table>
       </div>
-      <p>"Running but broken" is the hardest row: it is where <code>kubectl get pods</code> stops helping and network, identity and config tooling starts.</p>
+      <p>"Running but broken" is the sneakiest row on the board: that's where <code>kubectl get pods</code> stops helping and network, DNS, and RBAC tools take over.</p>
     </div>
 
     <h3>Node-level moves</h3>
-    <p>When the fault is the node rather than the workload: <code>kubectl cordon &lt;node&gt;</code> stops new pods landing there, <code>kubectl drain &lt;node&gt; --ignore-daemonsets --delete-emptydir-data</code> evicts the rest (respecting PodDisruptionBudgets, which is why it hangs; see section 1.2), and <code>kubectl uncordon</code> puts it back. Draining is also the safe way to <em>test</em> whether a workload survives losing a node.</p>
+    <p>When a node itself is unhealthy: <code>kubectl cordon &lt;node&gt;</code> blocks new pods from landing there, <code>kubectl drain &lt;node&gt; --ignore-daemonsets --delete-emptydir-data</code> evicts running workloads (honoring PDBs; remember section 1.2 if it hangs!), and <code>kubectl uncordon</code> puts it back in rotation. Draining is also the cleanest way to verify whether your workloads genuinely tolerate losing a node.</p>
 
-    <h3>Two tools people forget exist</h3>
+    <h3>Two debugging lifelines people forget</h3>
     <div class="cb" data-lang="bash"><pre><code>kubectl debug -it &lt;pod&gt; --image=busybox:1.37 --target=&lt;container&gt;   # ephemeral container into a distroless pod
 kubectl debug node/&lt;node&gt; -it --image=busybox:1.37                  # a node shell without SSH</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n flux-demo debug -it podinfo-8d8f7547d-tgmmb --image=busybox:1.37 --target=podinfo -- ps   # ephemeral container into a distroless pod</b>
 Targeting container "podinfo". If you don't see processes from this container it may be because the container runtime doesn't support this feature.
@@ -80,11 +80,11 @@ PID   USER     TIME  COMMAND
 Creating debugging pod node-debugger-cnpe-worker-ztz6r with container debugger on node cnpe-worker.
 cnpe-worker
  03:32:46 up 4 days,  7:22,  0 users,  load average: 3.45, 3.65, 7.56</code></pre></details></div>
-    <p>Both exist in the exam environment. The first is the answer to "the image has no shell"; the second to "I need to look at the node and there is no SSH".</p>
+    <p>Both work right inside the exam terminal. Use the first when a distroless image has no shell, and the second when you need to inspect a node with no SSH access.</p>
 
     <div class="callout reflex">
-      <span class="tag">Time-boxing is part of the skill</span>
-      <p>Seven minutes per workload task (ten for a platform-tooling one) is the lab's clock because it is roughly the exam's. If you are four minutes in with no theory that fits the evidence, stop and re-run step 1: widen, do not deepen. And write your diagnosis down <em>before</em> you fix anything; a written theory is falsifiable, a mental one drifts to match whatever you just tried.</p>
+      <span class="tag">Time-boxing is a real skill</span>
+      <p>Our lab sets a 7-minute target on workload breaks (10 minutes on platform-tool breaks) to mirror exam pacing. If you hit minute 4 without a hypothesis that matches the evidence, step back to Step 1 and widen your view instead of tunnel-visioning deeper. Always write your diagnosis down <em>before</em> touching anything, because putting it in writing keeps you honest.</p>
     </div>
   </div>
 </section>
@@ -92,99 +92,99 @@ cnpe-worker
 <section class="panel accent-c" id="signalmap-more">
   <div class="phdr"><h2>The extended signal map</h2><span class="meta">pod reasons and exit codes, then the cluster-level scenarios</span></div>
   <div class="pbody">
-    <p>The table in the method panel covers the workload layer. Two more tables finish the map: the exact reasons and codes a pod shows, and the cluster-level incidents whose first symptom is often a workload one.</p>
+    <p>Two quick-reference tables fill out the rest of the picture: exact pod failure reasons and exit codes, plus cluster-level outages that often disguise themselves as app problems.</p>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>What you see</th><th>Means</th><th>Confirm with</th></tr></thead>
         <tbody>
-          <tr><td><code>Pending</code>, event <code>0/3 nodes are available: 3 Insufficient cpu</code></td><td>requests exceed free capacity</td><td><code>kubectl describe node</code> Allocated resources; lower requests or add nodes</td></tr>
-          <tr><td class="mono">... had untolerated taint {...}</td><td>taint without toleration</td><td>node taints vs pod <code>tolerations</code></td></tr>
-          <tr><td class="mono">... didn't match Pod's node affinity/selector</td><td><code>nodeSelector</code> or affinity impossible</td><td>node labels</td></tr>
-          <tr><td class="mono">pod has unbound immediate PersistentVolumeClaims</td><td>PVC Pending: no StorageClass, no capacity, wrong access mode</td><td><code>kubectl describe pvc</code> events</td></tr>
-          <tr><td class="mono">exceeded quota: ... requested: ..., used: ..., limited: ...</td><td>ResourceQuota; the pod is never created, the ReplicaSet event says so</td><td><code>kubectl describe quota -n ns</code>; <code>kubectl describe rs</code></td></tr>
-          <tr><td><code>ImagePullBackOff</code> with <code>unauthorized</code> / <code>manifest unknown</code> / <code>no such host</code></td><td>pull secret, tag, registry DNS or egress</td><td>the exact registry error in <code>describe pod</code>; <code>imagePullSecrets</code> on pod or SA</td></tr>
-          <tr><td class="mono">CreateContainerConfigError</td><td>a referenced ConfigMap/Secret or key does not exist</td><td>event names the missing object</td></tr>
-          <tr><td class="mono">CreateContainerError</td><td>runtime refused the container spec (bad command, invalid mount)</td><td>event text; containerd logs on the node</td></tr>
-          <tr><td><code>ContainerCreating</code> for minutes, event <code>failed to setup network for sandbox</code> / <code>FailedMount</code> / <code>Multi-Attach error</code></td><td>CNI down, or a volume still attached to the old node</td><td>CNI DaemonSet pods; <code>kubectl get volumeattachments</code></td></tr>
-          <tr><td class="mono">CrashLoopBackOff</td><td>the container keeps exiting; backoff doubles to a 5 minute cap</td><td><code>kubectl logs --previous</code>, then the exit code below</td></tr>
-          <tr><td class="mono">OOMKilled</td><td>memory limit; reason on <code>lastState.terminated</code></td><td><code>container_memory_working_set_bytes</code> vs limit</td></tr>
-          <tr><td class="mono">Evicted</td><td>node pressure (ephemeral storage, memory)</td><td>event message names the resource; node conditions</td></tr>
-          <tr><td><code>Terminating</code> forever</td><td>finalizer whose controller is gone, or a stuck preStop/grace period</td><td><code>metadata.finalizers</code>; <code>kubectl delete --grace-period=0 --force</code> as a last resort</td></tr>
+          <tr><td><code>Pending</code>, event <code>0/3 nodes are available: 3 Insufficient cpu</code></td><td>requests exceed free allocatable capacity</td><td><code>kubectl describe node</code> Allocated resources; trim requests or add capacity</td></tr>
+          <tr><td class="mono">... had untolerated taint {...}</td><td>node taint without matching toleration</td><td>compare node taints vs. pod <code>tolerations</code></td></tr>
+          <tr><td class="mono">... didn't match Pod's node affinity/selector</td><td>unsatisfiable <code>nodeSelector</code> or affinity</td><td>check node labels</td></tr>
+          <tr><td class="mono">pod has unbound immediate PersistentVolumeClaims</td><td>PVC stuck Pending (missing StorageClass, no capacity, unsupported access mode)</td><td><code>kubectl describe pvc</code> events</td></tr>
+          <tr><td class="mono">exceeded quota: ... requested: ..., used: ..., limited: ...</td><td>ResourceQuota hit; Deployment looks fine while ReplicaSet logs the block</td><td><code>kubectl describe quota -n ns</code>; <code>kubectl describe rs</code></td></tr>
+          <tr><td><code>ImagePullBackOff</code> with <code>unauthorized</code> / <code>manifest unknown</code> / <code>no such host</code></td><td>pull Secret, bad tag, registry DNS, or egress</td><td>exact error in <code>describe pod</code>; <code>imagePullSecrets</code> on pod or SA</td></tr>
+          <tr><td class="mono">CreateContainerConfigError</td><td>referenced ConfigMap, Secret, or key doesn't exist</td><td>pod event names the missing resource</td></tr>
+          <tr><td class="mono">CreateContainerError</td><td>runtime rejected the spec (bad entrypoint or mount)</td><td>pod event; node containerd logs</td></tr>
+          <tr><td><code>ContainerCreating</code> for minutes, event <code>failed to setup network for sandbox</code> / <code>FailedMount</code> / <code>Multi-Attach error</code></td><td>CNI down, or RWO volume still attached to an old node</td><td>CNI DaemonSet pods; <code>kubectl get volumeattachments</code></td></tr>
+          <tr><td class="mono">CrashLoopBackOff</td><td>container exits repeatedly (backoff doubles up to 5m)</td><td><code>kubectl logs --previous</code> + exit code below</td></tr>
+          <tr><td class="mono">OOMKilled</td><td>hit memory limit; check <code>lastState.terminated</code></td><td>compare <code>container_memory_working_set_bytes</code> vs. limit</td></tr>
+          <tr><td class="mono">Evicted</td><td>node disk or memory pressure</td><td>eviction event message + node conditions</td></tr>
+          <tr><td><code>Terminating</code> forever</td><td>stuck finalizer or hung <code>preStop</code> hook</td><td><code>metadata.finalizers</code>; <code>kubectl delete --grace-period=0 --force</code> only as a last resort</td></tr>
         </tbody>
       </table>
     </div>
-    <p>Exit codes, read from <code>lastState.terminated.exitCode</code>: <code>0</code> ran to completion (a Job, or a container that should not have exited), <code>1</code> application error (read the log), <code>2</code> shell misuse, <code>126</code> command not executable, <code>127</code> command not found (wrong <code>command</code> or image), <code>137</code> SIGKILL (OOM if the reason says so, otherwise killed after the grace period), <code>139</code> segfault, <code>143</code> SIGTERM (a graceful stop; if it recurs, the liveness probe is killing a healthy container).</p>
+    <p>Decode exit codes from <code>lastState.terminated.exitCode</code> at a glance: <code>0</code> clean exit (fine for a Job, wrong for a long-running server), <code>1</code> application error (read the logs), <code>2</code> shell misuse, <code>126</code> non-executable command, <code>127</code> command not found (wrong <code>command</code> or image), <code>137</code> SIGKILL (OOM if reason says <code>OOMKilled</code>, otherwise killed past grace period), <code>139</code> segfault, and <code>143</code> SIGTERM (graceful shutdown; if it loops on a clock, a failing liveness probe is killing a healthy pod).</p>
 
-    <h3>Cluster-level scenarios</h3>
+    <h3>Cluster-level failure scenarios</h3>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Scenario</th><th>Tells</th><th>Lever</th></tr></thead>
         <tbody>
-          <tr><td>node <code>NotReady</code></td><td>condition message <code>Kubelet stopped posting node status</code>; pods on it go <code>Unknown</code>, then are evicted after the eviction timeout (5 minutes by default)</td><td><code>kubectl debug node/&lt;n&gt; -it --image=busybox:1.37 -- chroot /host journalctl -u kubelet -n 50</code> (and <code>-u containerd</code>): the kubelet logs to the journal, not to a file; disk pressure and certificate expiry are the usual causes</td></tr>
-          <tr><td>DNS</td><td>everything Running, apps log <code>no such host</code>; <code>nslookup kubernetes.default</code> from a pod fails</td><td>CoreDNS pods and its ConfigMap; a NetworkPolicy that forgot UDP/TCP 53 egress to <code>kube-system</code></td></tr>
-          <tr><td>certificate expiry</td><td><code>x509: certificate has expired or is not yet valid</code> in kubelet or kubectl output; a webhook whose <code>caBundle</code> no longer matches</td><td><code>kubeadm certs check-expiration</code> and <code>kubeadm certs renew</code>; cert-manager for the webhook</td></tr>
-          <tr><td>etcd full</td><td>every write fails with <code>etcdserver: mvcc: database space exceeded</code>; reads still work</td><td><code>etcdctl alarm list</code>, compact, defrag, <code>alarm disarm</code>; raise <code>--quota-backend-bytes</code>; find what filled it (events, huge ConfigMaps)</td></tr>
-          <tr><td>admission webhook down</td><td>writes time out with <code>failed calling webhook ... context deadline exceeded</code>, reads work</td><td>the backend Deployment; as an emergency, delete or scope the webhook configuration (5.2)</td></tr>
-          <tr><td>API server slow</td><td><code>apiserver_request_duration_seconds</code> p99 high; <code>Throttling request took</code> in client logs</td><td>a controller in a hot loop (<code>apiserver_request_total</code> by user agent), or a webhook adding latency to every write</td></tr>
-          <tr><td>image pull auth across a namespace</td><td>every new pod <code>ImagePullBackOff</code> with <code>401 Unauthorized</code></td><td>the pull Secret expired or the ServiceAccount lost its <code>imagePullSecrets</code></td></tr>
-          <tr><td>control-plane tooling</td><td>Argo CD <code>Unknown</code> health with <code>ComparisonError</code>; Flux <code>Ready=False</code> with <code>reconciliation failed</code>; Tekton PipelineRun <code>CouldntGetTask</code>; Crossplane <code>Synced=False</code></td><td>each tool's own condition message names the layer; the fix is in that tool's section</td></tr>
+          <tr><td>node <code>NotReady</code></td><td><code>Kubelet stopped posting node status</code>; pods flip to <code>Unknown</code> and get evicted after ~5m</td><td><code>kubectl debug node/&lt;n&gt; -it --image=busybox:1.37 -- chroot /host journalctl -u kubelet -n 50</code> (and <code>-u containerd</code>); disk pressure and expired certs are the top culprits</td></tr>
+          <tr><td>DNS dead</td><td>pods Running, apps log <code>no such host</code>, <code>nslookup kubernetes.default</code> fails</td><td>inspect CoreDNS pods and ConfigMap, or a NetworkPolicy blocking UDP/TCP 53 egress to <code>kube-system</code></td></tr>
+          <tr><td>expired certificates</td><td><code>x509: certificate has expired or is not yet valid</code>, or stale webhook <code>caBundle</code></td><td><code>kubeadm certs check-expiration</code> and <code>kubeadm certs renew</code>; cert-manager for webhooks</td></tr>
+          <tr><td>etcd full</td><td>every write fails with <code>etcdserver: mvcc: database space exceeded</code> while reads keep working</td><td><code>etcdctl alarm list</code> → compact → defrag → <code>alarm disarm</code>; bump <code>--quota-backend-bytes</code> and hunt down what filled it</td></tr>
+          <tr><td>admission webhook down</td><td>writes time out with <code>failed calling webhook ... context deadline exceeded</code> while reads work</td><td>fix the webhook Deployment; in an emergency, scope or delete the webhook configuration (5.2)</td></tr>
+          <tr><td>API server sluggish</td><td>high <code>apiserver_request_duration_seconds</code> p99; <code>Throttling request took</code> in client logs</td><td>find runaway controllers via <code>apiserver_request_total</code> by user agent, or a slow webhook stalling every write</td></tr>
+          <tr><td>namespace-wide pull auth failure</td><td>every new pod hits <code>ImagePullBackOff</code> with <code>401 Unauthorized</code></td><td>expired pull Secret or ServiceAccount missing <code>imagePullSecrets</code></td></tr>
+          <tr><td>platform controller failure</td><td>Argo CD <code>ComparisonError</code>, Flux <code>Ready=False</code>, Tekton <code>CouldntGetTask</code>, Crossplane <code>Synced=False</code></td><td>each controller's status condition pinpoints the exact layer</td></tr>
         </tbody>
       </table>
     </div>
-    <div class="callout reflex"><span class="tag">Reflex</span><p>Before anything else on a "cluster is broken" task: <code>kubectl get nodes</code>, <code>kubectl get pods -A | grep -v Running</code>, <code>kubectl get events -A --sort-by=.lastTimestamp | tail -30</code>, and <code>kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations</code>. Those four outputs place the incident in one row of the tables above nine times out of ten.</p></div>
+    <div class="callout reflex"><span class="tag">Four-command triage opener</span><p>Whenever a task says "the cluster is broken," run four commands immediately: <code>kubectl get nodes</code>, <code>kubectl get pods -A | grep -v Running</code>, <code>kubectl get events -A --sort-by=.lastTimestamp | tail -30</code>, and <code>kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations</code>. Nine times out of ten, the root cause jumps straight off the screen.</p></div>
   </div>
 </section>
 
 <section class="panel accent-y" id="toolbox">
-  <div class="phdr"><h2>The toolbox and the rollback verbs</h2><span class="meta">debug profiles, per-tool rollback, remediation vs resolution</span></div>
+  <div class="phdr"><h2>The debugging toolbox and rollback commands</h2><span class="meta">debug profiles, per-tool rollback, remediation vs resolution</span></div>
   <div class="pbody">
-    <h3>kubectl debug, the flags</h3>
+    <h3><code>kubectl debug</code> flags to keep handy</h3>
     <ul>
-      <li><code>kubectl debug -it pod/x --image=busybox --target=app</code> adds an ephemeral container sharing the process namespace of <code>app</code>; ephemeral containers cannot be removed, only the pod deleted.</li>
-      <li><code>--copy-to=x-debug --share-processes --set-image=app=busybox</code> copies the pod with a changed image or command, for a container that crashes before you can attach; <code>--copy-to</code> with <code>--container app -- sh</code> overrides the command.</li>
-      <li><code>kubectl debug node/n -it --image=busybox</code> schedules a pod on the node with the host filesystem at <code>/host</code>; it is not privileged unless <code>--profile=sysadmin</code>. The other profiles are <code>general</code> (the default), <code>baseline</code> and <code>restricted</code> (pass PSS), <code>netadmin</code> (NET_ADMIN and NET_RAW for tcpdump and ip). Delete the <code>node-debugger-*</code> pod afterwards.</li>
-      <li><code>kubectl get --raw /readyz?verbose</code> and <code>/livez?verbose</code> list API server health checks by name (etcd, informers, webhooks); <code>kubectl get componentstatuses</code> still answers, but it has been deprecated since 1.19 and prints a warning saying so; the health endpoints above are the supported view.</li>
+      <li><code>kubectl debug -it pod/x --image=busybox --target=app</code> attaches an ephemeral container sharing <code>app</code>'s process namespace (note: ephemeral containers can't be removed individually; they live until the pod is deleted).</li>
+      <li><code>--copy-to=x-debug --share-processes --set-image=app=busybox</code> clones a crashing pod with a swapped image or entrypoint (pair with <code>--container app -- sh</code>) when the original dies too fast to attach.</li>
+      <li><code>kubectl debug node/n -it --image=busybox</code> drops you onto the node with its root filesystem mounted at <code>/host</code>. Profiles control privilege: <code>general</code> (default, unprivileged), <code>baseline</code> / <code>restricted</code> (PSS-friendly), <code>netadmin</code> (<code>NET_ADMIN</code> + <code>NET_RAW</code> for <code>tcpdump</code> and <code>ip</code>), and <code>sysadmin</code> (full root for <code>chroot /host</code>). Remember to delete the <code>node-debugger-*</code> pod afterward.</li>
+      <li>Check API server internals with <code>kubectl get --raw /readyz?verbose</code> and <code>/livez?verbose</code> (lists etcd, informers, and webhooks individually; <code>kubectl get componentstatuses</code> has been deprecated since 1.19).</li>
     </ul>
 
-    <h3>Rollback, per layer</h3>
+    <h3>Fast rollback commands, layer by layer</h3>
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>Layer</th><th>Restore service</th><th>Caveat</th></tr></thead>
+        <thead><tr><th>Layer</th><th>Restore service</th><th>Watch out for</th></tr></thead>
         <tbody>
-          <tr><td>Deployment</td><td><code>kubectl rollout undo deploy/x [--to-revision=N]</code>; <code>kubectl rollout history</code></td><td>GitOps will roll it forward again within a sync interval unless you suspend or fix git</td></tr>
-          <tr><td>Argo CD</td><td><code>argocd app rollback x &lt;id&gt;</code> (from <code>argocd app history</code>), or disable auto-sync first (<code>argocd app set x --sync-policy none</code>)</td><td>rollback with auto-sync on is refused; revert the commit for the durable fix</td></tr>
-          <tr><td>Flux</td><td><code>flux suspend kustomization x</code>, then <code>kubectl rollout undo</code> or a git revert; <code>flux resume</code> after</td><td>suspended objects show <code>suspended="true"</code> in <code>gotk_resource_info</code>; forgetting to resume is a follow-up incident</td></tr>
-          <tr><td>Helm</td><td><code>helm rollback x &lt;revision&gt;</code></td><td>only if Helm still owns the release; not under Argo CD's rendering</td></tr>
-          <tr><td>Progressive delivery</td><td><code>kubectl argo rollouts abort x</code> then <code>undo</code>; Flagger rolls back on its own when analysis fails</td><td>an aborted Rollout stays <code>Degraded</code> until you promote or undo</td></tr>
-          <tr><td>Policy</td><td>flip <code>validationActions</code> to <code>Audit</code> or <code>enforcementAction</code> to <code>warn</code>; add a <code>PolicyException</code></td><td>deleting a webhook configuration is the last resort and must be re-created after</td></tr>
-          <tr><td>Crossplane / kro</td><td><code>compositionUpdatePolicy: Manual</code> plus the old <code>compositionRevisionRef</code>; <code>crossplane.io/paused: "true"</code> or <code>kro.run/reconcile: suspended</code> to stop the bleeding</td><td>pausing stops drift correction too; note it in the postmortem</td></tr>
-          <tr><td>Node</td><td><code>kubectl cordon</code>, <code>drain --ignore-daemonsets --delete-emptydir-data</code>, <code>uncordon</code></td><td>drain honors PodDisruptionBudgets and hangs on them</td></tr>
+          <tr><td>Deployment</td><td><code>kubectl rollout undo deploy/x [--to-revision=N]</code>; <code>kubectl rollout history</code></td><td>GitOps will roll it right back forward on the next sync unless you suspend or revert Git</td></tr>
+          <tr><td>Argo CD</td><td><code>argocd app rollback x &lt;id&gt;</code> (after disabling auto-sync via <code>argocd app set x --sync-policy none</code>)</td><td>Argo CD blocks rollback while auto-sync is on; revert the Git commit for the durable fix</td></tr>
+          <tr><td>Flux</td><td><code>flux suspend kustomization x</code>, undo or revert Git, then <code>flux resume</code></td><td>suspended objects show <code>suspended="true"</code>; forgetting to resume creates tomorrow's outage</td></tr>
+          <tr><td>Helm</td><td><code>helm rollback x &lt;revision&gt;</code></td><td>only works when Helm owns the release directly (not Argo-rendered charts)</td></tr>
+          <tr><td>Progressive delivery</td><td><code>kubectl argo rollouts abort x</code> then <code>undo</code>; Flagger rolls back automatically on failed analysis</td><td>an aborted Rollout stays <code>Degraded</code> until promoted or undone</td></tr>
+          <tr><td>Policy</td><td>flip <code>validationActions</code> to <code>Audit</code> or <code>enforcementAction</code> to <code>warn</code>, or add a <code>PolicyException</code></td><td>deleting a webhook configuration is emergency-only and must be restored afterward</td></tr>
+          <tr><td>Crossplane / kro</td><td><code>compositionUpdatePolicy: Manual</code> + older <code>compositionRevisionRef</code>; pause with <code>crossplane.io/paused: "true"</code> or <code>kro.run/reconcile: suspended</code></td><td>pausing freezes drift correction too, so always log it in the postmortem</td></tr>
+          <tr><td>Node</td><td><code>kubectl cordon</code>, <code>drain --ignore-daemonsets --delete-emptydir-data</code>, <code>uncordon</code></td><td>drains honor PDBs and hang when <code>disruptionsAllowed</code> is 0</td></tr>
         </tbody>
       </table>
     </div>
 
-    <h3>Vocabulary and process</h3>
-    <p>MTTD (detect: alert fired minus impact start), MTTA (acknowledge), MTTR (restore), plus the DORA framing of "failed deployment recovery time" from 4.5. A runbook is the document an alert's <code>runbook_url</code> points at: symptom, likely causes in order, the exact commands, the rollback, and who to escalate to. On-call hygiene that scenario questions reward: one severity taxonomy, a rotation with hand-over notes, every page linked to a runbook, an incident channel per incident, and a blameless postmortem within days that produces action items with owners (the five-line format above is the minimum viable version). Remediation restores service (rollback, scale, fail over, pause the policy); resolution removes the cause (fix the code, the composition, the quota). Say which one you did; graders and colleagues both need to know whether the fix is still open.</p>
-    <div class="callout exam"><span class="tag">How this gets tested</span><p>Incident tasks describe the symptom, not the cause: "the payments service returns 503 since the last deploy", "new pods in namespace X do not start", "nothing can be created in the cluster". Your first four commands should place it in a table row; your last command must reproduce the original symptom and show it gone. Partial credit usually exists for restoring service even if the root cause fix is incomplete, so remediate first, then resolve.</p></div>
+    <h3>Vocabulary and incident discipline</h3>
+    <p>Keep the metrics straight: <strong>MTTD</strong> (detect: alert fired minus impact start), <strong>MTTA</strong> (acknowledge), and <strong>MTTR</strong> (restore), alongside DORA's "failed deployment recovery time" from section 4.5. A strong on-call setup pairs one clear severity taxonomy with linked runbooks (symptom, top causes, exact diagnostic commands, rollback, escalation path), a dedicated incident channel, and a quick blameless postmortem producing concrete action items with owners. Finally, separate <strong>remediation</strong> (restoring service fast: rollback, scale, fail over, pause a broken policy) from <strong>resolution</strong> (fixing the underlying bug so it doesn't come back).</p>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>Exam incident prompts always hand you a symptom, never the cause: "payments returns 503 since the last deploy," "pods in namespace X won't start," or "nothing can be created cluster-wide." Run your four-command opener to land on the right row, restore service first, and finish by re-running the original failing check to prove it's green.</p></div>
   </div>
 </section>
 
 <section class="panel accent-y" id="afterwards">
   <div class="phdr"><h2>After the fix</h2><span class="meta">"structured incident response process"</span></div>
   <div class="pbody">
-    <p>Remediation is half the competency; the process around it is the other half, and it compresses to five lines you can write in five minutes:</p>
+    <p>Fixing the outage is half the job; closing the loop is the other half. A crisp five-line postmortem takes five minutes to write:</p>
     <ol>
-      <li><strong>Symptom</strong>: what a user or a check observed, with a timestamp.</li>
-      <li><strong>Blast radius</strong>: who and what was affected, and who was not.</li>
-      <li><strong>Root cause</strong>: the change or condition that produced it, stated as a mechanism, not a culprit.</li>
-      <li><strong>Fix</strong>: what you did, including anything you did that turned out to be irrelevant.</li>
-      <li><strong>Proof of recovery</strong>: the command or signal that confirms it, and the follow-up that prevents recurrence (an alert that would have caught it sooner, a policy, a default).</li>
+      <li><strong>Symptom:</strong> what users or checks observed, with timestamps.</li>
+      <li><strong>Blast radius:</strong> what broke and what stayed healthy.</li>
+      <li><strong>Root cause:</strong> the exact mechanism that failed, never a person to blame.</li>
+      <li><strong>Fix:</strong> what resolved it (including dead ends worth documenting).</li>
+      <li><strong>Proof &amp; prevention:</strong> the verification command that confirmed recovery, plus one concrete follow-up (an alert, policy, or default) so it can't recur.</li>
     </ol>
-    <p>Blameless, mechanism-focused, and short enough that you will write it. Vocabulary that may appear in a scenario: <em>MTTD</em> (detect), <em>MTTA</em> (acknowledge), <em>MTTR</em> (restore), <em>error budget</em> (how much unreliability the SLO permits), <em>toil</em> (manual repetitive work that scales with load, the thing a platform is supposed to remove).</p>
+    <p>Keep the SRE vocabulary handy too: <em>MTTD</em> (detect), <em>MTTA</em> (acknowledge), <em>MTTR</em> (restore), <em>error budget</em> (allowable unreliability under an SLO), and <em>toil</em> (manual, repetitive operational work that scales with load, which is exactly what platforms exist to eliminate).</p>
 
     <div class="callout exam">
       <span class="tag">Remediation ≠ resolution</span>
-      <p>On the exam and in life: first restore service (roll back, scale, fail over, restore the policy), then fix the cause properly. Those are two different actions with two different urgencies; say which one you are doing.</p>
+      <p>Both on exam day and on call: stabilize users first (rollback, scale, fail over, bypass a broken guardrail), then fix the underlying root cause properly. Two different actions, two different urgencies: always be explicit about which one you've completed.</p>
     </div>
   </div>
 </section>
@@ -645,32 +645,32 @@ etcd-0               Healthy   ok        </code></pre></details></div>
   <div class="phdr"><h2>Self-check</h2><span class="meta">say the first command out loud</span></div>
   <div class="pbody">
     <details class="quiz"><summary>Every pod in a namespace is Running and the app returns nothing. First three moves?</summary>
-      <div class="answer"><p>Make something try (a curl or nslookup from inside the namespace) so there is evidence to read; check endpoints/readiness for the Service; check policy verdicts (Hubble DROPPED) and DNS. "Running" says the kubelet is happy, nothing more.</p></div></details>
+      <div class="answer"><p>Force a real request (run <code>curl</code> or <code>nslookup</code> from inside the namespace) so you have live evidence; inspect the Service's EndpointSlice and pod readiness; then check Hubble for DROPPED NetworkPolicy verdicts and DNS resolution. "Running" only proves kubelet started the container.</p></div></details>
 
     <details class="quiz"><summary>A pod is CrashLoopBackOff and <code>kubectl logs</code> shows nothing useful.</summary>
-      <div class="answer"><p><code>kubectl logs --previous</code>: you are reading the current, not-yet-started container. Then <code>describe</code> for the exit code and reason (137 with OOMKilled points at memory, 1 with app output points at config), then the previous container's <code>lastState.terminated</code>.</p></div></details>
+      <div class="answer"><p>Run <code>kubectl logs --previous</code> so you read the container that actually crashed rather than the fresh one still starting. Follow up with <code>kubectl describe pod</code> and <code>lastState.terminated</code> for the exit code and reason (137 + OOMKilled points to memory; 1 with stack trace points to app config).</p></div></details>
 
     <details class="quiz"><summary>Nothing can be created cluster-wide; every apply times out with a webhook error. What happened and what is the lever?</summary>
-      <div class="answer"><p>An admission webhook's backend is down and its <code>failurePolicy</code> is <code>Fail</code>, so the API server refuses writes it cannot validate. Restore the backend, or (as a deliberate emergency step) remove/scope the webhook configuration. That is why <code>failurePolicy</code> is a governance decision, not a default to accept blindly (5.2).</p></div></details>
+      <div class="answer"><p>An admission webhook's backend is down while its <code>failurePolicy</code> is set to <code>Fail</code>, blocking every matching write. Fix the backend Deployment first, or in a genuine emergency, scope or remove the webhook configuration temporarily (section 5.2).</p></div></details>
 
     <details class="quiz"><summary>You have four minutes left and no theory that fits the evidence. What do you do?</summary>
-      <div class="answer"><p>Go back to step 1 and widen: re-check blast radius and timeline rather than digging deeper into the current object. Most stuck diagnoses are the result of over-committing to the first plausible layer. On the exam, flag it and move on; a stuck task costs you two easy ones.</p></div></details>
+      <div class="answer"><p>Pull back to Step 1 and widen: re-check blast radius and recent events instead of digging deeper into the wrong object. Under exam pressure, flag the task and move on, because getting stuck on one hard task costs you two easy ones.</p></div></details>
 
     <details class="quiz"><summary>What proves an incident is over?</summary>
-      <div class="answer"><p>The same signal that showed the failure, now succeeding: the failing curl returns 200, the alert resolves, the validation check passes. A pod showing Running proves only that a container started.</p></div></details>
+      <div class="answer"><p>Re-running the exact check that failed and seeing it pass: the broken <code>curl</code> returns 200, the alert clears, or the validation probe succeeds. A pod saying Running never proves recovery on its own.</p></div></details>
   
 
     <details class="quiz"><summary>Every write to the cluster fails with <code>etcdserver: mvcc: database space exceeded</code> but reads work. What happened and what is the order of operations?</summary>
-      <div class="answer"><p>etcd hit its backend quota (2 GiB by default) and raised the NOSPACE alarm, which turns the store read-only. Compact old revisions, defragment each member, then <code>etcdctl alarm disarm</code>; raise <code>--quota-backend-bytes</code> if the data is legitimate. Then find the producer (event storms, oversized ConfigMaps or Secrets, a controller writing status in a loop) or it recurs.</p></div></details>
+      <div class="answer"><p>etcd filled its backend quota (2 GiB default) and tripped the <code>NOSPACE</code> alarm, flipping the store read-only. Run compact → defragment every member → <code>etcdctl alarm disarm</code> (in that exact order), raise <code>--quota-backend-bytes</code> if growth is legitimate, and track down whatever flooded etcd (event storms, giant ConfigMaps, or a looping controller).</p></div></details>
 
     <details class="quiz"><summary>A container exits with code 143 every 30 seconds and the app logs look healthy. Diagnosis?</summary>
-      <div class="answer"><p>143 is SIGTERM: something is asking it to stop gracefully. On a fixed cadence that is almost always a failing liveness probe (wrong port or path, or a timeout shorter than the app's startup). Read <code>kubectl describe pod</code> for <code>Liveness probe failed</code> events, and fix the probe or add a startup probe. 137 would have pointed at OOM or a forced kill instead.</p></div></details>
+      <div class="answer"><p>Exit code 143 is SIGTERM: Kubernetes is gracefully killing it on a timer, which almost always means a failing liveness probe (wrong port/path, or timeout too short for startup). Check <code>kubectl describe pod</code> for <code>Liveness probe failed</code> events and fix the probe or add a <code>startupProbe</code>.</p></div></details>
 
     <details class="quiz"><summary>You roll a Deployment back with <code>kubectl rollout undo</code> and two minutes later it is broken again. Why, and what should you have done?</summary>
-      <div class="answer"><p>A GitOps controller re-applied the desired state from git. Either disable or suspend first (<code>argocd app set x --sync-policy none</code>, <code>flux suspend kustomization x</code>) and undo as a stopgap, or go straight to the durable fix: revert the commit and let the controller roll back for you. Say in the incident notes that the suspension must be lifted.</p></div></details>
+      <div class="answer"><p>Your GitOps controller reconciled Git back onto the cluster. Either pause reconciliation first (<code>argocd app set x --sync-policy none</code> or <code>flux suspend kustomization x</code>) for an emergency undo, or go straight to reverting the Git commit so the controller rolls back cleanly for you.</p></div></details>
 
     <details class="quiz"><summary>Which <code>kubectl debug</code> invocation gives you tcpdump on a node without full root, and why does the default node debug pod fail at <code>chroot /host</code>?</summary>
-      <div class="answer"><p><code>kubectl debug node/&lt;n&gt; -it --image=&lt;image with tcpdump&gt; --profile=netadmin</code> adds NET_ADMIN and NET_RAW. The default <code>general</code> profile mounts the host filesystem at <code>/host</code> but is not privileged, so operations that need root on the host (<code>chroot</code>, reading some <code>/proc</code> entries) fail; <code>--profile=sysadmin</code> is the privileged one.</p></div></details>
+      <div class="answer"><p>Run <code>kubectl debug node/&lt;n&gt; -it --image=&lt;image with tcpdump&gt; --profile=netadmin</code> to grant <code>NET_ADMIN</code> and <code>NET_RAW</code> without full privilege. The default <code>general</code> profile mounts <code>/host</code> unprivileged, so host-root operations like <code>chroot</code> fail unless you pass <code>--profile=sysadmin</code>.</p></div></details>
   </div>
 </section>
 

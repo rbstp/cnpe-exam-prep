@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#171c1d" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f5f0" media="(prefers-color-scheme: light)">
-<meta name="description" content="Two systems, one handoff. Prometheus evaluates rules and decides what is true. Alertmanager receives firing alerts and decides who hears about it.">
+<meta name="description" content="Master Prometheus alerting rules, recording rules, SLO burn-rate math, Alertmanager routing trees, silences, inhibition, and promtool rule testing.">
 <title>4.2 Alerting: rules, Alertmanager, routing · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
 <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
@@ -18,7 +18,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum">Two systems, one handoff. Prometheus evaluates rules and decides what is <em>true</em>. Alertmanager receives firing alerts and decides who <em>hears</em> about it.</p>
+  <p class="sum">Two systems, one clean handoff. Prometheus evaluates rules and decides what's <em>true</em>. Alertmanager catches firing alerts and decides who <em>hears</em> about them.</p>
 </header>
 
 <div class="stats"></div>
@@ -28,7 +28,7 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 4.1 · alerting and notification routing</span></div>
   <div class="pbody">
-    <p class="lede">"Where do I configure X" questions are really "which side of the handoff is X" questions. Thresholds, durations and labels: Prometheus. Grouping, routing, silencing, inhibition, receivers: Alertmanager. Get that boundary right and the rest is syntax.</p>
+    <p class="lede">Most "where do I configure X?" questions are really asking which side of the handoff owns X. Thresholds, <code>for</code> durations, and labels live in Prometheus. Grouping, routing, silences, inhibition, mute intervals, and receivers live in Alertmanager. Nail that boundary and the rest is straightforward YAML.</p>
     <pre class="diagram"><b>Prometheus</b>                                       <b>Alertmanager</b>
    rule groups, evaluated every 30s              receives firing alerts via HTTP
    expr → <i>Inactive</i> → <i>Pending</i> (for:) → <u>Firing</u> ──▶ route → group → inhibit → silence → <em>receiver</em>
@@ -40,35 +40,35 @@
 <section class="panel accent-c" id="rules">
   <div class="phdr"><h2>Rules</h2><span class="meta">PrometheusRule · states · recording rules</span></div>
   <div class="pbody">
-    <p>A <code>PrometheusRule</code> CRD holds groups of rules. An <strong>alerting rule</strong> is a PromQL expression plus:</p>
+    <p>A <code>PrometheusRule</code> CRD bundles groups of alerting and recording rules. Each <strong>alerting rule</strong> pairs a PromQL expression with four key fields:</p>
     <ul>
-      <li><code>for</code>: how long the expression must hold before Pending becomes Firing. This is your flap filter, and picking it is a real decision: too short and you page on transients, too long and you notice late.</li>
-      <li><code>labels</code>: <em>routing material</em>. <code>severity</code>, <code>team</code>, <code>service</code>. Whatever your routes match on must be produced here.</li>
-      <li><code>annotations</code>: human material: <code>summary</code>, <code>description</code>, <code>runbook_url</code>. Templated with <code>{{ $labels.x }}</code> and <code>{{ $value }}</code>.</li>
-      <li><code>keep_firing_for</code> is the opposite of <code>for</code>: keeps an alert firing briefly after the expression goes false, to damp flapping resolutions.</li>
+      <li><code>for</code>: how long the expression must stay true before <code>Pending</code> promotes to <code>Firing</code>. It's your flap filter: too short wakes people on brief blips, too long lets outages drag on.</li>
+      <li><code>labels</code>: <em>routing keys</em> like <code>severity</code>, <code>team</code>, and <code>service</code>. Whatever Alertmanager routes match on has to be attached here.</li>
+      <li><code>annotations</code>: human context like <code>summary</code>, <code>description</code>, and <code>runbook_url</code>, templated with <code>{{ $labels.x }}</code> and <code>{{ $value }}</code>.</li>
+      <li><code>keep_firing_for</code>: the mirror image of <code>for</code>; holds an alert in Firing briefly after the expression clears so flapping symptoms don't spam resolved/firing pairs.</li>
     </ul>
 
-    <p><strong>Recording rules</strong> are the other half of the CRD: they precompute an expensive expression into a new series on a schedule (<code>job:http_errors:rate5m</code>, by convention <code>level:metric:operation</code>). Dashboards and alerts then read a cheap series. If a scenario says "this dashboard takes 30 seconds to load", a recording rule is the expected answer.</p>
+    <p><strong>Recording rules</strong> live in the same CRD and precompute heavy queries into fast series on a schedule (following the <code>level:metric:operation</code> convention, like <code>job:http_errors:rate5m</code>). Whenever a scenario says "this Grafana dashboard takes 30 seconds to render," a recording rule is the answer.</p>
 
     <div class="callout trap">
-      <span class="tag">The same selector story as ServiceMonitors</span>
-      <p>Rules are only evaluated if they match the Prometheus object's <code>ruleSelector</code>. This lab's is <code>{}</code> (everything); a stock install's is the release label. An unmatched rule produces <em>no evaluation and no error</em>. Read the selector before blaming the rule: this is another place in domain 4 where a selector silently discards correct configuration.</p>
+      <span class="tag">Same silent selector trap as ServiceMonitors</span>
+      <p>Prometheus only loads <code>PrometheusRule</code> objects that match its <code>ruleSelector</code>. Our lab uses <code>{}</code> (pick up everything), while a stock Helm install demands the release label. An unmatched rule silently never evaluates with zero errors. Always check the selector before blaming your PromQL.</p>
     </div>
 
     <div class="callout exam">
-      <span class="tag">Alert states, and where each is visible</span>
-      <p><em>Inactive</em> → <em>Pending</em> (expression true, <code>for</code> not yet satisfied) → <em>Firing</em>. Pending alerts appear in Prometheus's Alerts page and <strong>nowhere else</strong>; they have not been sent. That matters when someone asks why nothing reached the receiver "even though the alert is showing". Add evaluation interval + <code>for</code> + <code>group_wait</code> to compute how long a fire takes; on a stock stack that is easily 2–3 minutes.</p>
+      <span class="tag">Alert states, and where each shows up</span>
+      <p>Alerts move from <em>Inactive</em> → <em>Pending</em> (expression true, waiting out <code>for</code>) → <em>Firing</em>. Pending alerts appear in Prometheus's Alerts UI and <strong>nowhere else</strong>; Alertmanager hasn't even heard about them yet. Add evaluation interval + <code>for</code> + <code>group_wait</code> to know how long an alert takes to land; on a stock stack, 2–3 minutes is completely normal.</p>
     </div>
 
 
-    <p>Add up the settings before you conclude that alerting is broken:</p>
+    <p>Trace the timing yourself before concluding your alerting pipeline is broken:</p>
     <div class="widget" data-widget="alertstate"></div>
-    <h3>What makes an alert worth having</h3>
+    <h3>What separates good alerts from pager noise</h3>
     <ul>
-      <li><strong>Symptom over cause.</strong> Alert on user-visible failure (error rate, latency, unavailability), not on every internal cause. Cause-based alerts multiply; symptom-based ones stay bounded.</li>
-      <li><strong>Actionable.</strong> If nobody would do anything at 3am, it is a dashboard panel, not a page.</li>
-      <li><strong>Alert on the SLO, if you can.</strong> Burn-rate alerting (fast burn on a short window, slow burn on a long one) is the modern form: it pages on error budget consumption instead of arbitrary thresholds. Even knowing the phrase "multi-window multi-burn-rate" signals you have read the SRE material.</li>
-      <li><strong>Documented.</strong> A <code>runbook_url</code> annotation is the cheapest reliability improvement in this section.</li>
+      <li><strong>Page on symptoms, not causes.</strong> Alert on user-facing pain (error rate, latency, downtime) instead of every internal wobble. Cause-based alerts multiply endlessly; symptom alerts stay focused.</li>
+      <li><strong>Make every page actionable.</strong> If nobody is getting out of bed to fix it at 3am, turn it into a dashboard panel or a ticket, not a page.</li>
+      <li><strong>Alert on SLO burn rate when possible.</strong> Pairing a short window and a long window ("multi-window multi-burn-rate") pages based on how fast you're burning error budget rather than arbitrary static thresholds.</li>
+      <li><strong>Link a runbook.</strong> Adding <code>runbook_url</code> to annotations is the highest-leverage on-call upgrade you can make.</li>
     </ul>
   </div>
 </section>
@@ -76,68 +76,68 @@
 <section class="panel accent-p" id="routing">
   <div class="phdr"><h2>Routing</h2><span class="meta">tree · grouping · silence · inhibition</span></div>
   <div class="pbody">
-    <p>Note the order: <em>routing happens first</em>. The dispatcher matches an alert against the route tree, and the route it lands on decides the group (its <code>group_by</code>) and the timers; only then does the per-group pipeline run inhibition, silences, waiting and de-duplication before notifying. Reading it the other way round leads to wrong conclusions like "the silence should have stopped it from grouping".</p>
+    <p>Watch the pipeline order: <em>routing runs first</em>. Alertmanager walks the route tree to pick the matching route, which determines <code>group_by</code> and timers; only after that do inhibition, silences, wait timers, and deduplication run before hitting the receiver. Mixing up that order leads to false assumptions like expecting a silence to prevent alerts from grouping.</p>
 
-    <p>Alertmanager's config is a <strong>tree of routes</strong>. Each alert enters at the root and descends to the most specific matching route; <code>continue: true</code> lets it match siblings too. A route names a receiver and grouping behavior:</p>
+    <p>Alertmanager organizes routes as a <strong>tree</strong>. Alerts enter at the root and follow the first matching child branch (set <code>continue: true</code> if an alert should also match sibling branches). Each route sets its receiver and timing knobs:</p>
 
     <div class="tbl-wrap">
       <table>
         <thead><tr><th class="mono">Setting</th><th>Means</th><th>Typical</th></tr></thead>
         <tbody>
-          <tr><td class="mono">group_by</td><td>collapse alerts sharing these labels into one notification</td><td class="mono">[alertname, namespace]</td></tr>
-          <tr><td class="mono">group_wait</td><td>wait before the first send, to batch siblings</td><td class="mono">30s</td></tr>
-          <tr><td class="mono">group_interval</td><td>wait before sending <em>new</em> members of an existing group</td><td class="mono">5m</td></tr>
-          <tr><td class="mono">repeat_interval</td><td>how often to re-notify about an unresolved group</td><td class="mono">4h–12h</td></tr>
-          <tr><td class="mono">matchers</td><td>which alerts take this branch</td><td class="mono">severity="critical"</td></tr>
+          <tr><td class="mono">group_by</td><td>batch alerts sharing these labels into one notification</td><td class="mono">[alertname, namespace]</td></tr>
+          <tr><td class="mono">group_wait</td><td>pause before the first send so sibling alerts arrive together</td><td class="mono">30s</td></tr>
+          <tr><td class="mono">group_interval</td><td>wait time before sending <em>new</em> alerts added to an active group</td><td class="mono">5m</td></tr>
+          <tr><td class="mono">repeat_interval</td><td>how often to re-notify while a group stays unresolved</td><td class="mono">4h–12h</td></tr>
+          <tr><td class="mono">matchers</td><td>conditions selecting which alerts take this branch</td><td class="mono">severity="critical"</td></tr>
         </tbody>
       </table>
     </div>
 
-    <p><strong>Silences</strong> mute matching alerts for a time window without touching config: create them in the UI or via <code>amtool</code>. They change <em>notification</em>, never truth: Prometheus still shows the alert firing. <strong>Inhibition</strong> suppresses alerts when a related, more severe one is already firing (node down inhibits everything on that node), matched by <code>source_matchers</code>, <code>target_matchers</code> and an <code>equal</code> label list. Distinguishing silence (temporary, human, targeted) from inhibition (permanent rule, relationship-based) is a fair exam question.</p>
+    <p><strong>Silences</strong> temporarily mute matching notifications (created via UI or <code>amtool</code>) without touching config (note that Prometheus still shows the alert firing, because silences mute <em>notifications</em>, never truth). <strong>Inhibition</strong> suppresses lower-priority downstream alerts automatically whenever a bigger related alert is firing (like a node outage silencing pod alerts on that node), wired via <code>source_matchers</code>, <code>target_matchers</code>, and <code>equal</code> labels. Know the crisp distinction: silences are temporary and human-driven; inhibitions are permanent, relationship-based rules.</p>
 
     <div class="callout lab">
-      <span class="tag">Verify the rendered truth</span>
-      <p>In this stack the live config is generated by the operator into a Secret, and the UI's Status page shows the rendered result. The operator also supports namespaced <code>AlertmanagerConfig</code> CRDs that merge into the tree; whether an Alertmanager picks them up depends on its <code>alertmanagerConfigSelector</code>. So verify pickup <em>in the rendered config</em> rather than trusting the apply. That habit transfers to every operator-managed config on the exam.</p>
+      <span class="tag">Always inspect the rendered config</span>
+      <p>The operator compiles your config and any selected namespaced <code>AlertmanagerConfig</code> CRDs into a single generated Secret, and Alertmanager's Status page shows the exact live YAML. Always verify your route landed in that rendered config rather than stopping at <code>kubectl apply</code>.</p>
     </div>
 
-    <p>One special alert to recognize: <strong>Watchdog</strong>, which fires always, by design. It is a dead-man's switch: an external system watches for it and alerts when it <em>stops</em> arriving. That is how you detect that the alerting pipeline itself died. If a question asks why an always-firing alert is a feature, that is the answer.</p>
+    <p>One special alert you'll spot immediately: <strong>Watchdog</strong>, which fires 24/7 on purpose. It's a dead-man's switch: an external service listens for its heartbeat and pages you if it <em>stops</em> arriving, proving Prometheus and Alertmanager themselves are still alive.</p>
   </div>
 </section>
 
 <section class="panel accent-c" id="amconfig">
-  <div class="phdr"><h2>Alertmanager configuration, field by field</h2><span class="meta">matchers, time intervals, inhibition, AlertmanagerConfig scoping</span></div>
+  <div class="phdr"><h2>Alertmanager config, field by field</h2><span class="meta">matchers, time intervals, inhibition, AlertmanagerConfig scoping</span></div>
   <div class="pbody">
     <h3>Route fields</h3>
     <ul>
-      <li><strong><code>matchers</code></strong> is a list of strings with Prometheus selector syntax: <code>severity="critical"</code>, <code>team=~"platform|sre"</code>, <code>namespace!=""</code>. The older <code>match</code>/<code>match_re</code> maps are deprecated but still parse. A child route with no matchers matches everything, which is a common way to accidentally swallow alerts meant for a later sibling.</li>
-      <li><strong><code>continue</code></strong> (default <code>false</code>) lets an alert keep matching later siblings after this one; without it the first matching child wins. The root route must not have matchers and is the fallback receiver.</li>
-      <li><strong><code>group_by</code></strong> inherits from the parent unless set; <code>['...']</code> disables grouping (one notification per alert). Defaults: <code>group_wait: 30s</code>, <code>group_interval: 5m</code>, <code>repeat_interval: 4h</code>. <code>repeat_interval</code> must be a multiple of <code>group_interval</code> to behave as you expect.</li>
-      <li><strong><code>receiver</code></strong> names an entry in <code>receivers[]</code>; each receiver has one or more <code>*_configs</code> (<code>webhook_configs</code>, <code>slack_configs</code>, <code>pagerduty_configs</code>, <code>email_configs</code>, <code>opsgenie_configs</code>, <code>msteams_configs</code>). <code>send_resolved: true</code> is what makes "recovered" messages arrive.</li>
+      <li><strong><code>matchers</code>:</strong> list of Prometheus-style selector strings like <code>severity="critical"</code>, <code>team=~"platform|sre"</code>, or <code>namespace!=""</code> (legacy <code>match</code>/<code>match_re</code> still parse, though deprecated). Watch out for a child route with no matchers: it matches everything and silently swallows alerts meant for later siblings.</li>
+      <li><strong><code>continue</code></strong> (default <code>false</code>): lets an alert keep evaluating sibling routes after matching. The root route has no matchers and serves as your catch-all receiver.</li>
+      <li><strong><code>group_by</code>:</strong> inherits from its parent unless overridden; set <code>['...']</code> to turn off grouping completely (one notification per alert). Defaults: <code>group_wait: 30s</code>, <code>group_interval: 5m</code>, <code>repeat_interval: 4h</code> (keep <code>repeat_interval</code> a multiple of <code>group_interval</code>).</li>
+      <li><strong><code>receiver</code>:</strong> points to an entry in <code>receivers[]</code> containing one or more integration blocks (<code>webhook_configs</code>, <code>slack_configs</code>, <code>pagerduty_configs</code>, <code>email_configs</code>, <code>opsgenie_configs</code>, <code>msteams_configs</code>). Set <code>send_resolved: true</code> to receive recovery notices.</li>
     </ul>
 
-    <h3>Time-based muting</h3>
-    <p>Top-level <code>time_intervals</code> (the older key <code>mute_time_intervals</code> is deprecated) defines named windows; each has a list of periods with <code>times</code> (<code>start_time</code>/<code>end_time</code> in HH:MM, end exclusive, <code>24:00</code> allowed), <code>weekdays</code> (<code>['monday:friday']</code>), <code>days_of_month</code> (<code>['1:7', '-1']</code>), <code>months</code>, <code>years</code>, and <code>location</code> (an IANA zone; UTC if omitted). A route then references them: <code>mute_time_intervals: [weekends]</code> suppresses notifications while the interval matches; <code>active_time_intervals: [business_hours]</code> suppresses them whenever it does <em>not</em> match. If both are set on a route, mute wins. Muted alerts still fire in Prometheus and still appear in the Alertmanager UI as active; only the notification is held, and it is sent when the window ends if the alert is still firing.</p>
+    <h3>Scheduled muting with time intervals</h3>
+    <p>Define named schedules under top-level <code>time_intervals</code> (replacing the deprecated <code>mute_time_intervals</code> key), specifying <code>times</code> (<code>start_time</code>/<code>end_time</code> in HH:MM, end exclusive, <code>24:00</code> allowed), <code>weekdays</code> (<code>['monday:friday']</code>), <code>days_of_month</code> (<code>['1:7', '-1']</code>), <code>months</code>, <code>years</code>, and an IANA <code>location</code> (defaults to UTC). Attach them to any route with <code>mute_time_intervals: [weekends]</code> (quiet during the window) or <code>active_time_intervals: [business_hours]</code> (quiet outside the window; if both are present, mute wins). Muted alerts still fire in Prometheus and appear active in Alertmanager; only notifications wait until the window lifts.</p>
 
-    <h3>Inhibition and silences</h3>
+    <h3>Inhibition and silences in practice</h3>
     <ul>
-      <li>An <code>inhibit_rules[]</code> entry has <code>source_matchers</code> (the alert that must be firing), <code>target_matchers</code> (the alerts to mute) and <code>equal</code> (labels that must carry the same value on both). A missing label and an empty label are treated as equal, so <code>equal: [namespace]</code> with a cluster-wide source inhibits every target that also lacks <code>namespace</code>. An alert matching both sides never inhibits itself.</li>
-      <li>Silences are matchers plus a start, an end and a comment, created in the UI, via <code>amtool silence add alertname=X --duration 2h --comment ...</code>, or by POSTing to <code>/api/v2/silences</code>. They are stored in Alertmanager's own data, not in the config, and are lost with the pod if there is no PVC. <code>amtool config routes test --config.file am.yml severity=critical team=db</code> prints which receiver a label set lands on; <code>amtool check-config</code> validates the file.</li>
+      <li>Each <code>inhibit_rules[]</code> item specifies <code>source_matchers</code> (the bigger alarm), <code>target_matchers</code> (the noise to suppress), and <code>equal</code> (labels that must match between both). Subtlety: missing and empty labels count as equal, so <code>equal: [namespace]</code> lets a cluster-wide alert without a <code>namespace</code> label inhibit other alerts that also lack <code>namespace</code>. An alert never inhibits itself.</li>
+      <li>Silences carry matchers, start/end times, and a comment (created via UI, <code>amtool silence add alertname=X --duration 2h --comment ...</code>, or <code>POST /api/v2/silences</code>). They live in Alertmanager's local state rather than config YAML, so without a PVC they vanish on restart. Test route trees offline with <code>amtool config routes test --config.file am.yml severity=critical team=db</code> and validate syntax with <code>amtool check-config</code>.</li>
     </ul>
 
-    <h3>Operator-managed routing</h3>
-    <p>Three ways to feed the Alertmanager object: <code>spec.configSecret</code> (a whole hand-written config), <code>spec.alertmanagerConfiguration</code> (one <code>AlertmanagerConfig</code> in the same namespace that becomes the global config), and namespaced <code>AlertmanagerConfig</code> objects selected by <code>alertmanagerConfigSelector</code> and <code>alertmanagerConfigNamespaceSelector</code>. The merged ones are scoped for safety: the operator adds a <code>namespace="&lt;its namespace&gt;"</code> matcher to every route and inhibition rule they contribute, so a team's AlertmanagerConfig can only route alerts from its own namespace. That is why a tenant's config "does not match" a cluster-wide alert, and why the field names inside the CRD are camelCase (<code>groupBy</code>, <code>groupWait</code>, <code>repeatInterval</code>, <code>matchers[].name/value/matchType</code>) while the rendered Secret uses the snake_case above. The rendered truth is in the Secret <code>alertmanager-&lt;name&gt;-generated</code> and on the UI's Status page.</p>
+    <h3>Operator-managed Alertmanager configs</h3>
+    <p>You can drive Alertmanager three ways: <code>spec.configSecret</code> (a raw config Secret), <code>spec.alertmanagerConfiguration</code> (a single global <code>AlertmanagerConfig</code> in Alertmanager's namespace), or namespaced <code>AlertmanagerConfig</code> CRDs picked up via <code>alertmanagerConfigSelector</code> and <code>alertmanagerConfigNamespaceSelector</code>. For multi-tenant safety, the operator automatically injects <code>namespace="&lt;its namespace&gt;"</code> into every route and inhibition rule from a merged namespaced <code>AlertmanagerConfig</code>, which is why a tenant config can't catch cluster-wide alerts that lack a <code>namespace</code> label. Also note the casing flip: CRD fields are camelCase (<code>groupBy</code>, <code>groupWait</code>, <code>repeatInterval</code>), while the generated Secret (<code>alertmanager-&lt;name&gt;-generated</code>) renders snake_case.</p>
 
-    <div class="callout trap"><span class="tag">Trap</span><p>Prometheus's own Alertmanager discovery is the other half of the handoff: the Prometheus object's <code>spec.alerting.alertmanagers[]</code> (namespace, name, port) must point at the Alertmanager Service. A stack where rules fire but Alertmanager shows nothing, and no silence or route explains it, usually has this pointer wrong or the Alertmanager Service port renamed. Status → Runtime &amp; Build Information → Alertmanagers in the Prometheus UI lists what it discovered.</p></div>
+    <div class="callout trap"><span class="tag">Check the handoff pointer</span><p>If Prometheus shows alerts firing while Alertmanager stays completely empty (and no silence or route explains it), check <code>spec.alerting.alertmanagers[]</code> on the <code>Prometheus</code> CR: a wrong Service name or renamed port silently drops the handoff. Verify discovery under Status → Runtime &amp; Build Information → Alertmanagers in Prometheus.</p></div>
   </div>
 </section>
 
 <section class="panel accent-y" id="burnrate">
-  <div class="phdr"><h2>SLO burn-rate alerts and testing rules</h2><span class="meta">the multi-window table, alert hygiene, promtool test rules</span></div>
+  <div class="phdr"><h2>SLO burn-rate alerts and unit-testing rules</h2><span class="meta">the multi-window table, alert hygiene, promtool test rules</span></div>
   <div class="pbody">
-    <p>An SLO of 99.9% over 30 days gives an error budget of 0.1% of requests, about 43 minutes of full outage per month. Burn rate is "how many times faster than budget-neutral you are consuming it": burn rate 1 spends exactly the month's budget in a month. The SRE Workbook's standard ladder pairs a long window (decides) with a short window one twelfth its length (stops the alert once the problem is gone):</p>
+    <p>A 99.9% 30-day SLO gives you a 0.1% error budget (~43 minutes of full downtime per month). <strong>Burn rate</strong> measures how fast you're spending it: a burn rate of 1 consumes 100% of the budget in exactly 30 days. The SRE Workbook pairs a long window (confirms the burn is real) with a short window 1/12th as long (stops paging immediately once recovery lands):</p>
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>Burn rate</th><th>Long window</th><th>Short window</th><th>Budget consumed at trigger</th><th>Action</th></tr></thead>
+        <thead><tr><th>Burn rate</th><th>Long window</th><th>Short window</th><th>Budget spent at trigger</th><th>Action</th></tr></thead>
         <tbody>
           <tr><td>14.4</td><td>1h</td><td>5m</td><td>2% of the month</td><td>page</td></tr>
           <tr><td>6</td><td>6h</td><td>30m</td><td>5%</td><td>page</td></tr>
@@ -146,19 +146,19 @@
         </tbody>
       </table>
     </div>
-    <p>For a 99.9% SLO the 1h rule reads <code>error_ratio_1h &gt; 14.4 * 0.001 and error_ratio_5m &gt; 14.4 * 0.001</code>, where each ratio is a recording rule such as <code>sum(rate(http_requests_total{code=~"5.."}[1h])) / sum(rate(http_requests_total[1h]))</code>. Recording rules are not optional here: eight windows of raw division per service is the slow-dashboard problem. Name them <code>slo:sli_error:ratio_rate1h</code> and friends, and put <code>severity</code> on the label so routing follows the table.</p>
+    <p>For a 99.9% SLO, the 1h rule reads <code>error_ratio_1h &gt; 14.4 * 0.001 and error_ratio_5m &gt; 14.4 * 0.001</code>, backed by recording rules like <code>slo:sli_error:ratio_rate1h</code> computing <code>sum(rate(http_requests_total{code=~"5.."}[1h])) / sum(rate(http_requests_total[1h]))</code>. Precomputing those ratios keeps evaluation fast and alert definitions clean.</p>
 
-    <h3>Alert hygiene that graders and reviewers look for</h3>
+    <h3>Alert hygiene that stands out</h3>
     <ul>
-      <li>One <code>severity</code> taxonomy (<code>critical</code> pages, <code>warning</code> tickets, <code>info</code> dashboards) and routes that honor it; nothing pages without a <code>runbook_url</code>.</li>
-      <li><code>for</code> long enough to survive a scrape gap (at least two scrape intervals), <code>keep_firing_for</code> when a symptom flaps at the threshold.</li>
-      <li>Templating in annotations: <code>{{ $labels.namespace }}</code>, <code>{{ $value | humanize }}</code>, <code>{{ $value | humanizePercentage }}</code>, <code>{{ $externalLabels.cluster }}</code>. Labels can be templated too, but a templated label that varies per evaluation creates a new alert identity each time and defeats grouping.</li>
-      <li>The <code>ALERTS{alertname, alertstate="pending|firing"}</code> series Prometheus writes for every rule is how you graph alert history and count noisy rules: <code>count by (alertname) (changes(ALERTS[7d]))</code>.</li>
-      <li>Alertmanager's own health: <code>alertmanager_notifications_failed_total</code> by integration, <code>alertmanager_alerts_invalid_total</code>, and the Watchdog route to a dead man's switch receiver.</li>
+      <li>Stick to one clean <code>severity</code> taxonomy (<code>critical</code> pages, <code>warning</code> tickets, <code>info</code> dashboards), and never page without a <code>runbook_url</code>.</li>
+      <li>Set <code>for</code> to at least two scrape intervals so a single missed scrape can't page; add <code>keep_firing_for</code> on noisy thresholds.</li>
+      <li>Template annotations freely (<code>{{ $labels.namespace }}</code>, <code>{{ $value | humanize }}</code>, <code>{{ $value | humanizePercentage }}</code>, <code>{{ $externalLabels.cluster }}</code>), but avoid putting volatile values like <code>$value</code> inside <em>labels</em>, because changing label values mints a fresh alert identity every cycle and breaks grouping.</li>
+      <li>Audit alert noise with Prometheus's built-in <code>ALERTS{alertname, alertstate="pending|firing"}</code> series: <code>count by (alertname) (changes(ALERTS[7d]))</code>.</li>
+      <li>Watch Alertmanager itself via <code>alertmanager_notifications_failed_total</code>, <code>alertmanager_alerts_invalid_total</code>, and your Watchdog heartbeat.</li>
     </ul>
 
-    <h3>Test rules before you apply them</h3>
-    <p><code>promtool check rules rules.yml</code> catches syntax; <code>promtool test rules test.yml</code> runs rules against synthetic series. The test file names the rule files, an <code>evaluation_interval</code>, and test cases with <code>input_series</code> (a selector plus <code>values</code> in the compact <code>0+10x5</code> notation: start 0, add 10, five times), then <code>alert_rule_test</code> entries that state which alerts must be firing at <code>eval_time</code> with exact labels and annotations, or <code>promql_expr_test</code> entries with <code>exp_samples</code>. Rules written in a <code>PrometheusRule</code> test the same way once you extract <code>spec.groups</code> into a plain file.</p>
+    <h3>Unit-test rules before deploying them</h3>
+    <p>Run <code>promtool check rules rules.yml</code> for syntax and <code>promtool test rules test.yml</code> to simulate real time series without breaking production. A test file loads your rule files, sets an <code>evaluation_interval</code>, feeds synthetic <code>input_series</code> (using shorthand like <code>0+10x5</code>: start at 0, add 10 five times), and asserts exact firing alerts (<code>alert_rule_test</code>) or PromQL results (<code>promql_expr_test</code>) at specific timestamps. To test a <code>PrometheusRule</code> CRD, just extract <code>spec.groups</code> into a YAML file.</p>
     <div class="cb" data-lang="yaml"><pre><code>rule_files: [rules.yml]
 evaluation_interval: 1m
 tests:
@@ -172,7 +172,7 @@ tests:
         exp_alerts:
           - exp_labels: { severity: critical, job: payments, instance: a }
             exp_annotations: { summary: "payments target a is down" }</code></pre></div>
-    <div class="callout exam"><span class="tag">How this gets tested</span><p>Tasks read "alert when the error rate exceeds X for Y minutes, route <code>severity="critical"</code> to receiver Z, and do not page on weekends". That is a <code>PrometheusRule</code> with <code>for</code> and a <code>severity</code> label, a route with <code>matchers</code> and a <code>receiver</code>, and a <code>time_intervals</code> entry referenced by <code>mute_time_intervals</code>. Prove the routing with <code>amtool config routes test</code> or the rendered config, not by waiting for Saturday.</p></div>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Alert if error rate crosses X for Y minutes, route <code>severity="critical"</code> to receiver Z, and keep weekends quiet" translates directly to three pieces: a <code>PrometheusRule</code> with <code>for</code> and <code>severity</code>, an Alertmanager route with <code>matchers</code> and <code>receiver</code>, and a <code>time_intervals</code> entry wired into <code>mute_time_intervals</code>. Verify immediately with <code>amtool config routes test</code> and the rendered config.</p></div>
   </div>
 </section>
 
@@ -799,32 +799,32 @@ Handling connection for 9090
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>An alert shows Firing in Prometheus and nothing arrived. Three candidate causes?</summary>
-      <div class="answer"><p>A silence matches it; an inhibition rule suppresses it; or routing sent it to a receiver that is failing (check Alertmanager's own logs and its <code>alertmanager_notifications_failed_total</code>). A fourth, if it only just fired: <code>group_wait</code> has not elapsed.</p></div></details>
+      <div class="answer"><p>An active silence matches it, an inhibition rule is suppressing it, or its receiver is failing (check Alertmanager logs and <code>alertmanager_notifications_failed_total</code>). And if it only just flipped to Firing, <code>group_wait</code> might simply still be ticking down.</p></div></details>
 
     <details class="quiz"><summary>Your rule applies cleanly and never evaluates. What did you not check?</summary>
-      <div class="answer"><p>The Prometheus object's <code>ruleSelector</code> (and its namespace selector). Unmatched rules are ignored silently, the same way ServiceMonitors fail, with the same first command: read the selector.</p></div></details>
+      <div class="answer"><p>The Prometheus CR's <code>ruleSelector</code> and <code>ruleNamespaceSelector</code>. Unmatched rules are ignored with zero errors, just like ServiceMonitors, so always read the selector first.</p></div></details>
 
     <details class="quiz"><summary>Silence versus inhibition: when do you use each?</summary>
-      <div class="answer"><p>Silence: temporary, human-initiated, targeted at a known maintenance or a known-noisy alert, with an expiry and a comment. Inhibition: a standing rule expressing a relationship: when the cause alert fires, suppress its downstream symptoms. Silences are operations; inhibitions are design.</p></div></details>
+      <div class="answer"><p>Use a <strong>silence</strong> for temporary, human-driven muting (like a maintenance window) with an expiry and comment. Use <strong>inhibition</strong> as a standing architectural rule that suppresses noisy downstream symptoms whenever a bigger upstream alarm is already firing.</p></div></details>
 
     <details class="quiz"><summary>How long, roughly, from "condition becomes true" to "notification sent" on a stock stack?</summary>
-      <div class="answer"><p>Up to one evaluation interval (30s) to notice, plus <code>for</code> (say 1–5m), plus <code>group_wait</code> (30s). So a couple of minutes minimum, which is why you wait before declaring an alerting pipeline broken, and why <code>for: 15m</code> on a page-worthy symptom is usually too slow.</p></div></details>
+      <div class="answer"><p>Up to one evaluation interval (30s) + your <code>for</code> duration (say 1–5m) + <code>group_wait</code> (30s), easily 2–3 minutes at minimum. That's why you wait before declaring alerting broken, and why <code>for: 15m</code> is usually too sluggish for page-worthy outages.</p></div></details>
 
     <details class="quiz"><summary>What is the Watchdog alert for?</summary>
-      <div class="answer"><p>It fires permanently as a dead-man's switch: an external system expects to keep receiving it and alerts when it stops, catching the failure mode where Prometheus or Alertmanager itself dies and therefore cannot alert you about anything. Self-monitoring has to come from outside.</p></div></details>
+      <div class="answer"><p>It fires continuously as a dead-man's switch. An external monitor expects to keep receiving it and pages you if it <em>stops</em>, catching the case where Prometheus or Alertmanager itself goes down and can't alert on anything.</p></div></details>
   
 
     <details class="quiz"><summary>"Notify the database team only during business hours, page everyone else at any time." Which fields carry that?</summary>
-      <div class="answer"><p>A top-level <code>time_intervals</code> entry (<code>times</code> 09:00-17:00, <code>weekdays</code> monday:friday, a <code>location</code>), and on the database route <code>active_time_intervals: [business_hours]</code>, which suppresses notifications outside the window. The other routes carry no interval. <code>mute_time_intervals</code> is the inverse (suppress while it matches); if both are present on one route, mute wins.</p></div></details>
+      <div class="answer"><p>Define a top-level <code>time_intervals</code> window (<code>times: 09:00-17:00</code>, <code>weekdays: monday:friday</code>, plus <code>location</code>) and attach <code>active_time_intervals: [business_hours]</code> to the database route so notifications pause outside those hours while other routes fire 24/7. (<code>mute_time_intervals</code> is the inverse, and mute wins if both appear.)</p></div></details>
 
     <details class="quiz"><summary>A team's <code>AlertmanagerConfig</code> in namespace <code>team-a</code> routes <code>alertname="NodeDown"</code> to their webhook, is selected, appears in the rendered config, and never fires. Why?</summary>
-      <div class="answer"><p>The operator scopes merged AlertmanagerConfigs with an added <code>namespace="team-a"</code> matcher on every route it contributes; <code>NodeDown</code> carries no such label, so the route can never match. Cluster-wide alerts must be routed from the global config (<code>spec.configSecret</code> or <code>spec.alertmanagerConfiguration</code>), where the namespace matcher is not enforced.</p></div></details>
+      <div class="answer"><p>The operator automatically scopes merged namespaced <code>AlertmanagerConfig</code> routes with <code>namespace="team-a"</code>. Because <code>NodeDown</code> is a cluster-level alert carrying no <code>namespace</code> label, the route can never match it. Route cluster-wide alerts through global config (<code>spec.configSecret</code> or <code>spec.alertmanagerConfiguration</code>).</p></div></details>
 
     <details class="quiz"><summary>Explain the 14.4 in a burn-rate alert and why the rule has two windows.</summary>
-      <div class="answer"><p>14.4 is the burn rate at which 2% of a 30-day budget is consumed in one hour (30 days × 24 hours × 0.02 = 14.4). The long window (1h) decides that the burn is sustained; the short window (5m) must also exceed it so the alert stops as soon as the error rate falls, instead of firing for the rest of the hour on old data. Both conditions are joined with <code>and</code>.</p></div></details>
+      <div class="answer"><p>A burn rate of 14.4 consumes 2% of a 30-day error budget in one hour (30 × 24 × 0.02 = 14.4). Pairing a long window (1h) with a short window (5m) via <code>and</code> confirms the burn is sustained while letting the alert clear quickly as soon as the issue recovers.</p></div></details>
 
     <details class="quiz"><summary>How do you prove a new alerting rule fires under the right conditions without waiting for production to break?</summary>
-      <div class="answer"><p><code>promtool test rules</code> with a test file: <code>rule_files</code>, <code>evaluation_interval</code>, <code>input_series</code> with synthetic <code>values</code>, and <code>alert_rule_test</code> cases asserting <code>exp_alerts</code> (labels and annotations) at a given <code>eval_time</code>. Pair it with <code>promtool check rules</code> for syntax, and <code>amtool config routes test</code> to prove where the labels route.</p></div></details>
+      <div class="answer"><p>Run <code>promtool test rules</code> with synthetic <code>input_series</code> and <code>alert_rule_test</code> assertions checking expected labels and annotations at specific timestamps. Pair it with <code>promtool check rules</code> for syntax and <code>amtool config routes test</code> to verify routing.</p></div></details>
   </div>
 </section>
 

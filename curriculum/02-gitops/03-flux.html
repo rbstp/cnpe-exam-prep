@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#171c1d" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f5f0" media="(prefers-color-scheme: light)">
-<meta name="description" content="The exam names both Argo and Flux, and the lab installs both against the same Gitea for a reason: you should be able to express the same delivery in either. Flux has no Application object.">
+<meta name="description" content="The exam names both Argo CD and Flux, and this lab wires both to the same Gitea for a reason: you should be fluent in either. Flux skips the monolith and breaks GitOps into small, composable CRDs.">
 <title>2.3 Flux: sources, kustomizations, helm releases · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
 <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
@@ -18,7 +18,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum">The exam names both Argo and Flux, and the lab installs both against the same Gitea for a reason: you should be able to express the same delivery in either. Flux has no Application object. It decomposes GitOps into small CRDs that reference each other, and reading those references is the skill.</p>
+  <p class="sum">The exam names both Argo CD and Flux, and this lab wires both to the same Gitea for a reason: you should be able to express the same delivery in either. Flux has no Application monolith; it breaks GitOps into small CRDs that reference each other, and tracing those references is the core skill.</p>
 </header>
 
 <div class="stats"></div>
@@ -28,21 +28,21 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 2.1 · the other engine</span></div>
   <div class="pbody">
-    <p class="lede">Argo CD is one controller with one big CRD. Flux is a toolkit of small controllers with small CRDs, composed by reference. Neither is better; they fail differently, and the exam may hand you either. What transfers is the mental translation, which is the last exercise below.</p>
+    <p class="lede">Argo CD gives you one central controller and one big CRD. Flux gives you a toolkit of small controllers and small CRDs wired together by reference. Neither is universally better; they just fail in different ways, and the exam can drop you in front of either. What really carries over is mental translation, which is why the translation table and exercise sit right below.</p>
 
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Controller</th><th>Owns</th><th>Does</th></tr></thead>
         <tbody>
-          <tr><td class="mono">source-controller</td><td>GitRepository, OCIRepository, HelmRepository, HelmChart, Bucket</td><td>fetches and publishes an <em>artifact</em> (a tarball + revision)</td></tr>
-          <tr><td class="mono">kustomize-controller</td><td>Kustomization</td><td>an artifact + a path → builds and applies</td></tr>
-          <tr><td class="mono">helm-controller</td><td>HelmRelease</td><td>a chart source → installs/upgrades a release</td></tr>
-          <tr><td class="mono">notification-controller</td><td>Alert, Provider, Receiver</td><td>events out (Slack, webhooks) and events in (git push → instant reconcile)</td></tr>
-          <tr><td class="mono">image-*-controller</td><td>ImageRepository, ImagePolicy, ImageUpdateAutomation</td><td>registry tags → commits back to git</td></tr>
+          <tr><td class="mono">source-controller</td><td>GitRepository, OCIRepository, HelmRepository, HelmChart, Bucket</td><td>Fetches sources and publishes an immutable <em>artifact</em> (tarball + revision)</td></tr>
+          <tr><td class="mono">kustomize-controller</td><td>Kustomization</td><td>Takes an artifact and a path, builds manifests, and applies them</td></tr>
+          <tr><td class="mono">helm-controller</td><td>HelmRelease</td><td>Takes a chart source and manages real Helm installs and upgrades</td></tr>
+          <tr><td class="mono">notification-controller</td><td>Alert, Provider, Receiver</td><td>Sends events out (Slack, webhooks) and takes webhooks in (git push → instant reconcile)</td></tr>
+          <tr><td class="mono">image-*-controller</td><td>ImageRepository, ImagePolicy, ImageUpdateAutomation</td><td>Scans registry tags and commits new image versions back to git</td></tr>
         </tbody>
       </table>
     </div>
-    <p>Know that the last row exists: Flux can close the CI→CD loop by <em>writing the new image tag into git itself</em>, which is the pull-based answer to "how does a new build get deployed without CI touching the cluster".</p>
+    <p>Keep that last row in your pocket: Flux can close the CI→CD loop by <em>committing the new image tag to git itself</em>. That's the pure pull-based answer to "how does a new build get deployed without CI ever touching the cluster?".</p>
   </div>
 </section>
 
@@ -57,11 +57,11 @@
 
 <b>HelmRepository/podinfo</b> ──▶ <i>HelmRelease/podinfo</i> ──▶ release in target namespace</pre>
 
-    <p>The two-step split is the design: one GitRepository can feed many Kustomizations, each watching a different path with its own interval, health checks and prune setting. <code>dependsOn</code> then orders them, which is Flux's equivalent of Argo's sync waves, except it works <em>between</em> top-level objects rather than inside one sync.</p>
+    <p>That two-step split is the heart of Flux's design. One <code>GitRepository</code> can feed as many <code>Kustomization</code> objects as you like, each watching its own path with its own interval, health checks, and prune setting. <code>dependsOn</code> orders them, acting as Flux's counterpart to Argo CD sync waves and operating <em>between</em> top-level objects rather than inside a single sync.</p>
 
     <div class="callout trap">
       <span class="tag">Two things called Kustomization</span>
-      <p>Flux's <code>Kustomization</code> (<code>kustomize.toolkit.fluxcd.io</code>) is not kustomize's <code>Kustomization</code> (<code>kustomize.config.k8s.io</code>). The Flux one points at a directory; that directory may contain the other one. Exam tasks love this ambiguity, and <code>kubectl get kustomizations.kustomize.toolkit.fluxcd.io</code> versus reading a file resolves it.</p>
+      <p>Flux's <code>Kustomization</code> (<code>kustomize.toolkit.fluxcd.io</code>) isn't the same thing as Kustomize's <code>Kustomization</code> file (<code>kustomize.config.k8s.io</code>). The Flux CR lives in the cluster and points at a directory; that directory may contain a <code>kustomization.yaml</code> file. Exam prompts love leaning on this overlap, and knowing the difference between <code>kubectl get kustomizations.kustomize.toolkit.fluxcd.io</code> and reading a file in git cuts right through it.</p>
     </div>
 
     <h3>Kustomization fields that decide behavior</h3>
@@ -69,19 +69,19 @@
       <table>
         <thead><tr><th class="mono">Field</th><th>Effect</th></tr></thead>
         <tbody>
-          <tr><td class="mono">interval</td><td>how often it re-applies; <em>drift correction is a side effect of re-applying</em>, there is no selfHeal toggle</td></tr>
-          <tr><td class="mono">prune</td><td>delete resources removed from git; same blast radius as Argo's</td></tr>
-          <tr><td class="mono">wait / healthChecks / timeout</td><td>block Ready until the listed objects are healthy; this is what makes <code>dependsOn</code> meaningful</td></tr>
-          <tr><td class="mono">targetNamespace</td><td>override the namespace for everything the path applies</td></tr>
-          <tr><td class="mono">postBuild.substitute / substituteFrom</td><td>variable substitution from ConfigMaps/Secrets after kustomize build; Flux's answer to "one manifest, per-cluster values"</td></tr>
-          <tr><td class="mono">serviceAccountName</td><td>apply as that SA, the multi-tenancy control: a tenant's Kustomization cannot exceed its own RBAC</td></tr>
-          <tr><td class="mono">decryption</td><td>SOPS: decrypt secrets in the repo at apply time</td></tr>
+          <tr><td class="mono">interval</td><td>How often Flux re-applies. <em>Drift correction is a built-in side effect of re-applying</em>; there's no separate <code>selfHeal</code> toggle.</td></tr>
+          <tr><td class="mono">prune</td><td>Deletes resources removed from git, with the exact same blast radius as Argo CD's prune.</td></tr>
+          <tr><td class="mono">wait / healthChecks / timeout</td><td>Holds <code>Ready</code> back until the managed objects are actually healthy, which is what gives <code>dependsOn</code> real teeth.</td></tr>
+          <tr><td class="mono">targetNamespace</td><td>Overrides the namespace on every namespaced manifest the path applies.</td></tr>
+          <tr><td class="mono">postBuild.substitute / substituteFrom</td><td>Substitutes variables from inline maps, ConfigMaps, or Secrets after <code>kustomize build</code>: Flux's clean answer to "one manifest, per-cluster values".</td></tr>
+          <tr><td class="mono">serviceAccountName</td><td>Impersonates that ServiceAccount when applying, enforcing multi-tenancy so a tenant's Kustomization can't exceed its own RBAC.</td></tr>
+          <tr><td class="mono">decryption</td><td>Native SOPS decryption at apply time for encrypted secrets in git.</td></tr>
         </tbody>
       </table>
     </div>
 
     <h3>HelmRelease</h3>
-    <p>It references a chart (from a HelmRepository, a GitRepository, or an OCIRepository), sets <code>values</code> inline and/or <code>valuesFrom</code> ConfigMaps and Secrets, and controls failure behavior with <code>install.remediation</code> and <code>upgrade.remediation</code> (retries, and whether to roll back). Newer versions also detect and correct drift on the release's rendered manifests. When one fails, the useful discrimination is <em>which layer</em>: source resolution (the chart could not be fetched), install/upgrade (Helm itself errored), or health (the release installed but the workload never became ready). Each surfaces in a different condition, and reading the right one is the whole diagnosis.</p>
+    <p>A <code>HelmRelease</code> points at a chart (from a <code>HelmRepository</code>, <code>GitRepository</code>, or <code>OCIRepository</code>), merges inline <code>values</code> with <code>valuesFrom</code> ConfigMaps and Secrets, and controls failure recovery via <code>install.remediation</code> and <code>upgrade.remediation</code> (retry counts and rollback strategy). Modern Flux also detects and corrects drift on the release's rendered manifests. When a HelmRelease breaks, the whole diagnostic trick is spotting <em>which layer</em> failed: source resolution (couldn't fetch the chart), install/upgrade (Helm itself errored), or health checks (the release installed, but the workload never came up). Each layer writes a distinct condition, so reading the right one points straight to the fix.</p>
 
     <h3>Daily verbs</h3>
     <div class="cb" data-lang="bash"><pre><code>flux get sources git                      # and: helm, oci, bucket, all
@@ -158,23 +158,23 @@ Branch:          main
 Revision:        main@sha1:c7cb9a1e37949219ff64e2c5dd17654109deea6d
 Status:          Last reconciled at 2026-08-26 22:16:03 -0400 EDT
 Message:         stored artifact for revision 'main@sha1:c7cb9a1e37949219ff64e2c5dd17654109deea6d'</code></pre></details></div>
-    <p><code>flux trace</code> is the reverse lookup: hand it any live resource and it tells you which Kustomization or HelmRelease put it there. On an unfamiliar cluster that is the fastest orientation command Flux has.</p>
+    <p><code>flux trace</code> is your reverse lookup: hand it any live Kubernetes resource and it tells you which Kustomization or HelmRelease put it there. On an unfamiliar cluster, it's the fastest orientation command Flux offers.</p>
 
     <div class="callout exam">
       <span class="tag">Suspend is a real answer</span>
-      <p>"Stop the controller overwriting my hotfix while I debug" has a named, auditable answer in both engines: <code>flux suspend</code>, or disabling auto-sync in Argo. Doing it with <code>kubectl scale deploy/kustomize-controller --replicas=0</code> works and will cost you the mark, because it stops <em>everything</em> and leaves no record on the object.</p>
+      <p>"Stop the controller from overwriting my hotfix while I debug" has a named, auditable answer in both engines: <code>flux suspend</code>, or turning off auto-sync in Argo CD. Scaling <code>kustomize-controller</code> down to zero technically pauses reconciliation too, but it'll cost you the mark because it freezes <em>the entire cluster</em> and leaves no trace on the object.</p>
     </div>
   
 
     <h3>More Kustomization fields and the per-resource annotations</h3>
     <ul>
-      <li><code>retryInterval</code>: how soon to retry after a failure (defaults to <code>interval</code>); <code>timeout</code> bounds build, apply and health checks together.</li>
-      <li><code>deletionPolicy</code>: <code>MirrorPrune</code> (default: delete managed objects on Kustomization deletion only if <code>prune: true</code>), <code>Delete</code>, <code>WaitForTermination</code>, <code>Orphan</code>. <code>Orphan</code> is the answer when a namespace deletion would otherwise race the controller.</li>
-      <li><code>healthCheckExprs</code>: CEL <code>current</code>, <code>failed</code> and <code>inProgress</code> expressions per <code>apiVersion</code>/<code>kind</code>, for custom resources whose status kstatus cannot read; <code>dependsOn[].readyExpr</code> does the same for a dependency.</li>
-      <li><code>patches</code>, <code>images</code>, <code>components</code>, <code>namePrefix</code>/<code>nameSuffix</code>, <code>commonMetadata</code>: kustomize edits applied by the controller without touching the repo.</li>
-      <li><code>kubeConfig.secretRef</code>: apply to another cluster with a kubeconfig Secret; Flux's multi-cluster story is one Kustomization per remote cluster.</li>
+      <li><code>retryInterval</code> controls how quickly Flux retries after a failure (defaults to <code>interval</code>), while <code>timeout</code> caps build, apply, and health checks combined.</li>
+      <li><code>deletionPolicy</code> takes <code>MirrorPrune</code> (default: delete managed objects when the Kustomization is deleted only if <code>prune: true</code>), <code>Delete</code>, <code>WaitForTermination</code>, or <code>Orphan</code>. Reach for <code>Orphan</code> when a namespace teardown would otherwise race the controller.</li>
+      <li><code>healthCheckExprs</code> lets you write CEL <code>current</code>, <code>failed</code>, and <code>inProgress</code> rules per <code>apiVersion</code>/<code>kind</code> for CRDs that kstatus doesn't understand natively. <code>dependsOn[].readyExpr</code> does the same for dependencies.</li>
+      <li><code>patches</code>, <code>images</code>, <code>components</code>, <code>namePrefix</code>/<code>nameSuffix</code>, and <code>commonMetadata</code> let the controller apply Kustomize overlays on the fly without modifying the repo.</li>
+      <li><code>kubeConfig.secretRef</code> targets a remote cluster using a kubeconfig Secret; Flux's multi-cluster model is simply one Kustomization per remote cluster.</li>
     </ul>
-    <p>Annotations you put on the manifests in the source, not on the Kustomization: <code>kustomize.toolkit.fluxcd.io/prune: disabled</code> (never garbage-collect this object, for PVCs and namespaces), <code>kustomize.toolkit.fluxcd.io/ssa: Merge</code> (keep fields other tools add), <code>IfNotPresent</code> (create once, never overwrite: cert-manager-managed Secrets, webhook configurations) or <code>Ignore</code> (skip entirely), and <code>kustomize.toolkit.fluxcd.io/force: enabled</code> (recreate on immutable-field changes, for Jobs; dangerous on StatefulSets). Fields you edit with <code>kubectl</code> survive only if you apply them with <code>--field-manager=flux-client-side-apply</code>. A reconcile outside the interval is the annotation <code>reconcile.fluxcd.io/requestedAt</code>, which is what <code>flux reconcile</code> sets.</p>
+    <p>You can also place control annotations directly on manifests in git (not on the Kustomization itself). <code>kustomize.toolkit.fluxcd.io/prune: disabled</code> shields PVCs or namespaces from garbage collection. <code>kustomize.toolkit.fluxcd.io/ssa</code> takes <code>Merge</code> (preserve fields other tools add), <code>IfNotPresent</code> (create once and never overwrite, useful for cert-manager Secrets or webhook configs), or <code>Ignore</code> (skip the object completely). <code>kustomize.toolkit.fluxcd.io/force: enabled</code> recreates resources when immutable fields change (handy for Jobs, risky on StatefulSets). Under server-side apply, manual <code>kubectl</code> edits only survive if you pass <code>--field-manager=flux-client-side-apply</code>. Finally, triggering an out-of-band reconcile sets the <code>reconcile.fluxcd.io/requestedAt</code> annotation, which is all <code>flux reconcile</code> does under the hood.</p>
   </div>
 </section>
 
@@ -185,26 +185,26 @@ Message:         stored artifact for revision 'main@sha1:c7cb9a1e37949219ff64e2c
       <table>
         <thead><tr><th>Intent</th><th>Argo CD</th><th>Flux</th></tr></thead>
         <tbody>
-          <tr><td>where the manifests are</td><td class="mono">Application.spec.source</td><td class="mono">GitRepository + Kustomization.spec.path</td></tr>
-          <tr><td>auto-apply on change</td><td class="mono">syncPolicy.automated</td><td>implicit: every <code>interval</code></td></tr>
-          <tr><td>revert live drift</td><td class="mono">automated.selfHeal</td><td>implicit: re-apply at interval</td></tr>
-          <tr><td>delete removed resources</td><td class="mono">automated.prune</td><td class="mono">Kustomization.spec.prune</td></tr>
-          <tr><td>ordering</td><td>sync waves + hooks</td><td class="mono">dependsOn + healthChecks + wait</td></tr>
-          <tr><td>pause</td><td>disable auto-sync</td><td class="mono">flux suspend</td></tr>
-          <tr><td>per-env values</td><td>kustomize overlays / Helm values</td><td>same, plus <code>postBuild.substitute</code></td></tr>
-          <tr><td>tenant guardrails</td><td class="mono">AppProject</td><td class="mono">serviceAccountName + namespace isolation</td></tr>
-          <tr><td>instant trigger</td><td>webhook to argocd-server</td><td class="mono">Receiver (notification-controller)</td></tr>
+          <tr><td>Where the manifests live</td><td class="mono">Application.spec.source</td><td class="mono">GitRepository + Kustomization.spec.path</td></tr>
+          <tr><td>Auto-apply on change</td><td class="mono">syncPolicy.automated</td><td>Implicit: runs every <code>interval</code></td></tr>
+          <tr><td>Revert live drift</td><td class="mono">automated.selfHeal</td><td>Implicit: re-applies every interval</td></tr>
+          <tr><td>Delete removed resources</td><td class="mono">automated.prune</td><td class="mono">Kustomization.spec.prune</td></tr>
+          <tr><td>Ordering</td><td>Sync waves + hooks</td><td class="mono">dependsOn + healthChecks + wait</td></tr>
+          <tr><td>Pause</td><td>Disable auto-sync</td><td class="mono">flux suspend</td></tr>
+          <tr><td>Per-env values</td><td>Kustomize overlays / Helm values</td><td>Same, plus <code>postBuild.substitute</code></td></tr>
+          <tr><td>Tenant guardrails</td><td class="mono">AppProject</td><td class="mono">serviceAccountName + namespace isolation</td></tr>
+          <tr><td>Instant trigger</td><td>Webhook to <code>argocd-server</code></td><td class="mono">Receiver (notification-controller)</td></tr>
         </tbody>
       </table>
     </div>
-    <p>Practice moving across this table in both directions.</p>
+    <p>Drill moving across this table in both directions until it's automatic.</p>
   </div>
 </section>
 
 <section class="panel accent-c" id="flux-conditions">
   <div class="phdr"><h2>Condition vocabulary and failure remediation</h2><span class="meta">Ready reasons · HelmRelease install/upgrade remediation · drift detection · force and reset</span></div>
   <div class="pbody">
-    <p>Flux objects follow kstatus: a <code>Ready</code> condition summarizes, a <code>Reconciling</code> condition (negative polarity, present only while true) says work is in progress with reason <code>Progressing</code> or <code>ProgressingWithRetry</code>, and <code>Stalled</code> means the controller gave up until the spec changes. The reason strings are stable API and a task can quote them.</p>
+    <p>Flux resources follow the kstatus convention: <code>Ready</code> summarizes overall state, <code>Reconciling</code> (negative polarity, only present while true) tells you work is active with reason <code>Progressing</code> or <code>ProgressingWithRetry</code>, and <code>Stalled</code> means the controller gave up until the spec changes. These reason strings are stable API, so exam prompts can quote them verbatim.</p>
 
     <div class="tbl-wrap">
       <table>
@@ -216,23 +216,23 @@ Message:         stored artifact for revision 'main@sha1:c7cb9a1e37949219ff64e2c
         </tbody>
       </table>
     </div>
-    <p>Reading the table as a ladder: <code>ArtifactFailed</code> means the source is not Ready or has no artifact yet (fix the source); <code>BuildFailed</code> is kustomize build (path, invalid YAML, a missing substituteFrom ConfigMap unless <code>optional: true</code>); <code>DependencyNotReady</code> points at another Kustomization; <code>ReconciliationFailed</code> carries the API server's rejection ("field is immutable", "admission webhook denied"); <code>HealthCheckFailed</code> means it applied but never became healthy within <code>timeout</code>. For a HelmRelease, <code>Ready=False</code> with reason <code>RollbackSucceeded</code> is not a contradiction: the upgrade failed, remediation rolled back, and the object stays not-ready until you fix the chart or values.</p>
+    <p>Read that table as a diagnostic ladder. <code>ArtifactFailed</code> means the source isn't Ready or hasn't produced an artifact yet, so fix the source first. <code>BuildFailed</code> points at <code>kustomize build</code> (wrong path, invalid YAML, or a missing <code>substituteFrom</code> ConfigMap without <code>optional: true</code>). <code>DependencyNotReady</code> points you at an upstream Kustomization. <code>ReconciliationFailed</code> quotes the API server's rejection ("field is immutable", "admission webhook denied"). <code>HealthCheckFailed</code> means manifests applied cleanly but never became healthy before <code>timeout</code>. And on a HelmRelease, <code>Ready=False</code> with reason <code>RollbackSucceeded</code> isn't a contradiction: the upgrade failed, remediation rolled back to the last good revision, and the HelmRelease stays not-ready until you fix the chart or values.</p>
 
     <h3>HelmRelease failure handling, field by field</h3>
     <ul>
-      <li><code>install.remediation.retries</code> (default 0): between attempts the release is uninstalled; <code>-1</code> retries forever. <code>upgrade.remediation.retries</code> with <code>strategy: rollback</code> (default) or <code>uninstall</code>; <code>remediateLastFailure</code> defaults to true for upgrades once retries is above 0, so the release lands on the last good revision rather than a failed one.</li>
-      <li><code>install.strategy.name</code> / <code>upgrade.strategy.name</code>: <code>RemediateOnFailure</code> (the behavior above) or <code>RetryOnFailure</code> with <code>retryInterval</code> (Flux 2.7+), which retries without rolling back.</li>
-      <li><code>test.enable: true</code> runs Helm tests after install/upgrade; failures count as release failures unless <code>test.ignoreFailures: true</code>.</li>
-      <li><code>install.crds</code> defaults to <code>Create</code>, but <code>upgrade.crds</code> defaults to <code>Skip</code>: Helm does not upgrade CRDs, so a chart bump with new CRD fields needs <code>upgrade.crds: CreateReplace</code> or the CRDs delivered by a separate Kustomization.</li>
-      <li><code>driftDetection.mode</code>: <code>disabled</code> (default), <code>warn</code> (emit an event and the <code>Drifted</code> condition), <code>enabled</code> (correct it with a server-side apply); <code>driftDetection.ignore</code> takes JSON 6902 paths and a target, the equivalent of Argo's <code>ignoreDifferences</code>, for HPA-managed replicas and webhook-injected fields.</li>
-      <li>Since Flux 2.8 the helm-controller applies with server-side apply by default (<code>install.serverSideApply</code>, <code>upgrade.serverSideApply: auto</code>) and records a <code>status.inventory</code> of everything the release owns; the wait strategy defaults to kstatus polling rather than Helm's own wait.</li>
-      <li><code>valuesFrom[]</code>: <code>kind</code> ConfigMap or Secret, <code>name</code>, <code>valuesKey</code> (default <code>values.yaml</code>), <code>targetPath</code> to graft one value, <code>optional</code>. Inline <code>values</code> win over <code>valuesFrom</code>.</li>
+      <li><code>install.remediation.retries</code> defaults to 0 (no retries; <code>-1</code> retries forever), uninstalling between attempts. <code>upgrade.remediation.retries</code> defaults to <code>strategy: rollback</code> (or <code>uninstall</code>), and <code>remediateLastFailure</code> defaults to true whenever retries &gt; 0 so the cluster settles on the last good revision instead of a broken one.</li>
+      <li><code>install.strategy.name</code> and <code>upgrade.strategy.name</code> select either <code>RemediateOnFailure</code> (above) or <code>RetryOnFailure</code> with <code>retryInterval</code> (Flux 2.7+), which retries in place without rolling back.</li>
+      <li><code>test.enable: true</code> runs Helm tests after install or upgrade; a failing test triggers remediation unless you set <code>test.ignoreFailures: true</code>.</li>
+      <li><code>install.crds</code> defaults to <code>Create</code>, whereas <code>upgrade.crds</code> defaults to <code>Skip</code>. Helm refuses to upgrade CRDs by default, so a chart upgrade adding new CRD fields needs <code>upgrade.crds: CreateReplace</code> (or better yet, CRDs managed in a separate Kustomization).</li>
+      <li><code>driftDetection.mode</code> can be <code>disabled</code> (default), <code>warn</code> (emits an event and sets the <code>Drifted</code> condition), or <code>enabled</code> (corrects drift via server-side apply). <code>driftDetection.ignore</code> accepts JSON 6902 paths and a target, serving as Flux's equivalent of Argo's <code>ignoreDifferences</code> for HPA replicas and webhook mutations.</li>
+      <li>Since Flux 2.8, <code>helm-controller</code> uses server-side apply by default (<code>install.serverSideApply</code>, <code>upgrade.serverSideApply: auto</code>), tracks everything it owns in <code>status.inventory</code>, and waits via kstatus polling rather than Helm's built-in wait.</li>
+      <li><code>valuesFrom[]</code> pulls values from a ConfigMap or Secret using <code>name</code>, <code>valuesKey</code> (default <code>values.yaml</code>), optional <code>targetPath</code> to graft a single key, and <code>optional</code>. Inline <code>values</code> always override <code>valuesFrom</code>.</li>
     </ul>
 
     <h3>The three annotations behind flux reconcile</h3>
-    <p><code>flux reconcile helmrelease X</code> sets <code>reconcile.fluxcd.io/requestedAt</code>; <code>--force</code> adds <code>reconcile.fluxcd.io/forceAt</code> (run the install or upgrade again even though nothing changed); <code>--reset</code> adds <code>reconcile.fluxcd.io/resetAt</code> (zero the failure counters after <code>RetriesExceeded</code>). Without <code>--reset</code>, a release that exhausted its retries stays failed until the chart, values or generation changes. Kustomizations know <code>requestedAt</code> only; a stuck one is fixed by fixing the cause.</p>
+    <p><code>flux reconcile helmrelease X</code> sets <code>reconcile.fluxcd.io/requestedAt</code>. Adding <code>--force</code> sets <code>reconcile.fluxcd.io/forceAt</code>, forcing a fresh install or upgrade even when nothing changed. Adding <code>--reset</code> sets <code>reconcile.fluxcd.io/resetAt</code>, clearing failure counters after <code>RetriesExceeded</code>; without it, an exhausted HelmRelease stays halted until the chart, values, or generation changes. Kustomizations only recognize <code>requestedAt</code>; fixing a stuck one means fixing the underlying cause.</p>
 
-    <div class="callout trap"><span class="tag">install.retries: 0 is the default</span><p>A chart whose first install fails is left in a failed state and not retried until the spec changes; only the <code>Ready</code> reason tells you (InstallFailed). Set <code>install.remediation.retries: 3</code> and <code>upgrade.remediation.retries: 3</code> on anything you cannot babysit, and know that <code>flux reconcile hr X --reset</code> is the manual restart.</p></div>
+    <div class="callout trap"><span class="tag">install.retries: 0 is the default</span><p>If a chart's first install fails, Flux leaves it failed and won't retry until the spec changes, and only the <code>Ready</code> reason (<code>InstallFailed</code>) tells you. Set <code>install.remediation.retries: 3</code> and <code>upgrade.remediation.retries: 3</code> on anything you don't want to babysit, and keep <code>flux reconcile hr X --reset</code> in mind as the manual restart lever.</p></div>
   </div>
 </section>
 
@@ -244,33 +244,33 @@ Message:         stored artifact for revision 'main@sha1:c7cb9a1e37949219ff64e2c
       <table>
         <thead><tr><th>Kind</th><th>Pointer fields</th><th>Extras a task may set</th></tr></thead>
         <tbody>
-          <tr><td class="mono">GitRepository</td><td class="mono">url · ref.branch | ref.tag | ref.semver | ref.name (refs/pull/1/head) | ref.commit</td><td><code>secretRef</code> (basic auth, token, SSH key, TLS CA), <code>ignore</code> (or a <code>.sourceignore</code> file), <code>include</code> other GitRepositories, <code>verify.mode</code> for signed commits, <code>sparseCheckout</code>, <code>recurseSubmodules</code>, <code>provider: github|azure|aws</code> for app or workload identity</td></tr>
-          <tr><td class="mono">OCIRepository</td><td class="mono">url: oci://... · ref.tag | ref.semver | ref.semverFilter | ref.digest</td><td><code>layerSelector</code>, <code>verify.provider: cosign|notation</code> (keyless via OIDC identities or public keys in a Secret), <code>provider: aws|azure|gcp</code>, <code>insecure</code> for plain HTTP registries</td></tr>
-          <tr><td class="mono">HelmRepository</td><td class="mono">url (https:// index, or oci:// with type: oci)</td><td><code>secretRef</code>, <code>passCredentials</code>; a <code>HelmChart</code> is generated per HelmRelease and is what <code>flux get sources chart</code> lists</td></tr>
-          <tr><td class="mono">Bucket</td><td class="mono">bucketName · endpoint · provider: generic|aws|gcp|azure</td><td>for S3-style config stores</td></tr>
+          <tr><td class="mono">GitRepository</td><td class="mono">url · ref.branch | ref.tag | ref.semver | ref.name (refs/pull/1/head) | ref.commit</td><td><code>secretRef</code> (basic auth, token, SSH key, TLS CA), <code>ignore</code> (or <code>.sourceignore</code>), <code>include</code> for other GitRepositories, <code>verify.mode</code> for signed commits, <code>sparseCheckout</code>, <code>recurseSubmodules</code>, <code>provider: github|azure|aws</code> for app or workload identity</td></tr>
+          <tr><td class="mono">OCIRepository</td><td class="mono">url: oci://... · ref.tag | ref.semver | ref.semverFilter | ref.digest</td><td><code>layerSelector</code>, <code>verify.provider: cosign|notation</code> (keyless OIDC or public keys in a Secret), <code>provider: aws|azure|gcp</code>, <code>insecure</code> for plain HTTP registries</td></tr>
+          <tr><td class="mono">HelmRepository</td><td class="mono">url (https:// index, or oci:// with type: oci)</td><td><code>secretRef</code>, <code>passCredentials</code>; Flux generates a <code>HelmChart</code> per HelmRelease, which is what <code>flux get sources chart</code> lists</td></tr>
+          <tr><td class="mono">Bucket</td><td class="mono">bucketName · endpoint · provider: generic|aws|gcp|azure</td><td>For S3-compatible object stores holding config</td></tr>
         </tbody>
       </table>
     </div>
-    <p>Every source publishes an <code>Artifact</code> (a tarball plus a <code>revision</code> such as <code>main@sha1:9f2c1ab</code>) and consumers see only the artifact, which is why a failing source starves every Kustomization behind it with <code>ArtifactFailed</code>.</p>
+    <p>Every source publishes an <code>Artifact</code> (a tarball plus a <code>revision</code> such as <code>main@sha1:9f2c1ab</code>), and downstream consumers only ever read that artifact. That's why one failing source starves every Kustomization behind it with <code>ArtifactFailed</code>.</p>
 
     <h3>Image automation, the loop that closes CI to CD</h3>
     <ul>
-      <li><code>ImageRepository</code> scans a registry path on an <code>interval</code> (credentials via <code>secretRef</code> or cloud <code>provider</code>).</li>
-      <li><code>ImagePolicy</code> picks one tag from the scan: <code>policy.semver.range: 5.0.x</code>, <code>alphabetical</code>, or <code>numerical</code>, optionally after <code>filterTags.pattern</code> with an <code>extract</code> group for tags like <code>main-abc123-1699999999</code>. <code>status.latestRef</code> holds image, tag and digest.</li>
-      <li><code>ImageUpdateAutomation</code> writes the chosen tag into files under <code>update.path</code> in the <code>sourceRef</code> GitRepository (which needs write credentials) wherever a marker comment appears: <code>image: ghcr.io/org/app:1.0 # {"$imagepolicy": "flux-system:app"}</code>, with <code>:tag</code> or <code>:name</code> suffixes to update only that part. It commits with <code>git.commit.author</code> and pushes to <code>git.push.branch</code>, which may be a different branch so a PR gates production.</li>
+      <li><code>ImageRepository</code> scans a container registry path on an <code>interval</code>, authenticating via <code>secretRef</code> or a cloud <code>provider</code>.</li>
+      <li><code>ImagePolicy</code> selects one winning tag from the scan using <code>policy.semver.range: 5.0.x</code>, <code>alphabetical</code>, or <code>numerical</code>, optionally paired with <code>filterTags.pattern</code> and an <code>extract</code> group for build tags like <code>main-abc123-1699999999</code>. The winner lands in <code>status.latestRef</code> (image, tag, and digest).</li>
+      <li><code>ImageUpdateAutomation</code> rewrites matching files under <code>update.path</code> in the <code>sourceRef</code> GitRepository (which needs push credentials) wherever it finds a marker comment like <code>image: ghcr.io/org/app:1.0 # {"$imagepolicy": "flux-system:app"}</code> (append <code>:tag</code> or <code>:name</code> to update just that piece). It commits as <code>git.commit.author</code> and pushes to <code>git.push.branch</code>, which can be a separate branch so a PR gates production.</li>
     </ul>
 
     <h3>Notification controller</h3>
     <ul>
-      <li><code>Provider</code> (<code>notification.toolkit.fluxcd.io/v1beta3</code>): <code>type</code> slack, msteams, discord, github, gitlab, generic webhook and others; <code>address</code>, <code>channel</code>, <code>secretRef</code>. The <code>github</code>/<code>gitlab</code> types post commit statuses, which is how a red X appears on the commit that broke reconciliation.</li>
-      <li><code>Alert</code> (v1beta3): <code>providerRef</code>, <code>eventSeverity: info|error</code>, <code>eventSources</code> (kind, name or <code>*</code>, namespace), <code>inclusionList</code>/<code>exclusionList</code> regexes, <code>eventMetadata</code> added to every message.</li>
-      <li><code>Receiver</code> (v1): <code>type</code> github, gitlab, bitbucket, harbor, dockerhub, quay, gcr, nexus, acr, generic, generic-hmac, generic-oidc, cdevents (no gitea: Gitea sends GitHub-format webhooks, so use github); <code>events</code> to accept; <code>secretRef</code> with the webhook token; <code>resources</code> to reconcile (a GitRepository, or ImageRepositories for registry pushes). <code>status.webhookPath</code> is the path to give the git server, served by the <code>webhook-receiver</code> Service that you must expose yourself. A Receiver turns a one-minute poll into an instant pull.</li>
+      <li><code>Provider</code> (<code>notification.toolkit.fluxcd.io/v1beta3</code>) configures an outbound target: <code>type</code> (<code>slack</code>, <code>msteams</code>, <code>discord</code>, <code>github</code>, <code>gitlab</code>, generic webhook, and more), <code>address</code>, <code>channel</code>, and <code>secretRef</code>. The <code>github</code> and <code>gitlab</code> providers post commit statuses, putting a red X right on the commit that broke reconciliation.</li>
+      <li><code>Alert</code> (v1beta3) wires events to a provider via <code>providerRef</code>, <code>eventSeverity: info|error</code>, <code>eventSources</code> (kind, name or <code>*</code>, namespace), <code>inclusionList</code>/<code>exclusionList</code> regexes, and extra <code>eventMetadata</code>.</li>
+      <li><code>Receiver</code> (v1) accepts inbound webhooks: set <code>type</code> (<code>github</code>, <code>gitlab</code>, <code>bitbucket</code>, <code>harbor</code>, <code>dockerhub</code>, <code>quay</code>, <code>gcr</code>, <code>nexus</code>, <code>acr</code>, <code>generic</code>, <code>generic-hmac</code>, <code>generic-oidc</code>, or <code>cdevents</code>; note there's no <code>gitea</code> type because Gitea sends GitHub-format webhooks, so use <code>github</code>), <code>events</code>, <code>secretRef</code> for the webhook token, and <code>resources</code> to reconcile (a <code>GitRepository</code>, or <code>ImageRepository</code> objects for registry pushes). Expose the <code>webhook-receiver</code> Service yourself and hand the git server <code>status.webhookPath</code> to turn a one-minute poll into an instant pull.</li>
     </ul>
 
     <h3>Bootstrap and lockdown recap</h3>
-    <p><code>flux bootstrap &lt;provider&gt;</code> commits <code>gotk-components.yaml</code> and <code>gotk-sync.yaml</code> to <code>--path</code>, installs the controllers, and creates the <code>flux-system</code> GitRepository and Kustomization that manage Flux from then on; <code>--components-extra</code> adds the image controllers; <code>--token-auth</code> uses HTTPS with a token instead of a deploy key. Multi-tenant lockdown is three controller flags (<code>--no-cross-namespace-refs=true</code>, <code>--no-remote-bases=true</code>, <code>--default-service-account=default</code>) plus <code>spec.serviceAccountName: kustomize-controller</code> on the flux-system Kustomization, applied as kustomize patches in the bootstrap directory. After lockdown a tenant Kustomization without a <code>serviceAccountName</code> impersonates the namespace's <code>default</code> account, which has no rights, and fails with a Forbidden in <code>ReconciliationFailed</code>.</p>
+    <p><code>flux bootstrap &lt;provider&gt;</code> commits <code>gotk-components.yaml</code> and <code>gotk-sync.yaml</code> under <code>--path</code>, installs the controllers, and wires up the <code>flux-system</code> GitRepository and Kustomization so Flux manages itself from then on. Pass <code>--components-extra</code> to include the image controllers, or <code>--token-auth</code> for HTTPS token auth instead of a deploy key. Multi-tenant lockdown adds three controller flags (<code>--no-cross-namespace-refs=true</code>, <code>--no-remote-bases=true</code>, <code>--default-service-account=default</code>) plus <code>spec.serviceAccountName: kustomize-controller</code> on the <code>flux-system</code> Kustomization, applied as Kustomize patches in your bootstrap directory. Once locked down, any tenant Kustomization that omits <code>serviceAccountName</code> impersonates the namespace's unprivileged <code>default</code> account and fails with a Forbidden inside <code>ReconciliationFailed</code>.</p>
 
-    <div class="callout reflex"><span class="tag">Reflex</span><p><code>flux get all -A --status-selector ready=false</code> lists only what is broken; <code>kubectl get fluxcd -A</code> (the CRD category) lists every Flux object; <code>flux events --for Kustomization/x</code>, <code>flux logs --level=error -A</code>, <code>flux trace</code> and <code>flux tree</code> descend from there. <code>flux build kustomization x --path ./dir</code> renders locally and <code>flux diff kustomization x --path ./dir</code> shows what a commit would change.</p></div>
+    <div class="callout reflex"><span class="tag">Reflex</span><p><code>flux get all -A --status-selector ready=false</code> filters straight to what's broken, and <code>kubectl get fluxcd -A</code> (the CRD category) lists every Flux object at once. From there, drill down with <code>flux events --for Kustomization/x</code>, <code>flux logs --level=error -A</code>, <code>flux trace</code>, and <code>flux tree</code>. Before pushing a commit, run <code>flux build kustomization x --path ./dir</code> to render locally and <code>flux diff kustomization x --path ./dir</code> to preview the exact cluster diff.</p></div>
   </div>
 </section>
 
@@ -304,26 +304,26 @@ namespace/flux-demo created
 <b>$ flux get kustomizations</b>
 NAME     	REVISION          	SUSPENDED	READY	MESSAGE                              
 demo-flux	main@sha1:c7cb9a1e	False    	True 	Applied revision: main@sha1:c7cb9a1e	</code></pre></details></div>
-      <div class="verify"><b>verify:</b> Ready True with an applied revision SHA, and <code>kubectl -n flux-demo get deploy demo</code> shows 2/2. Then <code>flux tree kustomization demo-flux</code> and confirm it lists the deployment, the service and nothing else.</div>
+      <div class="verify"><b>verify:</b> <code>Ready</code> is True with an applied revision SHA, and <code>kubectl -n flux-demo get deploy demo</code> shows 2/2. Run <code>flux tree kustomization demo-flux</code> and confirm it lists the Deployment, the Service, and nothing else.</div>
     </div>
 
     <div class="exercise" data-title="Watch the interval work">
-      <p>Scale the deployment by hand, then wait out one interval:</p>
+      <p>Scale the Deployment by hand, then wait out one reconcile interval:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n flux-demo scale deploy demo --replicas=5
 sleep 70 &amp;&amp; kubectl -n flux-demo get deploy demo -o jsonpath='{.spec.replicas}{"\n"}'</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n flux-demo scale deploy demo --replicas=5</b>
 deployment.apps/demo scaled
 <b>$ sleep 70 &amp;&amp; kubectl -n flux-demo get deploy demo -o jsonpath='{.spec.replicas}{"\n"}'</b>
 2</code></pre></details></div>
-      <div class="verify"><b>verify:</b> back to 2. Same experiment as Argo's selfHeal, different mechanism; be able to say which component did it (kustomize-controller re-applying at interval).</div>
+      <div class="verify"><b>verify:</b> it snaps back to 2. Same experiment as Argo's <code>selfHeal</code>, different mechanism; be ready to name the component that did it (<code>kustomize-controller</code> re-applying on its interval).</div>
     </div>
 
     <div class="exercise" data-title="Suspend, change, resume">
-      <p><code>flux suspend kustomization demo-flux</code>, scale to 5 again, confirm it stays at 5 for two intervals, then <code>flux resume kustomization demo-flux</code> and confirm it snaps back.</p>
-      <div class="verify"><b>verify:</b> suspend shows in <code>flux get kustomizations</code> as Suspended True. This is the answer to "make the controller stop overwriting my hotfix while I debug".</div>
+      <p>Run <code>flux suspend kustomization demo-flux</code>, scale to 5 again, confirm it stays at 5 across two intervals, then run <code>flux resume kustomization demo-flux</code> and watch it snap back.</p>
+      <div class="verify"><b>verify:</b> <code>flux get kustomizations</code> shows <code>SUSPENDED</code> as True while paused. This is the sanctioned answer to "stop the controller from overwriting my hotfix while I debug".</div>
     </div>
 
     <div class="exercise" data-title="A HelmRelease from a public chart">
-      <p>Sources need not be git:</p>
+      <p>Sources don't have to be git repos:</p>
       <div class="cb" data-lang="bash"><pre><code>flux create source helm podinfo --url=https://stefanprodan.github.io/podinfo --interval=10m
 flux create helmrelease podinfo -n flux-demo --source=HelmRepository/podinfo.flux-system \
   --chart=podinfo --release-name=podinfo --target-namespace=flux-demo --interval=5m
@@ -345,17 +345,17 @@ kubectl -n flux-demo get deploy podinfo</code></pre><details class="out"><summar
 <b>$ kubectl -n flux-demo get deploy podinfo</b>
 NAME      READY   UP-TO-DATE   AVAILABLE   AGE
 podinfo   1/1     1            1           32s</code></pre></details></div>
-      <p>Break it once: set <code>--chart-version='&gt;99.0.0'</code> on a new helmrelease, read the failure in <code>flux get helmreleases</code> and <code>kubectl describe helmrelease</code>, then delete it. Failed source resolution vs failed install vs failed health check appear in different conditions, and knowing which layer failed is the troubleshooting pattern.</p>
-      <div class="verify"><b>verify:</b> <code>flux -n flux-demo get helmreleases</code> Ready True, release revision 1, and <code>helm list -n flux-demo</code> shows the release: <code>flux create</code> sets the Helm storage namespace to the target namespace. (Without <code>--release-name</code>, helm-controller would have named the release <code>flux-demo-podinfo</code> and the Deployment with it.)</div>
+      <p>Now break one on purpose: create a second HelmRelease with <code>--chart-version='&gt;99.0.0'</code>, inspect the failure in <code>flux get helmreleases</code> and <code>kubectl describe helmrelease</code>, then delete it. Failed source resolution, failed install, and failed health checks each show up in different conditions; spotting which layer broke is the core debugging habit.</p>
+      <div class="verify"><b>verify:</b> <code>flux -n flux-demo get helmreleases</code> shows Ready True at revision 1, and <code>helm list -n flux-demo</code> sees the release (<code>flux create</code> puts Helm storage in the target namespace). Without <code>--release-name</code>, helm-controller would have named both the release and the Deployment <code>flux-demo-podinfo</code>.</div>
     </div>
 
     <div class="exercise" data-title="Translate">
-      <p>Write down, from memory, the Flux equivalent of the Argo CD Application <code>demo-staging</code> from 2.2 (GitRepository exists; you need one Kustomization spec: path, targetNamespace, prune, interval). Verify against <code>flux create kustomization --export</code>.</p>
-      <div class="verify"><b>verify:</b> your hand-written spec matches the generated one field for field.</div>
+      <p>From memory, write the Flux equivalent of the Argo CD Application <code>demo-staging</code> from section 2.2 (the <code>GitRepository</code> already exists, so you just need a <code>Kustomization</code> with <code>path</code>, <code>targetNamespace</code>, <code>prune</code>, and <code>interval</code>). Check your draft against <code>flux create kustomization --export</code>.</p>
+      <div class="verify"><b>verify:</b> your hand-written spec matches the exported one field for field.</div>
     </div>
 
     <div class="exercise" data-title="Fail a HelmRelease on purpose">
-      <p>Remediation is the part of a HelmRelease you only meet when something breaks, which is the worst time to read the field names. Break one deliberately and watch the retry count, the reason strings, and the recovery.</p>
+      <p>Remediation is the part of a HelmRelease you only meet during an outage, which is the worst possible time to be guessing field names. Break one on purpose and watch the retry budget, the condition reasons, and the reset recovery in action.</p>
       <div class="cb" data-lang="bash"><pre><code># a leftover release makes this an upgrade, and the install remediation never runs
 flux -n flux-demo delete hr broken -s --timeout=90s 2&gt;/dev/null || true
 kubectl -n flux-demo patch hr broken --type merge -p '{"metadata":{"finalizers":null}}' 2&gt;/dev/null || true
@@ -489,11 +489,11 @@ helmrelease.helm.toolkit.fluxcd.io/broken patched
 <b>$ flux -n flux-demo delete hr broken -s --timeout=90s</b>
 ► deleting helmrelease broken in flux-demo namespace
 ✔ helmrelease deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the failing install retries the number of times you asked for and then stops: <code>Stalled</code> with reason <code>RetriesExceeded</code>, the message <code>Failed to install after 3 attempt(s)</code>, and <code>status.installFailures</code> at 3. <code>--reset</code> then clears that counter and the release goes back to <code>Reconciling / Progressing</code>, which is why the 60 second wait returns <code>context deadline exceeded</code> rather than a verdict: resetting starts the attempts again, it does not finish them. Delete any earlier release first, and clear its finalizer: with one already in history this is an upgrade rather than an install, and you get <code>UpgradeFailed</code> and <code>MissingRollbackTarget</code> from an <code>install.remediation</code> block that never ran.</div>
+      <div class="verify"><b>verify:</b> the failing install burns through its retries and stops: <code>Stalled</code> with reason <code>RetriesExceeded</code>, message <code>Failed to install after 3 attempt(s)</code>, and <code>status.installFailures</code> at 3. Running <code>--reset</code> clears that counter and moves the release back to <code>Reconciling / Progressing</code> (which is why the 60-second wait times out: resetting restarts the attempts, it doesn't wait them out). Always clear out any leftover release and its finalizer first: if a previous release exists in history, Flux treats this as an upgrade instead of an install, so <code>install.remediation</code> never fires and you see <code>UpgradeFailed</code> / <code>MissingRollbackTarget</code>.</div>
     </div>
 
     <div class="exercise" data-title="Let Flux notice a Helm drift">
-      <p>A Kustomization corrects drift because it applies every interval. A HelmRelease does not, unless you turn drift detection on: Helm only acts when the release changes. This is the most surprising difference between the two.</p>
+      <p>A Kustomization fixes drift automatically because it re-applies on every interval. A HelmRelease doesn't unless you explicitly turn drift detection on; by default Helm only acts when the release spec changes. That's the biggest surprise between the two controllers.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n flux-demo get hr podinfo -o jsonpath='{.spec.driftDetection}{"\n"}'
 kubectl -n flux-demo patch hr podinfo --type merge -p '{"spec":{"driftDetection":{"mode":"enabled"}}}'
 kubectl -n flux-demo scale deploy podinfo --replicas=5
@@ -535,11 +535,11 @@ flux-system	68s (x7 over 38m)    	Normal 	ArtifactUpToDate          	HelmChart/f
   "status": "True",
   "reason": "InstallSucceeded"
 }</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the replica count returns on its own and an event says the cluster state of the release had drifted. This exercise needs the HelmRelease from the exercise above it; if <code>podinfo</code> is not installed, do that one first.</div>
+      <div class="verify"><b>verify:</b> the replica count snaps back on its own, and an event logs that the release's cluster state drifted and was corrected. This builds on the <code>podinfo</code> HelmRelease from above; install that one first if it isn't running.</div>
     </div>
 
     <div class="exercise" data-title="Exempt one object from pruning">
-      <p>Pruning is what makes a Kustomization authoritative, and sometimes one object must survive a delete in git anyway. The exemption is an annotation on the object, which means the escape hatch lives in the manifests, not in the controller.</p>
+      <p>Pruning keeps a Kustomization authoritative, yet sometimes a specific resource (like a PVC or a shared namespace) has to survive being removed from git. The exemption is an annotation right on the object, so the safety switch lives with the manifest rather than in controller flags.</p>
       <div class="cb" data-lang="bash"><pre><code>START=$PWD   # the cd below would otherwise follow you into every later command
 rm -rf /tmp/platform-prune-flux &amp;&amp; git clone "http://lab:${GITEA_PASS}@gitea.lab:3000/lab/platform.git" /tmp/platform-prune-flux &amp;&amp; cd /tmp/platform-prune-flux
 kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune=disabled --overwrite
@@ -613,11 +613,11 @@ To http://gitea.lab:3000/lab/platform.git
 <b>$ kubectl -n flux-demo annotate deploy demo kustomize.toolkit.fluxcd.io/prune-</b>
 deployment.apps/demo annotated
 <b>$ cd "$START"</b></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the reconcile succeeds against a revision that no longer contains the Deployment, and the Deployment is still running. That pair is the whole evidence: Flux emits no event for an object it skipped, so a prune that did not happen looks exactly like a reconcile with nothing to do. The annotation on the object is the only place the exemption is written down. Put the manifest back and remove the annotation before moving on; the later exercises on this page assume git and the cluster agree.</div>
+      <div class="verify"><b>verify:</b> Flux reconciles cleanly against a revision without the Deployment, and the Deployment is still running. That silence is the whole point: Flux doesn't emit a "skipped prune" event, so a skipped prune looks identical to a no-op reconcile. The annotation on the object is the only record of the exemption. Restore the manifest and strip the annotation before moving on so git and the cluster stay aligned for the next exercises.</div>
     </div>
 
     <div class="exercise" data-title="Point a Kustomization at nothing">
-      <p>Half the Flux tickets you will be handed are a path that does not exist in the repo. The condition is not "cannot connect" and not "cannot apply"; learn the exact reason so you can skip straight to the right half of the problem.</p>
+      <p>Half the real-world Flux tickets you'll ever touch boil down to a path that doesn't exist in the repo. Notice the condition isn't a connection error and isn't an apply error; memorize the exact reason so you can jump straight to the right layer.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -667,11 +667,11 @@ LAST SEEN           	TYPE   	REASON                    	OBJECT                	M
 <b>$ flux delete kustomization nowhere -s</b>
 ► deleting kustomization nowhere in flux-system namespace
 ✔ kustomization deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the reason is about building the kustomization, not about the source, and the message quotes the path.</div>
+      <div class="verify"><b>verify:</b> the failure points at the kustomization path inside the fetched artifact (<code>ArtifactFailed</code>), not at git connectivity, and the message quotes the missing path verbatim.</div>
     </div>
 
     <div class="exercise" data-title="Turn a push into an instant reconcile">
-      <p>An interval is a promise that you will be no more than a minute behind. A Receiver is how you stop waiting: the git server calls Flux, and the reconcile starts on the push.</p>
+      <p>A poll interval only promises you're never more than a minute behind. A <code>Receiver</code> eliminates the wait: the git server pokes Flux directly, and reconciliation kicks off the moment you push.</p>
       <div class="cb" data-lang="bash"><pre><code>TOKEN=$(head -c 24 /dev/urandom | base64 | tr -d '=+/')
 kubectl -n flux-system create secret generic receiver-token --from-literal=token="$TOKEN"
 kubectl apply -f - &lt;&lt;'EOF'
@@ -737,11 +737,11 @@ receiver.notification.toolkit.fluxcd.io "gitea-receiver" deleted from flux-syste
 secret "receiver-token" deleted from flux-system namespace
 <b>$ kubectl -n flux-system patch svc webhook-receiver -p '{"spec":{"type":"ClusterIP"}}'</b>
 service/webhook-receiver patched</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the Receiver reports a <code>status.webhookPath</code> of the form <code>/hook/&lt;64 hex characters&gt;</code>, and the last line prints the full URL to paste into Gitea, for example <code>http://172.18.0.4:31536/hook/a2b76ad1...</code>. Note the type: this Flux build has no <code>gitea</code> receiver type, and Gitea sends GitHub-format webhooks, so <code>github</code> is the right answer. Point the repository's webhook at that URL with the same token and a push reconciles within seconds instead of at the next interval.</div>
+      <div class="verify"><b>verify:</b> the Receiver publishes a <code>status.webhookPath</code> shaped like <code>/hook/&lt;64 hex characters&gt;</code>, and the final line prints the full URL to paste into Gitea (such as <code>http://172.18.0.4:31536/hook/a2b76ad1...</code>). Notice the <code>type</code>: Flux doesn't have a <code>gitea</code> receiver type, and Gitea speaks GitHub-format webhooks, so <code>github</code> is the right pick. Wire the repo's webhook to that URL with the same secret token and pushes reconcile in seconds instead of waiting on the interval.</div>
     </div>
 
     <div class="exercise" data-title="Let a tag write a commit">
-      <p>Image automation is Flux writing to git on your behalf: a policy picks a tag, and a controller commits the change back to the overlay. The marker comment in the manifest is what tells it where to write.</p>
+      <p>Image automation is Flux committing back to git on your behalf: a policy picks the winning tag, and a controller updates the manifest. The marker comment on the <code>image:</code> line is what tells Flux exactly where to write.</p>
       <div class="cb" data-lang="bash"><pre><code>flux create image repository demo --image=kind-registry:5000/demo --interval=1m
 kubectl -n flux-system patch imagerepository demo --type merge -p '{"spec":{"insecure":true}}'
 flux create image policy demo --image-ref=demo --select-semver='&gt;=1.0.0'
@@ -915,7 +915,7 @@ warning: redirecting to http://gitea.lab:3000/lab/platform.git/
 To http://gitea.lab:3000/lab/platform.git
    c7fa30e..9122b3b  main -&gt; main
 <b>$ rm -rf /tmp/platform-img</b></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the policy resolves to <code>1.0.1</code>, and the newest commit on main is authored by <code>fluxcdbot</code> and rewrites the image line to <code>kind-registry:5000/demo:1.0.1</code>. Without the marker comment on that line the automation has nothing to rewrite and reports <code>repository up-to-date</code>, which is the failure you will be handed. Keep the marked manifest out of <code>demo-app/overlays</code>: Argo CD syncs that tree and would deploy the rewritten tag straight into <code>team-a</code>.</div>
+      <div class="verify"><b>verify:</b> the policy resolves to <code>1.0.1</code>, and the latest commit on <code>main</code> is authored by <code>fluxcdbot</code> rewriting the image line to <code>kind-registry:5000/demo:1.0.1</code>. Leave out that marker comment and the automation finds nothing to update, happily reporting <code>repository up-to-date</code>, which is the exact gotcha you'll see in troubleshooting tasks. Keep the marked manifest out of <code>demo-app/overlays</code> so Argo CD doesn't sync that rewritten tag straight into <code>team-a</code>.</div>
     </div>
 
   </div>
@@ -925,32 +925,32 @@ To http://gitea.lab:3000/lab/platform.git
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>Flux has no <code>selfHeal</code> setting. Why is drift still corrected?</summary>
-      <div class="answer"><p>Because the Kustomization re-applies its rendered manifests every <code>interval</code>; correcting drift is a side effect of applying, not a separate feature. The corollary: your drift window is bounded by the interval, and shortening it costs API server load.</p></div></details>
+      <div class="answer"><p>Because a Kustomization re-applies its rendered manifests on every <code>interval</code>; drift correction is built into re-applying, not bolted on as a separate toggle. The trade-off: your drift window equals the interval, and tightening it adds load on the API server.</p></div></details>
 
     <details class="quiz"><summary>A Kustomization is Ready False. Name the three layers where it could have failed.</summary>
-      <div class="answer"><p>Source (the GitRepository is not Ready: auth, ref, or network), build (kustomize build failed, bad path or invalid YAML), apply/health (the API server rejected something, or health checks timed out). The conditions and <code>flux logs</code> name the layer; do not skip straight to the manifests.</p></div></details>
+      <div class="answer"><p>Source (the <code>GitRepository</code> isn't Ready due to auth, ref, or network), build (<code>kustomize build</code> failed on a bad path or invalid YAML), or apply/health (the API server rejected a manifest or health checks timed out). The conditions and <code>flux logs</code> name the exact layer, so read those before diving into the YAML.</p></div></details>
 
     <details class="quiz"><summary>How do you order "install CRDs, then the operator, then the tenant CRs" in Flux?</summary>
-      <div class="answer"><p>Three Kustomizations with <code>dependsOn</code>, each with <code>wait: true</code> (or explicit <code>healthChecks</code>) so a dependency counts as satisfied only when its objects are actually healthy. Without wait/healthChecks, <code>dependsOn</code> only orders the <em>apply</em>, not the readiness.</p></div></details>
+      <div class="answer"><p>Chain three Kustomizations with <code>dependsOn</code>, and set <code>wait: true</code> (or explicit <code>healthChecks</code>) on each so downstream dependencies wait until resources are actually healthy. Without wait/healthChecks, <code>dependsOn</code> only orders the <em>apply</em>, not readiness.</p></div></details>
 
     <details class="quiz"><summary>What is <code>postBuild.substitute</code> for, and what is its Argo CD analog?</summary>
-      <div class="answer"><p>Injecting per-cluster or per-environment values into manifests after kustomize build, sourced inline or from ConfigMaps/Secrets. Argo's analogs are kustomize overlays, Helm values per Application, or ApplicationSet template parameters; Flux just lets you do it without another overlay directory.</p></div></details>
+      <div class="answer"><p>It injects per-cluster or per-environment variables into manifests right after <code>kustomize build</code>, pulling values inline or from ConfigMaps and Secrets. In Argo CD, you'd reach for Kustomize overlays, per-Application Helm values, or ApplicationSet template parameters; Flux just saves you from creating another overlay directory.</p></div></details>
 
     <details class="quiz"><summary>How does Flux stop one tenant's Kustomization from deploying cluster-admin-level resources?</summary>
-      <div class="answer"><p><code>spec.serviceAccountName</code>: the controller impersonates that ServiceAccount when applying, so the tenant's manifests can never exceed the tenant's RBAC. Combined with disallowing cross-namespace source references, that is Flux's multi-tenancy story: the structural equivalent of Argo's AppProject.</p></div></details>
+      <div class="answer"><p>Set <code>spec.serviceAccountName</code> so the controller impersonates that ServiceAccount during apply, capping the tenant's manifests at their own RBAC. Paired with blocking cross-namespace source references, that's Flux's multi-tenancy boundary and the structural counterpart to Argo CD's <code>AppProject</code>.</p></div></details>
   
 
     <details class="quiz"><summary>A HelmRelease shows Ready False with reason RollbackSucceeded. Is the release broken or healthy right now?</summary>
-      <div class="answer"><p>Healthy on the last good revision: the upgrade failed and remediation rolled back. The object stays not-ready because the desired state (new chart or values) is not what is running. Fix the chart or values in git, or after fixing something out of band run <code>flux reconcile hr X --reset</code> to zero the retry counters if <code>RetriesExceeded</code> stopped further attempts.</p></div></details>
+      <div class="answer"><p>The running workload is healthy on the last good revision; the upgrade failed and remediation rolled it back. The HelmRelease stays not-ready because the cluster isn't running the desired new chart or values. Fix the chart or values in git, or if you resolved an out-of-band issue after hitting <code>RetriesExceeded</code>, run <code>flux reconcile hr X --reset</code> to clear the retry counters.</p></div></details>
 
     <details class="quiz"><summary>A chart upgrade adds a CRD field but the CR that uses it is rejected as unknown. Why, and which field fixes it?</summary>
-      <div class="answer"><p><code>spec.upgrade.crds</code> defaults to <code>Skip</code>: Helm does not upgrade CRDs on upgrade, so the old schema is still served and prunes or rejects the new field. Set <code>upgrade.crds: CreateReplace</code> (and <code>install.crds: CreateReplace</code>), or deliver CRDs through their own Kustomization that the HelmRelease depends on.</p></div></details>
+      <div class="answer"><p><code>spec.upgrade.crds</code> defaults to <code>Skip</code> because Helm doesn't upgrade CRDs automatically, leaving the old schema live to prune or reject the new field. Set <code>upgrade.crds: CreateReplace</code> (alongside <code>install.crds: CreateReplace</code>), or ship CRDs in a separate Kustomization that the HelmRelease depends on.</p></div></details>
 
     <details class="quiz"><summary>Make a git push reconcile Flux immediately instead of at the next interval. Objects and the field you hand to the git server?</summary>
-      <div class="answer"><p>A <code>Receiver</code> of the matching <code>type</code> (github, gitlab, generic; github for Gitea) with <code>events: [push]</code>, a <code>secretRef</code> holding a token, and <code>resources</code> listing the GitRepository. Expose the notification-controller's <code>webhook-receiver</code> Service, then configure the webhook URL as that host plus <code>status.webhookPath</code> with the same token as the secret.</p></div></details>
+      <div class="answer"><p>Create a <code>Receiver</code> with the right <code>type</code> (<code>github</code>, <code>gitlab</code>, or <code>generic</code>; use <code>github</code> for Gitea), <code>events: [push]</code>, a <code>secretRef</code> holding a shared token, and <code>resources</code> listing your <code>GitRepository</code>. Expose the notification-controller's <code>webhook-receiver</code> Service, then configure your git webhook with that host plus <code>status.webhookPath</code> and the same secret token.</p></div></details>
 
     <details class="quiz"><summary>After multi-tenant lockdown, a tenant's Kustomization fails with Forbidden. What did they leave out?</summary>
-      <div class="answer"><p><code>spec.serviceAccountName</code>. With <code>--default-service-account=default</code>, a Kustomization or HelmRelease without an explicit account impersonates the namespace's <code>default</code> ServiceAccount, which has no RBAC; the API server refuses the apply and the Ready condition reads ReconciliationFailed with the Forbidden text. The platform must have created a ServiceAccount and RoleBinding for the tenant to name.</p></div></details>
+      <div class="answer"><p><code>spec.serviceAccountName</code>. Once <code>--default-service-account=default</code> is enabled, any Kustomization or HelmRelease that omits an explicit account impersonates the namespace's unprivileged <code>default</code> ServiceAccount. The API server rejects the apply, and the <code>Ready</code> condition shows <code>ReconciliationFailed</code> with the Forbidden error. The platform team needs to provision a tenant ServiceAccount and RoleBinding for them to reference.</p></div></details>
   </div>
 </section>
 

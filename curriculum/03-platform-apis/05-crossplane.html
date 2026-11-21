@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#171c1d" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f5f0" media="(prefers-color-scheme: light)">
-<meta name="description" content="Crossplane is the control-plane way to build the abstraction from section 3.1: you define a new API (XRD), write the recipe that expands it into real resources (Composition), and developers create instances (XR) that">
+<meta name="description" content="Crossplane is the control-plane way to build the abstraction from section 3.1: define an API (XRD), write the recipe that expands it (Composition), and let developers create self-reconciling instances (XR).">
 <title>3.5 Crossplane: compositions as platform APIs · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
 <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
@@ -18,7 +18,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum">Crossplane is the control-plane way to build the abstraction from section 3.1: you define a new API (XRD), write the recipe that expands it into real resources (Composition), and developers create instances (XR) that reconcile forever like any operator-managed object.</p>
+  <p class="sum">Crossplane is the control-plane way to build the abstraction from section 3.1. You define a new API (XRD), write the recipe that expands it into real resources (Composition), and developers create instances (XR) that reconcile continuously like any operator-managed object.</p>
 </header>
 
 <div class="stats"></div>
@@ -28,10 +28,10 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 3.4 · automation frameworks for self-service</span></div>
   <div class="pbody">
-    <p class="lede">The lab's three files in <code>examples/crossplane/</code> are one complete platform API: <code>AppEnvironment</code> in, namespace plus quota out. Read them in the order XRD → Composition → XR and the whole model falls out.</p>
+    <p class="lede">The three files in <code>examples/crossplane/</code> form one complete platform API: <code>AppEnvironment</code> goes in, and a namespace plus quota come out. Read them in order (XRD → Composition → XR) and the whole model clicks into place.</p>
     <div class="callout model">
       <span class="tag">The one-line model</span>
-      <p><strong>XRD</strong> = the API you promise (schema + names). <strong>Composition</strong> = the recipe that fulfills it (a pipeline of functions producing composed resources). <strong>XR</strong> = an instance a developer creates. Crossplane generates the CRD from the XRD, then reconciles each XR by running the composition and applying the result. It does that forever, so drift on the composed resources is corrected like any other controller's.</p>
+      <p><strong>XRD</strong> = the API you promise (schema and names). <strong>Composition</strong> = the recipe that fulfills it (a pipeline of functions producing composed resources). <strong>XR</strong> = an instance a developer creates. Crossplane generates the CRD from your XRD, then reconciles every XR by running the composition and applying the result. It keeps running forever, so any drift on the composed resources gets reverted just like any other controller.</p>
     </div>
   </div>
 </section>
@@ -39,27 +39,27 @@
 <section class="panel accent-c" id="v2">
   <div class="phdr"><h2>The v2 model, because versions matter here</h2><span class="meta">what changed, and why online examples mislead</span></div>
   <div class="pbody">
-    <p>This lab runs Crossplane v2, and the differences from v1 content you may find online are the things that will bite:</p>
+    <p>This lab runs Crossplane v2, and the differences from the v1 tutorials you'll find online are the exact things that'll trip you up:</p>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Topic</th><th>v1 (most tutorials)</th><th>v2 (this lab)</th></tr></thead>
         <tbody>
           <tr><td>Scope</td><td>XRs are cluster-scoped</td><td>XRs can be <strong>namespaced</strong> (<code>spec.scope: Namespaced</code> in the XRD)</td></tr>
-          <tr><td>Developer-facing object</td><td>a <em>Claim</em> (namespaced) referencing a cluster XR</td><td>no claims for the v2 scopes: developers create the XR directly; <code>scope: LegacyCluster</code> still keeps claim behavior for migrating v1 APIs</td></tr>
-          <tr><td>Composition style</td><td>inline <code>resources[]</code> with patch lists</td><td><code>mode: Pipeline</code>, a list of <em>functions</em></td></tr>
+          <tr><td>Developer-facing object</td><td>A <em>Claim</em> (namespaced) pointing to a cluster XR</td><td>No claims for v2 scopes: developers create the XR directly (<code>scope: LegacyCluster</code> keeps claim behavior for migrating v1 APIs)</td></tr>
+          <tr><td>Composition style</td><td>Inline <code>resources[]</code> with patch lists</td><td><code>mode: Pipeline</code>, an ordered list of <em>functions</em></td></tr>
         </tbody>
       </table>
     </div>
     <div class="callout reflex">
       <span class="tag">When docs and the cluster disagree, the cluster wins</span>
-      <p><code>kubectl explain composition.spec</code> settles it in three seconds. Practicing that recovery is worth more than memorizing either dialect, because every fast-moving tool in this curriculum will eventually hand you a version-skew problem.</p>
+      <p><code>kubectl explain composition.spec</code> settles the dialect question in three seconds. Building that reflex pays off far more than memorizing either version, because every fast-moving tool in this curriculum will hand you version skew eventually.</p>
     </div>
 
     <h3>Walk the chain in the files</h3>
     <ul>
-      <li><code>xrd.yaml</code> defines schema and names for <code>AppEnvironment</code>; this is what generated the CRD you inspected in 3.2. The schema here is the same OpenAPI you hand-wrote there, which is the payoff of doing 3.2 first.</li>
-      <li><code>composition.yaml</code> declares <code>compositeTypeRef</code> back to that kind, then a pipeline. <code>function-patch-and-transform</code> renders two provider-kubernetes <code>Object</code>s, one wrapping a Namespace and one a ResourceQuota. <code>FromCompositeFieldPath</code> patches pull <code>spec.team</code> and the quota fields from the XR, and one <code>ToCompositeFieldPath</code> patch flows the namespace name back into XR status. Then <code>function-auto-ready</code> marks the XR Ready when its composed resources are.</li>
-      <li><code>xr.yaml</code> is the ten-line developer experience the other two files buy.</li>
+      <li><code>xrd.yaml</code> defines the schema and names for <code>AppEnvironment</code>, generating the CRD you inspected back in 3.2. It's the exact same OpenAPI schema you hand-wrote there, which is the payoff for doing 3.2 first.</li>
+      <li><code>composition.yaml</code> points <code>compositeTypeRef</code> back at that kind and defines a pipeline. First, <code>function-patch-and-transform</code> renders two provider-kubernetes <code>Object</code>s, one wrapping a Namespace and one a ResourceQuota. <code>FromCompositeFieldPath</code> patches copy <code>spec.team</code> and the quota fields from the XR, while a <code>ToCompositeFieldPath</code> patch writes the namespace name back into XR status. Next, <code>function-auto-ready</code> marks the XR Ready once all of its composed resources report Ready.</li>
+      <li><code>xr.yaml</code> is the ten-line developer experience all that machinery buys.</li>
     </ul>
 
     <pre class="diagram"><b>XRD</b> AppEnvironment ──generates──▶ CRD appenvironments.platform.lab.local
@@ -73,16 +73,16 @@
    └─ function-auto-ready ──────────▶ XR Ready when composed resources are Ready</pre>
 
     <h3>Providers, functions, and package health</h3>
-    <p>Crossplane's own extension points are packages: <strong>Providers</strong> (controllers for external APIs: AWS, GCP, Kubernetes, Helm) and <strong>Functions</strong> (the pipeline steps that render composed resources). A <code>ProviderConfig</code> (or <code>ClusterProviderConfig</code>) tells a provider how to authenticate.</p>
-    <p><strong>Step zero of any Crossplane diagnosis:</strong> <code>kubectl get providers.pkg.crossplane.io,functions.pkg.crossplane.io</code>; every package must be Installed and Healthy before anything downstream can work. A composition referencing a function that never came up produces an XR stuck with an opaque message. Thirty seconds of package checking saves twenty minutes of reading manifests.</p>
+    <p>Crossplane extends itself through packages: <strong>Providers</strong> (controllers for external APIs like AWS, GCP, Kubernetes, or Helm) and <strong>Functions</strong> (the pipeline steps that render composed resources). A <code>ProviderConfig</code> or <code>ClusterProviderConfig</code> tells each provider how to authenticate.</p>
+    <p><strong>Step zero of any Crossplane diagnosis:</strong> run <code>kubectl get providers.pkg.crossplane.io,functions.pkg.crossplane.io</code>. Every package must be Installed and Healthy before anything downstream can succeed. When a composition calls a function that never came up, the XR just stalls with a vague message. Spending thirty seconds on package health saves twenty minutes of staring at manifests.</p>
 
     <div class="callout trap">
       <span class="tag">Two gotchas the lab already paid for</span>
       <ol>
-        <li>A namespaced XR may not compose cluster-scoped resources (ownerReferences forbid it), so the composition uses the <em>namespaced</em> Object variant (<code>kubernetes.m.crossplane.io</code>, not <code>kubernetes.crossplane.io</code>) even though the manifest <em>inside</em> it is a cluster-scoped Namespace. Wrong-variant errors read as <code>cannot apply cluster scoped composed resource</code>.</li>
-        <li>That namespaced variant authenticates via <code>ClusterProviderConfig</code>, not <code>ProviderConfig</code>. Same words, different kind, and the failure is an auth error rather than a schema error.</li>
+        <li>A namespaced XR can't own cluster-scoped resources (Kubernetes <code>ownerReferences</code> forbid it), so the composition uses the <em>namespaced</em> Object variant (<code>kubernetes.m.crossplane.io</code>, not <code>kubernetes.crossplane.io</code>) even though the manifest <em>inside</em> it is a cluster-scoped Namespace. If you pick the wrong variant, you'll see <code>cannot apply cluster scoped composed resource</code>.</li>
+        <li>That namespaced variant authenticates through <code>ClusterProviderConfig</code>, not <code>ProviderConfig</code>. Almost the same name, different kind, and the error looks like an auth problem rather than a schema mistake.</li>
       </ol>
-      <p>Recognizing those two error messages on sight saves time on the exam.</p>
+      <p>Spotting those two errors on sight will save you real time on the exam.</p>
     </div>
   </div>
 </section>
@@ -90,7 +90,7 @@
 <section class="panel accent-y" id="operating">
   <div class="phdr"><h2>Operating a Crossplane platform API</h2><span class="meta">read paths and failure bubbles</span></div>
   <div class="pbody">
-    <p>Failure bubbles <em>bottom-up</em>: a composed resource fails, its condition says why, the XR's Ready goes False with a summarized message, and the developer sees only the XR. So the read path for every Crossplane incident is: XR conditions → composed resource conditions → the underlying object's own error.</p>
+    <p>Failures bubble <em>bottom-up</em>: a composed resource breaks, its condition explains why, the XR's <code>Ready</code> flips to <code>False</code> with a brief summary, and the developer only sees the XR. So every Crossplane investigation follows the same read path: XR conditions → composed resource conditions → the underlying object's actual error.</p>
 
     <div class="cb" data-lang="bash"><pre><code>crossplane resource trace appenvironment team-c-dev    # the whole tree with statuses, one shot
 kubectl get appenvironment team-c-dev -o jsonpath='{.status.conditions}' | jq
@@ -134,15 +134,15 @@ NAME                                                      INSTALLED   HEALTHY   
 function.pkg.crossplane.io/function-auto-ready            True        True      xpkg.crossplane.io/crossplane-contrib/function-auto-ready:v0.7.0             45m
 function.pkg.crossplane.io/function-patch-and-transform   True        True      xpkg.crossplane.io/crossplane-contrib/function-patch-and-transform:v0.10.9   45m</code></pre></details></div>
 
-    <p>Two more operational facts worth carrying:</p>
+    <p>Two more operational facts worth keeping in mind:</p>
     <ul>
-      <li><strong>Composition selection.</strong> An XR picks its composition by <code>compositionRef</code>, by <code>compositionSelector</code> labels, or by the XRD's default. When the wrong recipe runs, that is where to look, not in the composition itself.</li>
-      <li><strong>Changing the recipe changes existing instances.</strong> Edit a composition and every XR using it reconciles to the new definition without anyone touching them. That is the platform team's side of the contract, and also the blast radius: a bad composition edit hits every tenant at once. Version compositions (and pin XRs with <code>compositionUpdatePolicy: Manual</code>) when that matters.</li>
+      <li><strong>Composition selection.</strong> An XR picks its composition via <code>compositionRef</code>, via <code>compositionSelector</code> labels, or via the XRD's default. When the wrong recipe runs, look at selection first rather than inside the composition itself.</li>
+      <li><strong>Changing the recipe changes live instances.</strong> Edit a composition and every XR pointing to it reconciles to the new definition without anyone touching the XRs. That's the platform team's superpower, and it's also your blast radius: one broken edit hits every tenant at once. Version your compositions and pin XRs with <code>compositionUpdatePolicy: Manual</code> whenever that matters.</li>
     </ul>
 
     <div class="callout exam">
       <span class="tag">Crossplane vs an operator, in one sentence</span>
-      <p>An operator encodes <em>domain behavior</em> in Go (failover, backups, upgrades); Crossplane encodes <em>composition</em> in YAML (this API expands into those resources). If the task is "keep Postgres alive", you want an operator. If the task is "offer teams a one-field way to ask for a Postgres, a namespace and a quota together", you want Crossplane wrapping that operator.</p>
+      <p>An operator encodes <em>domain behavior</em> in Go (failover, backups, upgrades); Crossplane encodes <em>composition</em> in YAML (this API expands into those resources). If the job is "keep Postgres alive", you want an operator. If the job is "give teams a one-field API that hands them a Postgres, a namespace, and a quota together", you want Crossplane wrapping that operator.</p>
     </div>
   </div>
 </section>
@@ -150,27 +150,27 @@ function.pkg.crossplane.io/function-patch-and-transform   True        True      
 <section class="panel accent-c" id="fields">
   <div class="phdr"><h2>XRD and XR fields that decide behavior</h2><span class="meta">scope, versions, composition selection, conditions</span></div>
   <div class="pbody">
-    <p>Most Crossplane tasks are a manifest with two or three fields wrong. These are the fields.</p>
+    <p>Most Crossplane troubleshooting tasks come down to a manifest with two or three fields off. These are the ones that matter:</p>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th class="mono">XRD field</th><th>Decides</th><th>Trap</th></tr></thead>
         <tbody>
-          <tr><td class="mono">spec.scope</td><td><code>Namespaced</code> (v2 default), <code>Cluster</code>, or <code>LegacyCluster</code> (v1 semantics with claims)</td><td>immutable after creation; a namespaced XR cannot own cluster-scoped composed resources</td></tr>
-          <tr><td class="mono">spec.group / spec.names</td><td>the API group and kind/plural of the generated CRD</td><td>the CRD name is <code>&lt;plural&gt;.&lt;group&gt;</code>; that string is what <code>kubectl explain</code> and RBAC use</td></tr>
-          <tr><td class="mono">spec.versions[].served</td><td>whether the API server accepts that version</td><td><code>served: false</code> rejects every XR written at that version</td></tr>
-          <tr><td class="mono">spec.versions[].referenceable</td><td>the one version Compositions may point at</td><td>exactly one version; changing it means updating every Composition's <code>compositeTypeRef.apiVersion</code></td></tr>
-          <tr><td class="mono">spec.versions[].schema.openAPIV3Schema</td><td>the developer-facing contract</td><td>never write <code>status.conditions</code> or anything under <code>spec.crossplane</code>/<code>status.crossplane</code>: those are reserved and ignored</td></tr>
-          <tr><td class="mono">spec.defaultCompositionRef</td><td>the Composition used when an XR names none</td><td>only consulted at XR creation; existing XRs keep their <code>compositionRef</code></td></tr>
-          <tr><td class="mono">spec.enforcedCompositionRef</td><td>forces one Composition for every XR of the kind</td><td>overrides whatever the XR asked for; the read path for "the wrong recipe ran even though I set compositionRef"</td></tr>
-          <tr><td class="mono">spec.connectionSecretKeys</td><td>which connection detail keys the XR may expose</td><td>a key the Composition writes but the XRD does not list is dropped silently</td></tr>
-          <tr><td class="mono">spec.claimNames</td><td>claim kind for <code>LegacyCluster</code> XRDs only</td><td>invalid on <code>Namespaced</code>/<code>Cluster</code> XRDs</td></tr>
+          <tr><td class="mono">spec.scope</td><td><code>Namespaced</code> (v2 default), <code>Cluster</code>, or <code>LegacyCluster</code> (v1 semantics with claims)</td><td>Immutable after creation, and a namespaced XR can't own cluster-scoped composed resources</td></tr>
+          <tr><td class="mono">spec.group / spec.names</td><td>The API group, kind, and plural of the generated CRD</td><td>The CRD name is <code>&lt;plural&gt;.&lt;group&gt;</code>; that exact string is what <code>kubectl explain</code> and RBAC expect</td></tr>
+          <tr><td class="mono">spec.versions[].served</td><td>Whether the API server accepts that version</td><td><code>served: false</code> rejects every XR written at that version</td></tr>
+          <tr><td class="mono">spec.versions[].referenceable</td><td>The single version Compositions may target</td><td>Exactly one version can be referenceable; switching it means updating every Composition's <code>compositeTypeRef.apiVersion</code></td></tr>
+          <tr><td class="mono">spec.versions[].schema.openAPIV3Schema</td><td>The developer-facing contract</td><td>Never define <code>status.conditions</code> or anything under <code>spec.crossplane</code> / <code>status.crossplane</code>; those are reserved and silently ignored</td></tr>
+          <tr><td class="mono">spec.defaultCompositionRef</td><td>The Composition used when an XR doesn't pick one</td><td>Consulted only at XR creation; existing XRs keep their pinned <code>compositionRef</code></td></tr>
+          <tr><td class="mono">spec.enforcedCompositionRef</td><td>Forces one Composition for every XR of this kind</td><td>Overrides whatever the XR asked for; check here first when "the wrong recipe ran even though I set compositionRef"</td></tr>
+          <tr><td class="mono">spec.connectionSecretKeys</td><td>Which connection detail keys the XR is allowed to expose</td><td>Any key a Composition writes that isn't listed in the XRD gets dropped silently</td></tr>
+          <tr><td class="mono">spec.claimNames</td><td>Claim kind for <code>LegacyCluster</code> XRDs only</td><td>Invalid on <code>Namespaced</code> or <code>Cluster</code> XRDs</td></tr>
         </tbody>
       </table>
     </div>
-    <p>An XRD reports <code>Established</code> when its CRD is installed and <code>Offered</code> when a claim CRD exists (legacy only). <code>kubectl get xrd</code> shows both columns; a false <code>Established</code> almost always means a schema the API server rejected, and the condition message quotes the reason.</p>
+    <p>An XRD reports <code>Established</code> once its CRD is installed and <code>Offered</code> once a claim CRD exists (legacy only). <code>kubectl get xrd</code> prints both columns. If <code>Established</code> is <code>False</code>, the API server almost certainly rejected your schema, and the condition message tells you why.</p>
 
     <h3>What the developer's XR controls</h3>
-    <p>In v2 the Crossplane-specific knobs live under <code>spec.crossplane</code> (legacy cluster-scoped XRs and claims keep them at the top of <code>spec</code>):</p>
+    <p>In v2, the Crossplane-specific knobs live under <code>spec.crossplane</code> (legacy cluster-scoped XRs and claims keep them at the top of <code>spec</code>):</p>
     <div class="cb" data-lang="yaml"><pre><code>spec:
   team: team-c                      # your schema
   crossplane:
@@ -179,61 +179,62 @@ function.pkg.crossplane.io/function-patch-and-transform   True        True      
     compositionRevisionRef: { name: appenvironment-small-7c9a2 }
     writeConnectionSecretToRef: { name: team-c-conn }</code></pre></div>
     <ul>
-      <li><strong>Selection order.</strong> <code>enforcedCompositionRef</code> on the XRD wins; otherwise the XR's <code>compositionRef</code>, then <code>compositionSelector</code> labels, then the XRD's <code>defaultCompositionRef</code>. Crossplane writes the resolved <code>compositionRef</code> back onto the XR, so an XR created before you changed the default keeps the old recipe.</li>
-      <li><strong>Revisions.</strong> Every Composition edit creates an immutable <code>CompositionRevision</code> (<code>kubectl get compositionrevision -l crossplane.io/composition-name=&lt;name&gt;</code>). With <code>compositionUpdatePolicy: Automatic</code> XRs follow the newest revision; with <code>Manual</code> they stay on the <code>compositionRevisionRef</code> Crossplane pinned at creation until you edit it. That is the blast-radius control the previous panel promised.</li>
-      <li><strong>Pausing.</strong> The annotation <code>crossplane.io/paused: "true"</code> on an XR or a managed resource stops reconciliation without deleting anything; the lab's "paused XR" fault is this, and the XR's <code>Synced</code> condition says <code>ReconcilePaused</code>.</li>
-      <li><strong>Conditions.</strong> <code>Synced</code> means Crossplane could run the Composition and apply the result to the API server; <code>Ready</code> means the composed resources report ready. <code>Synced=False</code> is a recipe or permission problem (read the message: unknown function, invalid patch path, forbidden); <code>Ready=False</code> with <code>Synced=True</code> is a downstream problem (the provider or the external API). Deciding which of the two is false is the first branch of every Crossplane diagnosis.</li>
+      <li><strong>Selection order.</strong> <code>enforcedCompositionRef</code> on the XRD always wins. After that, Crossplane checks the XR's <code>compositionRef</code>, then <code>compositionSelector</code> labels, and finally the XRD's <code>defaultCompositionRef</code>. Because Crossplane writes the resolved <code>compositionRef</code> back onto the XR, an instance created before you changed the default stays on the old recipe.</li>
+      <li><strong>Revisions.</strong> Every edit to a Composition creates an immutable <code>CompositionRevision</code> (<code>kubectl get compositionrevision -l crossplane.io/composition-name=&lt;name&gt;</code>). Under <code>compositionUpdatePolicy: Automatic</code>, XRs track the newest revision; under <code>Manual</code>, they stay pinned to the <code>compositionRevisionRef</code> assigned at creation until you move them yourself. That's the blast-radius control promised in the previous section.</li>
+      <li><strong>Pausing.</strong> Adding <code>crossplane.io/paused: "true"</code> to an XR or managed resource halts reconciliation without deleting anything. The lab's "paused XR" fault uses this exact annotation, and the XR's <code>Synced</code> condition reports <code>ReconcilePaused</code>.</li>
+      <li><strong>Conditions.</strong> <code>Synced</code> tells you whether Crossplane managed to run the Composition and apply its output to the API server; <code>Ready</code> tells you whether the composed resources report ready. <code>Synced=False</code> points to a recipe or permission error (read the message: unknown function, bad patch path, forbidden). <code>Ready=False</code> with <code>Synced=True</code> points downstream to the provider or external API. Checking which of the two is false is always step one.</li>
     </ul>
 
     <h3>Inside a Pipeline composition</h3>
-    <p>Each <code>pipeline[]</code> step names a <code>functionRef</code> and passes <code>input</code>. The functions you will meet: <code>function-patch-and-transform</code> (the declarative one: <code>resources[]</code> with <code>base</code> and <code>patches</code>), <code>function-go-templating</code> (Go templates rendering YAML, often with <code>{{ .observed.composite.resource.spec.x }}</code>), <code>function-kcl</code> and <code>function-cue</code> (typed configuration languages), <code>function-environment-configs</code> (loads <code>EnvironmentConfig</code> objects by <code>Reference</code> or <code>Selector</code> into the pipeline context; native environment patching was removed from core in v1.18), and <code>function-auto-ready</code>, which should be last so the XR becomes Ready only when every composed resource is. Patch types worth naming: <code>FromCompositeFieldPath</code> (XR to composed), <code>ToCompositeFieldPath</code> (composed to XR status), <code>CombineFromComposite</code> (several XR fields into one string with <code>fmt</code>), and the <code>FromEnvironmentFieldPath</code> pair. Transforms sit on a patch: <code>map</code>, <code>match</code>, <code>math</code>, <code>string</code> (<code>fmt</code>, <code>convert</code>, <code>trimPrefix</code>, <code>regexp</code>) and <code>convert</code> (string to int and back). A patch whose <code>fromFieldPath</code> does not exist is skipped unless <code>policy.fromFieldPath: Required</code>, which turns a silent miss into a <code>Synced=False</code> message you can read.</p>
+    <p>Each <code>pipeline[]</code> step names a <code>functionRef</code> and passes an <code>input</code> block. The main functions you'll see in the wild are <code>function-patch-and-transform</code> (declarative <code>resources[]</code> with <code>base</code> and <code>patches</code>), <code>function-go-templating</code> (Go templates rendering YAML, often referencing <code>{{ .observed.composite.resource.spec.x }}</code>), <code>function-kcl</code> and <code>function-cue</code> (typed config languages), <code>function-environment-configs</code> (loads <code>EnvironmentConfig</code> objects by <code>Reference</code> or <code>Selector</code> into the pipeline context, since native environment patching was removed from core in v1.18), and <code>function-auto-ready</code>, which belongs last so the XR flips Ready only when every composed resource is Ready.</p>
+    <p>For patch-and-transform, know the core patch types: <code>FromCompositeFieldPath</code> (XR to composed), <code>ToCompositeFieldPath</code> (composed to XR status), <code>CombineFromComposite</code> (join multiple XR fields with <code>fmt</code>), and the <code>FromEnvironmentFieldPath</code> pair. Transforms sit directly on a patch: <code>map</code>, <code>match</code>, <code>math</code>, <code>string</code> (<code>fmt</code>, <code>convert</code>, <code>trimPrefix</code>, <code>regexp</code>), and <code>convert</code> (string to int and back). Watch out for missing inputs: a patch whose <code>fromFieldPath</code> doesn't exist is silently skipped unless you set <code>policy.fromFieldPath: Required</code>, which turns a silent miss into a loud <code>Synced=False</code> message you can actually debug.</p>
 
-    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Developers must not be able to pick a different Composition" is <code>enforcedCompositionRef</code>. "Existing instances must not change when the platform team updates the recipe" is <code>compositionUpdatePolicy: Manual</code>. "Expose the generated namespace name to the developer" is a <code>ToCompositeFieldPath</code> patch into <code>status</code>, with that status field present in the XRD schema. Each is a one-field answer if you know where the field lives.</p></div>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Developers must not be able to pick a different Composition" is <code>enforcedCompositionRef</code>. "Existing instances must not change when the platform team updates the recipe" is <code>compositionUpdatePolicy: Manual</code>. "Expose the generated namespace name to the developer" is a <code>ToCompositeFieldPath</code> patch into <code>status</code>, paired with that status field in the XRD schema. Every one of these is a one-field answer once you know where it lives.</p></div>
   </div>
 </section>
 
 <section class="panel accent-p" id="mr-packages">
-  <div class="phdr"><h2>Managed resources, packages and the CLI</h2><span class="meta">the layer under the composition</span></div>
+  <div class="phdr"><h2>Managed resources, packages, and the CLI</h2><span class="meta">the layer under the composition</span></div>
   <div class="pbody">
     <h3>Managed resource fields</h3>
     <ul>
-      <li><strong><code>spec.forProvider</code></strong> is the desired external state and is enforced: Crossplane reverts drift on those fields. <strong><code>spec.initProvider</code></strong> sets values only at creation and never enforces them (autoscaled sizes, for example).</li>
-      <li><strong><code>spec.managementPolicies</code></strong> (beta, on by default) is a list drawn from <code>Observe</code>, <code>Create</code>, <code>Update</code>, <code>Delete</code>, <code>LateInitialize</code>; the default is <code>["*"]</code>. <code>["Observe"]</code> is observe-only: import an existing resource by creating an MR with that policy plus the <code>crossplane.io/external-name</code> annotation, and Crossplane fills <code>status.atProvider</code> without ever changing or deleting the real thing. Dropping <code>Delete</code> means deleting the MR orphans the external resource. An empty list pauses the resource.</li>
-      <li><strong><code>spec.deletionPolicy</code></strong> (<code>Delete</code> default, <code>Orphan</code>) is the older single knob for the same orphaning decision; when both are set, <code>managementPolicies</code> without <code>Delete</code> wins.</li>
-      <li><strong><code>spec.providerConfigRef</code></strong> names the credentials object. In v2 the namespaced MR kinds (API groups ending <code>.m.upbound.io</code> or <code>.m.crossplane.io</code>) reference a namespaced <code>ProviderConfig</code> or a <code>ClusterProviderConfig</code>; the wrong kind name is the auth-looking error the lab already documents. The default ref name is <code>default</code>, so a missing <code>ProviderConfig/default</code> is the classic first failure of a fresh provider.</li>
-      <li><strong>Conditions.</strong> <code>Synced</code> with reason <code>ReconcileError</code> carries the provider's message; <code>Ready</code> follows the external resource. <code>kubectl get managed</code> lists every MR of every provider in one table with <code>READY</code>, <code>SYNCED</code> and <code>EXTERNAL-NAME</code> columns.</li>
+      <li><strong><code>spec.forProvider</code></strong> declares the desired external state and enforces it continuously, reverting drift. <strong><code>spec.initProvider</code></strong> only applies values at creation time and leaves them alone afterward (ideal for autoscaled sizes).</li>
+      <li><strong><code>spec.managementPolicies</code></strong> (beta, enabled by default) takes any subset of <code>Observe</code>, <code>Create</code>, <code>Update</code>, <code>Delete</code>, and <code>LateInitialize</code>, defaulting to <code>["*"]</code>. Setting <code>["Observe"]</code> gives you observe-only mode: pair it with the <code>crossplane.io/external-name</code> annotation to import an existing resource and populate <code>status.atProvider</code> without ever modifying or deleting the real thing. Dropping <code>Delete</code> orphans the external resource if the MR is deleted, and an empty list pauses the resource entirely.</li>
+      <li><strong><code>spec.deletionPolicy</code></strong> (<code>Delete</code> by default, or <code>Orphan</code>) is the older single switch for orphaning. When both are set, a <code>managementPolicies</code> list without <code>Delete</code> wins.</li>
+      <li><strong><code>spec.providerConfigRef</code></strong> points to the credentials object. In v2, namespaced MR kinds (API groups ending in <code>.m.upbound.io</code> or <code>.m.crossplane.io</code>) reference either a namespaced <code>ProviderConfig</code> or a <code>ClusterProviderConfig</code>; picking the wrong kind causes that auth-looking error we saw earlier. Because the ref defaults to <code>default</code>, a missing <code>ProviderConfig/default</code> is the classic first failure on a brand-new provider.</li>
+      <li><strong>Conditions.</strong> <code>Synced</code> with reason <code>ReconcileError</code> carries the provider's error text, while <code>Ready</code> tracks the external resource itself. Run <code>kubectl get managed</code> to list every MR across every provider in one table with <code>READY</code>, <code>SYNCED</code>, and <code>EXTERNAL-NAME</code> columns.</li>
     </ul>
 
     <h3>Usage: deletion protection and ordering</h3>
-    <p>A <code>Usage</code> (<code>protection.crossplane.io/v1beta1</code>) declares that resource <code>of</code> is used <code>by</code> another (or only protected, with a <code>reason</code>). While it exists, a delete of the protected object is rejected by Crossplane's admission webhook with a 409 whose message quotes the reason; deleting the user first releases it, and <code>replayDeletion: true</code> re-issues the blocked delete afterwards. "The database must never be deleted while the app that uses it exists" is a Usage, not RBAC.</p>
+    <p>A <code>Usage</code> (<code>protection.crossplane.io/v1beta1</code>) states that resource <code>of</code> is used <code>by</code> another (or simply protects it with a <code>reason</code>). As long as that Usage exists, Crossplane's admission webhook rejects deletes on the protected object with a 409 quoting your reason. Deleting the dependent user first lifts the lock, and setting <code>replayDeletion: true</code> automatically re-issues the blocked delete afterward. When an exam prompt says "the database must never be deleted while the app using it exists", that's a <code>Usage</code>, not RBAC.</p>
 
     <h3>Packages</h3>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th class="mono">Field / object</th><th>Means</th></tr></thead>
         <tbody>
-          <tr><td class="mono">Provider / Configuration / Function (pkg.crossplane.io/v1)</td><td>the three package kinds; each creates a revision object (<code>ProviderRevision</code>, <code>ConfigurationRevision</code>, <code>FunctionRevision</code>) that holds the real health</td></tr>
-          <tr><td class="mono">spec.package</td><td>OCI reference; pin by tag or <code>@sha256:</code> digest</td></tr>
-          <tr><td class="mono">spec.packagePullPolicy</td><td><code>IfNotPresent</code> (default), <code>Always</code>, <code>Never</code></td></tr>
-          <tr><td class="mono">spec.revisionActivationPolicy</td><td><code>Automatic</code> activates the newest revision; <code>Manual</code> installs it inactive so you can flip it deliberately</td></tr>
-          <tr><td class="mono">spec.revisionHistoryLimit</td><td>how many old revisions to keep (default 1)</td></tr>
-          <tr><td class="mono">spec.skipDependencyResolution / ignoreCrossplaneConstraints</td><td>escape hatches for a Configuration whose <code>crossplane.yaml</code> declares <code>dependsOn</code> providers or a Crossplane version range you do not satisfy</td></tr>
-          <tr><td class="mono">spec.runtimeConfigRef</td><td>points at a <code>DeploymentRuntimeConfig</code> (replaces the deprecated <code>ControllerConfig</code>) to set the provider pod's SA, resources, args and metrics annotations</td></tr>
-          <tr><td class="mono">Lock (pkg.crossplane.io)</td><td>the singleton the package manager uses to record resolved dependencies; <code>kubectl get lock -o yaml</code> shows what it decided</td></tr>
+          <tr><td class="mono">Provider / Configuration / Function (pkg.crossplane.io/v1)</td><td>The three package kinds; each creates a revision object (<code>ProviderRevision</code>, <code>ConfigurationRevision</code>, <code>FunctionRevision</code>) where its real health lives</td></tr>
+          <tr><td class="mono">spec.package</td><td>OCI image reference; pin by tag or <code>@sha256:</code> digest</td></tr>
+          <tr><td class="mono">spec.packagePullPolicy</td><td><code>IfNotPresent</code> (default), <code>Always</code>, or <code>Never</code></td></tr>
+          <tr><td class="mono">spec.revisionActivationPolicy</td><td><code>Automatic</code> activates the newest revision immediately; <code>Manual</code> installs it inactive so you can cut over deliberately</td></tr>
+          <tr><td class="mono">spec.revisionHistoryLimit</td><td>How many old revisions to retain (default 1)</td></tr>
+          <tr><td class="mono">spec.skipDependencyResolution / ignoreCrossplaneConstraints</td><td>Escape hatches for a Configuration whose <code>crossplane.yaml</code> requires providers or a Crossplane version range your cluster doesn't satisfy</td></tr>
+          <tr><td class="mono">spec.runtimeConfigRef</td><td>Points to a <code>DeploymentRuntimeConfig</code> (replacing the deprecated <code>ControllerConfig</code>) to configure the provider pod's SA, resources, args, and metrics annotations</td></tr>
+          <tr><td class="mono">Lock (pkg.crossplane.io)</td><td>The cluster singleton tracking resolved package dependencies; run <code>kubectl get lock -o yaml</code> to see what the package manager decided</td></tr>
         </tbody>
       </table>
     </div>
-    <p><code>kubectl get providers</code> prints <code>INSTALLED</code> and <code>HEALTHY</code>. Unhealthy usually resolves to one of: image pull failure (private registry, add <code>packagePullSecrets</code>), a dependency that cannot be satisfied (the Lock and the revision's <code>UnhealthyPackageRevision</code> reason say which), or the provider pod itself crashing, which is a plain pod diagnosis in the <code>crossplane-system</code> namespace. Providers built on crossplane-runtime export <code>crossplane_managed_resource_ready</code>, <code>crossplane_managed_resource_synced</code>, <code>crossplane_managed_resource_first_time_to_readiness_seconds</code> and <code>crossplane_managed_resource_drift_seconds</code> on port 8080, which is what a "monitor the platform API" task scrapes with a <code>PodMonitor</code>.</p>
+    <p><code>kubectl get providers</code> prints <code>INSTALLED</code> and <code>HEALTHY</code>. An unhealthy provider almost always boils down to one of three things: an image pull failure (private registry missing <code>packagePullSecrets</code>), an unsatisfied dependency (check the <code>Lock</code> and the revision's <code>UnhealthyPackageRevision</code> reason), or the provider pod crashing in <code>crossplane-system</code> (standard pod debugging). Providers built on <code>crossplane-runtime</code> expose <code>crossplane_managed_resource_ready</code>, <code>crossplane_managed_resource_synced</code>, <code>crossplane_managed_resource_first_time_to_readiness_seconds</code>, and <code>crossplane_managed_resource_drift_seconds</code> on port 8080, which is what a "monitor the platform API" task scrapes with a <code>PodMonitor</code>.</p>
 
     <h3>The CLI's three jobs</h3>
     <ul>
-      <li><strong>Render offline.</strong> <code>crossplane composition render xr.yaml composition.yaml functions.yaml</code> runs the pipeline in Docker and prints the composed resources, no cluster needed (v1 docs call it <code>crossplane beta render</code>). It is how you check a patch path before applying, and the fastest way to see what a stranger's Composition produces.</li>
-      <li><strong>Trace live.</strong> The lab's <code>crossplane resource trace</code> (older docs: <code>crossplane beta trace</code>) prints the XR, its composed resources and their <code>Synced</code>/<code>Ready</code> status as a tree; <code>-o wide</code> adds the messages.</li>
-      <li><strong>Build and push.</strong> <code>crossplane xpkg build</code> and <code>crossplane xpkg push</code> package an XRD plus Compositions (and <code>crossplane.yaml</code> with <code>dependsOn</code>) into a Configuration image, which is how a platform API becomes a versioned, installable artifact.</li>
+      <li><strong>Render offline.</strong> <code>crossplane composition render xr.yaml composition.yaml functions.yaml</code> runs the pipeline locally in Docker and prints the composed resources with no cluster required (v1 docs call it <code>crossplane beta render</code>). It's the fastest way to check a patch path before applying or to see what someone else's Composition actually emits.</li>
+      <li><strong>Trace live.</strong> <code>crossplane resource trace</code> (older docs: <code>crossplane beta trace</code>) draws the XR, its composed resources, and their <code>Synced</code>/<code>Ready</code> status as a tree; add <code>-o wide</code> for full error messages.</li>
+      <li><strong>Build and push.</strong> <code>crossplane xpkg build</code> and <code>crossplane xpkg push</code> bundle an XRD, its Compositions, and a <code>crossplane.yaml</code> (with <code>dependsOn</code>) into a Configuration OCI package, turning a platform API into a versioned, installable artifact.</li>
     </ul>
-    <p>The <code>crossplane</code> version in the exam may be a v1.x release where these commands live under <code>beta</code>; <code>crossplane --help</code> settles it in one second.</p>
+    <p>Your exam cluster might still ship a v1.x <code>crossplane</code> CLI where these subcommands live under <code>beta</code>; <code>crossplane --help</code> settles it in a second.</p>
 
-    <div class="callout trap"><span class="tag">Trap</span><p>Crossplane's RBAC manager (<code>crossplane-rbac-manager</code>) creates aggregated ClusterRoles for every XRD and provider so that <code>crossplane-admin</code>, <code>crossplane-edit</code> and <code>crossplane-view</code> pick up new kinds automatically. A provider "stripped of RBAC" (the lab's fault) shows as <code>Synced=False</code> on every MR with a <code>forbidden</code> message from the provider's ServiceAccount, not as an unhealthy package. The fix is the missing ClusterRole or ClusterRoleBinding, not a reinstall.</p></div>
+    <div class="callout trap"><span class="tag">Trap</span><p>Crossplane's RBAC manager (<code>crossplane-rbac-manager</code>) generates aggregated ClusterRoles for every XRD and provider so <code>crossplane-admin</code>, <code>crossplane-edit</code>, and <code>crossplane-view</code> automatically pick up new kinds. When a provider gets stripped of RBAC (one of the lab's injected faults), the package still looks healthy, while every MR turns <code>Synced=False</code> with a <code>forbidden</code> message from the provider's ServiceAccount. Fix the missing ClusterRole or ClusterRoleBinding; don't reinstall the provider.</p></div>
   </div>
 </section>
 
@@ -242,7 +243,7 @@ function.pkg.crossplane.io/function-patch-and-transform   True        True      
   <div class="pbody">
 
     <div class="exercise" data-title="Consume the platform API as a developer">
-      <p><code>kubectl apply -f examples/crossplane/xr.yaml</code> (or confirm <code>team-c-dev</code> exists from install), then trace the expansion:</p>
+      <p>Run <code>kubectl apply -f examples/crossplane/xr.yaml</code> (or confirm <code>team-c-dev</code> is already there from install), then trace how it expands:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl get appenvironment team-c-dev -o jsonpath='{.status.conditions}' | jq
 kubectl get appenvironment team-c-dev -o jsonpath='{.status.namespace}{"\n"}'
 kubectl -n default get objects.kubernetes.m.crossplane.io
@@ -280,26 +281,26 @@ team-c-dev-e7e1d26b0016   ResourceQuota   default          True     True    43m
 NAME     STATUS   AGE
 team-c   Active   43m
 {"requests.cpu":"4","requests.memory":"8Gi"}</code></pre></details></div>
-      <div class="verify"><b>verify:</b> Ready True, status.namespace says team-c, two composed Objects, and the quota's hard values match the XR's spec (<code>cpuQuota: "4"</code>), not the composition's placeholders. That last check proves the patches ran, which is the difference between "installed" and "works".</div>
+      <div class="verify"><b>verify:</b> <code>Ready</code> is True, <code>status.namespace</code> reads <code>team-c</code>, two composed Objects exist, and the quota's hard values match the XR's spec (<code>cpuQuota: "4"</code>) rather than the composition's placeholders. That last check proves the patches actually ran, which is the line between "installed" and "works".</div>
     </div>
 
     <div class="exercise" data-title="Change the API's behavior, not the API">
-      <p>Edit the composition to also set <code>requests.memory</code> default differently or to add a label to the namespace, apply, and watch existing XRs reconcile to the new recipe without anyone touching them.</p>
-      <div class="verify"><b>verify:</b> <code>kubectl get ns team-c --show-labels</code> gains your label within a minute. Compositions are the platform team's side of the contract, changeable without touching the API or its instances.</div>
+      <p>Edit the composition to change the default <code>requests.memory</code> or stamp an extra label onto the namespace, apply it, and watch existing XRs reconcile to the new recipe without anyone touching them.</p>
+      <div class="verify"><b>verify:</b> <code>kubectl get ns team-c --show-labels</code> picks up your label within a minute. Compositions are the platform team's half of the contract, free to evolve without touching the API or its consumers.</div>
     </div>
 
     <div class="exercise" data-title="Extend the contract end to end">
-      <p>Add <code>podQuota</code> (integer, default 10) to the XRD schema, patch it into the quota's <code>spec.hard[pods]</code> in the composition, and set it in a new XR <code>team-f-dev</code>. Order matters: XRD first, wait <code>Established</code>, then composition, then XR.</p>
-      <div class="verify"><b>verify:</b> <code>kubectl -n team-f get resourcequota tenant-quota -o jsonpath='{.spec.hard.pods}'</code> prints your number. You have now done a schema change, a recipe change, and a consumer change as three separate actors, which is the whole platform-API workflow.</div>
+      <p>Add <code>podQuota</code> (integer, default 10) to the XRD schema, patch it into the quota's <code>spec.hard[pods]</code> inside the composition, and set it in a new XR called <code>team-f-dev</code>. Order matters here: apply the XRD first, wait for <code>Established</code>, then update the composition, then apply the XR.</p>
+      <div class="verify"><b>verify:</b> <code>kubectl -n team-f get resourcequota tenant-quota -o jsonpath='{.spec.hard.pods}'</code> prints your number. You've just walked through a schema change, a recipe change, and a consumer change as three separate actors, which is the entire platform-API lifecycle.</div>
     </div>
 
     <div class="exercise" data-title="Diagnose a broken XR">
-      <p>Create an XR with <code>team: Team-G</code> (capital letter, invalid DNS label for a namespace). The XR will not go Ready. Find the failure without guessing: XR conditions first, then the composed Object's conditions (<code>kubectl -n default get objects.kubernetes.m.crossplane.io -o yaml | grep -A3 message</code>), where the API server's rejection of the namespace name surfaces. <code>crossplane resource trace appenvironment &lt;name&gt;</code> (the CLI is installed) draws the whole tree with statuses in one shot.</p>
-      <div class="verify"><b>verify:</b> you can point at the exact condition message and fix the XR. Failure bubbles bottom-up through composed-resource conditions; that is the read path for every Crossplane incident.</div>
+      <p>Create an XR with <code>team: Team-G</code> (capital letter, so it's an invalid DNS label for a namespace). The XR won't go Ready. Trace the failure methodically instead of guessing: check XR conditions first, then inspect the composed Object's conditions (<code>kubectl -n default get objects.kubernetes.m.crossplane.io -o yaml | grep -A3 message</code>) to see the API server rejecting the namespace name. You can also run <code>crossplane resource trace appenvironment &lt;name&gt;</code> (the CLI is preinstalled) to draw the entire tree with statuses in one shot.</p>
+      <div class="verify"><b>verify:</b> you can point straight to the exact condition message and fix the XR. Failures propagate bottom-up through composed-resource conditions; that's your read path for every Crossplane incident.</div>
     </div>
 
     <div class="exercise" data-title="Read the XRD's two answers">
-      <p>An XRD that offers a claim has to be accepted twice: the composite type has to be <code>Established</code>, and the claim API has to be <code>Offered</code>. This lab's XRD is a Crossplane v2 namespaced XR with no claim, so it only needs Established and the OFFERED column stays empty. The columns say which, and a half-installed XRD is the most common reason a developer's manifest is rejected as an unknown kind.</p>
+      <p>An XRD that offers a claim has to clear two gates: the composite type must become <code>Established</code>, and the claim API must become <code>Offered</code>. Because this lab's XRD is a Crossplane v2 namespaced XR with no claim, it only needs <code>Established</code> and the <code>OFFERED</code> column stays blank. Reading those columns first saves you from chasing ghosts when a half-installed XRD causes a developer's manifest to fail as an unknown kind.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl get xrd
 kubectl get xrd appenvironments.platform.lab.local -o jsonpath='{.status.conditions}' | jq '.[] | {type, status, reason, message}'
 kubectl api-resources --api-group=platform.lab.local</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl get xrd</b>
@@ -315,11 +316,11 @@ appenvironments.platform.lab.local   True                    99m
 <b>$ kubectl api-resources --api-group=platform.lab.local</b>
 NAME              SHORTNAMES   APIVERSION                    NAMESPACED   KIND
 appenvironments                platform.lab.local/v1alpha1   true         AppEnvironment</code></pre></details></div>
-      <div class="verify"><b>verify:</b> <code>Established</code> is True (there is no <code>Offered</code> condition: this XRD offers no claim) and the kind appears in <code>api-resources</code>. If Established is False, read its message before touching the Composition; the XRD is upstream of everything else on this page.</div>
+      <div class="verify"><b>verify:</b> <code>Established</code> is True (no <code>Offered</code> condition appears because this XRD offers no claim) and the kind shows up in <code>api-resources</code>. If <code>Established</code> is False, read its message before touching the Composition; the XRD sits upstream of everything else on this page.</div>
     </div>
 
     <div class="exercise" data-title="Pin an XR to a composition revision">
-      <p>Every edit to a Composition creates a revision, and XRs follow the latest one by default. <code>Manual</code> freezes an XR where it is, which is how you roll a platform API change out to one tenant before all of them.</p>
+      <p>Every edit to a Composition mints a new revision, and XRs follow the latest one by default. Switching to <code>Manual</code> freezes an XR in place, which is how you canary a platform API change on one tenant before rolling it out to everyone.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl get compositionrevisions
 kubectl patch composition appenvironment-kubernetes --type merge -p '{"metadata":{"labels":{"edited":"once"}}}'
 kubectl get compositionrevisions -l crossplane.io/composition-name=appenvironment-kubernetes
@@ -384,11 +385,11 @@ composition.apiextensions.crossplane.io/appenvironment-kubernetes patched
 appenvironment.platform.lab.local "team-f-dev" deleted from default namespace
 <b>$ kubectl delete ns team-f --ignore-not-found --wait=false</b>
 namespace "team-f" deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the Manual XR stays on the revision it was created against while the Automatic one moves to the newest.</div>
+      <div class="verify"><b>verify:</b> the <code>Manual</code> XR stays pinned to its original revision while the <code>Automatic</code> one moves to the newest.</div>
     </div>
 
     <div class="exercise" data-title="Take the choice of composition away">
-      <p>A tenant who can pick the Composition can pick a cheaper one. <code>enforcedCompositionRef</code> on the XRD overrides whatever they asked for, silently and at every reconcile.</p>
+      <p>If a tenant can choose their Composition, they can pick a looser or cheaper one. Setting <code>enforcedCompositionRef</code> on the XRD silently overrides whatever they ask for on every reconcile.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl patch xrd appenvironments.platform.lab.local --type merge -p '{"spec":{"enforcedCompositionRef":{"name":"appenvironment-kubernetes"}}}'
 kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: platform.lab.local/v1alpha1
@@ -421,11 +422,11 @@ appenvironment.platform.lab.local/team-i-dev created
 compositeresourcedefinition.apiextensions.crossplane.io/appenvironments.platform.lab.local patched
 <b>$ kubectl delete appenvironment team-i-dev</b>
 appenvironment.platform.lab.local "team-i-dev" deleted from default namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the reference the tenant wrote has been replaced by the enforced one.</div>
+      <div class="verify"><b>verify:</b> Crossplane overwrote the tenant's chosen reference with the enforced Composition.</div>
     </div>
 
     <div class="exercise" data-title="Pause a reconcile without deleting anything">
-      <p>The pause annotation is the safe way to stop a controller touching an object while you investigate. The <code>Synced</code> condition says paused rather than lying about being up to date, which is the part that makes it safe.</p>
+      <p>The pause annotation lets you freeze a controller on one object while you investigate. Even better, the <code>Synced</code> condition explicitly reports paused instead of pretending everything is up to date, which is what makes it safe to use in production.</p>
       <div class="cb" data-lang="bash"><pre><code># start from a known value: without this the patch below is a no-op and nothing can move
 kubectl annotate appenvironment team-c-dev crossplane.io/paused- --overwrite 2&gt;/dev/null || true
 kubectl patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"4"}}'
@@ -477,11 +478,11 @@ appenvironment.platform.lab.local/team-c-dev annotated
 {"requests.cpu":"16","requests.memory":"8Gi"}
 <b>$ kubectl patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"4"}}'</b>
 appenvironment.platform.lab.local/team-c-dev patched</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the quota does not move while the annotation is present, the condition reason is <code>ReconcilePaused</code>, and the change lands the moment you remove it.</div>
+      <div class="verify"><b>verify:</b> the quota doesn't budge while the annotation is set, the condition reason reads <code>ReconcilePaused</code>, and the new value lands as soon as you remove the annotation.</div>
     </div>
 
     <div class="exercise" data-title="Render a composition without a cluster">
-      <p>The render command runs the composition pipeline locally against the same files the cluster uses. It is the fastest feedback loop Crossplane has, and the right answer when a task says "show what this XR would create".</p>
+      <p>The render command runs your composition pipeline locally against the exact same manifests the cluster uses. It's the fastest feedback loop in Crossplane, and the right move whenever a task asks you to preview what an XR would create.</p>
       <div class="cb" data-lang="bash"><pre><code>cat &gt; /tmp/functions.yaml &lt;&lt;'EOF'
 apiVersion: pkg.crossplane.io/v1
 kind: Function
@@ -565,11 +566,11 @@ function-patch-and-transform   True        True      xpkg.crossplane.io/crosspla
 function-auto-ready xpkg.crossplane.io/crossplane-contrib/function-auto-ready:v0.7.0
 function-patch-and-transform xpkg.crossplane.io/crossplane-contrib/function-patch-and-transform:v0.10.9
 <b>$ rm -f /tmp/functions.yaml</b></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the rendered output lists the two composed Objects with <code>team-c</code> patched into the namespace name and the quota's namespace, and nothing is applied. The top-level <code>render</code> command is gone in the v2 CLI this lab installs, and so is the <code>beta</code> group: it is <code>crossplane composition render</code>, and the third argument is a functions file you build from the Function objects the next two commands list. Render runs those functions in Docker rather than asking the cluster, which is what makes it work without one.</div>
+      <div class="verify"><b>verify:</b> the rendered output shows both composed Objects with <code>team-c</code> patched into the namespace name and the quota's namespace, without touching the cluster. Note the CLI path: in the v2 CLI installed here, both top-level <code>render</code> and the <code>beta</code> subgroup are gone. It's <code>crossplane composition render</code>, and the third argument is a functions file built from the <code>Function</code> objects listed below it. Render runs those functions in Docker locally, which is why it needs no cluster at all.</div>
     </div>
 
     <div class="exercise" data-title="Break the provider's RBAC and read the condition">
-      <p>A provider is a controller with its own ServiceAccount, and the composed resource's <code>Synced</code> condition is where its permission problems surface. This is the fault the lab's own drill injects, so meet it deliberately first.</p>
+      <p>Every provider is a controller running under its own ServiceAccount, and its permission errors land in the composed resource's <code>Synced</code> condition. This is the exact fault the lab's drill injects, so see it on purpose first.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl get managed
 kubectl describe providerrevisions | head -40
 kubectl get clusterrolebinding -o name | grep -i provider-kubernetes
@@ -654,11 +655,11 @@ team-f-dev-6d59b5cab364 True
 team-f-dev-933e06392888 True
 <b>$ kubectl patch appenvironment team-c-dev --type merge -p '{"spec":{"cpuQuota":"4"}}'</b>
 appenvironment.platform.lab.local/team-c-dev patched</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the composed Object reports <code>Synced</code> False with a forbidden message naming the provider's ServiceAccount, while the XR above it just looks unhappy. Always read the composed resource, not the composite, when the composite is vague.</div>
+      <div class="verify"><b>verify:</b> the composed Object reports <code>Synced</code> False with a <code>forbidden</code> message naming the provider's ServiceAccount, while the XR above it just looks unhappy. Whenever the composite is vague, drop down to the composed resource.</div>
     </div>
 
     <div class="exercise" data-title="Observe something you do not own">
-      <p><code>managementPolicies: ["Observe"]</code> reads an existing object into Crossplane's model without creating, updating or deleting it. It is how you bring brownfield infrastructure under a platform API without risking it.</p>
+      <p><code>managementPolicies: ["Observe"]</code> pulls an existing object into Crossplane's model without creating, updating, or deleting it. That's how you bring brownfield infrastructure under a platform API without putting it at risk.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl create ns observed-only --dry-run=client -o yaml | kubectl apply -f -
 kubectl label ns observed-only owner=not-crossplane --overwrite
 kubectl apply -f - &lt;&lt;'EOF'
@@ -728,11 +729,11 @@ NAME            STATUS   AGE
 observed-only   Active   44s
 <b>$ kubectl delete ns observed-only</b>
 namespace "observed-only" deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> <code>status.atProvider</code> reflects the live namespace including the label Crossplane did not set, the namespace has no ownerReference, and deleting the Object leaves it alone. That last line is the whole safety property.</div>
+      <div class="verify"><b>verify:</b> <code>status.atProvider</code> mirrors the live namespace including the label Crossplane didn't set, the namespace carries no <code>ownerReference</code>, and deleting the Object leaves the namespace untouched. That last property is the whole safety guarantee.</div>
     </div>
 
     <div class="exercise" data-title="Scrape the provider">
-      <p>A platform API is a production system, and its controllers export metrics like any other. Wiring one PodMonitor turns "is Crossplane healthy" from a feeling into a query.</p>
+      <p>A platform API is a production system, and its controllers export metrics just like any other workload. Adding one <code>PodMonitor</code> turns "is Crossplane healthy?" from a gut feeling into a PromQL query.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n crossplane-system get pods -l pkg.crossplane.io/provider -o wide
 kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: monitoring.coreos.com/v1
@@ -788,7 +789,7 @@ Handling connection for 9090
 <b>$ kill $PF1</b>
 <b>$ kubectl -n crossplane-system delete podmonitor crossplane-providers --ignore-not-found</b>
 podmonitor.monitoring.coreos.com "crossplane-providers" deleted from crossplane-system namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the provider pods appear as up targets and the readiness gauge returns series. If the port name in the PodMonitor does not match the container's port name, you get zero targets and no error anywhere; check the pod spec before you doubt Prometheus.</div>
+      <div class="verify"><b>verify:</b> both provider pods show up as <code>up</code> targets and the readiness gauge returns active series. Keep in mind that a mismatched port name in the <code>PodMonitor</code> produces zero targets with no error anywhere, so always check the pod spec before blaming Prometheus.</div>
     </div>
 
   </div>
@@ -798,32 +799,32 @@ podmonitor.monitoring.coreos.com "crossplane-providers" deleted from crossplane-
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>Name the three objects and who owns each.</summary>
-      <div class="answer"><p>XRD (platform team: the promised API and its schema), Composition (platform team: the recipe, changeable without touching the API), XR (developer: an instance). The generated CRD is Crossplane's doing, not yours, which is the whole labor saving.</p></div></details>
+      <div class="answer"><p><strong>XRD</strong> (platform team: the promised API and schema), <strong>Composition</strong> (platform team: the expansion recipe, safe to evolve without changing the API), and <strong>XR</strong> (developer: an instance). Crossplane generates the CRD for you, which is the main labor saving.</p></div></details>
 
     <details class="quiz"><summary>An XR is stuck not-Ready and the message is unhelpful. Diagnostic order?</summary>
-      <div class="answer"><p>Packages first (<code>providers</code>, <code>functions</code> Installed + Healthy), then <code>crossplane resource trace</code>, then the composed resources' own conditions, then the underlying API error inside them. Bottom-up, because that is the direction failure propagates.</p></div></details>
+      <div class="answer"><p>Check packages first (make sure <code>providers</code> and <code>functions</code> are Installed and Healthy), run <code>crossplane resource trace</code>, then inspect the composed resources' own conditions and the underlying API error inside them. Always work bottom-up, because that's the direction failures propagate.</p></div></details>
 
     <details class="quiz"><summary>Why can a namespaced XR not compose a cluster-scoped resource directly?</summary>
-      <div class="answer"><p>Ownership rules: a namespaced object cannot own a cluster-scoped one, and Crossplane relies on ownerReferences for lifecycle. The workaround the lab uses is a namespaced <code>Object</code> (provider-kubernetes) that <em>contains</em> the cluster-scoped manifest, authenticated with a <code>ClusterProviderConfig</code>.</p></div></details>
+      <div class="answer"><p>Kubernetes ownership rules forbid a namespaced object from owning a cluster-scoped one, and Crossplane uses <code>ownerReferences</code> to manage lifecycles. The workaround used in this lab is a namespaced <code>Object</code> (<code>kubernetes.m.crossplane.io</code>) that <em>wraps</em> the cluster-scoped manifest, authenticated with a <code>ClusterProviderConfig</code>.</p></div></details>
 
     <details class="quiz"><summary>You edit a Composition. What happens to the twelve XRs already using it?</summary>
-      <div class="answer"><p>They all reconcile to the new recipe, without anyone touching them: powerful, and a wide blast radius. If that matters, pin instances to a composition revision or version the composition and migrate deliberately.</p></div></details>
+      <div class="answer"><p>All twelve reconcile to the new recipe automatically, without anyone touching them. That's hugely powerful, and it's also a wide blast radius. When you need controlled rollouts, set <code>compositionUpdatePolicy: Manual</code> to pin instances to a revision, or version the Composition and migrate tenants deliberately.</p></div></details>
 
     <details class="quiz"><summary>When would you choose kro or a plain operator over Crossplane?</summary>
-      <div class="answer"><p>kro when you want the same declarative expansion with far less machinery and can accept a young API (3.6). A plain operator when the value is domain behavior over time (failover, backup, upgrade orchestration) rather than composing existing resources. Crossplane's sweet spot is composing many things, including external cloud APIs, behind one abstraction.</p></div></details>
+      <div class="answer"><p>Pick <strong>kro</strong> when you want the same declarative in-cluster expansion with far less machinery and can accept a younger API (3.6). Pick a <strong>plain operator</strong> when the value is ongoing domain behavior (failover, backups, upgrade orchestration) rather than wiring existing resources together. Crossplane shines when you're composing many resources, especially across external cloud APIs, behind one clean abstraction.</p></div></details>
   
 
     <details class="quiz"><summary>An XR shows <code>Synced=True</code>, <code>Ready=False</code>. Another shows <code>Synced=False</code>. What is each telling you?</summary>
-      <div class="answer"><p><code>Synced=False</code>: Crossplane could not render or apply the composition (unknown function, bad patch path, forbidden, invalid manifest); the message on the XR names it and the composed resources may not exist yet. <code>Synced=True, Ready=False</code>: the recipe applied, but a composed resource is not ready; descend into that resource's own conditions (<code>crossplane resource trace</code> draws the tree). The first is a platform-team bug, the second is usually the provider or the external system.</p></div></details>
+      <div class="answer"><p><code>Synced=False</code> means Crossplane couldn't render or apply the composition (unknown function, bad patch path, forbidden, invalid manifest); the XR's message names the error, and the composed resources may not even exist yet. <code>Synced=True, Ready=False</code> means the recipe applied cleanly, but a composed resource isn't ready yet, so descend into its conditions (<code>crossplane resource trace</code> prints the whole tree). The first is usually a platform-team bug; the second is usually the provider or external system.</p></div></details>
 
     <details class="quiz"><summary>You must import an existing cloud database into Crossplane without risking any change to it. Fields?</summary>
-      <div class="answer"><p>A managed resource with <code>spec.managementPolicies: ["Observe"]</code> and the <code>crossplane.io/external-name</code> annotation set to the real resource's identifier. Crossplane populates <code>status.atProvider</code> and never creates, updates or deletes. Later you can widen the policy (add <code>Update</code>, <code>Delete</code>) to take over management step by step.</p></div></details>
+      <div class="answer"><p>Create a managed resource with <code>spec.managementPolicies: ["Observe"]</code> and set the <code>crossplane.io/external-name</code> annotation to the real database's identifier. Crossplane populates <code>status.atProvider</code> and never creates, updates, or deletes anything. Later, you can widen the policy (adding <code>Update</code> and <code>Delete</code>) to take over management gradually.</p></div></details>
 
     <details class="quiz"><summary>Which one field on the XRD makes every instance use one specific Composition regardless of what the XR asks for, and what happens to <code>compositionRef</code> on the XR?</summary>
-      <div class="answer"><p><code>spec.enforcedCompositionRef.name</code>. It overrides <code>compositionRef</code>, <code>compositionSelector</code> and <code>defaultCompositionRef</code>; Crossplane sets the XR's <code>compositionRef</code> to the enforced Composition. <code>defaultCompositionRef</code> only fills a blank at creation time and never overrides an explicit choice.</p></div></details>
+      <div class="answer"><p><code>spec.enforcedCompositionRef.name</code>. It overrides <code>compositionRef</code>, <code>compositionSelector</code>, and <code>defaultCompositionRef</code>, and Crossplane overwrites the XR's <code>compositionRef</code> with the enforced Composition. By contrast, <code>defaultCompositionRef</code> only fills in a blank at creation time and never overrides an explicit choice.</p></div></details>
 
     <details class="quiz"><summary>A provider shows <code>HEALTHY: False</code>. Name the three usual causes and where each is visible.</summary>
-      <div class="answer"><p>Image pull (a private registry without <code>packagePullSecrets</code>): visible on the revision's conditions and the provider pod events. Unsatisfied dependency or Crossplane version constraint: the <code>ProviderRevision</code> condition reason <code>UnhealthyPackageRevision</code> and the <code>Lock</code> object. The provider pod crashing: plain pod diagnosis in <code>crossplane-system</code>. If the package is healthy but MRs are <code>Synced=False</code> with <code>forbidden</code>, the problem is RBAC, not the package.</p></div></details>
+      <div class="answer"><p><strong>Image pull failure</strong> (a private registry missing <code>packagePullSecrets</code>): check the revision's conditions and provider pod events. <strong>Unsatisfied dependency or Crossplane version constraint</strong>: check the <code>ProviderRevision</code> condition reason <code>UnhealthyPackageRevision</code> and the <code>Lock</code> object. <strong>Crashing provider pod</strong>: standard pod debugging in <code>crossplane-system</code>. Remember that if the package is healthy while MRs show <code>Synced=False</code> with <code>forbidden</code>, you're looking at RBAC, not a broken package.</p></div></details>
   </div>
 </section>
 
@@ -831,12 +832,12 @@ podmonitor.monitoring.coreos.com "crossplane-providers" deleted from crossplane-
   <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
   <div class="pbody">
     <ul class="docs">
-      <li><b>docs.crossplane.io</b>: Composite Resource Definitions, Compositions (the function pipeline page), and provider-kubernetes's <code>Object</code> documentation on the Upbound marketplace.</li>
-      <li><b>Offline:</b> <code>crossplane resource trace --help</code>, the most useful diagnostic in the ecosystem, plus <code>kubectl explain composition.spec</code> and <code>kubectl explain xrd.spec</code>.</li>
+      <li><b>docs.crossplane.io</b>: Composite Resource Definitions, Compositions (the function pipeline page), and provider-kubernetes's <code>Object</code> docs on the Upbound marketplace.</li>
+      <li><b>Offline:</b> <code>crossplane resource trace --help</code> (the single most useful diagnostic in the ecosystem), plus <code>kubectl explain composition.spec</code> and <code>kubectl explain xrd.spec</code>.</li>
     
       <li><b>docs.crossplane.io/latest/composition/composite-resource-definitions</b> (scope, versions, default and enforced composition refs) and <b>/composition/composition-revisions</b> (Automatic vs Manual): the two pages behind most "make the XR do X" tasks.</li>
-      <li><b>docs.crossplane.io/latest/managed-resources/managed-resources</b>: the managementPolicies table, and <b>/guides/import-existing-resources</b> for observe-only import.</li>
-      <li><b>Offline:</b> <code>kubectl get xrd</code> (ESTABLISHED column), <code>kubectl get managed</code>, <code>kubectl get compositionrevisions</code>, and <code>crossplane --help</code> to learn whether render and trace live under <code>beta</code> on the exam's version.</li>
+      <li><b>docs.crossplane.io/latest/managed-resources/managed-resources</b>: the <code>managementPolicies</code> table, plus <b>/guides/import-existing-resources</b> for observe-only imports.</li>
+      <li><b>Offline:</b> <code>kubectl get xrd</code> (<code>ESTABLISHED</code> column), <code>kubectl get managed</code>, <code>kubectl get compositionrevisions</code>, and <code>crossplane --help</code> to see whether render and trace live under <code>beta</code> on the exam cluster's version.</li>
     </ul>
   </div>
 </section>
