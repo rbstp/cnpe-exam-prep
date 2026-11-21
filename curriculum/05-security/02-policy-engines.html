@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#171c1d" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f5f0" media="(prefers-color-scheme: light)">
-<meta name="description" content="Admission control is the API server&#x27;s last word. Policy engines are well-organized admission webhooks plus reporting.">
+<meta name="description" content="Admission control is the API server&#x27;s final gate, and policy engines turn it into organized webhooks plus reporting. Learn the same rule in Kyverno, Gatekeeper, and native CEL.">
 <title>5.2 Policy engines: admission control, Kyverno, Gatekeeper · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
 <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
@@ -18,7 +18,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum">Admission control is the API server's last word. Policy engines are well-organized admission webhooks plus reporting. The lab runs three engines deliberately: the same rule in three dialects is the fastest way to learn what is engine-specific and what is admission-generic.</p>
+  <p class="sum">Admission control is the API server's final word, and policy engines are well-organized admission webhooks paired with reporting. The lab deliberately runs three engines side by side: writing the same rule in three dialects is the fastest way to separate what's engine-specific from how Kubernetes admission actually works.</p>
 </header>
 
 <div class="stats"></div>
@@ -28,21 +28,21 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 5.4 · policy engines and admission controllers</span></div>
   <div class="pbody">
-    <p class="lede">Get the request pipeline exact and most of this section is corollaries.</p>
+    <p class="lede">Get the admission request pipeline exact, and almost everything else in this section follows straight from it.</p>
     <pre class="diagram">request ──▶ <b>authn</b> ──▶ <b>authz</b> (RBAC) ──▶ <i>mutating admission</i> ──▶ schema validation ──▶ <i>validating admission</i> ──▶ <u>etcd</u>
                                                │                                             │
                                     LimitRanger, sidecar and                  PSS, ValidatingAdmissionPolicy,
                                     label injection, Kyverno                  Kyverno, Gatekeeper webhooks
                                     MutatingPolicy                            (all see the <em>mutated</em> object)</pre>
-    <p>Run a pod through it. The interesting cases are the ones where a mutation quietly satisfies a validation:</p>
+    <p>Walk a pod through the pipeline below. The most revealing cases are the ones where a mutation quietly satisfies a validation rule downstream:</p>
     <div class="widget" data-widget="admission"></div>
 
     <div class="callout model">
       <span class="tag">Three consequences to carry</span>
       <ol>
-        <li>Validating policies see the object <em>after</em> mutation, so a mutation can satisfy a validation the user never wrote (that is the LimitRange trap below).</li>
-        <li>Admission applies at write time only. Tightening a policy never touches existing objects; you need an audit/report mechanism for those.</li>
-        <li>Every webhook is an availability dependency of the API server, and <code>failurePolicy</code> chooses which way you fail.</li>
+        <li>Validating policies inspect the object <em>after</em> mutation, so an earlier mutation can satisfy a check the developer never wrote (that's the LimitRange trap waiting in exercise 1).</li>
+        <li>Admission only runs at write time. Tightening a policy never touches objects already sitting in etcd, so you need an audit or reporting sweep to catch existing offenders.</li>
+        <li>Every external webhook becomes an availability dependency of the API server, and <code>failurePolicy</code> decides which way you fail when it breaks.</li>
       </ol>
     </div>
   </div>
@@ -56,25 +56,26 @@
         <thead><tr><th>Aspect</th><th>Kyverno</th><th>Gatekeeper (OPA)</th><th>ValidatingAdmissionPolicy</th></tr></thead>
         <tbody>
           <tr><td>Language</td><td>YAML + CEL</td><td>Rego</td><td>CEL</td></tr>
-          <tr><td>Objects</td><td><code>ValidatingPolicy</code>/<code>MutatingPolicy</code>/<code>GeneratingPolicy</code>/<code>ImageValidatingPolicy</code> (CEL); <code>ClusterPolicy</code>/<code>Policy</code> (classic, read-only from 1.20)</td><td><code>ConstraintTemplate</code> → generated CRD → <code>Constraint</code></td><td><code>ValidatingAdmissionPolicy</code> + <code>…Binding</code></td></tr>
-          <tr><td>Can mutate</td><td class="ok">yes</td><td>assign mutations (separate CRDs)</td><td class="dimtext">a Mutating counterpart exists in newer versions</td></tr>
-          <tr><td>Can generate</td><td class="ok">yes (create resources on events)</td><td class="bad">no</td><td class="bad">no</td></tr>
-          <tr><td>Reporting</td><td><code>PolicyReport</code> CRs</td><td>violation counts on the Constraint, via audit sweeps</td><td>none built in</td></tr>
-          <tr><td>Runs as</td><td>a webhook (a Deployment you must keep alive)</td><td>a webhook</td><td class="ok">in-process in the API server</td></tr>
+          <tr><td>Objects</td><td><code>ValidatingPolicy</code> / <code>MutatingPolicy</code> / <code>GeneratingPolicy</code> / <code>ImageValidatingPolicy</code> (CEL); <code>ClusterPolicy</code> / <code>Policy</code> (classic, read-only from 1.20)</td><td><code>ConstraintTemplate</code> → generated CRD → <code>Constraint</code></td><td><code>ValidatingAdmissionPolicy</code> + <code>…Binding</code></td></tr>
+          <tr><td>Can mutate</td><td class="ok">Yes</td><td>Assign mutations (separate CRDs)</td><td class="dimtext">MutatingAdmissionPolicy covers mutations on newer versions</td></tr>
+          <tr><td>Can generate</td><td class="ok">Yes (creates and syncs resources on events)</td><td class="bad">No</td><td class="bad">No</td></tr>
+          <tr><td>Reporting</td><td><code>PolicyReport</code> CRs</td><td>Violation counts on the Constraint via audit sweeps</td><td>None built in</td></tr>
+          <tr><td>Runs as</td><td>A webhook (a Deployment you must keep alive)</td><td>A webhook</td><td class="ok">In-process inside the API server</td></tr>
           <tr><td>Enforcement dial</td><td><code>spec.validationActions: [Audit|Deny|Warn]</code> · classic: <code>validationFailureAction: Audit|Enforce</code></td><td><code>enforcementAction: deny|warn|dryrun</code></td><td><code>validationActions</code> on the binding</td></tr>
         </tbody>
       </table>
     </div>
 
-    <p><strong>Kyverno has two dialects, and from 1.20 only one of them accepts writes.</strong> The current one is CEL: <code>ValidatingPolicy</code>, <code>MutatingPolicy</code>, <code>GeneratingPolicy</code>, <code>ImageValidatingPolicy</code> and <code>DeletingPolicy</code>, with <code>spec.validationActions: [Audit|Deny|Warn]</code>. It arrived in Kyverno 1.14/1.15 and is what this lab installs and exercises. The classic one is <code>ClusterPolicy</code>/<code>Policy</code>: a list of typed rules (<code>validate</code>, <code>mutate</code>, <code>generate</code>, <code>verifyImages</code>) with <code>match</code>/<code>exclude</code> blocks and a JMESPath-flavored pattern language, switched between reporting and enforcement via <code>spec.validationFailureAction: Audit|Enforce</code>. Kyverno 1.20 still serves it for read, list and delete, but refuses to create or update it and no longer executes it. You will still meet it on older clusters and in most samples online, so recognize both, and let <code>kubectl api-resources | grep kyverno</code>, <code>kubectl explain</code> and the cluster's answer to a write settle which is in front of you. The lab's <code>examples/kyverno/</code> pair is the CEL form: <code>require-resources.yaml</code> validates that every container declares requests (in Audit mode; flip to Deny to enforce), and <code>add-tenant-label.yaml</code> mutates a cost-centre label onto Deployments at admission.</p>
+    <p><strong>Kyverno has two dialects, and starting in 1.20 only one accepts writes.</strong> The current generation is CEL-based: <code>ValidatingPolicy</code>, <code>MutatingPolicy</code>, <code>GeneratingPolicy</code>, <code>ImageValidatingPolicy</code>, and <code>DeletingPolicy</code>, controlled by <code>spec.validationActions: [Audit|Deny|Warn]</code>. It arrived in Kyverno 1.14/1.15 and is what this lab installs and exercises. The classic generation is <code>ClusterPolicy</code>/<code>Policy</code>: typed rules (<code>validate</code>, <code>mutate</code>, <code>generate</code>, <code>verifyImages</code>) with <code>match</code>/<code>exclude</code> blocks and a JMESPath-flavored pattern syntax, toggled with <code>spec.validationFailureAction: Audit|Enforce</code>.</p>
+    <p>Kyverno 1.20 still serves the classic API for read, list, and delete, but blocks creates and updates and no longer runs it. You'll still see classic manifests on older clusters and across most online examples, so know how to read both, and let <code>kubectl api-resources | grep kyverno</code>, <code>kubectl explain</code>, and the cluster's response to a write tell you which one you're facing. The lab's <code>examples/kyverno/</code> pair uses the CEL dialect: <code>require-resources.yaml</code> checks that every container declares resource requests (starting in Audit mode; flip it to Deny to enforce), and <code>add-tenant-label.yaml</code> mutates a <code>cost-centre</code> label onto Deployments at admission.</p>
 
-    <p><strong>Gatekeeper</strong> is two-step by design: a ConstraintTemplate defines a parameterized policy in Rego <em>and generates a CRD</em>; a Constraint is an instance of that CRD binding it to resources with parameters. That indirection is what makes a library of reusable policies possible, and the <code>gatekeeper-library</code> repo is that library. This is also where the exam's "OPA" lives in practice: Rego inside templates.</p>
+    <p><strong>Gatekeeper</strong> separates policy logic from policy instances on purpose: a <code>ConstraintTemplate</code> defines a parameterized Rego policy <em>and generates a CRD</em>, and each <code>Constraint</code> is an instance of that CRD binding the rule to specific resources and parameters. That split makes reusable libraries easy to share, which is why <code>gatekeeper-library</code> exists. In practice, whenever an exam prompt mentions "OPA", it means Rego inside Gatekeeper templates.</p>
 
-    <p><strong>ValidatingAdmissionPolicy</strong> is native: CEL, no controller to install, no webhook to keep alive, paired with a Binding that says which namespaces and what action. Worth one rep because it is what the other two increasingly compile down to, and because a task could hand it to you.</p>
+    <p><strong>ValidatingAdmissionPolicy</strong> is Kubernetes-native: pure CEL, no extra controller to install, no webhook to keep healthy, paired with a Binding that sets scope and enforcement action. It's worth practicing at least once because both third-party engines increasingly compile down to it, and an exam task can hand it to you directly.</p>
 
     <div class="callout exam">
       <span class="tag">Audit → report → fix → enforce</span>
-      <p>The rollout choreography is a better exam answer than "apply the policy": ship in Audit, read the reports to find every existing offender, fix them (or exempt them explicitly), <em>then</em> flip to Deny. Kyverno's PolicyReports and Gatekeeper's audit violations exist for that middle step, and the same staged posture appears in PSS (5.3) as warn/audit before enforce.</p>
+      <p>Rolling out policy in stages beats "just apply it" every time on scenario questions: deploy in Audit mode first, inspect the reports to find every existing offender, fix or explicitly exempt them, and <em>only then</em> flip to Deny. Kyverno's <code>PolicyReport</code>s and Gatekeeper's audit violations exist specifically for that middle step, mirroring PSS's <code>warn</code>/<code>audit</code> before <code>enforce</code> pattern in 5.3.</p>
     </div>
   </div>
 </section>
@@ -89,33 +90,33 @@
         <tbody>
           <tr><td class="mono">ValidatingPolicy, ImageValidatingPolicy</td><td class="mono">policies.kyverno.io/v1</td><td>1.14 (Apr 2025)</td><td><code>v1</code> since 1.17 (Feb 2026); <code>v1alpha1</code> deprecated</td></tr>
           <tr><td class="mono">MutatingPolicy, GeneratingPolicy, DeletingPolicy</td><td class="mono">policies.kyverno.io/v1</td><td>1.15 (Jul 2025)</td><td><code>v1</code> since 1.17</td></tr>
-          <tr><td class="mono">Namespaced* variants</td><td class="mono">policies.kyverno.io/v1</td><td>with the above</td><td>same policy, scoped to one namespace</td></tr>
+          <tr><td class="mono">Namespaced* variants</td><td class="mono">policies.kyverno.io/v1</td><td>with the above</td><td>Same policy semantics, scoped to one namespace</td></tr>
           <tr><td class="mono">PolicyException</td><td class="mono">policies.kyverno.io/v1</td><td>1.14</td><td><code>v1</code> since 1.17; the <code>kyverno.io/v2</code> one is refused from 1.20</td></tr>
-          <tr><td class="mono">ClusterPolicy / Policy, CleanupPolicy</td><td class="mono">kyverno.io/v1, kyverno.io/v2</td><td>the classic API</td><td>deprecation marked 1.17 (Feb 2026), bug fixes only 1.18, deprecated 1.19 (Aug 2026), execution removed 1.20 (Nov 2026): read, list and delete only</td></tr>
+          <tr><td class="mono">ClusterPolicy / Policy, CleanupPolicy</td><td class="mono">kyverno.io/v1, kyverno.io/v2</td><td>the classic API</td><td>Deprecation marked 1.17 (Feb 2026), bug fixes only 1.18, deprecated 1.19 (Aug 2026), execution removed 1.20 (Nov 2026): read, list, and delete only</td></tr>
         </tbody>
       </table>
     </div>
-    <p>On 1.19 creating a classic policy returns an admission warning and increments <code>kyverno_deprecated_api_requests_total</code>. On 1.20 the same request is denied by Kyverno's own webhook ("Kyverno v1.20 removed execution of legacy kyverno.io policy types and no longer accepts create or update requests for them"), while reads still return a deprecation warning, and the CLI refuses to load a classic file. <code>kubectl api-resources | grep kyverno</code> lists both groups either way, so the deployed version and the response to a write are what tell you which generation the exam cluster runs. Write the CEL kinds; read the classic fields when a cluster or a doc hands them to you.</p>
+    <p>On Kyverno 1.19, creating a classic policy emits an admission warning and bumps <code>kyverno_deprecated_api_requests_total</code>. On 1.20, Kyverno's own webhook rejects the write outright ("Kyverno v1.20 removed execution of legacy kyverno.io policy types and no longer accepts create or update requests for them"), reads still warn, and the CLI refuses to load classic files. Because <code>kubectl api-resources | grep kyverno</code> displays both groups either way, check the running controller version and how the cluster responds to a write. Author in the CEL kinds; stay fluent enough to read classic fields when an older cluster hands them to you.</p>
 
     <h3>CEL-based policy fields</h3>
     <ul>
-      <li><strong><code>spec.matchConstraints</code></strong> (<code>resourceRules[].apiGroups/apiVersions/operations/resources</code>, plus <code>namespaceSelector</code>/<code>objectSelector</code>) and <strong><code>spec.matchConditions</code></strong> (CEL pre-filters) are copied from the Kubernetes VAP API. <strong><code>spec.variables</code></strong> name CEL expressions once; <strong><code>spec.validations[]</code></strong> hold <code>expression</code>, <code>message</code> or <code>messageExpression</code>.</li>
-      <li><strong><code>spec.validationActions</code></strong>: <code>Deny</code>, <code>Audit</code>, <code>Warn</code> (a list; the lab flips <code>["Audit"]</code> to <code>["Deny"]</code>). <strong><code>spec.failurePolicy</code></strong> <code>Fail</code> (default) or <code>Ignore</code> covers evaluation errors and webhook timeouts.</li>
-      <li><strong><code>spec.evaluation</code></strong>: <code>admission.enabled</code> and <code>background.enabled</code> switch the two engines independently (a policy with admission off is report-only); <code>mode: JSON</code> lets the same policy check a Terraform plan or any payload with the CLI.</li>
-      <li><strong><code>spec.webhookConfiguration.timeoutSeconds</code></strong>: default 10, range 1-30; Kyverno writes it into the generated <code>ValidatingWebhookConfiguration</code>.</li>
-      <li><strong><code>spec.autogen</code></strong>: <code>podControllers.controllers: [deployments, statefulsets, ...]</code> rewrites a Pod rule so it also matches templates at admission (the answer to "the policy only fires on pods, not on the Deployment"); <code>validatingAdmissionPolicy.enabled: true</code> compiles the policy into a native VAP so the API server enforces it in-process. The two are mutually exclusive; with pod-controller autogen on, Kyverno skips VAP generation and says so in the policy status.</li>
-      <li><strong>MutatingPolicy</strong> adds <code>mutations[]</code> with <code>patchType: ApplyConfiguration</code> (a server-side-apply style partial object built by CEL) or <code>JSONPatch</code>, plus <code>evaluation.mutateExisting.enabled</code> for retrofitting objects that already exist. <strong>GeneratingPolicy</strong> uses <code>generate[].expression: generator.Apply(namespace, [objects])</code> or YAML <code>template</code> blocks, with <code>evaluation.synchronize</code>, <code>generateExisting</code> and <code>orphanDownstreamOnPolicyDelete</code>. <strong>DeletingPolicy</strong> has a cron <code>schedule</code>, <code>conditions</code> and <code>deletionPropagationPolicy</code>.</li>
+      <li><strong><code>spec.matchConstraints</code></strong> (<code>resourceRules[].apiGroups/apiVersions/operations/resources</code>, plus <code>namespaceSelector</code> and <code>objectSelector</code>) and <strong><code>spec.matchConditions</code></strong> (CEL pre-filters) mirror Kubernetes' native VAP API directly. <strong><code>spec.variables</code></strong> define reusable CEL expressions once, and <strong><code>spec.validations[]</code></strong> hold <code>expression</code> alongside <code>message</code> or <code>messageExpression</code>.</li>
+      <li><strong><code>spec.validationActions</code></strong> takes a list of <code>Deny</code>, <code>Audit</code>, or <code>Warn</code> (the lab patches <code>["Audit"]</code> to <code>["Deny"]</code>). <strong><code>spec.failurePolicy</code></strong> accepts <code>Fail</code> (default) or <code>Ignore</code> and governs evaluation errors and webhook timeouts.</li>
+      <li><strong><code>spec.evaluation</code></strong> toggles <code>admission.enabled</code> and <code>background.enabled</code> independently (turning admission off makes a policy report-only), and <code>mode: JSON</code> lets the CLI evaluate the same policy against a Terraform plan or any arbitrary JSON payload.</li>
+      <li><strong><code>spec.webhookConfiguration.timeoutSeconds</code></strong> defaults to 10 (range 1–30); Kyverno propagates it directly into the generated <code>ValidatingWebhookConfiguration</code>.</li>
+      <li><strong><code>spec.autogen</code></strong>: setting <code>podControllers.controllers: [deployments, statefulsets, ...]</code> rewrites a Pod rule so it also validates pod templates at admission (the exact fix for "my policy only blocks bare pods, not Deployments"). Setting <code>validatingAdmissionPolicy.enabled: true</code> compiles the policy into a native VAP so the API server enforces it in-process. Keep in mind those two options are mutually exclusive: while pod-controller autogen is enabled, Kyverno skips VAP generation and logs why in the policy status.</li>
+      <li><strong>Other CEL kinds:</strong> <strong>MutatingPolicy</strong> adds <code>mutations[]</code> with <code>patchType: ApplyConfiguration</code> (a server-side-apply partial object built in CEL) or <code>JSONPatch</code>, plus <code>evaluation.mutateExisting.enabled</code> to retrofit existing objects. <strong>GeneratingPolicy</strong> uses <code>generate[].expression: generator.Apply(namespace, [objects])</code> or YAML <code>template</code> blocks, paired with <code>evaluation.synchronize</code>, <code>generateExisting</code>, and <code>orphanDownstreamOnPolicyDelete</code>. <strong>DeletingPolicy</strong> takes a cron <code>schedule</code>, <code>conditions</code>, and <code>deletionPropagationPolicy</code>.</li>
     </ul>
 
     <h3>Classic ClusterPolicy fields, still worth reading</h3>
-    <p>Kyverno 1.20 only lets you read these, but older clusters and most samples are written in them. A rule is <code>match.any[]</code>/<code>exclude.any[]</code> blocks of <code>resources.kinds</code>, <code>namespaces</code>, <code>selector</code>, <code>subjects</code>, then one of <code>validate</code> (<code>pattern</code>, <code>anyPattern</code>, <code>deny.conditions</code>, <code>cel.expressions</code>, <code>podSecurity</code>), <code>mutate</code> (<code>patchStrategicMerge</code>, <code>patchesJson6902</code>, <code>targets</code> for existing objects), <code>generate</code> (<code>data</code> or <code>clone</code>, <code>synchronize</code>) or <code>verifyImages</code>. Enforcement is <code>validate.failureAction: Audit|Enforce</code> per rule (the older <code>spec.validationFailureAction</code> and <code>spec.webhookTimeoutSeconds</code>, <code>spec.failurePolicy</code> are deprecated since 1.13 and the default action is <code>Audit</code>, so a copied sample policy never blocks anything until you change it). <code>spec.background: true</code> (default) drives report generation for existing objects. Pattern anchors: <code>=(field)</code> conditional, <code>+(field)</code> add if missing, <code>X(field)</code> negation, <code>&lt;(field)</code> global, wildcards <code>"*"</code> and <code>"?*"</code>.</p>
+    <p>Kyverno 1.20 won't execute these, but plenty of older clusters and reference docs still use them. Each rule pairs <code>match.any[]</code> / <code>exclude.any[]</code> (filtering by <code>resources.kinds</code>, <code>namespaces</code>, <code>selector</code>, and <code>subjects</code>) with one action: <code>validate</code> (<code>pattern</code>, <code>anyPattern</code>, <code>deny.conditions</code>, <code>cel.expressions</code>, <code>podSecurity</code>), <code>mutate</code> (<code>patchStrategicMerge</code>, <code>patchesJson6902</code>, <code>targets</code> for existing objects), <code>generate</code> (<code>data</code> or <code>clone</code>, <code>synchronize</code>), or <code>verifyImages</code>. Enforcement lives on each rule via <code>validate.failureAction: Audit|Enforce</code> (the older top-level <code>spec.validationFailureAction</code>, <code>spec.webhookTimeoutSeconds</code>, and <code>spec.failurePolicy</code> were deprecated in 1.13). Watch the default: it's <code>Audit</code>, so a copy-pasted sample policy won't block anything until you flip it. <code>spec.background: true</code> (default) drives background reports for existing objects, and pattern anchors work as follows: <code>=(field)</code> conditional, <code>+(field)</code> add if absent, <code>X(field)</code> negation, <code>&lt;(field)</code> global, with wildcards <code>"*"</code> and <code>"?*"</code>.</p>
 
-    <h3>Exceptions, reports, CLI, configuration</h3>
+    <h3>Exceptions, reports, CLI, and configuration</h3>
     <ul>
-      <li><strong>PolicyException</strong> (<code>policies.kyverno.io/v1</code>): <code>policyRefs[].name/kind</code> plus <code>matchConditions</code> in CEL; works in admission and background and shows up in the report as a <code>skip</code> with the exception's name. Exceptions are off until the controllers run with <code>--enablePolicyException=true</code> (Helm <code>features.policyExceptions.enabled</code>); <code>--exceptionNamespace=&lt;ns&gt;</code> (<code>features.policyExceptions.namespace</code>) restricts where they may live, and without it every exception you create warns "The exceptionNamespace flag is not set". A task that says "exempt this workload" fails silently if the first flag is off.</li>
-      <li><strong>Reports.</strong> <code>PolicyReport</code> (namespaced) and <code>ClusterPolicyReport</code> in <code>wgpolicyk8s.io/v1alpha2</code>, one per resource, with <code>results[].result</code> in <code>pass|fail|warn|error|skip</code> and a <code>summary</code>. Generated by admission events and by the background scan in the reports controller; <code>--allowedResults=fail</code> (1.17+) stores only failures to keep etcd small. Enforced (Deny) failures are not reported because the object never existed.</li>
-      <li><strong>CLI.</strong> <code>kyverno apply policy.yaml --resource pod.yaml</code> (or <code>--cluster</code>) prints pass/fail per rule; <code>kyverno test .</code> runs a <code>kyverno-test.yaml</code> declaring policies, resources and expected <code>results[].result</code> per rule and resource, which is how policies get unit tests in CI; <code>kyverno apply ... -o out/</code> shows mutated output. The 1.20 CLI refuses to load a classic kind at all (<code>failed to load file</code>, quoting the same removal message as the webhook); 1.19 only warned, and <code>--warnings-as-errors</code> failed the run.</li>
-      <li><strong>Configuration.</strong> The <code>kyverno</code> ConfigMap's <code>resourceFilters</code> (<code>[Kind,namespace,name]</code> triples, wildcards allowed) exclude objects from admission; <code>excludeGroups</code> defaults to <code>system:serviceaccounts:kube-system,system:nodes</code> and <code>excludeUsernames</code> to <code>!system:kube-scheduler</code>. Kyverno's own namespace is excluded by default and <code>kube-system</code> is not. The webhooks that matter are <code>kyverno-resource-validating-webhook-cfg</code> and <code>kyverno-resource-mutating-webhook-cfg</code>; deleting them is the documented emergency step when every write times out because the admission controller is down, and Kyverno recreates them when it recovers. <code>--forceFailurePolicyIgnore</code> flips every generated webhook to <code>Ignore</code>.</li>
+      <li><strong>PolicyException</strong> (<code>policies.kyverno.io/v1</code>) pairs <code>policyRefs[].name/kind</code> with CEL <code>matchConditions</code>. It applies to both admission and background scans and shows up in reports as a <code>skip</code> naming the exception. Watch the controller flags: exceptions do nothing unless <code>--enablePolicyException=true</code> (Helm <code>features.policyExceptions.enabled</code>) is turned on. An optional <code>--exceptionNamespace=&lt;ns&gt;</code> (<code>features.policyExceptions.namespace</code>) confines where exceptions may live; without it, every exception prints a warning ("The exceptionNamespace flag is not set"). If an exemption task fails silently, check the enable flag first.</li>
+      <li><strong>Reports.</strong> <code>PolicyReport</code> (namespaced) and <code>ClusterPolicyReport</code> (<code>wgpolicyk8s.io/v1alpha2</code>) are generated one per resource, carrying <code>results[].result</code> in <code>pass|fail|warn|error|skip</code> plus a <code>summary</code>. Both admission events and background scans feed them; <code>--allowedResults=fail</code> (1.17+) stores only failures to keep etcd lean. Note that enforced (Deny) rejections don't show up in PolicyReports because the rejected object never existed in etcd.</li>
+      <li><strong>CLI.</strong> <code>kyverno apply policy.yaml --resource pod.yaml</code> (or <code>--cluster</code>) prints pass/fail per rule, and adding <code>-o out/</code> dumps mutated manifests. <code>kyverno test .</code> executes a <code>kyverno-test.yaml</code> asserting expected <code>results[].result</code> per rule and resource, which is how you unit-test policies in CI. On 1.20, the CLI refuses to load classic policy kinds (<code>failed to load file</code>, quoting the webhook's removal message); 1.19 warns instead, failing if <code>--warnings-as-errors</code> is set.</li>
+      <li><strong>Configuration.</strong> In the <code>kyverno</code> ConfigMap, <code>resourceFilters</code> (<code>[Kind,namespace,name]</code> triples, wildcards allowed) exclude resources from admission. <code>excludeGroups</code> defaults to <code>system:serviceaccounts:kube-system,system:nodes</code> and <code>excludeUsernames</code> to <code>!system:kube-scheduler</code>. Kyverno's own namespace is excluded by default, while <code>kube-system</code> isn't. The two critical webhooks are <code>kyverno-resource-validating-webhook-cfg</code> and <code>kyverno-resource-mutating-webhook-cfg</code>: if the admission controller dies and freezes cluster writes, deleting those webhook configs is the documented emergency break-glass (Kyverno recreates them on recovery), and <code>--forceFailurePolicyIgnore</code> switches every generated webhook to <code>Ignore</code>.</li>
     </ul>
   </div>
 </section>
@@ -125,11 +126,11 @@
   <div class="pbody">
     <h3>Gatekeeper</h3>
     <ul>
-      <li><strong>ConstraintTemplate</strong> (<code>templates.gatekeeper.sh/v1</code>): <code>spec.crd.spec.names.kind</code> becomes the Constraint kind (<code>K8sRequiredLabels</code>), <code>spec.crd.spec.validation.openAPIV3Schema</code> types the <code>parameters</code>, and <code>spec.targets[].target: admission.k8s.gatekeeper.sh</code> carries the code: <code>rego</code> with a <code>violation[{"msg": msg, "details": {...}}]</code> rule over <code>input.review.object</code> and <code>input.parameters</code>, or <code>code[].engine: K8sNativeValidation</code> with CEL <code>validations</code> (and <code>generateVAP: true</code> to have Gatekeeper emit a real ValidatingAdmissionPolicy). When both engines are present, CEL wins and Rego is ignored.</li>
-      <li><strong>Constraint</strong> (<code>constraints.gatekeeper.sh/v1beta1</code>, kind from the template): <code>spec.match</code> with <code>kinds[].apiGroups/kinds</code>, <code>scope: Cluster|Namespaced|*</code>, <code>namespaces</code>/<code>excludedNamespaces</code> (prefix globs like <code>kube-*</code>), <code>labelSelector</code>, <code>namespaceSelector</code>; <code>spec.parameters</code>; <code>spec.enforcementAction: deny|warn|dryrun</code> (default <code>deny</code>) or <code>scoped</code> with <code>scopedEnforcementActions[]</code> naming an action per enforcement point (<code>validation.gatekeeper.sh</code> the webhook, <code>audit.gatekeeper.sh</code>, <code>gator.gatekeeper.sh</code> shift-left, <code>vap.k8s.io</code>). <code>status.totalViolations</code> and <code>status.violations[]</code> (capped at 20 by <code>--constraint-violations-limit</code>) are filled by the audit loop every <code>--audit-interval</code> (60s).</li>
-      <li><strong>Mutation</strong> (<code>mutations.gatekeeper.sh/v1</code>): <code>Assign</code> (any field under spec, <code>location: "spec.containers[name: *].imagePullPolicy"</code>, <code>parameters.assign.value</code>, optional <code>pathTests</code> with <code>MustExist</code>/<code>MustNotExist</code>), <code>AssignMetadata</code> (labels and annotations only, can copy <code>fromMetadata</code> namespace or name), <code>ModifySet</code> (add to or prune a list), <code>AssignImage</code> (<code>assignDomain</code>, <code>assignPath</code>, <code>assignTag</code>). All but AssignMetadata need <code>applyTo</code> with explicit groups/kinds/versions (no globs). Mutation runs only on CREATE and UPDATE and only if the mutating webhook was enabled at install (<code>--operation=mutation-webhook</code>).</li>
-      <li><strong>Referential and expansion.</strong> Rego that needs other objects (<code>data.inventory</code>) requires those kinds synced with a <code>SyncSet</code> (or <code>Config.spec.sync.syncOnly</code>). An <code>ExpansionTemplate</code> makes pod policies apply to Deployments by expanding <code>spec.template</code> into a pretend Pod at admission. External data: a <code>Provider</code> (<code>externaldata.gatekeeper.sh</code>) points at an in-cluster service, and templates call <code>external_data({"provider": ..., "keys": [...]})</code>; Ratify and the cosign provider are the signature-verification uses.</li>
-      <li><strong>Operations.</strong> The webhook is installed with <code>failurePolicy: Ignore</code> by default (fail open); switching to <code>Fail</code> is a deliberate step and the docs pair it with a <code>timeoutSeconds</code> of a few seconds and the <code>admission.gatekeeper.sh/ignore</code> namespace label for exemptions. <code>gator test -f manifests/ -f policies/</code> evaluates objects offline and exits 1 on violations; <code>gator verify</code> runs a <code>Suite</code> of test cases. Warn output appears in kubectl as <code>Warning: [constraint-name] message</code>.</li>
+      <li><strong>ConstraintTemplate</strong> (<code>templates.gatekeeper.sh/v1</code>): <code>spec.crd.spec.names.kind</code> names the generated Constraint kind (like <code>K8sRequiredLabels</code>), <code>spec.crd.spec.validation.openAPIV3Schema</code> schemas its <code>parameters</code>, and <code>spec.targets[].target: admission.k8s.gatekeeper.sh</code> carries the logic. That logic is either <code>rego</code> with a <code>violation[{"msg": msg, "details": {...}}]</code> rule over <code>input.review.object</code> and <code>input.parameters</code>, or <code>code[].engine: K8sNativeValidation</code> with CEL <code>validations</code> (plus <code>generateVAP: true</code> to emit a native <code>ValidatingAdmissionPolicy</code>). If a template includes both engines, CEL takes precedence and Rego is ignored.</li>
+      <li><strong>Constraint</strong> (<code>constraints.gatekeeper.sh/v1beta1</code>, using the template's generated kind): scope it with <code>spec.match</code> (<code>kinds[].apiGroups/kinds</code>, <code>scope: Cluster|Namespaced|*</code>, <code>namespaces</code>/<code>excludedNamespaces</code> supporting prefix globs like <code>kube-*</code>, <code>labelSelector</code>, <code>namespaceSelector</code>) and pass inputs via <code>spec.parameters</code>. Set <code>spec.enforcementAction</code> to <code>deny</code> (default), <code>warn</code>, <code>dryrun</code>, or <code>scoped</code> with <code>scopedEnforcementActions[]</code> picking an action per enforcement point (<code>validation.gatekeeper.sh</code> for the webhook, <code>audit.gatekeeper.sh</code>, <code>gator.gatekeeper.sh</code> for shift-left CI, and <code>vap.k8s.io</code>). The audit loop updates <code>status.totalViolations</code> and <code>status.violations[]</code> (capped at 20 by <code>--constraint-violations-limit</code>) every <code>--audit-interval</code> (60s).</li>
+      <li><strong>Mutation</strong> (<code>mutations.gatekeeper.sh/v1</code>): four kinds handle different targets: <code>Assign</code> (any field under <code>spec</code>, like <code>location: "spec.containers[name: *].imagePullPolicy"</code> with <code>parameters.assign.value</code> and optional <code>pathTests</code> using <code>MustExist</code>/<code>MustNotExist</code>), <code>AssignMetadata</code> (labels and annotations only, optionally copying <code>fromMetadata</code> namespace or name), <code>ModifySet</code> (add or prune list items), and <code>AssignImage</code> (<code>assignDomain</code>, <code>assignPath</code>, <code>assignTag</code>). Everything except <code>AssignMetadata</code> requires <code>applyTo</code> with explicit groups, kinds, and versions (no globs). Mutations only run on CREATE and UPDATE when the mutating webhook is enabled (<code>--operation=mutation-webhook</code>).</li>
+      <li><strong>Referential rules and expansion.</strong> Rego policies that inspect other cluster objects (<code>data.inventory</code>) need those kinds cached via a <code>SyncSet</code> (or <code>Config.spec.sync.syncOnly</code>). An <code>ExpansionTemplate</code> lets pod-level policies validate Deployments by expanding <code>spec.template</code> into a synthetic Pod at admission. For external lookups, a <code>Provider</code> (<code>externaldata.gatekeeper.sh</code>) points at an in-cluster service queried via <code>external_data({"provider": ..., "keys": [...]})</code>, which is how Ratify and the cosign provider handle image signature verification.</li>
+      <li><strong>Operations.</strong> Gatekeeper installs with <code>failurePolicy: Ignore</code> by default (fail open). Flipping to <code>Fail</code> is a deliberate hardening step, typically paired with a tight <code>timeoutSeconds</code> and the <code>admission.gatekeeper.sh/ignore</code> namespace label for exemptions. In CI, <code>gator test -f manifests/ -f policies/</code> checks manifests offline and exits 1 on violations, while <code>gator verify</code> runs a <code>Suite</code> of unit tests. Warnings show up in kubectl as <code>Warning: [constraint-name] message</code>.</li>
     </ul>
 
     <h3>Kubernetes native policies</h3>
@@ -138,38 +139,38 @@
         <thead><tr><th class="mono">Field</th><th>ValidatingAdmissionPolicy (GA 1.30, <code>admissionregistration.k8s.io/v1</code>)</th><th>MutatingAdmissionPolicy (GA 1.36)</th></tr></thead>
         <tbody>
           <tr><td class="mono">matchConstraints</td><td colspan="2"><code>resourceRules[]</code> (groups, versions, operations, resources), <code>namespaceSelector</code>, <code>objectSelector</code>, <code>matchPolicy</code></td></tr>
-          <tr><td class="mono">matchConditions</td><td colspan="2">CEL pre-filters; all must be true or the policy is skipped (a failing one obeys <code>failurePolicy</code>)</td></tr>
-          <tr><td class="mono">variables</td><td colspan="2">named CEL expressions reusable as <code>variables.x</code></td></tr>
+          <tr><td class="mono">matchConditions</td><td colspan="2">CEL pre-filters; all must evaluate true or the policy is skipped (evaluation errors follow <code>failurePolicy</code>)</td></tr>
+          <tr><td class="mono">variables</td><td colspan="2">Named CEL expressions referenced as <code>variables.x</code></td></tr>
           <tr><td class="mono">validations[] / mutations[]</td><td><code>expression</code>, <code>message</code>, <code>messageExpression</code>, <code>reason</code></td><td><code>patchType: ApplyConfiguration</code> (<code>Object{...}</code> partial) or <code>JSONPatch</code> (array of ops); <code>reinvocationPolicy: Never|IfNeeded</code></td></tr>
-          <tr><td class="mono">auditAnnotations</td><td><code>key</code> + <code>valueExpression</code>, written into the audit event</td><td>none</td></tr>
-          <tr><td class="mono">paramKind + binding paramRef</td><td colspan="2">parameters from any object (a ConfigMap, a CRD); <code>paramRef.parameterNotFoundAction: Allow|Deny</code> is required</td></tr>
-          <tr><td class="mono">binding.validationActions</td><td><code>[Deny]</code>, <code>[Warn]</code>, <code>[Audit]</code> or <code>[Warn, Audit]</code>; Deny and Warn together are rejected</td><td>n/a</td></tr>
+          <tr><td class="mono">auditAnnotations</td><td><code>key</code> + <code>valueExpression</code> written straight into the API audit event</td><td>None</td></tr>
+          <tr><td class="mono">paramKind + binding paramRef</td><td colspan="2">Reads parameters from any object (ConfigMap or CRD); <code>paramRef.parameterNotFoundAction: Allow|Deny</code> is required</td></tr>
+          <tr><td class="mono">binding.validationActions</td><td><code>[Deny]</code>, <code>[Warn]</code>, <code>[Audit]</code>, or <code>[Warn, Audit]</code> (combining Deny and Warn is rejected)</td><td>n/a</td></tr>
           <tr><td class="mono">CEL variables</td><td colspan="2"><code>object</code> (null on DELETE), <code>oldObject</code> (null on CREATE), <code>request</code>, <code>params</code>, <code>namespaceObject</code>, <code>authorizer</code></td></tr>
-          <tr><td class="mono">failurePolicy</td><td colspan="2"><code>Fail</code> (default) or <code>Ignore</code>, on the policy, covering errors and cost-budget exhaustion</td></tr>
+          <tr><td class="mono">failurePolicy</td><td colspan="2"><code>Fail</code> (default) or <code>Ignore</code> on the policy, covering evaluation errors and cost-budget exhaustion</td></tr>
         </tbody>
       </table>
     </div>
-    <p>A denial reads <code>ValidatingAdmissionPolicy 'x' with binding 'y' denied request: &lt;message&gt;</code>. Type errors are surfaced in the policy's <code>status.typeChecking</code> rather than at apply time, so a policy with a typo in a field path is accepted and then either denies everything or nothing, depending on <code>failurePolicy</code>. Read the status after creating one.</p>
+    <p>A native denial prints <code>ValidatingAdmissionPolicy 'x' with binding 'y' denied request: &lt;message&gt;</code>. Watch out for one subtle trap: CEL type errors don't reject the policy at apply time. Instead, Kubernetes writes them into <code>status.typeChecking</code>, so a policy with a typo in a field path gets accepted and then denies either everything or nothing depending on <code>failurePolicy</code>. Always check <code>status.typeChecking</code> right after creating one.</p>
 
     <h3>Webhook mechanics every engine shares</h3>
-    <p>In a <code>ValidatingWebhookConfiguration</code> or <code>MutatingWebhookConfiguration</code>: <code>rules[]</code> (operations, groups, versions, resources, <code>scope</code>), <code>clientConfig</code> (a Service plus <code>caBundle</code>, or a URL), <code>failurePolicy</code> (<code>Fail</code> is the API default; Gatekeeper installs <code>Ignore</code>, Kyverno <code>Fail</code>), <code>timeoutSeconds</code> (default 10, 1-30), <code>sideEffects</code> (<code>None</code> or <code>NoneOnDryRun</code> for the webhook to be called on <code>--dry-run=server</code>), <code>matchConditions</code> (CEL, since 1.30 GA), <code>namespaceSelector</code>/<code>objectSelector</code>, <code>reinvocationPolicy: IfNeeded</code> on mutating webhooks so a later mutation is re-checked by earlier ones, and <code>matchPolicy: Equivalent</code> so a rule on <code>apps/v1</code> also catches <code>apps/v1beta1</code> requests. Mutating webhooks run before validating ones, in an order you do not control; validating ones see the mutated object.</p>
+    <p>Every <code>ValidatingWebhookConfiguration</code> and <code>MutatingWebhookConfiguration</code> is driven by the same core fields: <code>rules[]</code> (operations, groups, versions, resources, <code>scope</code>), <code>clientConfig</code> (a Service plus <code>caBundle</code>, or a URL), <code>failurePolicy</code> (API default is <code>Fail</code>; Gatekeeper ships <code>Ignore</code>, Kyverno ships <code>Fail</code>), <code>timeoutSeconds</code> (default 10, range 1–30), <code>sideEffects</code> (must be <code>None</code> or <code>NoneOnDryRun</code> to run during <code>--dry-run=server</code>), CEL <code>matchConditions</code> (GA in 1.30), and <code>namespaceSelector</code> / <code>objectSelector</code>. Mutating webhooks also support <code>reinvocationPolicy: IfNeeded</code> so an earlier mutator can re-run if a later one changes the object, and <code>matchPolicy: Equivalent</code> ensures a rule matching <code>apps/v1</code> also catches <code>apps/v1beta1</code>. Remember the ordering guarantee: mutating webhooks always run before validating ones (in an order you don't control), and validating webhooks always see the mutated result.</p>
 
     <h3>Which engine</h3>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Need</th><th>Pick</th><th>Because</th></tr></thead>
         <tbody>
-          <tr><td>a handful of invariants, no extra component allowed</td><td>ValidatingAdmissionPolicy (+ MutatingAdmissionPolicy for defaults)</td><td>in-process, no webhook to keep alive, GA on 1.36</td></tr>
-          <tr><td>generate resources (default NetworkPolicy, quota, RoleBinding per namespace)</td><td>Kyverno GeneratingPolicy</td><td>the only engine of the three that creates objects and keeps them in sync</td></tr>
-          <tr><td>image signature or attestation checks</td><td>Kyverno ImageValidatingPolicy (built in) or Gatekeeper + external data provider (Ratify)</td><td>needs registry access; native policies cannot fetch anything</td></tr>
-          <tr><td>a library of reusable, parameterized policies with typed parameters and an audit of existing objects</td><td>Gatekeeper ConstraintTemplate + Constraints</td><td>the template/instance split and <code>gatekeeper-library</code>; audit violations on the Constraint status</td></tr>
-          <tr><td>policy that reads other cluster objects</td><td>Kyverno (context, apiCall, GlobalContextEntry) or Gatekeeper with SyncSet</td><td>VAP can read only <code>params</code> and <code>namespaceObject</code></td></tr>
-          <tr><td>report-then-enforce rollout with per-workload exceptions</td><td>Kyverno (<code>Audit</code>, PolicyReport, PolicyException) or Gatekeeper (<code>dryrun</code>/<code>warn</code>, audit)</td><td>VAP's <code>Audit</code> action only writes audit annotations; no report objects</td></tr>
-          <tr><td>the same rule enforced in CI before the cluster</td><td>Kyverno CLI (<code>kyverno test</code>, JSON mode) or <code>gator test</code></td><td>both evaluate manifests offline; VAP has no CLI</td></tr>
+          <tr><td>A handful of invariants, no extra components allowed</td><td>ValidatingAdmissionPolicy (+ MutatingAdmissionPolicy for defaults)</td><td>Runs in-process with no webhook to maintain; both are GA on 1.36</td></tr>
+          <tr><td>Generate resources (default NetworkPolicy, quota, or RoleBinding per namespace)</td><td>Kyverno GeneratingPolicy</td><td>The only engine of the three that creates downstream objects and keeps them synced</td></tr>
+          <tr><td>Image signature or attestation checks</td><td>Kyverno ImageValidatingPolicy (built-in) or Gatekeeper + external data provider (Ratify)</td><td>Requires registry lookups, which native in-process policies can't do</td></tr>
+          <tr><td>A library of reusable, parameterized policies with typed inputs and existing-object audits</td><td>Gatekeeper ConstraintTemplate + Constraints</td><td>Clean template/instance split, mature <code>gatekeeper-library</code>, and audit violations right on the Constraint status</td></tr>
+          <tr><td>Policies that inspect other cluster objects</td><td>Kyverno (context, apiCall, GlobalContextEntry) or Gatekeeper with SyncSet</td><td>VAP can only see <code>params</code> and <code>namespaceObject</code></td></tr>
+          <tr><td>Report-then-enforce rollout with tracked per-workload exceptions</td><td>Kyverno (<code>Audit</code>, PolicyReport, PolicyException) or Gatekeeper (<code>dryrun</code>/<code>warn</code>, audit)</td><td>VAP's <code>Audit</code> action only annotates audit logs; it doesn't produce report objects</td></tr>
+          <tr><td>Enforce the exact same rules in CI before hitting a cluster</td><td>Kyverno CLI (<code>kyverno test</code>, JSON mode) or <code>gator test</code></td><td>Both evaluate manifests offline; VAP has no standalone CLI</td></tr>
         </tbody>
       </table>
     </div>
-    <div class="callout exam"><span class="tag">How this gets tested</span><p>Kyverno and Gatekeeper appear in separate tasks, so the choice is usually made for you; the skill is writing the right fields in the dialect named. In Kyverno, check <code>validationActions</code>/<code>failureAction</code> before anything else, because samples default to audit. In Gatekeeper, check <code>enforcementAction</code> and that the Constraint's <code>kinds</code> match the object you are testing. For both, prove the denial with the apply error text and the report or violation count, and remember the tenant-namespace LimitRange trap from the exercises.</p></div>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>Kyverno and Gatekeeper show up in separate tasks, so the choice is usually made for you; the real test is writing the right fields in whichever dialect is named. In Kyverno, check <code>validationActions</code> or <code>failureAction</code> first, because copied samples default to audit. In Gatekeeper, check <code>enforcementAction</code> and make sure the Constraint's <code>kinds</code> actually match what you're testing. For either engine, verify the denial using both the apply error text and the report or violation count, and don't forget the tenant-namespace LimitRange trap from exercise 1.</p></div>
   </div>
 </section>
 
@@ -177,11 +178,11 @@
   <div class="phdr"><h2>Operating policy safely</h2><span class="meta">failurePolicy, exemptions, and the blast radius</span></div>
   <div class="pbody">
     <ul>
-      <li><strong><code>failurePolicy</code>.</strong> <code>Fail</code> means an unreachable webhook blocks the write: secure, and capable of freezing the entire cluster if the policy pods die. <code>Ignore</code> means writes proceed unchecked: available, and a bypass window during an outage. There is no universally correct answer, only a deliberate choice. Bound the risk with <code>timeoutSeconds</code> and a well-scoped <code>namespaceSelector</code>.</li>
-      <li><strong>Scope your webhooks.</strong> <code>rules</code> (which resources and operations), <code>namespaceSelector</code> and <code>objectSelector</code> decide what is intercepted. Exempting <code>kube-system</code> is near-universal, and it is itself a governance decision: it means a cluster-admin path exists that your policies do not see.</li>
-      <li><strong>Latency.</strong> Every intercepted write pays a round trip. Broad wildcard rules on <code>*/*</code> are how a policy engine becomes a cluster-wide performance problem.</li>
-      <li><strong>Order.</strong> Mutating webhooks run in an order you do not fully control and may run more than once (re-invocation policy), so mutations must be idempotent.</li>
-      <li><strong>Where the message goes.</strong> A denial arrives in the <em>apply error</em>, verbatim. Write policy messages a stranger can act on: what is wrong, and what to change.</li>
+      <li><strong><code>failurePolicy</code>.</strong> <code>Fail</code> blocks writes whenever the webhook is unreachable: strong security, but capable of freezing the whole cluster if your policy pods crash. <code>Ignore</code> lets writes through unchecked: high availability, with a bypass window during outages. Neither is universally right; it's a deliberate risk trade-off you bound with tight <code>timeoutSeconds</code> and a well-scoped <code>namespaceSelector</code>.</li>
+      <li><strong>Scope your webhooks.</strong> <code>rules</code> (resources and operations), <code>namespaceSelector</code>, and <code>objectSelector</code> define your interception surface. Exempting <code>kube-system</code> is standard practice, and it's also a governance decision: it means cluster admins have an unpoliced lane.</li>
+      <li><strong>Latency.</strong> Every intercepted write pays a network round trip. Broad <code>*/*</code> wildcard rules are how an overly eager policy engine turns into a cluster-wide API slowdown.</li>
+      <li><strong>Order.</strong> Mutating webhooks run in an order you don't fully control and can fire more than once under reinvocation policies, so every mutation must be idempotent.</li>
+      <li><strong>Where the message goes.</strong> Your denial message lands verbatim in the developer's <code>kubectl apply</code> error. Write messages a stranger can act on immediately: state what failed and how to fix it.</li>
     </ul>
 
     <div class="callout reflex">
@@ -273,7 +274,7 @@ Defaulted container "kyverno" out of: kyverno, kyverno-pre (init)
 2026-11-18T09:24:30Z TRC github.com/kyverno/kyverno/pkg/informers/health/tracker.go:82 &gt; admission informer stream interrupted logger=setup/informer-health stream=*v1beta1.NamespacedImageValidatingPolicy/7 v=2
 2026-11-18T09:24:31Z TRC github.com/kyverno/kyverno/pkg/informers/health/tracker.go:101 &gt; admission informer stream recovered logger=setup/informer-health stream=*v1beta1.NamespacedImageValidatingPolicy/7 v=2
 <i>… (rest of the tail omitted)</i></code></pre></details></div>
-      <p>A cluster that rejects everything mysteriously usually has a policy engine's webhook with a dead backend; the first command finds it, and <code>failurePolicy</code> explains it.</p>
+      <p>When a cluster starts rejecting everything out of the blue, suspect a policy webhook with a dead backend. The first command locates it, and <code>failurePolicy</code> explains why writes froze.</p>
     </div>
   </div>
 </section>
@@ -283,7 +284,7 @@ Defaulted container "kyverno" out of: kyverno, kyverno-pre (init)
   <div class="pbody">
 
     <div class="exercise" data-title="Flip the lab policy to enforce and feel the difference">
-      <p>One trap to dodge first: the tenant namespaces cannot demonstrate this policy at all. Their LimitRanges inject requests, and LimitRanger is a built-in <em>mutating</em> admission plugin that runs before validating webhooks. By the time Kyverno sees a team-a or team-b pod, it already has requests. So drill in a namespace with no LimitRange:</p>
+      <p>Dodge one classic trap first: the tenant namespaces can't demonstrate this policy at all. Their <code>LimitRange</code>s inject default requests during <em>mutating</em> admission, before any validating webhook runs. By the time Kyverno sees a pod in <code>team-a</code> or <code>team-b</code>, it already has requests. Run this drill in a fresh namespace with no LimitRange:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl create ns policy-test
 kubectl -n policy-test run naked --image=busybox:1.37 --restart=Never -- sleep 60   # succeeds: Audit
 for i in $(seq 18); do kubectl get policyreports -n policy-test --no-headers 2&gt;/dev/null | grep -q naked &amp;&amp; break; sleep 5; done; echo "report after ~$((i*5))s"
@@ -304,31 +305,31 @@ d9ad627a-588a-42a9-af8f-b1417a1f572d   Pod    naked   0      1      0      0    
 validatingpolicy.policies.kyverno.io/require-resource-requests patched
 <b>$ kubectl -n policy-test run naked2 --image=busybox:1.37 --restart=Never -- sleep 60</b>
 Error from server: admission webhook "vpol.validate.kyverno.svc-fail" denied the request: Policy require-resource-requests failed: every container must set cpu and memory requests</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the second run is rejected and the error quotes the policy's own message ("every container must set cpu and memory requests"), while the same pod in team-b still sails through with LimitRange-injected requests. Flip back to <code>["Audit"]</code> when done.</div>
+      <div class="verify"><b>verify:</b> the second pod gets rejected quoting the policy's message ("every container must set cpu and memory requests"), while the exact same pod in <code>team-b</code> sails right through thanks to LimitRange-injected requests. Flip the policy back to <code>["Audit"]</code> when you finish.</div>
     </div>
 
     <div class="exercise" data-title="Watch the mutation happen">
-      <p>Create a Deployment in team-b, then read it back: <code>kubectl -n team-b get deploy &lt;name&gt; -o jsonpath='{.metadata.labels.cost-centre}'</code> prints the namespace name, put there at admission by <code>add-cost-centre-label</code>. Verify against a deployment created <em>before</em> the policy existed (none of the lab's have the label).</p>
-      <div class="verify"><b>verify:</b> mutation is admission-time only, and retro-fitting existing objects is a separate Kyverno capability (mutating existing resources) you should know exists without memorizing its current field name.</div>
+      <p>Create a new Deployment in <code>team-b</code>, then read it back: <code>kubectl -n team-b get deploy &lt;name&gt; -o jsonpath='{.metadata.labels.cost-centre}'</code> prints the namespace name, stamped onto it at admission by <code>add-cost-centre-label</code>. Compare that against a Deployment created <em>before</em> the policy existed (none of the pre-existing lab Deployments have it).</p>
+      <div class="verify"><b>verify:</b> mutations only touch new or updated objects at admission. Retrofitting objects already in etcd is a separate Kyverno capability (mutating existing resources) that's worth knowing exists without memorizing its exact syntax.</div>
     </div>
 
     <div class="exercise" data-title="Write the Gatekeeper twin">
-      <p>Same rule, Rego dialect, same LimitRange-free namespace. ConstraintTemplate <code>k8srequireresources</code> whose Rego denies containers missing resource requests, then a constraint targeting Pods in <code>policy-test</code> with <code>enforcementAction: warn</code> first. Gatekeeper's library (open-policy-agent/gatekeeper-library) has a <code>containerrequests</code> template to adapt; adapting library Rego rather than writing from scratch is the usual workflow.</p>
-      <div class="verify"><b>verify:</b> a naked pod triggers a warning on create (visible in the kubectl output), then set deny and confirm rejection; <code>kubectl get k8srequireresources -o yaml</code> shows audit violations counted. You can now articulate the trade: CEL policies read like schemas, Rego like code; Kyverno mutates and generates, Gatekeeper's audit and library are mature.</div>
+      <p>Build the exact same rule in Rego inside that LimitRange-free namespace. Create a <code>ConstraintTemplate</code> named <code>k8srequireresources</code> whose Rego flags containers missing resource requests, then bind a Constraint targeting Pods in <code>policy-test</code> starting with <code>enforcementAction: warn</code>. Adapt the <code>containerrequests</code> template from <code>open-policy-agent/gatekeeper-library</code> rather than writing Rego from scratch, which is how real teams work.</p>
+      <div class="verify"><b>verify:</b> a naked pod prints a kubectl warning on creation, then gets denied once you flip to <code>deny</code>, and <code>kubectl get k8srequireresources -o yaml</code> shows the audit violations counted. You've now felt the trade-off firsthand: CEL reads like a schema, Rego reads like code; Kyverno mutates and generates, while Gatekeeper brings a mature audit loop and template library.</div>
     </div>
 
     <div class="exercise" data-title="One native rep">
-      <p>Express the same rule as a ValidatingAdmissionPolicy + binding (CEL: <code>object.spec.containers.all(c, has(c.resources.requests))</code>, match Pods, bound to <code>policy-test</code>).</p>
-      <div class="verify"><b>verify:</b> rejection with your message, no engine involved. Delete it after, along with the <code>policy-test</code> namespace, so the engines' results stay interpretable.</div>
+      <p>Write the same rule natively as a <code>ValidatingAdmissionPolicy</code> + Binding (CEL expression: <code>object.spec.containers.all(c, has(c.resources.requests))</code>, matching Pods, bound to <code>policy-test</code>).</p>
+      <div class="verify"><b>verify:</b> Kubernetes rejects the pod with your message without touching any webhook. Delete the policy and the <code>policy-test</code> namespace afterward so they don't cloud later exercises.</div>
     </div>
 
     <div class="exercise" data-title="Read the interception surface">
-      <p><code>kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations</code> and, for one Kyverno entry, read <code>rules</code> (which resources), <code>namespaceSelector</code> (what is exempt) and <code>failurePolicy</code>.</p>
-      <div class="verify"><b>verify:</b> you can answer "if Kyverno's pods all died right now, could anyone still deploy?" from the failurePolicy alone, and say what that choice trades. (Check <code>kube-system</code> in the selector while you are there; policy engines exempting the control plane is itself a governance decision.)</div>
+      <p>Run <code>kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations</code> and inspect one Kyverno entry closely: read its <code>rules</code> (what gets intercepted), <code>namespaceSelector</code> (what's exempt), and <code>failurePolicy</code>.</p>
+      <div class="verify"><b>verify:</b> you can answer "if every Kyverno pod died right now, could anyone still deploy?" directly from <code>failurePolicy</code>, and articulate the trade-off. Check how <code>kube-system</code> is handled in the selector while you're there, since exempting the control plane is itself a governance choice.</div>
     </div>
 
     <div class="exercise" data-title="Find out which Kyverno API you are on">
-      <p>Kyverno serves two policy APIs, the classic <code>ClusterPolicy</code> and the CEL-based <code>ValidatingPolicy</code>, but from 1.20 only the CEL one accepts writes. Older clusters and most of the documentation you will find still use the classic kind, so ask the cluster in front of you which one it takes before you author anything.</p>
+      <p>Kyverno exposes two policy APIs (classic <code>ClusterPolicy</code> and CEL-based <code>ValidatingPolicy</code>), but from 1.20 onward only the CEL API accepts writes. Older clusters and most docs still show classic YAML, so check what the cluster in front of you accepts before writing anything.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl api-resources | grep -E 'kyverno'
 kubectl -n kyverno get deploy -o jsonpath='{range .items[*]}{.metadata.name} {.spec.template.spec.containers[0].image}{"\n"}{end}'
 kubectl apply -f - &lt;&lt;'EOF'
@@ -440,11 +441,11 @@ NAME         AGE   READY
 team-label   6s    true
 <b>$ kubectl delete validatingpolicy team-label</b>
 validatingpolicy.policies.kyverno.io "team-label" deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the resource list still shows both API groups, Kyverno's own webhook refuses the classic policy and names the kinds that replace it, and the same rule as a <code>ValidatingPolicy</code> is created and reports READY. On an older Kyverno the classic apply succeeds instead (with a deprecation warning on 1.19); either way, the response tells you which API to write.</div>
+      <div class="verify"><b>verify:</b> <code>api-resources</code> still lists both groups, Kyverno's webhook blocks the classic policy and tells you the replacement kinds, and the equivalent <code>ValidatingPolicy</code> creates cleanly and reports <code>READY: true</code>. On an older Kyverno version the classic manifest would succeed (with a deprecation warning on 1.19); either way, the cluster's response tells you immediately which API to write.</div>
     </div>
 
     <div class="exercise" data-title="Deny at the Deployment, not the ReplicaSet">
-      <p>A pod-level policy catches the pod, which is created by a ReplicaSet, which means the developer's <code>kubectl apply</code> succeeds and the failure lands in an event nobody reads. Autogen moves the denial to where the human is.</p>
+      <p>A bare pod-level policy catches the pod spawned by a ReplicaSet, meaning the developer's <code>kubectl apply</code> exits 0 and the actual error hides in a ReplicaSet event nobody checks. Autogen moves that denial up front to the Deployment where the human is looking.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
@@ -535,11 +536,11 @@ error: failed to create deployment: admission webhook "vpol.validate.kyverno.svc
 validatingpolicy.policies.kyverno.io "require-team-label" deleted
 <b>$ kubectl get validatingpolicy require-team-label -o jsonpath='{.spec.autogen}{"\n"}'</b>
 Error from server (NotFound): validatingpolicies.policies.kyverno.io "require-team-label" not found</code></pre></details></div>
-      <div class="verify"><b>verify:</b> without autogen the Deployment is created and its ReplicaSet fails in an event; with autogen the <code>kubectl create</code> itself is refused.</div>
+      <div class="verify"><b>verify:</b> with autogen off, the Deployment succeeds and its ReplicaSet fails in an event; with autogen on, <code>kubectl create</code> itself is blocked immediately.</div>
     </div>
 
     <div class="exercise" data-title="Let Kyverno write a native policy for you">
-      <p>Kyverno can compile a ValidatingPolicy down to a native ValidatingAdmissionPolicy, which then runs in the API server with no webhook at all. Read the generated object; it is the best available lesson in what CEL admission looks like.</p>
+      <p>Kyverno can compile a <code>ValidatingPolicy</code> straight into a native <code>ValidatingAdmissionPolicy</code> that runs in-process with zero webhook overhead. Inspect the generated policy; it's one of the clearest ways to see how native CEL admission fits together.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: policies.kyverno.io/v1
 kind: ValidatingPolicy
@@ -605,11 +606,11 @@ vpol-no-latest object.spec.containers.all(c, !c.image.endsWith(':latest'))
 true 
 <b>$ kubectl delete validatingpolicy no-latest</b>
 validatingpolicy.policies.kyverno.io "no-latest" deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the stored spec still carries the <code>validatingAdmissionPolicy</code> autogen block you asked for, and a ValidatingAdmissionPolicy and binding named <code>vpol-no-latest</code> appear alongside the pre-existing <code>safe-upgrades.gateway.networking.k8s.io</code>, carrying your CEL expression, and <code>status.generated</code> reads <code>true</code>. If the autogen block reads back empty, the field was pruned by the API version you applied and nothing will ever be generated. If it is present and no policy appears, the status message names the reason: drop the <code>podControllers</code> line and it reads "skip generating ValidatingAdmissionPolicy: pod controllers autogen is enabled."</div>
+      <div class="verify"><b>verify:</b> the stored spec keeps your <code>validatingAdmissionPolicy</code> autogen block, a matching <code>ValidatingAdmissionPolicy</code> and binding named <code>vpol-no-latest</code> appear alongside the pre-existing <code>safe-upgrades.gateway.networking.k8s.io</code> with your CEL expression, and <code>status.generated</code> reads <code>true</code>. If the autogen block reads back empty, the API version pruned it and nothing will be generated. If it's present yet no VAP shows up, check the status message: drop the <code>podControllers</code> line and it'll tell you "skip generating ValidatingAdmissionPolicy: pod controllers autogen is enabled."</div>
     </div>
 
     <div class="exercise" data-title="Grant one exception, on the record">
-      <p>"Just this once" has to be an object, not a conversation. A PolicyException names the policy and the resources it excuses, and the report records a skip rather than a pass, which keeps the exception visible.</p>
+      <p>"Just this once" belongs in a tracked API object, not a Slack thread. A <code>PolicyException</code> explicitly names the policy and the exempted workload, and the report records a <code>skip</code> rather than a <code>pass</code> so the exception stays auditable.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n kyverno get deploy kyverno-admission-controller -o jsonpath='{.spec.template.spec.containers[0].args}' | jq
 kubectl create ns policy-exception --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f - &lt;&lt;'EOF'
@@ -702,11 +703,11 @@ pod "legacy" deleted from default namespace
 policyexception.policies.kyverno.io "legacy-job" deleted from policy-exception namespace
 <b>$ kubectl delete ns policy-exception</b>
 namespace "policy-exception" deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the report row for the pod counts one SKIP and nothing else, and the result line reads <code>require-resource-requests skip</code>: the exception is on the record rather than making the resource disappear from the report. The flags are the other half of the answer, since <code>--enablePolicyException=true</code> is what makes an exception legal at all.</div>
+      <div class="verify"><b>verify:</b> the pod's report row shows one <code>SKIP</code> and zero failures, and the detail line reads <code>require-resource-requests skip</code>: the exception stays visible on the record instead of vanishing from compliance reports. Don't overlook the controller flags either, because <code>--enablePolicyException=true</code> is what makes exceptions work in the first place.</div>
     </div>
 
     <div class="exercise" data-title="Test policies without a cluster">
-      <p>The Kyverno CLI runs policies against manifests in CI, which is where a policy should fail first. A test file asserts the outcome per resource, so a policy change that breaks a team's manifests is caught before it merges.</p>
+      <p>The Kyverno CLI evaluates policies against manifests right in CI, which is where a broken policy should fail first. A test file asserts the exact outcome per resource, catching regressions before a policy change ever merges.</p>
       <div class="cb" data-lang="bash"><pre><code>START=$PWD   # the cd below would otherwise follow you into every later command
 mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"
 URL=$(curl -s https://api.github.com/repos/kyverno/kyverno/releases/latest | jq -r '.assets[] | select(.name | startswith("kyverno-cli_") and endswith("_linux_x86_64.tar.gz")) | .browser_download_url'); echo "$URL"
@@ -824,11 +825,11 @@ Loading test require-resources ( kyverno-test.yaml ) ...
 
 Test Summary: 2 tests passed and 0 tests failed
 <b>$ cd "$START"</b></code></pre></details></div>
-      <div class="verify"><b>verify:</b> <code>kyverno apply</code> passes one pod and fails the other, and <code>kyverno test</code> reports both assertions met.</div>
+      <div class="verify"><b>verify:</b> <code>kyverno apply</code> passes the compliant pod and fails the naked one, and <code>kyverno test</code> confirms both expectations passed.</div>
     </div>
 
     <div class="exercise" data-title="Warn a human, deny a robot">
-      <p>Gatekeeper's scoped enforcement lets one constraint behave differently at admission and in audit. Warning the person typing while recording a violation for the report is a realistic rollout strategy, not a compromise.</p>
+      <p>Gatekeeper's scoped enforcement lets a single Constraint behave differently at admission and during audit sweeps. Printing a warning to the developer typing in their terminal while logging a violation for compliance reports is a practical rollout strategy, not a half-measure.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: templates.gatekeeper.sh/v1
 kind: ConstraintTemplate
@@ -959,11 +960,11 @@ pod "scoped-demo" deleted from default namespace
 k8srequiredlabels.constraints.gatekeeper.sh "pods-need-owner" deleted
 <b>$ kubectl delete constrainttemplate k8srequiredlabels</b>
 constrainttemplate.templates.gatekeeper.sh "k8srequiredlabels" deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the pod is created with a warning printed by kubectl, and the same constraint's audit status lists it as a violation.</div>
+      <div class="verify"><b>verify:</b> kubectl creates the pod while printing your warning, and the Constraint's audit status records it as a violation.</div>
     </div>
 
     <div class="exercise" data-title="Mutate with a condition">
-      <p>Gatekeeper mutates objects on the way in, and the kind you reach for decides whether it clobbers a value someone set deliberately: <code>AssignMetadata</code> fills a label in only when it is absent, where <code>Assign</code> needs a <code>pathTests</code> condition to hold it back. Mutation with neither is how a platform team breaks a team's deployment quietly.</p>
+      <p>Gatekeeper can mutate objects on the way in, and which kind you pick decides whether it stomps on values a developer set intentionally. <code>AssignMetadata</code> only fills in a label when it's missing, whereas <code>Assign</code> needs a <code>pathTests</code> guard to avoid overwriting. Mutating blindly without either is how a platform team quietly breaks deployments.</p>
       <div class="cb" data-lang="bash"><pre><code># Assign refuses to touch metadata; labels and annotations are AssignMetadata's job,
 # and it only ever fills in a value that is absent, so no pathTests condition is needed
 kubectl apply -f - &lt;&lt;'EOF'
@@ -1019,11 +1020,11 @@ pod "mutated" deleted from default namespace
 pod "untouched" deleted from default namespace
 <b>$ kubectl delete assignmetadata default-owner-label</b>
 assignmetadata.mutations.gatekeeper.sh "default-owner-label" deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the pod that said nothing comes back with <code>owner</code> set to <code>platform</code>, and the one that set <code>owner=team-a</code> keeps <code>team-a</code>. Note the kind: <code>Assign</code> refuses to touch metadata at all, so labels and annotations are <code>AssignMetadata</code>'s job, and it only ever fills in a value that is absent. That "only if absent" is built into the kind rather than written as a condition, which is the difference between a default and a decree. <code>imagePullPolicy</code> is the wrong field for this drill either way: the API server defaults it before any mutating webhook runs, so a "mutate only when unset" rule on it can never fire.</div>
+      <div class="verify"><b>verify:</b> the pod without an <code>owner</code> label gets <code>platform</code>, while the pod with <code>owner=team-a</code> keeps <code>team-a</code>. Notice the kind distinction: <code>Assign</code> won't touch metadata at all, so labels and annotations belong to <code>AssignMetadata</code>, which only populates missing values by design (the line between a helpful default and a forced override). Also skip <code>imagePullPolicy</code> for "mutate if unset" drills: the API server defaults it before any mutating webhook runs, so the condition never triggers.</div>
     </div>
 
     <div class="exercise" data-title="Run the constraints in CI">
-      <p><code>gator test</code> evaluates Gatekeeper constraints against manifests on a laptop or a build agent. Same policies, same answers, no cluster, which is what makes policy-as-code reviewable.</p>
+      <p><code>gator test</code> runs Gatekeeper constraints against manifests straight from a laptop or build runner. Same rules, same answers, no cluster needed, which is what makes policy-as-code actually reviewable.</p>
       <div class="cb" data-lang="bash"><pre><code>START=$PWD   # the cd below would otherwise follow you into every later command
 mkdir -p "$HOME/.local/bin"; export PATH="$HOME/.local/bin:$PATH"
 URL=$(curl -s https://api.github.com/repos/open-policy-agent/gatekeeper/releases/latest | jq -r '.assets[] | select(.name | startswith("gator-") and endswith("-linux-amd64.tar.gz")) | .browser_download_url'); echo "$URL"
@@ -1138,11 +1139,11 @@ Platform:      linux/amd64
 v1/Pod floating: ["no-latest-anywhere"] Message: "image uses the latest tag: nginx:latest"
 exit code: 1
 <b>$ cd "$START"</b></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the floating pod is reported as a violation with your message and the pinned one is not.</div>
+      <div class="verify"><b>verify:</b> the floating <code>:latest</code> pod triggers a violation with your message and exits 1, while the pinned pod passes cleanly.</div>
     </div>
 
     <div class="exercise" data-title="Type-check a native policy">
-      <p>A VAP with a typo in a field path does not fail loudly; it fails at evaluation, and what happens then depends on the failure policy. The API server type-checks the expression up front and puts the result in status.</p>
+      <p>A <code>ValidatingAdmissionPolicy</code> with a typo in a field path won't fail at apply time; it fails during runtime evaluation, where <code>failurePolicy</code> decides the fallout. Fortunately, the API server type-checks expressions up front and writes any warnings straight into <code>status.typeChecking</code>.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -1232,11 +1233,11 @@ deployment.apps "typo-test" deleted from default namespace
 validatingadmissionpolicybinding.admissionregistration.k8s.io "typo-policy-binding" deleted
 <b>$ kubectl delete validatingadmissionpolicy typo-policy</b>
 validatingadmissionpolicy.admissionregistration.k8s.io "typo-policy" deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> <code>status.typeChecking</code> names the field that does not exist, the create is refused under <code>Fail</code>, and the identical broken policy lets everything through under <code>Ignore</code>. Read the type-checking status before you trust a policy you just wrote.</div>
+      <div class="verify"><b>verify:</b> <code>status.typeChecking</code> calls out the nonexistent field, the Deployment gets blocked under <code>Fail</code>, and the exact same broken policy waves everything through under <code>Ignore</code>. Make reading <code>status.typeChecking</code> a habit before trusting a brand-new VAP.</div>
     </div>
 
     <div class="exercise" data-title="Mutate natively, no webhook">
-      <p>MutatingAdmissionPolicy does for defaults what VAP did for validation: CEL in the API server, no controller to keep alive. Add a label with an apply configuration and watch it land on a pod nobody patched.</p>
+      <p><code>MutatingAdmissionPolicy</code> does for defaults what VAP did for validation: pure CEL inside the API server with no external controller to babysit. Stamp a label with an apply configuration and watch it show up on a pod nobody patched.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl api-resources | grep -i mutatingadmissionpolicy
 kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: admissionregistration.k8s.io/v1
@@ -1315,7 +1316,7 @@ pod "mutated-native" deleted from default namespace
 mutatingadmissionpolicybinding.admissionregistration.k8s.io "add-platform-label-binding" deleted
 <b>$ kubectl delete mutatingadmissionpolicy add-platform-label</b>
 mutatingadmissionpolicy.admissionregistration.k8s.io "add-platform-label" deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the pod carries <code>managed-by: platform</code> and no mutating webhook exists. If the API is not served on this cluster, say so and name the feature gate; that is the right answer to the same task on an older cluster.</div>
+      <div class="verify"><b>verify:</b> the pod gets <code>managed-by: platform</code> with zero mutating webhooks involved. If an older exam cluster doesn't serve this API yet, state that directly and note the feature gate; that's the right answer there.</div>
     </div>
 
   </div>
@@ -1325,32 +1326,32 @@ mutatingadmissionpolicy.admissionregistration.k8s.io "add-platform-label" delete
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>A "require requests" policy never fires in a tenant namespace. Why?</summary>
-      <div class="answer"><p>Its LimitRange defaults the requests during <em>mutating</em> admission, before the validating webhook runs, so the object Kyverno inspects already complies. Admission order (mutate then validate) is the whole explanation, and it generalizes to every defaulting mechanism.</p></div></details>
+      <div class="answer"><p>The namespace's <code>LimitRange</code> injects default requests during <em>mutating</em> admission, before validating webhooks execute, so the pod Kyverno sees already complies. Admission ordering (mutate first, then validate) explains this completely, and it applies to every defaulting mechanism.</p></div></details>
 
     <details class="quiz"><summary><code>failurePolicy: Fail</code> versus <code>Ignore</code>: argue both, then say what bounds the risk.</summary>
-      <div class="answer"><p>Fail: no unvalidated writes, at the cost of the API server refusing writes when the webhook is down (a cluster-wide outage from a policy pod). Ignore: writes keep flowing, at the cost of a bypass window. Bound it with a tight <code>namespaceSelector</code>, low <code>timeoutSeconds</code>, exemptions for system namespaces, and running the engine with enough replicas that it is not a single point of failure.</p></div></details>
+      <div class="answer"><p><code>Fail</code> prevents unvalidated writes from sneaking past, at the cost of blocking cluster writes if the webhook goes down (a policy outage becomes a cluster outage). <code>Ignore</code> keeps deployments moving during an outage, at the cost of a policy bypass window. Bound the blast radius with a tight <code>namespaceSelector</code>, low <code>timeoutSeconds</code>, system-namespace exemptions, and enough controller replicas that the webhook isn't a single point of failure.</p></div></details>
 
     <details class="quiz"><summary>You tighten a policy to Deny. What happens to the workloads that already violate it?</summary>
-      <div class="answer"><p>Nothing: admission is write-time. They keep running until their next write (a rollout, a scale, a controller re-create), and then they fail, possibly at 3am. That is why the Audit → report → fix → Enforce sequence exists, and why you check the reports before flipping the dial.</p></div></details>
+      <div class="answer"><p>Nothing right away, because admission only checks writes. Existing pods keep running until their next write (a rollout, scale event, or node eviction), and then fail unexpectedly, often at 3 a.m. That's why you follow Audit → report → fix → Enforce and clear the reports before flipping the dial.</p></div></details>
 
     <details class="quiz"><summary>Which engine would you pick to also <em>create</em> a default NetworkPolicy in every new namespace?</summary>
-      <div class="answer"><p>Kyverno: generation is a first-class capability there (a <code>GeneratingPolicy</code>, or a classic <code>generate</code> rule on older clusters, creates resources and keeps them in sync). Gatekeeper validates and can mutate but does not generate; ValidatingAdmissionPolicy only validates. Matching capability to requirement is the whole question.</p></div></details>
+      <div class="answer"><p>Kyverno. Resource generation is first-class there: a <code>GeneratingPolicy</code> (or a classic <code>generate</code> rule on older clusters) creates downstream objects and keeps them synced. Gatekeeper validates and mutates but doesn't generate, and ValidatingAdmissionPolicy only validates. Match the engine's capabilities to the requirement.</p></div></details>
 
     <details class="quiz"><summary>Why might a platform team prefer ValidatingAdmissionPolicy for a simple rule?</summary>
-      <div class="answer"><p>No extra controller, no webhook, no availability dependency, no version skew; the API server evaluates CEL in-process. The trade is a narrower feature set (no mutation in older versions, no generation, no reporting), so it suits simple invariants rather than a governance program.</p></div></details>
+      <div class="answer"><p>Zero extra controllers, zero webhooks, zero availability dependencies, and no version skew: the API server runs CEL right in-process. The trade-off is a narrower feature set (no generation, no built-in reports, and no mutation on older Kubernetes releases), making it ideal for crisp invariants rather than a full governance suite.</p></div></details>
   
 
     <details class="quiz"><summary>A Kyverno ValidatingPolicy denies bare pods but a Deployment with the same violating template is admitted. Field?</summary>
-      <div class="answer"><p><code>spec.autogen.podControllers.controllers</code> listing <code>deployments</code> (and statefulsets, daemonsets, jobs, cronjobs as needed). Autogen rewrites the Pod rule to match the controller's <code>spec.template</code>. Without it the Deployment passes and its pods are rejected one level down at the ReplicaSet, the same indirection as PSS. Note autogen and <code>autogen.validatingAdmissionPolicy</code> are mutually exclusive.</p></div></details>
+      <div class="answer"><p>Set <code>spec.autogen.podControllers.controllers</code> to include <code>deployments</code> (along with <code>statefulsets</code>, <code>daemonsets</code>, <code>jobs</code>, and <code>cronjobs</code> as needed). Autogen rewrites your Pod rule to validate controller <code>spec.template</code> blocks directly. Without it, the Deployment gets admitted and its pods fail silently one layer down on the ReplicaSet (the same indirection as PSS). Remember that pod-controller autogen and <code>autogen.validatingAdmissionPolicy</code> are mutually exclusive.</p></div></details>
 
     <details class="quiz"><summary>Which Kyverno controller flag must be on before a <code>PolicyException</code> has any effect, and how does the report show an applied exception?</summary>
-      <div class="answer"><p>Only <code>--enablePolicyException=true</code> is required. The usual second one, <code>--exceptionNamespace=&lt;namespace&gt;</code>, is optional: set it and only exceptions created in that namespace count; leave it out and exceptions work from any namespace, each one warning "The exceptionNamespace flag is not set" when you create it (this lab runs that way). When applied, the PolicyReport records the rule as <code>skip</code> with the exception's name in the result properties, in both admission and background modes.</p></div></details>
+      <div class="answer"><p>Only <code>--enablePolicyException=true</code> is mandatory. The companion flag, <code>--exceptionNamespace=&lt;namespace&gt;</code>, is optional: when set, only exceptions inside that namespace take effect; when omitted (as in this lab), exceptions work from any namespace while emitting a warning ("The exceptionNamespace flag is not set") on creation. When an exception matches, the <code>PolicyReport</code> logs the rule as <code>skip</code> with the exception's name in its result properties across both admission and background scans.</p></div></details>
 
     <details class="quiz"><summary>A Gatekeeper Constraint is applied, the violating object is still admitted, and <code>status.totalViolations</code> grows. Two likely settings?</summary>
-      <div class="answer"><p><code>spec.enforcementAction: dryrun</code> (or <code>warn</code>) on the Constraint, or the webhook running with <code>failurePolicy: Ignore</code> (Gatekeeper's install default) while the webhook pod is unhealthy or timing out. Audit still records violations in both cases, which is why the count grows without any denial. Set <code>deny</code>, and check the webhook's <code>failurePolicy</code> and <code>timeoutSeconds</code>.</p></div></details>
+      <div class="answer"><p>Either the Constraint has <code>spec.enforcementAction: dryrun</code> (or <code>warn</code>), or the Gatekeeper webhook is running with <code>failurePolicy: Ignore</code> (its install default) while the webhook pod is unhealthy or timing out. In both cases, the audit loop still scans and bumps the violation count even though admission never blocks. Switch the Constraint to <code>deny</code> and inspect the webhook's <code>failurePolicy</code> and <code>timeoutSeconds</code>.</p></div></details>
 
     <details class="quiz"><summary>You write a ValidatingAdmissionPolicy with a misspelt field path. Is it rejected? Where do you find out, and what decides the runtime effect?</summary>
-      <div class="answer"><p>It is accepted; CEL type errors appear in the policy's <code>status.typeChecking</code> after creation, not as an apply error. At runtime the bad expression errors, and <code>failurePolicy</code> decides: <code>Fail</code> denies every matching request (with the binding's <code>validationActions</code>), <code>Ignore</code> lets them through. Read the status, then fix the path.</p></div></details>
+      <div class="answer"><p>No, Kubernetes accepts it. CEL type errors show up afterward in <code>status.typeChecking</code> rather than as an apply error. At runtime, evaluating the bad field path throws an error, and <code>failurePolicy</code> decides what happens next: <code>Fail</code> blocks every matching write (per the binding's <code>validationActions</code>), while <code>Ignore</code> lets them slip through. Inspect <code>status.typeChecking</code>, then fix the path.</p></div></details>
   </div>
 </section>
 
@@ -1358,14 +1359,14 @@ mutatingadmissionpolicy.admissionregistration.k8s.io "add-platform-label" delete
   <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
   <div class="pbody">
     <ul class="docs">
-      <li><b>kyverno.io</b>: ValidatingPolicy/MutatingPolicy references and the policy library.</li>
-      <li><b>open-policy-agent.github.io/gatekeeper</b>: ConstraintTemplate walkthrough; the gatekeeper-library repo for adaptable Rego.</li>
-      <li><b>kubernetes.io</b>: Validating Admission Policy, and Dynamic Admission Control for the webhook plumbing (<code>failurePolicy</code>, selectors, reinvocation).</li>
-      <li><b>Offline:</b> <code>kubectl explain validatingpolicy.spec</code>, <code>kubectl explain validatingadmissionpolicy.spec.validations</code>, <code>kubectl get validatingwebhookconfigurations -o yaml</code>.</li>
+      <li><b>kyverno.io</b>: <code>ValidatingPolicy</code> / <code>MutatingPolicy</code> references and the community policy library.</li>
+      <li><b>open-policy-agent.github.io/gatekeeper</b>: the <code>ConstraintTemplate</code> walkthrough, plus the <code>gatekeeper-library</code> repo for ready-to-adapt Rego.</li>
+      <li><b>kubernetes.io</b>: Validating Admission Policy, and Dynamic Admission Control for webhook plumbing (<code>failurePolicy</code>, selectors, reinvocation).</li>
+      <li><b>Offline:</b> <code>kubectl explain validatingpolicy.spec</code>, <code>kubectl explain validatingadmissionpolicy.spec.validations</code>, and <code>kubectl get validatingwebhookconfigurations -o yaml</code>.</li>
     
-      <li><b>kyverno.io/docs/policy-types/overview</b>: the version table and deprecation schedule; <b>/policy-types/validating-policy</b> for <code>evaluation</code>, <code>webhookConfiguration</code> and <code>autogen</code>; <b>/guides/exceptions</b> for the two flags.</li>
-      <li><b>open-policy-agent.github.io/gatekeeper/website/docs/howto</b> (match fields), <b>/mutation</b>, <b>/enforcement-points</b> and <b>/failing-closed</b>: the pages a Gatekeeper task turns on.</li>
-      <li><b>kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy</b> and <b>/mutating-admission-policy</b>: field lists, <code>parameterNotFoundAction</code>, the CEL variables; <b>/extensible-admission-controllers</b> for webhook <code>failurePolicy</code>, <code>timeoutSeconds</code>, <code>sideEffects</code>, <code>matchConditions</code>.</li>
+      <li><b>kyverno.io/docs/policy-types/overview</b>: the version table and deprecation timeline; <b>/policy-types/validating-policy</b> for <code>evaluation</code>, <code>webhookConfiguration</code>, and <code>autogen</code>; <b>/guides/exceptions</b> for the two flags.</li>
+      <li><b>open-policy-agent.github.io/gatekeeper/website/docs/howto</b> (match fields), <b>/mutation</b>, <b>/enforcement-points</b>, and <b>/failing-closed</b>: the exact pages Gatekeeper tasks draw from.</li>
+      <li><b>kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy</b> and <b>/mutating-admission-policy</b>: field lists, <code>parameterNotFoundAction</code>, and CEL variables; <b>/extensible-admission-controllers</b> for webhook <code>failurePolicy</code>, <code>timeoutSeconds</code>, <code>sideEffects</code>, and <code>matchConditions</code>.</li>
     </ul>
   </div>
 </section>

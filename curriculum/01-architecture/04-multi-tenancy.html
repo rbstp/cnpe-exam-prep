@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#171c1d" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f5f0" media="(prefers-color-scheme: light)">
-<meta name="description" content="examples/multitenancy/team-a.yaml is the whole syllabus for this section in 74 lines: one namespace carrying every guardrail the exam can ask about.">
+<meta name="description" content="Multi-tenancy in 74 lines: quotas, LimitRanges, NetworkPolicies, PSS, RBAC, and the isolation ladder from namespaces to vcluster.">
 <title>1.4 Multi-tenancy: isolation you can defend · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
 <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
@@ -18,7 +18,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum"><code>examples/multitenancy/team-a.yaml</code> is the whole syllabus for this section in 74 lines: one namespace carrying every guardrail the exam can ask about. Read it top to bottom before doing anything else; every exercise below pokes at one of its objects.</p>
+  <p class="sum"><code>examples/multitenancy/team-a.yaml</code> packs the entire syllabus for this section into 74 lines: one namespace carrying every tenant guardrail the exam can test. Read it top to bottom before running anything - every exercise below pokes at one of its controls.</p>
 </header>
 
 <div class="stats"></div>
@@ -28,51 +28,51 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 1.3 · optimizing multi-tenancy resource usage</span></div>
   <div class="pbody">
-    <p class="lede">A namespace is a folder. A <em>tenant</em> is a namespace with a stack of controls attached. Each one closes a different hole, and each one can be the thing that just refused your pod. The competency's word is "optimizing", which is the giveaway: the exam cares about isolation that does not waste capacity, and about knowing which control refused you.</p>
+    <p class="lede">On its own, a namespace is just a folder. A <em>tenant</em> is a namespace wrapped in a stack of controls, where each layer closes a different gap - and can also be the exact thing that just rejected your pod. Notice the word "optimizing" in the competency: the exam cares about strong isolation that doesn't burn idle capacity, and about spotting which guardrail rejected a request at a glance.</p>
     <div class="callout model">
-      <span class="tag">The soft/hard spectrum</span>
-      <p>Multi-tenancy is not a switch. <strong>Soft</strong>: shared control plane and nodes, separation by namespace, quota, policy and RBAC: this lab, and most platforms. <strong>Harder</strong>: dedicated node pools via taints (no shared kernel), then virtual clusters (own API server, e.g. vcluster), then separate clusters. Each step up costs idle capacity and operational surface. Being able to name the ladder <em>and</em> say what each rung buys is a complete answer to any "how would you isolate these tenants" question.</p>
+      <span class="tag">The soft-to-hard isolation ladder</span>
+      <p>Multi-tenancy isn't binary. <strong>Soft isolation</strong> shares the control plane and worker nodes, separating teams with namespaces, quotas, policies, and RBAC (what this lab and most internal platforms run). Climb up for <strong>harder isolation</strong>: tainted dedicated node pools (no shared kernel), virtual control planes like vcluster (isolated API servers and CRDs), and finally separate clusters. Every rung trades extra idle capacity and operational overhead for a stronger boundary. Know the ladder and what each rung buys you, and you can answer any tenant-isolation design prompt cold.</p>
     </div>
   </div>
 </section>
 
 <section class="panel accent-c" id="stack">
-  <div class="phdr"><h2>The isolation stack, control by control</h2><span class="meta">what refuses you, and with which message</span></div>
+  <div class="phdr"><h2>The isolation stack, layer by layer</h2><span class="meta">what rejects your pod, and with which message</span></div>
   <div class="pbody">
     <ol>
-      <li><strong>ResourceQuota</strong> caps the namespace total: <code>requests.*</code>, <code>limits.*</code>, object counts (<code>pods: "20"</code>, <code>services.loadbalancers: "1"</code>), and storage per class. A quota that lists <code>requests.cpu</code> or <code>limits.memory</code> <em>rejects any pod that fails to declare them</em>, which leads directly to point 2.</li>
-      <li><strong>LimitRange</strong> fills in per-container defaults (<code>default</code>, <code>defaultRequest</code>) and bounds (<code>min</code>, <code>max</code>, <code>maxLimitRequestRatio</code>), so a bare pod arrives at the quota check with numbers already attached. LimitRange defaulting is what keeps tenant onboarding friction-free while the quota stays enforceable.</li>
-      <li><strong>NetworkPolicy</strong> default-deny plus explicit allows. team-a allows same-namespace traffic and DNS to kube-dns, nothing else. Additive allow-lists mean you loosen by adding policies and tighten only by removing rules, an asymmetry the netpol break drill exploits.</li>
-      <li><strong>Pod Security Standards</strong> labels on the namespace (enforce baseline, warn and audit restricted here). Covered properly in section 5.3.</li>
-      <li><strong>RBAC scoping</strong>: a Role and RoleBinding giving user <code>dev-a</code> real rights inside team-a and none outside. Covered properly in section 5.1.</li>
+      <li><strong>ResourceQuota</strong> caps the namespace total: <code>requests.*</code>, <code>limits.*</code>, object counts (<code>pods: "20"</code>, <code>services.loadbalancers: "1"</code>), and per-class storage. The catch: once a quota tracks <code>requests.cpu</code> or <code>limits.memory</code>, it <em>rejects any pod that omits them</em> - which brings us straight to layer 2.</li>
+      <li><strong>LimitRange</strong> injects per-container defaults (<code>default</code>, <code>defaultRequest</code>) and enforces bounds (<code>min</code>, <code>max</code>, <code>maxLimitRequestRatio</code>). A bare pod arrives at the quota check with defaults already filled in, keeping onboarding smooth without weakening the quota.</li>
+      <li><strong>NetworkPolicy</strong> pairs a default-deny baseline with explicit allow rules. <code>team-a</code> allows same-namespace traffic and DNS to <code>kube-dns</code>, and blocks everything else. Because rules are additive allow-lists, you loosen by adding and tighten by removing - the exact quirk our <code>netpol</code> break drill exploits.</li>
+      <li><strong>Pod Security Standards</strong> labels on the namespace (<code>enforce: baseline</code>, <code>warn</code> and <code>audit: restricted</code> here). We dive deep into these in section 5.3.</li>
+      <li><strong>RBAC scoping:</strong> a Role and RoleBinding giving <code>dev-a</code> real permissions inside <code>team-a</code> and zero access anywhere else. Full breakdown in section 5.1.</li>
     </ol>
 
     <div class="callout trap">
-      <span class="tag">Admission order decides who refuses you</span>
-      <p>The order is: <em>mutating</em> admission (LimitRanger injects defaults, Kyverno mutates labels) → <em>validating</em> admission (PSS, quota, Kyverno/Gatekeeper validate). So a pod with no resources block can be admitted because LimitRange gave it some, and a validating policy demanding requests will never see a violation in a namespace that has a LimitRange. Section 5.2 makes a whole lesson of this; here, internalize that <strong>a mutation can satisfy a validation the user never wrote</strong>.</p>
+      <span class="tag">Admission order decides who rejects you</span>
+      <p>Admission always runs <em>mutating</em> plugins first (LimitRanger injects defaults, Kyverno mutates labels) and <em>validating</em> plugins second (PSS, ResourceQuota, Kyverno/Gatekeeper validate). That means a pod with no resources block passes cleanly because LimitRange fills them in first - and a validating policy requiring requests will never reject a pod inside a namespace that has a LimitRange. Section 5.2 builds a whole exercise around this; for now, remember: <strong>mutation can satisfy a validation rule the user never wrote</strong>.</p>
     </div>
 
-    <h3>Reading the refusal</h3>
+    <h3>Decoding the refusal message</h3>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Message contains</th><th>Who refused</th><th>Fix direction</th></tr></thead>
         <tbody>
-          <tr><td class="mono">exceeded quota: team-a-quota, requested: …, used: …, limited: …</td><td>ResourceQuota</td><td>smaller requests, fewer replicas, or a bigger quota</td></tr>
-          <tr><td class="mono">maximum cpu usage per Container is 1, but limit is 2</td><td>LimitRange</td><td>fit inside the bounds</td></tr>
-          <tr><td class="mono">violates PodSecurity "baseline:latest"</td><td>PSS admission</td><td>fix the securityContext</td></tr>
-          <tr><td class="mono">admission webhook "…kyverno…" denied the request</td><td>policy engine</td><td>satisfy the policy or exempt properly</td></tr>
-          <tr><td class="mono">is forbidden: User "dev-a" cannot create …</td><td>RBAC</td><td>a rule, a binding, or the wrong namespace</td></tr>
+          <tr><td class="mono">exceeded quota: team-a-quota, requested: …, used: …, limited: …</td><td>ResourceQuota</td><td>trim requests, reduce replicas, or raise the quota</td></tr>
+          <tr><td class="mono">maximum cpu usage per Container is 1, but limit is 2</td><td>LimitRange</td><td>bring container values inside the bounds</td></tr>
+          <tr><td class="mono">violates PodSecurity "baseline:latest"</td><td>PSS admission</td><td>tighten the pod's <code>securityContext</code></td></tr>
+          <tr><td class="mono">admission webhook "…kyverno…" denied the request</td><td>policy engine</td><td>satisfy the policy or add an approved exception</td></tr>
+          <tr><td class="mono">is forbidden: User "dev-a" cannot create …</td><td>RBAC</td><td>missing Role rule, missing Binding, or wrong namespace</td></tr>
         </tbody>
       </table>
     </div>
-    <p>Being able to name the refusing control from one line of error text is the difference between fixing the right object and guessing.</p>
-    <p>Do the arithmetic the way the admission controller does. Push the replicas up and see which line binds first, and what changes when the tenant declares resources instead of letting the LimitRange fill them in:</p>
+    <p>Recognizing the culprit from a single error line saves you from poking the wrong object under time pressure.</p>
+    <p>Run the admission math yourself: push replicas up to see which quota line hits the ceiling first, and watch what shifts when a pod declares explicit resources instead of inheriting LimitRange defaults:</p>
     <div class="widget" data-widget="quota"></div>
 
 
     <div class="callout exam">
-      <span class="tag">Quota's second-order effects</span>
-      <p>Quota is enforced by an admission controller against a <em>usage cache</em>, which is why the failure often appears one level down: a Deployment applies fine and its <em>ReplicaSet</em> logs the quota error while replicas stall below the target. Look at <code>kubectl describe rs</code> or namespace events, not at the Deployment. The same indirection shows up for PSS (5.3), and recognizing the two-level pattern generalizes across the whole exam.</p>
+      <span class="tag">Quota's hidden error location</span>
+      <p>ResourceQuota runs at pod admission, not Deployment admission. That means a Deployment applies cleanly while its <em>ReplicaSet</em> silently fails to create pods below the target count. Always check <code>kubectl describe rs</code> or namespace events rather than staring at the Deployment. PSS does the exact same thing (section 5.3) - recognizing this two-level indirection pays off across the entire exam.</p>
     </div>
   </div>
 </section>
@@ -80,61 +80,61 @@
 <section class="panel accent-y" id="fairness">
   <div class="phdr"><h2>Fairness beyond quota</h2><span class="meta">the "optimizing" half of the competency</span></div>
   <div class="pbody">
-    <p>Quota bounds the worst case. It does not make sharing efficient, and four other mechanisms carry that load:</p>
+    <p>Quotas cap worst-case sprawl, but they don't make a shared cluster efficient. Four other mechanisms do the heavy lifting:</p>
     <ul>
-      <li><strong>Priority and preemption.</strong> A <code>PriorityClass</code> decides who gets evicted when the cluster is full. Platform components (ingress, monitoring, CNI) should outrank tenant workloads; a tenant that can preempt your metrics stack is a tenant that can blind you. Quota can be scoped per priority class (<code>scopeSelector</code>) so nobody hoards the high-priority lane.</li>
-      <li><strong>Overcommit ratios.</strong> Setting <code>limits</code> well above <code>requests</code> across every tenant is how you get density; it is also how you get a node that OOMs under coincident spikes. The lab's LimitRange (50m request / 200m limit) is a deliberate 4× burst ratio: a decision, not an accident.</li>
-      <li><strong>Node pools with taints.</strong> When two tenants must not share a kernel (or a GPU, or a license), taint the pool and pair it with nodeAffinity. Cost: stranded capacity in each pool.</li>
-      <li><strong>Idle reclamation.</strong> The unused space between requests and usage is the tenancy tax, and it is what OpenCost puts a number on in section 1.5. "Optimizing multi-tenancy resource usage" is, in practice, driving that number down without breaking the guardrails above.</li>
+      <li><strong>Priority and preemption:</strong> <code>PriorityClass</code> decides who stays standing when nodes fill up. Platform infrastructure (ingress, monitoring, CNI) must outrank tenant apps - a tenant workload that can evict Prometheus can blind your whole cluster. Pair it with a <code>scopeSelector</code> quota so tenants can't sneak into the high-priority lane.</li>
+      <li><strong>Overcommit ratios:</strong> setting limits comfortably above requests drives high density, at the risk of node OOMs if every tenant spikes simultaneously. Our lab's LimitRange (50m request / 200m limit) chooses a deliberate 4× burst ratio.</li>
+      <li><strong>Tainted node pools:</strong> when workloads can't share a kernel, GPU, or software license, taint dedicated nodes and match them with <code>nodeAffinity</code>. The cost is stranded idle capacity inside each pool.</li>
+      <li><strong>Idle reclamation:</strong> the gap between requested resources and actual usage is the hidden tax of multi-tenancy, and OpenCost puts a dollar figure on it in section 1.5. Optimizing multi-tenancy really means shrinking that gap without breaking your isolation guardrails.</li>
     </ul>
 
-    <p>Two more things a real tenant needs that people forget in exam prep: a default <code>ServiceAccount</code> with nothing attached (so workloads do not inherit power), and namespaced <strong>quota on objects that cost money outside the cluster</strong>: LoadBalancers, PVCs, NodePorts. That is why team-a caps <code>services.loadbalancers</code> at 1: quota as a cost tool, not just a fairness tool.</p>
+    <p>Two practical pieces people often forget in exam prep: keep the default <code>ServiceAccount</code> powerless (so pods don't accidentally inherit API permissions), and quota <strong>objects that cost real money outside the cluster</strong> - LoadBalancers, PVCs, and NodePorts. That's why <code>team-a</code> caps <code>services.loadbalancers</code> at 1: quotas are a spend control as much as a fairness guardrail.</p>
   
 
-    <h3>Quotas beyond requests and limits</h3>
+    <h3>Quotas beyond CPU and memory</h3>
     <ul>
-      <li><strong>Object counts</strong>: <code>count/&lt;resource&gt;.&lt;group&gt;</code> works for any kind, including custom resources (<code>count/widgets.example.com</code>), and the specialized forms <code>pods</code>, <code>services</code>, <code>secrets</code>, <code>configmaps</code>, <code>persistentvolumeclaims</code>, <code>services.loadbalancers</code>, <code>services.nodeports</code>. These protect the control plane and the bill, not the nodes.</li>
-      <li><strong>Scopes</strong>: <code>scopeSelector</code> narrows a quota to <code>BestEffort</code>/<code>NotBestEffort</code>, <code>Terminating</code>/<code>NotTerminating</code> (pods with <code>activeDeadlineSeconds</code>), <code>CrossNamespacePodAffinity</code>, or <code>PriorityClass</code> with <code>In</code> a list of class names. A quota scoped to <code>PriorityClass In [platform-critical]</code> with <code>pods: "0"</code> is how you stop tenants using the platform's own lane.</li>
-      <li><strong>Per-class storage</strong>: <code>&lt;class&gt;.storageclass.storage.k8s.io/requests.storage</code> and <code>.../persistentvolumeclaims</code>, as in 1.3.</li>
-      <li><strong>Ephemeral storage</strong>: <code>requests.ephemeral-storage</code> and <code>limits.ephemeral-storage</code>; container logs count against it, which is why a chatty pod can be evicted for disk.</li>
+      <li><strong>Object counts:</strong> <code>count/&lt;resource&gt;.&lt;group&gt;</code> caps any resource kind, including your own CRDs (<code>count/widgets.example.com</code>), alongside built-ins like <code>pods</code>, <code>services</code>, <code>secrets</code>, <code>configmaps</code>, <code>persistentvolumeclaims</code>, <code>services.loadbalancers</code>, and <code>services.nodeports</code>. These shield both etcd and your cloud bill.</li>
+      <li><strong>Scopes:</strong> <code>scopeSelector</code> narrows a quota to <code>BestEffort</code>/<code>NotBestEffort</code>, <code>Terminating</code>/<code>NotTerminating</code> (pods with <code>activeDeadlineSeconds</code>), <code>CrossNamespacePodAffinity</code>, or specific <code>PriorityClass</code> names. A quota matching <code>PriorityClass In [platform-critical]</code> with <code>pods: "0"</code> cleanly locks tenants out of the platform lane.</li>
+      <li><strong>Per-class storage:</strong> <code>&lt;class&gt;.storageclass.storage.k8s.io/requests.storage</code> and <code>.../persistentvolumeclaims</code> (section 1.3).</li>
+      <li><strong>Ephemeral storage:</strong> <code>requests.ephemeral-storage</code> and <code>limits.ephemeral-storage</code> - container logs count here too, which is how a runaway logger gets evicted for disk pressure.</li>
     </ul>
-    <p>The "optimizing" levers in field names: <code>LimitRange.spec.limits[].maxLimitRequestRatio</code> bounds overcommit per container (a ratio of 4 means a limit may be at most four times the request); <code>PriorityClass</code> plus <code>preemptionPolicy</code> decides who yields when the shared pool is full; a PriorityClass-scoped quota decides how much of the high lane each tenant may buy; and OpenCost's efficiency per namespace (1.5) tells you which tenant's requests are the hoarders. Bin-packing itself is the node autoscaler's job (1.2), and it only ever sees requests.</p>
+    <p>Keep the concrete field names handy: <code>LimitRange.spec.limits[].maxLimitRequestRatio</code> caps per-container burst ratios (4 means limits can't exceed 4× requests); <code>PriorityClass</code> and <code>preemptionPolicy</code> settle eviction ties; a PriorityClass-scoped quota fences off critical lanes; and OpenCost's per-namespace efficiency (1.5) exposes which teams are hoarding requests. Actual bin-packing belongs to the node autoscaler (1.2), which only ever looks at requests.</p>
   </div>
 </section>
 
 <section class="panel accent-c" id="tenancy-models">
-  <div class="phdr"><h2>Tenancy models and the tools that implement them</h2><span class="meta">namespaces-as-a-service · virtual control planes · clusters · HNC, Capsule, vcluster</span></div>
+  <div class="phdr"><h2>Tenancy models and the tools behind them</h2><span class="meta">namespaces-as-a-service · virtual control planes · clusters · HNC, Capsule, vcluster</span></div>
   <div class="pbody">
-    <p>The kubernetes.io multi-tenancy page splits isolation into <em>control plane</em> (namespaces, RBAC, quota) and <em>data plane</em> (network policy, storage, sandboxing, node isolation), and names two ways to share a cluster: a namespace per tenant or a virtual control plane per tenant. Scenario questions use exactly those words.</p>
+    <p>Kubernetes' official multi-tenancy guide divides isolation into <em>control plane</em> (namespaces, RBAC, quotas) and <em>data plane</em> (network policies, storage, sandboxing, node isolation), and compares two shared-cluster architectures: namespace-per-tenant vs. virtual control plane per tenant. Expect scenario prompts to use those exact terms.</p>
 
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Model</th><th>Tenant gets</th><th>Cannot isolate</th><th>Cost</th><th>Tools</th></tr></thead>
         <tbody>
-          <tr><td>Namespace per tenant (namespaces-as-a-service)</td><td>one or more namespaces with quota, LimitRange, NetworkPolicy, PSS, RBAC</td><td>anything cluster-scoped: CRDs, StorageClasses, webhooks, cluster roles, API versions</td><td>near zero</td><td>plain Kubernetes; HNC or Capsule to manage many</td></tr>
-          <tr><td>Virtual control plane per tenant</td><td>its own API server, CRDs, cluster-scoped objects; pods still run on shared nodes</td><td>the kernel and node-level attacks; cross-tenant sharing gets harder</td><td>one control plane pod per tenant</td><td>vcluster</td></tr>
-          <tr><td>Cluster per tenant</td><td>everything, possibly its own hardware</td><td>nothing, but nothing is shared either</td><td>full duplication, fleet management</td><td>Cluster API, managed clusters</td></tr>
+          <tr><td>Namespace per tenant (namespaces-as-a-service)</td><td>one or more namespaces with quota, LimitRange, NetworkPolicy, PSS, and RBAC</td><td>anything cluster-scoped: CRDs, StorageClasses, webhooks, ClusterRoles, API versions</td><td>near zero</td><td>plain Kubernetes; HNC or Capsule at scale</td></tr>
+          <tr><td>Virtual control plane per tenant</td><td>its own API server, CRDs, and cluster-scoped objects; pods still share worker nodes</td><td>the Linux kernel and node-level blast radius; cross-tenant sharing gets trickier</td><td>one control plane pod per tenant</td><td>vcluster</td></tr>
+          <tr><td>Cluster per tenant</td><td>total isolation, optionally dedicated hardware</td><td>nothing, though you share nothing either</td><td>full duplication and fleet management overhead</td><td>Cluster API, managed cloud clusters</td></tr>
         </tbody>
       </table>
     </div>
 
-    <h3>The three tools by name</h3>
+    <h3>The three ecosystem tools to know by name</h3>
     <ul>
-      <li><strong>Hierarchical Namespace Controller (HNC)</strong>: namespaces gain a parent; RBAC, NetworkPolicy and other objects <em>propagate</em> from parent to children (label <code>hnc.x-k8s.io/inherited-from</code>), and a tenant with rights in a parent can create <em>subnamespaces</em> (<code>kubectl hns create dev -n team-a</code>) without cluster permission to create namespaces. Every namespace gets tree labels (<code>team-a.tree.hnc.x-k8s.io/depth</code>) that NetworkPolicy selectors can use to mean "the whole team". <code>HierarchicalResourceQuota</code> caps a subtree's total (beta in HNC 1.1). Argo CD's annotation tracking exists partly so HNC copies do not show as drift.</li>
-      <li><strong>Capsule</strong>: a cluster-scoped <code>Tenant</code> CRD groups namespaces owned by a user or group; quota, LimitRange, NetworkPolicy, RBAC, allowed StorageClasses and IngressClasses, node selectors and registries defined once on the Tenant are stamped into every namespace the owner creates. Owners create namespaces themselves; the Capsule policy engine (admission) keeps them inside the tenant.</li>
-      <li><strong>vcluster</strong>: a tenant cluster whose API server, controller manager and data store (SQLite by default, etcd optional) run in one pod in a host namespace, plus a <em>syncer</em> that copies pods, Services, ConfigMaps and Secrets down to the host namespace where they actually run. Tenants see their own CRDs and cluster-scoped objects; the host sees translated copies. With <em>private nodes</em> a vcluster gets dedicated worker nodes and becomes indistinguishable from a real cluster; with <em>shared nodes</em> it is control-plane isolation only.</li>
+      <li><strong>Hierarchical Namespace Controller (HNC):</strong> arranges namespaces into parent-child trees so RBAC, NetworkPolicies, and other objects automatically <em>propagate</em> downward (labeled <code>hnc.x-k8s.io/inherited-from</code>). Users with permissions in a parent can create <em>subnamespaces</em> (<code>kubectl hns create dev -n team-a</code>) without cluster-wide namespace creation rights. Tree labels (<code>team-a.tree.hnc.x-k8s.io/depth</code>) let NetworkPolicies target "the whole team," and <code>HierarchicalResourceQuota</code> caps an entire subtree (beta in HNC 1.1).</li>
+      <li><strong>Capsule:</strong> introduces a cluster-scoped <code>Tenant</code> CRD grouping namespaces under an owner or group. Quotas, LimitRanges, NetworkPolicies, RBAC, allowed StorageClasses/IngressClasses, node selectors, and image registries defined once on the Tenant automatically stamp onto every namespace the owner creates, enforced by Capsule's admission webhook.</li>
+      <li><strong>vcluster:</strong> runs a lightweight tenant control plane (API server, controller manager, and SQLite or etcd) inside a single pod in a host namespace, paired with a <em>syncer</em> that schedules the tenant's pods, Services, ConfigMaps, and Secrets down into the host cluster. Tenants install their own CRDs and webhooks freely. With <em>shared nodes</em> you get control-plane isolation; attach <em>private nodes</em> and it behaves like a full dedicated cluster.</li>
     </ul>
 
-    <h3>Data-plane controls the page lists that your tenant template may lack</h3>
+    <h3>Data-plane guardrails teams often forget</h3>
     <ul>
-      <li><strong>Storage</strong>: dynamic provisioning only, a StorageClass per tenant where it matters, and <code>reclaimPolicy: Delete</code> on shared classes so a released PV cannot be rebound by another namespace.</li>
-      <li><strong>Sandboxing</strong>: a <code>RuntimeClass</code> (gVisor, Kata) selected in the pod spec for untrusted code; the container boundary alone is a shared kernel.</li>
-      <li><strong>Node isolation</strong>: taint the tenant's pool and let a mutating webhook (or Kyverno mutate rule) add the toleration and nodeAffinity to pods in that tenant's namespaces, so tenants never write scheduling constraints themselves.</li>
-      <li><strong>DNS</strong>: CoreDNS answers cross-namespace queries by default; the CoreDNS policy plugin can restrict lookups to the pod's own namespace when the tenancy model requires it.</li>
-      <li><strong>API Priority and Fairness</strong>: FlowSchema and PriorityLevelConfiguration protect the API server from a tenant's chatty controller; it matters once tenants run their own operators.</li>
+      <li><strong>Storage:</strong> stick to dynamic provisioning, offer per-tenant StorageClasses where needed, and set <code>reclaimPolicy: Delete</code> on shared classes so one tenant's released PV can't accidentally rebind to another tenant.</li>
+      <li><strong>Sandboxing:</strong> run untrusted workloads under a <code>RuntimeClass</code> (gVisor or Kata) - standard containers still share the host kernel.</li>
+      <li><strong>Node isolation:</strong> taint a tenant's dedicated node pool and let a mutating webhook (or Kyverno mutate rule) inject the toleration and <code>nodeAffinity</code> automatically so devs never hand-write scheduling boilerplate.</li>
+      <li><strong>DNS:</strong> CoreDNS answers cross-namespace lookups by default; add a CoreDNS policy plugin rule if your tenancy model forbids namespace discovery over DNS.</li>
+      <li><strong>API Priority and Fairness:</strong> <code>FlowSchema</code> and <code>PriorityLevelConfiguration</code> keep one tenant's runaway controller from starving the API server for everyone else.</li>
     </ul>
 
-    <div class="callout model"><span class="tag">Mental model</span><p>Ask what the tenant needs to own: only workloads, then namespaces; CRDs and webhooks too, then a virtual control plane; the kernel and the version skew, then a cluster. Each step up trades idle capacity and operations for a boundary. Naming the boundary the threat model actually requires is the whole answer.</p></div>
+    <div class="callout model"><span class="tag">Decision rule</span><p>Match the model to what the tenant actually needs to own: just workloads → namespaces; their own CRDs and webhooks → a virtual control plane; their own kernel and upgrade schedule → a dedicated cluster. Pick the lightest rung that satisfies the real threat model.</p></div>
   </div>
 </section>
 
@@ -471,32 +471,32 @@ workload-low,      0,            true,   false,       0,               0,       
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>A tenant applies a Deployment. It is accepted, and no pods appear. Where is the error?</summary>
-      <div class="answer"><p>One level down, on the ReplicaSet: quota and PSS are pod-level admission decisions, and the Deployment controller only records the failure in the RS's events and conditions. <code>kubectl -n &lt;ns&gt; describe rs -l app=&lt;x&gt;</code> or namespace events. This indirection is a stock exam scenario.</p></div></details>
+      <div class="answer"><p>One level down on the ReplicaSet. Quotas and PSS are enforced at pod creation, so the Deployment itself applies cleanly while the ReplicaSet logs the rejection in its events and conditions. Run <code>kubectl -n &lt;ns&gt; describe rs -l app=&lt;x&gt;</code> or check namespace events - this indirection comes up constantly on the exam.</p></div></details>
 
     <details class="quiz"><summary>Why does adding a LimitRange sometimes make previously-working pods fail?</summary>
-      <div class="answer"><p>Because it enforces <code>min</code>/<code>max</code> as well as injecting defaults. Existing pods keep running (admission is not retroactive), but the next pod whose explicit requests fall outside the bounds is rejected, and the message comes from the LimitRange, not the quota.</p></div></details>
+      <div class="answer"><p>Because LimitRanges enforce <code>min</code>/<code>max</code> bounds in addition to injecting defaults. Already-running pods stay untouched (admission isn't retroactive), but the next new pod whose explicit requests fall outside those bounds gets rejected with a LimitRange error.</p></div></details>
 
     <details class="quiz"><summary>Quota says <code>requests.cpu: "2"</code>. A tenant asks why they cannot run 40 pods when the LimitRange injects 50m each.</summary>
-      <div class="answer"><p>Because the other quota lines bind first: <code>limits.cpu: "4"</code> against a 200m default limit allows 20 pods, and <code>pods: "20"</code> caps it at the same number. Whichever binds first is the one named in the event. The lesson: quota is a conjunction, and the tightest line wins.</p></div></details>
+      <div class="answer"><p>Another quota ceiling hits first: <code>limits.cpu: "4"</code> divided by the 200m default limit caps them at 20 pods, tying with <code>pods: "20"</code>. Every line in a ResourceQuota must pass simultaneously, so the tightest limit always wins.</p></div></details>
 
     <details class="quiz"><summary>Name the isolation ladder and one cost of each rung.</summary>
-      <div class="answer"><p>Namespace + quota + policy (cheap, shared kernel and shared API server). Dedicated node pools via taints (no shared kernel; stranded capacity per pool). Virtual clusters (own API server and CRDs; more moving parts to run). Separate clusters (strongest; multiplied operational and idle cost). Pick the thinnest rung that satisfies the actual threat model.</p></div></details>
+      <div class="answer"><p>Namespaces + quotas + policies (near-zero overhead, but shared kernel and shared API server) → tainted dedicated node pools (isolated kernels, but stranded capacity per pool) → virtual clusters (own API server and CRDs, more control-plane moving parts) → dedicated clusters (strongest boundary, highest operational and idle-capacity cost). Always pick the lightest rung that meets your threat model.</p></div></details>
 
     <details class="quiz"><summary>Why is <code>services.loadbalancers: "1"</code> in a tenant quota?</summary>
-      <div class="answer"><p>Because a LoadBalancer bills outside the cluster whether or not traffic flows. Quota here is a spend control, not a fairness control: the same reasoning that puts per-StorageClass storage quota in a tenant template.</p></div></details>
+      <div class="answer"><p>Because cloud LoadBalancers bill continuously whether traffic flows or not. Putting a cap in the tenant quota turns Kubernetes into a spend guardrail, just like per-StorageClass quotas do for expensive disks.</p></div></details>
   
 
     <details class="quiz"><summary>A tenant needs to install its own CRDs and admission webhooks but you cannot afford a cluster per tenant. Which model?</summary>
-      <div class="answer"><p>A virtual control plane per tenant, for example vcluster: the tenant gets its own API server (so CRDs and webhooks are theirs alone) while pods still run on shared nodes through the syncer. Namespaces cannot isolate cluster-scoped objects; a dedicated cluster can, at full duplication cost.</p></div></details>
+      <div class="answer"><p>A virtual control plane per tenant, such as vcluster. Each tenant gets an isolated API server for their own CRDs and webhooks while their pods still share the host cluster's worker nodes through the syncer. Plain namespaces can't isolate cluster-scoped APIs, and full clusters cost too much duplication.</p></div></details>
 
     <details class="quiz"><summary>What does HNC add to plain namespaces, in two sentences?</summary>
-      <div class="answer"><p>A parent-child hierarchy: RBAC, NetworkPolicies and other chosen objects propagate from a parent to all descendants, and users with rights in a parent can create subnamespaces without cluster-level permission. Tree labels on every namespace let selectors mean "the whole team", and HierarchicalResourceQuota caps a subtree.</p></div></details>
+      <div class="answer"><p>HNC organizes namespaces into parent-child hierarchies so RBAC, NetworkPolicies, and other chosen resources propagate automatically downward, while letting tenant admins spin up subnamespaces without cluster-wide permissions. It also stamps tree labels onto every namespace for team-wide selectors and supports <code>HierarchicalResourceQuota</code> across subtrees.</p></div></details>
 
     <details class="quiz"><summary>Tenants keep launching pods with the PriorityClass reserved for platform components. Fix with a quota.</summary>
-      <div class="answer"><p>A ResourceQuota in each tenant namespace with <code>scopeSelector: { matchExpressions: [{ scopeName: PriorityClass, operator: In, values: [platform-critical] }] }</code> and <code>hard: { pods: "0" }</code>. Admission then rejects any pod naming that class in the namespace, with an "exceeded quota" message, while other classes are unaffected.</p></div></details>
+      <div class="answer"><p>Add a ResourceQuota in each tenant namespace with <code>scopeSelector: { matchExpressions: [{ scopeName: PriorityClass, operator: In, values: [platform-critical] }] }</code> and <code>hard: { pods: "0" }</code>. Admission immediately rejects any pod claiming that PriorityClass while leaving normal workloads untouched.</p></div></details>
 
     <details class="quiz"><summary>Why should a StorageClass shared between tenants use reclaimPolicy Delete?</summary>
-      <div class="answer"><p>A Retain PV released by one tenant stays in the cluster with its data; PVs are cluster-scoped, so a claim from another namespace could bind to it once the claimRef is cleared. Delete removes the backend volume with the claim, so data cannot cross tenants through the storage layer. Per-tenant classes are the stronger alternative.</p></div></details>
+      <div class="answer"><p>Because PVs are cluster-scoped. A <code>Retain</code> PV released by one tenant keeps its old data around, and once <code>claimRef</code> is cleared, a claim from another namespace could bind to it. <code>Delete</code> destroys the backend volume alongside the claim so data can't leak across tenants (or give sensitive tenants their own StorageClasses).</p></div></details>
   </div>
 </section>
 

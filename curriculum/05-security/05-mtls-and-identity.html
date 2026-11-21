@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#171c1d" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f5f0" media="(prefers-color-scheme: light)">
-<meta name="description" content="Service-to-service security is two ideas: encryption in transit, and cryptographic identity, each workload proving which service it is rather than which IP it currently has.">
+<meta name="description" content="Service-to-service security combines encryption in transit with cryptographic identity: each workload proves which service it is, not which IP it currently holds.">
 <title>5.5 mTLS and workload identity: Istio and SPIRE · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
 <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
@@ -18,7 +18,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum">Service-to-service security is two ideas: encryption in transit, and cryptographic <em>identity</em>, each workload proving which service it is rather than which IP it currently has. mTLS delivers both at once, and meshes exist to deliver it without touching application code.</p>
+  <p class="sum">Service-to-service security comes down to two ideas: encrypting traffic in transit and giving every workload a cryptographic <em>identity</em>, so it proves which service it is rather than which IP it happens to hold. mTLS delivers both at once, and service meshes let you roll it out without touching application code.</p>
 </header>
 
 <div class="stats"></div>
@@ -28,10 +28,10 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 5.1 · secure service-to-service communication</span></div>
   <div class="pbody">
-    <p class="lede">Run <code>make mesh</code> (second cluster, context <code>kind-mesh</code>) and <code>make spire</code> (main cluster) separately if the laptop complains; they do not interact. The concepts do, though: both answer "who is this workload, cryptographically", and both derive that identity from the ServiceAccount.</p>
+    <p class="lede">If your laptop complains about memory, run <code>make mesh</code> (a second cluster under context <code>kind-mesh</code>) and <code>make spire</code> (on the main cluster) one at a time; they don't depend on each other. Conceptually, though, they're two halves of the same question: how does a workload prove who it is cryptographically? Both derive that answer straight from its ServiceAccount.</p>
     <div class="callout model">
       <span class="tag">Why identity beats network location</span>
-      <p>A NetworkPolicy says "traffic from these pod labels may reach these pods". mTLS-based authorization says "a caller holding a certificate for <em>this ServiceAccount</em> may call this service". The second survives IP churn, works across clusters, and cannot be spoofed by landing a pod in the right namespace. That is the zero-trust argument. It also promotes every ServiceAccount you bound in 5.1 into a network-level identity.</p>
+      <p>A NetworkPolicy says "traffic from pods carrying these labels may reach these pods". mTLS-based authorization says "only a caller presenting a valid certificate for <em>this ServiceAccount</em> may call this service". The second survives pod IP churn, works across cluster boundaries, and can't be spoofed just by scheduling a pod in the right namespace. That's the zero-trust argument in a nutshell, and it upgrades every ServiceAccount from section 5.1 into a network-level identity.</p>
     </div>
   </div>
 </section>
@@ -39,7 +39,7 @@
 <section class="panel accent-c" id="istio">
   <div class="phdr"><h2>Istio ambient, how it fits together</h2><span class="meta">ztunnel · HBONE · waypoints</span></div>
   <div class="pbody">
-    <p>The mesh cluster runs Istio's <strong>ambient</strong> mode: no sidecars. A per-node proxy (<strong>ztunnel</strong>, a DaemonSet) intercepts traffic for enrolled namespaces and wraps it in mTLS over <strong>HBONE</strong> (HTTP/2 CONNECT tunnels on port 15008), using per-workload certificates issued by istiod. Enrollment is one label on the namespace: <code>istio.io/dataplane-mode=ambient</code>, and the lab pre-enrolls <code>default</code> on the mesh cluster.</p>
+    <p>The mesh cluster runs Istio in <strong>ambient</strong> mode, with zero sidecars. A per-node proxy called <strong>ztunnel</strong> (deployed as a DaemonSet) intercepts traffic for enrolled namespaces and tunnels it inside mTLS over <strong>HBONE</strong> (HTTP/2 CONNECT on port 15008), using per-workload certificates minted by <code>istiod</code>. Enrolling a namespace takes a single label (<code>istio.io/dataplane-mode=ambient</code>), and the lab pre-enrolls <code>default</code> on <code>kind-mesh</code> for you.</p>
 
     <pre class="diagram"><b>client pod</b> ──plaintext──▶ <i>ztunnel</i> (node A) ══mTLS/HBONE══▶ <i>ztunnel</i> (node B) ──plaintext──▶ <b>backend pod</b>
                                  │                                │
@@ -47,25 +47,25 @@
                                                        L4 policy enforced here
                     ┌──────── optional <em>waypoint proxy</em> for L7 rules (paths, methods, headers) ────────┐</pre>
 
-    <p>The identities inside the certificates are <strong>SPIFFE IDs</strong>: <code>spiffe://cluster.local/ns/&lt;namespace&gt;/sa/&lt;serviceaccount&gt;</code>. Note what that string is built from: the ServiceAccount <em>is</em> the identity.</p>
+    <p>Those certificates carry <strong>SPIFFE IDs</strong> shaped like <code>spiffe://cluster.local/ns/&lt;namespace&gt;/sa/&lt;serviceaccount&gt;</code>. Notice what's baked right into that URI: the Kubernetes ServiceAccount <em>is</em> the workload's identity.</p>
 
     <h3>The two policy objects</h3>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Kind</th><th>Decides</th><th>Key fields</th></tr></thead>
         <tbody>
-          <tr><td class="mono">PeerAuthentication</td><td><em>authn</em>: is mTLS required?</td><td><code>mtls.mode: STRICT | PERMISSIVE | DISABLE</code>, scoped mesh-wide (in the root namespace), per namespace, or per workload</td></tr>
-          <tr><td class="mono">AuthorizationPolicy</td><td><em>authz</em>: who may call what</td><td><code>action: ALLOW|DENY|AUDIT|CUSTOM</code>, rules with <code>from.source.principals</code> (SPIFFE IDs), <code>to.operation</code> (methods, paths; L7, needs a waypoint)</td></tr>
+          <tr><td class="mono">PeerAuthentication</td><td><em>Authn:</em> is mTLS required?</td><td><code>mtls.mode: STRICT | PERMISSIVE | DISABLE</code>, scoped mesh-wide (root namespace), per namespace, or per workload</td></tr>
+          <tr><td class="mono">AuthorizationPolicy</td><td><em>Authz:</em> who can call what?</td><td><code>action: ALLOW|DENY|AUDIT|CUSTOM</code>, rules with <code>from.source.principals</code> (SPIFFE IDs) and <code>to.operation</code> (methods, paths; L7, needs a waypoint)</td></tr>
         </tbody>
       </table>
     </div>
 
     <div class="callout exam">
       <span class="tag">Permissive by default</span>
-      <p>Installing a mesh does <strong>not</strong> mean everything is encrypted: the default <code>PERMISSIVE</code> mode accepts both mTLS and plaintext so you can migrate incrementally. You must apply STRICT, and you must prove it by having a plaintext connection refused. That proof is exercise 2 below.</p>
+      <p>Simply installing a service mesh does <strong>not</strong> mean every packet is encrypted. Istio defaults to <code>PERMISSIVE</code>, accepting both mTLS and plaintext so teams can onboard incrementally. To actually require mTLS, you have to apply <code>STRICT</code> and prove it by watching a plaintext client get refused (exercise 2 below).</p>
     </div>
 
-    <p>L4 rules (which identity may connect at all) work with ztunnel alone. L7 rules (methods, paths, headers) require a <strong>waypoint proxy</strong>, ambient's opt-in L7 tier deployed per namespace or per service account. Sidecar mode is the older model: an Envoy per pod, richer per-pod features, higher resource cost. Both are Istio; know which one a cluster runs before you reason about its data path.</p>
+    <p>L4 rules (which identity may connect at all) run directly in ztunnel. L7 rules (HTTP methods, paths, headers) require a <strong>waypoint proxy</strong>, ambient's opt-in L7 tier deployed per namespace or per service account. Sidecar mode is the older architecture: one Envoy container per pod, with richer per-pod controls and higher memory overhead. Both are Istio, so always confirm which mode a cluster runs before tracing its data path.</p>
   </div>
 </section>
 
@@ -77,18 +77,18 @@
       <table>
         <thead><tr><th class="mono">Thing</th><th>What it does</th></tr></thead>
         <tbody>
-          <tr><td class="mono">istio.io/dataplane-mode=ambient (namespace or pod label)</td><td>enrolls workloads: ztunnel captures their traffic; <code>none</code> on a pod opts it out</td></tr>
-          <tr><td class="mono">Gateway with gatewayClassName: istio-waypoint</td><td>a waypoint proxy (Envoy) for L7; generated by <code>istioctl waypoint apply -n ns [--name x]</code>; ready when <code>Programmed=True</code></td></tr>
-          <tr><td class="mono">istio.io/waypoint-for on the Gateway</td><td>which traffic it accepts: <code>service</code> (default), <code>workload</code>, <code>all</code>, <code>none</code></td></tr>
-          <tr><td class="mono">istio.io/use-waypoint=&lt;name&gt; on a namespace, Service or pod</td><td>enrolls that scope to send traffic through the waypoint; <code>--enroll-namespace</code> sets it for you; a Service label beats a namespace label</td></tr>
-          <tr><td class="mono">HBONE, port 15008</td><td>the mTLS tunnel between ztunnels and to waypoints; <code>PROTOCOL: HBONE</code> in <code>istioctl ztunnel-config workloads</code> means "captured"</td></tr>
+          <tr><td class="mono">istio.io/dataplane-mode=ambient (namespace or pod label)</td><td>Enrolls workloads so ztunnel captures their traffic; set <code>none</code> on a pod to opt it out</td></tr>
+          <tr><td class="mono">Gateway with gatewayClassName: istio-waypoint</td><td>An Envoy waypoint proxy for L7 rules, created via <code>istioctl waypoint apply -n ns [--name x]</code>; ready once <code>Programmed=True</code></td></tr>
+          <tr><td class="mono">istio.io/waypoint-for on the Gateway</td><td>Declares which traffic the waypoint accepts: <code>service</code> (default), <code>workload</code>, <code>all</code>, or <code>none</code></td></tr>
+          <tr><td class="mono">istio.io/use-waypoint=&lt;name&gt; on a namespace, Service, or pod</td><td>Routes that scope's traffic through the waypoint (<code>--enroll-namespace</code> sets it automatically); a Service label overrides a namespace label</td></tr>
+          <tr><td class="mono">HBONE, port 15008</td><td>The mTLS tunnel connecting ztunnels and waypoints; seeing <code>PROTOCOL: HBONE</code> in <code>istioctl ztunnel-config workloads</code> confirms capture</td></tr>
         </tbody>
       </table>
     </div>
-    <p>The <code>use-waypoint</code> label records intent; if the waypoint has no address or the traffic type does not match its <code>waypoint-for</code>, ztunnel sends traffic straight to the destination and L7 policy is bypassed. To make traversal mandatory, add a ztunnel-enforced <code>AuthorizationPolicy</code> that allows only the waypoint's identity (<code>cluster.local/ns/&lt;ns&gt;/sa/&lt;waypoint&gt;</code>) to reach the workload.</p>
+    <p>Keep in mind that <code>use-waypoint</code> only expresses routing intent: if the waypoint has no address or its <code>waypoint-for</code> doesn't match the traffic type, ztunnel sends traffic straight to the pod and bypasses your L7 policy. To guarantee traversal, add a ztunnel-enforced <code>AuthorizationPolicy</code> permitting only the waypoint's own identity (<code>cluster.local/ns/&lt;ns&gt;/sa/&lt;waypoint&gt;</code>) to reach the workload.</p>
 
     <h3>PeerAuthentication</h3>
-    <p>Modes: <code>UNSET</code> (inherit), <code>DISABLE</code>, <code>PERMISSIVE</code> (default when nothing is set), <code>STRICT</code>. Scope comes from where the object lives and whether it has a <code>selector</code>: in the root namespace (<code>istio-system</code> unless changed) with no selector it is mesh-wide; in another namespace with no selector it covers that namespace; with a <code>selector</code> it covers matching workloads only, and a selector in the root namespace is ignored. The most specific wins. <code>portLevelMtls</code> (a map of container port to mode) requires a selector and is how you keep one legacy port plaintext under STRICT. Only one mesh-wide and one namespace-wide policy should exist; two of them at the same scope is undefined behavior Istio warns about.</p>
+    <p>Valid modes are <code>UNSET</code> (inherit), <code>DISABLE</code>, <code>PERMISSIVE</code> (the default when nothing is configured), and <code>STRICT</code>. Scope is determined by namespace and whether <code>selector</code> is set: in the root namespace (<code>istio-system</code> by default) with no selector, it's mesh-wide; in any other namespace with no selector, it covers that namespace; with a <code>selector</code>, it applies only to matching workloads (a selector in the root namespace is ignored). Most specific always wins. Use <code>portLevelMtls</code> (mapping container port numbers to modes; requires a <code>selector</code>) to carve out one legacy plaintext port under <code>STRICT</code>. Stick to at most one mesh-wide and one namespace-wide policy, since duplicates at the same scope trigger undefined behavior that Istio warns about.</p>
 
     <h3>AuthorizationPolicy</h3>
     <div class="cb" data-lang="yaml"><pre><code>apiVersion: security.istio.io/v1
@@ -109,23 +109,23 @@ spec:
             methods: ["POST"]
             paths: ["/orders", "/orders/*"]</code></pre></div>
     <ul>
-      <li><strong>Evaluation order.</strong> <code>CUSTOM</code> policies first (an external authorizer can deny), then <code>DENY</code> (any match denies), then <code>ALLOW</code>. If the workload has no ALLOW policy, everything not denied is allowed; once at least one ALLOW policy targets it, anything not matched by an ALLOW is denied. An empty-rules <code>allow-nothing</code> policy is the standard way to switch a namespace to deny-by-default before adding allows. <code>AUDIT</code> logs without deciding.</li>
-      <li><strong>Where it is enforced.</strong> A policy with <code>selector</code> is enforced by ztunnel at L4 and may only use L4 fields (<code>principals</code>, <code>namespaces</code>, <code>ipBlocks</code>, <code>ports</code>). A policy with <code>targetRefs</code> to a Gateway (whole waypoint) or a Service attaches to the waypoint and may use L7 fields (<code>methods</code>, <code>paths</code>, <code>hosts</code>, <code>request.headers</code>, <code>requestPrincipals</code>). An L7 rule on a ztunnel-enforced policy is not silently ignored: it fails safe and the policy becomes DENY for matching traffic, which is the "everything is rejected since I added the paths clause" symptom.</li>
-      <li><strong>What a denial looks like.</strong> At L4 the connection is reset: <code>curl</code> exits 56 (<code>command terminated with exit code 56</code>), no HTTP status. At L7 the waypoint or sidecar answers <code>403 RBAC: access denied</code>. Telling the two apart tells you which proxy decided.</li>
-      <li><strong>Identity strings.</strong> <code>principals</code> are SPIFFE IDs without the scheme: <code>cluster.local/ns/shop/sa/checkout</code>; the trust domain is <code>meshConfig.trustDomain</code>. <code>notPrincipals</code>, <code>notNamespaces</code>, <code>notPaths</code> negate.</li>
-      <li><strong>JWT.</strong> <code>RequestAuthentication</code> with <code>jwtRules[].issuer</code> and <code>jwksUri</code> (or inline <code>jwks</code>) validates tokens and populates <code>request.auth.principal</code> (<code>issuer/subject</code>) and <code>request.auth.claims</code>; it rejects invalid tokens but admits requests with no token. Requiring a token is an AuthorizationPolicy rule with <code>from.source.requestPrincipals: ["*"]</code>; a claim check is <code>when: [{ key: request.auth.claims[groups], values: [admins] }]</code>. Both need L7, so a waypoint in ambient.</li>
-      <li><strong>Client side.</strong> A <code>DestinationRule</code>'s <code>trafficPolicy.tls.mode</code> (<code>DISABLE</code>, <code>SIMPLE</code>, <code>MUTUAL</code> with your own certs, <code>ISTIO_MUTUAL</code>) overrides Istio's automatic mTLS for a destination; the usual mistake is a leftover <code>DISABLE</code> that breaks STRICT.</li>
+      <li><strong>Evaluation order.</strong> Istio runs <code>CUSTOM</code> policies first (letting an external authorizer reject), then <code>DENY</code> (any match blocks immediately), and finally <code>ALLOW</code>. If no <code>ALLOW</code> policy targets a workload, everything not explicitly denied gets through; the moment even one <code>ALLOW</code> policy targets it, anything not matched by an <code>ALLOW</code> is rejected. An <code>ALLOW</code> policy with empty rules (<code>allow-nothing</code>) is the standard way to flip a namespace to deny-by-default before adding explicit allows. <code>AUDIT</code> logs matches without enforcing.</li>
+      <li><strong>Where it runs.</strong> A policy using <code>selector</code> runs in ztunnel at L4 and can only check L4 fields (<code>principals</code>, <code>namespaces</code>, <code>ipBlocks</code>, <code>ports</code>). A policy using <code>targetRefs</code> pointing to a waypoint Gateway or Service attaches to the waypoint and unlocks L7 fields (<code>methods</code>, <code>paths</code>, <code>hosts</code>, <code>request.headers</code>, <code>requestPrincipals</code>). Crucially, putting an L7 field on a ztunnel-enforced policy isn't silently ignored: Istio fails safe and turns it into a DENY for matching traffic, which explains "everything started failing right after I added a <code>paths</code> clause".</li>
+      <li><strong>Spotting which proxy denied you.</strong> An L4 denial resets the TCP connection outright: <code>curl</code> exits 56 (<code>command terminated with exit code 56</code>) with no HTTP status. An L7 denial from a waypoint or sidecar answers cleanly with <code>403 RBAC: access denied</code>. That single clue tells you immediately which tier rejected the call.</li>
+      <li><strong>Identity strings.</strong> <code>principals</code> omit the <code>spiffe://</code> scheme: write <code>cluster.local/ns/shop/sa/checkout</code> (the trust domain comes from <code>meshConfig.trustDomain</code>). Use <code>notPrincipals</code>, <code>notNamespaces</code>, and <code>notPaths</code> for negations.</li>
+      <li><strong>JWTs.</strong> <code>RequestAuthentication</code> (with <code>jwtRules[].issuer</code> and <code>jwksUri</code> or inline <code>jwks</code>) validates tokens and populates <code>request.auth.principal</code> (<code>issuer/subject</code>) and <code>request.auth.claims</code>. Watch the classic trap: it rejects invalid tokens, yet still lets requests with <em>no token at all</em> pass through. To require a token, pair it with an <code>AuthorizationPolicy</code> matching <code>from.source.requestPrincipals: ["*"]</code>, and check specific claims via <code>when: [{ key: request.auth.claims[groups], values: [admins] }]</code>. Both require L7, meaning a waypoint in ambient mode.</li>
+      <li><strong>Client-side TLS.</strong> A <code>DestinationRule</code>'s <code>trafficPolicy.tls.mode</code> (<code>DISABLE</code>, <code>SIMPLE</code>, <code>MUTUAL</code> with custom certs, or <code>ISTIO_MUTUAL</code>) overrides automatic mTLS for that destination. A forgotten <code>DISABLE</code> rule is a classic culprit when STRICT mTLS suddenly breaks.</li>
     </ul>
 
     <h3>Proving it</h3>
-    <p>Ambient: <code>istioctl ztunnel-config workloads</code> (PROTOCOL column, WAYPOINT column), <code>istioctl ztunnel-config certificates</code> (a cert per ServiceAccount, valid roughly 24 hours and rotated by istiod), <code>istioctl ztunnel-config policies</code>, and the ztunnel access log lines with <code>src.identity</code> and <code>dst.identity</code> and <code>dst.addr=...:15008</code>. Metrics: <code>istio_tcp_connections_opened_total{connection_security_policy="mutual_tls"}</code> at L4; the full <code>istio_requests_total</code> set only when a waypoint is present. Sidecar mode: <code>istioctl proxy-status</code>, <code>istioctl x describe pod &lt;pod&gt;</code> (which policies apply), and <code>istioctl analyze</code> for misconfiguration. In both modes, <code>kubectl get peerauthentication -A</code> and <code>kubectl get authorizationpolicy -A</code> first: the answer is usually an object you did not know existed in the root namespace.</p>
+    <p>In ambient mode, check <code>istioctl ztunnel-config workloads</code> (look at <code>PROTOCOL</code> and <code>WAYPOINT</code>), <code>istioctl ztunnel-config certificates</code> (one cert per ServiceAccount, ~24h lifetime rotated automatically by istiod), <code>istioctl ztunnel-config policies</code>, and ztunnel access logs showing <code>src.identity</code>, <code>dst.identity</code>, and <code>dst.addr=...:15008</code>. For metrics, look at <code>istio_tcp_connections_opened_total{connection_security_policy="mutual_tls"}</code> at L4 (the HTTP-level <code>istio_requests_total</code> series only appears once a waypoint is in the path). In sidecar mode, use <code>istioctl proxy-status</code>, <code>istioctl x describe pod &lt;pod&gt;</code>, and <code>istioctl analyze</code>. Under either mode, always start with <code>kubectl get peerauthentication -A</code> and <code>kubectl get authorizationpolicy -A</code>: half the time the culprit is a root-namespace policy you didn't realize existed.</p>
   </div>
 </section>
 
 <section class="panel accent-p" id="spire">
   <div class="phdr"><h2>SPIRE: identity without a mesh</h2><span class="meta">SPIFFE · SVID · Workload API</span></div>
   <div class="pbody">
-    <p>SPIFFE is the standard, SPIRE the implementation. A <strong>SPIFFE ID</strong> is a URI naming a workload; an <strong>SVID</strong> is the document proving it (X.509 certificate or JWT); the <strong>Workload API</strong> is a Unix socket the workload reads to fetch its own SVID and the trust bundle: no network call, no secret to mount, automatic rotation.</p>
+    <p>SPIFFE is the open standard; SPIRE is its reference implementation. A <strong>SPIFFE ID</strong> is a URI naming a workload, an <strong>SVID</strong> is the cryptographic credential proving it (either an X.509 certificate or a JWT), and the <strong>Workload API</strong> is a local Unix socket the pod reads to fetch its SVID and trust bundle with zero network calls, zero mounted Secrets, and automatic rotation.</p>
 
     <pre class="diagram"><b>spire-server</b>  (CA + registration entries)
      ▲ node attestation (which node is this?)
@@ -134,15 +134,15 @@ spec:
 <b>your pod</b> ──reads──▶ <u>/run/spire/sockets/agent.sock</u>  (mounted via the csi.spiffe.io CSI driver)
                           receives: X.509-SVID + trust bundle, rotated automatically</pre>
 
-    <p>Two attestation steps, and both matter: the agent proves the <em>node</em> to the server, then identifies each <em>workload</em> for itself by inspecting the calling process (its namespace, ServiceAccount, labels). Registration entries map selectors to SPIFFE IDs, and the lab installs a <code>ClusterSPIFFEID</code> CR that templates those registrations for workloads instead of making you write them one by one.</p>
+    <p>Two separate attestation steps keep this trustworthy: first the agent proves the <em>node</em> to <code>spire-server</code>, then it identifies each calling <em>workload</em> locally by inspecting the process (its namespace, ServiceAccount, and labels). Registration entries map those selectors to SPIFFE IDs, and this lab deploys a <code>ClusterSPIFFEID</code> CR so the controller templates entries automatically instead of making you register every pod by hand.</p>
 
     <div class="callout reflex">
       <span class="tag">When to reach for which</span>
-      <p>Mesh (Istio/Linkerd) when you want transparent mTLS and policy for HTTP/gRPC traffic between services, with no code changes. SPIRE standalone when workloads must authenticate to <em>something outside the mesh</em> (a database, a cloud API, a partner service) with short-lived credentials and no static secrets. "Workloads must authenticate to an external service with short-lived credentials, no mesh" is the exam sentence that means SPIRE.</p>
+      <p>Choose a <strong>mesh</strong> (Istio or Linkerd) when you want transparent mTLS and policy for HTTP/gRPC traffic between services without changing app code. Choose <strong>standalone SPIRE</strong> when workloads need to authenticate to <em>something outside the mesh</em> (a managed database, a cloud API, or a partner service) using short-lived credentials and zero static secrets. Whenever a prompt says "authenticate to an external service with short-lived credentials and no mesh", it's pointing straight at SPIRE.</p>
     </div>
 
     <h3>Linkerd, since the tool list names it</h3>
-    <p>Same destination, different route: sidecar data plane, automatic mTLS between meshed pods, identity again derived from the ServiceAccount, policy via <code>Server</code> and <code>AuthorizationPolicy</code> resources, and <code>linkerd viz edges</code> to show which links are secured. The permissive-by-default lesson transfers intact, though: Linkerd's default inbound policy (<code>all-unauthenticated</code>) still accepts plaintext from unmeshed clients, so refusing it means raising <code>proxy.defaultInboundPolicy</code> or authorizing a <code>Server</code> explicitly. <code>MESH=linkerd make mesh</code> swaps the lab over if you want a session on it; the concepts transfer wholesale, only the nouns change.</p>
+    <p>Same goal, different vocabulary: a sidecar data plane, automatic mTLS between meshed pods, ServiceAccount-based identities, authorization via <code>Server</code> and <code>AuthorizationPolicy</code> resources, and <code>linkerd viz edges</code> to verify which links are secured. The permissive-by-default warning carries straight over too: Linkerd's default inbound policy (<code>all-unauthenticated</code>) still accepts plaintext from unmeshed callers, so blocking plaintext means tightening <code>proxy.defaultInboundPolicy</code> or attaching an explicit <code>Server</code> policy. You can swap the lab over anytime with <code>MESH=linkerd make mesh</code>; all the concepts transfer intact, only the resource names change.</p>
   </div>
 </section>
 
@@ -151,10 +151,10 @@ spec:
   <div class="pbody">
     <h3>Linkerd</h3>
     <ul>
-      <li><strong>Joining the mesh.</strong> Annotation <code>linkerd.io/inject: enabled</code> on a namespace or pod template (or <code>linkerd inject</code> on the manifest); <code>linkerd check --proxy -n ns</code> confirms the proxies are healthy and their certificates valid. Identity is the pod's ServiceAccount, issued by the <code>linkerd-identity</code> service from a trust anchor plus an issuer certificate (cert-manager rotates the issuer in production; an expired issuer is the classic <code>linkerd check</code> failure).</li>
-      <li><strong>Default inbound policy.</strong> <code>proxy.defaultInboundPolicy</code> at install, or the annotation <code>config.linkerd.io/default-inbound-policy</code> per namespace or workload: <code>all-unauthenticated</code> (default), <code>all-authenticated</code> (meshed clients only, any cluster), <code>cluster-authenticated</code>, <code>cluster-unauthenticated</code>, <code>deny</code>, <code>audit</code> (allow but flag in logs and <code>request_total{authz_name="audit"}</code>). "Refuse plaintext" is <code>all-authenticated</code> at minimum.</li>
-      <li><strong>Fine-grained policy.</strong> <code>Server</code> (<code>policy.linkerd.io/v1beta1</code>: <code>podSelector</code>, <code>port</code> name or number, <code>proxyProtocol</code>, <code>accessPolicy</code> defaulting to <code>deny</code>) names the thing to protect; <code>HTTPRoute</code> with <code>parentRefs</code> to the Server narrows it to paths and methods; <code>MeshTLSAuthentication</code> (<code>identities</code> such as <code>web.emojivoto.serviceaccount.identity.linkerd.cluster.local</code>, or <code>identityRefs</code> to ServiceAccounts) and <code>NetworkAuthentication</code> (<code>networks[].cidr</code>) say who; <code>AuthorizationPolicy</code> (<code>policy.linkerd.io/v1alpha1</code>) binds a <code>targetRef</code> (Server, HTTPRoute, or a Namespace) to <code>requiredAuthenticationRefs</code>. Creating a Server for a port that receives kubelet probes without also authorizing them (Linkerd does it for the default route, not for your HTTPRoutes) is how readiness probes start failing after "adding security".</li>
-      <li><strong>Verbs.</strong> <code>linkerd viz authz -n ns deploy/x</code> lists which policies allow or deny traffic to a workload and the counts; <code>linkerd viz edges deploy -n ns</code> shows each edge with its client and server identities (a <code>-</code> means unmeshed or plaintext); <code>linkerd viz tap</code> samples live requests with a <code>tls=true</code> column; <code>linkerd viz stat</code> for success rates.</li>
+      <li><strong>Joining the mesh.</strong> Add <code>linkerd.io/inject: enabled</code> to a namespace or pod template (or pipe manifests through <code>linkerd inject</code>), then verify proxies and cert health with <code>linkerd check --proxy -n ns</code>. Identities come from the pod's ServiceAccount, signed by <code>linkerd-identity</code> using a trust anchor and issuer cert (in production, cert-manager rotates the issuer; an expired issuer is the classic <code>linkerd check</code> failure).</li>
+      <li><strong>Default inbound policy.</strong> Set <code>proxy.defaultInboundPolicy</code> at install time or annotate namespaces/workloads with <code>config.linkerd.io/default-inbound-policy</code>: choices are <code>all-unauthenticated</code> (default), <code>all-authenticated</code> (meshed clients from any cluster), <code>cluster-authenticated</code>, <code>cluster-unauthenticated</code>, <code>deny</code>, and <code>audit</code> (allows while flagging in logs and <code>request_total{authz_name="audit"}</code>). Blocking plaintext requires <code>all-authenticated</code> at minimum.</li>
+      <li><strong>Fine-grained policy.</strong> <code>Server</code> (<code>policy.linkerd.io/v1beta1</code>: <code>podSelector</code>, <code>port</code> name or number, <code>proxyProtocol</code>, and <code>accessPolicy</code> which defaults to <code>deny</code>) defines the protected port. An <code>HTTPRoute</code> with <code>parentRefs</code> pointing at that Server narrows rules to paths and methods. <code>MeshTLSAuthentication</code> (listing <code>identities</code> like <code>web.emojivoto.serviceaccount.identity.linkerd.cluster.local</code> or <code>identityRefs</code> to ServiceAccounts) and <code>NetworkAuthentication</code> (<code>networks[].cidr</code>) define who's allowed, and <code>AuthorizationPolicy</code> (<code>policy.linkerd.io/v1alpha1</code>) binds a <code>targetRef</code> (Server, HTTPRoute, or Namespace) to <code>requiredAuthenticationRefs</code>. Watch out for health checks: defining a <code>Server</code> on a port that serves kubelet probes without authorizing them (Linkerd auto-allows probes on the default route, not custom HTTPRoutes) is the classic way readiness probes break right after "locking down security".</li>
+      <li><strong>Diagnostic verbs.</strong> <code>linkerd viz authz -n ns deploy/x</code> shows every policy allowing or denying traffic and its counts; <code>linkerd viz edges deploy -n ns</code> prints client and server identities per link (a <code>-</code> signals unmeshed or plaintext); <code>linkerd viz tap</code> streams live requests with a <code>tls=true</code> column; and <code>linkerd viz stat</code> summarizes success rates.</li>
     </ul>
 
     <h3>SPIFFE and SPIRE</h3>
@@ -162,33 +162,33 @@ spec:
       <table>
         <thead><tr><th>Term</th><th>Exactly</th></tr></thead>
         <tbody>
-          <tr><td>SPIFFE ID</td><td><code>spiffe://&lt;trust-domain&gt;/&lt;path&gt;</code>; trust domain lower-case, no query or fragment; Istio and Linkerd both mint <code>spiffe://cluster.local/ns/&lt;ns&gt;/sa/&lt;sa&gt;</code></td></tr>
-          <tr><td>X509-SVID</td><td>a leaf certificate with exactly one URI SAN carrying the SPIFFE ID; short-lived (SPIRE default <code>default_x509_svid_ttl</code> is 1h; CA <code>ca_ttl</code> 24h); validators reject more than one URI SAN</td></tr>
-          <tr><td>JWT-SVID</td><td>a JWT with <code>sub</code> = SPIFFE ID and an <code>aud</code> you request; for systems that cannot do mTLS</td></tr>
-          <tr><td>Trust bundle</td><td>the CA certificates for a trust domain; a federated bundle is another domain's, fetched from its bundle endpoint</td></tr>
-          <tr><td>Workload API</td><td>a gRPC service on a Unix socket (<code>SPIFFE_ENDPOINT_SOCKET</code>); <code>FetchX509SVID</code> streams full updates on rotation; no credentials needed to call it because the agent attests the caller</td></tr>
-          <tr><td>Node attestation</td><td>the agent proves which node it is: <code>k8s_psat</code> (projected SA token) in Kubernetes, <code>aws_iid</code>, <code>gcp_iit</code>, <code>azure_msi</code>, <code>join_token</code>, <code>x509pop</code>, <code>tpm_devid</code></td></tr>
-          <tr><td>Workload attestation</td><td>the agent inspects the calling process; the <code>k8s</code> attestor asks the kubelet and yields selectors <code>k8s:ns:&lt;ns&gt;</code>, <code>k8s:sa:&lt;sa&gt;</code>, <code>k8s:pod-label:&lt;k&gt;:&lt;v&gt;</code>, <code>k8s:container-image:...</code></td></tr>
-          <tr><td>Registration entry</td><td><code>spire-server entry create -parentID &lt;agent id&gt; -spiffeID &lt;id&gt; -selector k8s:ns:x -selector k8s:sa:y [-ttl] [-dns] [-federatesWith]</code>; the mapping from selectors to identity</td></tr>
-          <tr><td>ClusterSPIFFEID</td><td>the spire-controller-manager CRD that templates entries: <code>spiffeIDTemplate</code> (<code>spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}</code>), <code>podSelector</code>, <code>namespaceSelector</code>, <code>dnsNameTemplates</code>, <code>ttl</code>, <code>federatesWith</code>, <code>fallback</code></td></tr>
-          <tr><td>CSI driver</td><td><code>csi.spiffe.io</code> mounts the agent socket as a read-only ephemeral inline volume, so pods need no <code>hostPath</code> (which restricted PSS forbids); the agent DaemonSet itself still needs hostPath</td></tr>
-          <tr><td>Federation</td><td>each server publishes a bundle endpoint (<code>federation.bundle_endpoint</code>) and lists the domains it trusts; entries with <code>-federatesWith</code> receive those bundles, which is how a workload in cluster A verifies one in cluster B</td></tr>
+          <tr><td>SPIFFE ID</td><td><code>spiffe://&lt;trust-domain&gt;/&lt;path&gt;</code>; lowercase trust domain, no query or fragment. Istio and Linkerd both issue <code>spiffe://cluster.local/ns/&lt;ns&gt;/sa/&lt;sa&gt;</code></td></tr>
+          <tr><td>X509-SVID</td><td>A leaf cert carrying exactly one URI SAN holding the SPIFFE ID; short-lived (SPIRE defaults: <code>default_x509_svid_ttl</code> 1h, CA <code>ca_ttl</code> 24h); validators reject multiple URI SANs</td></tr>
+          <tr><td>JWT-SVID</td><td>A JWT with <code>sub</code> = SPIFFE ID and your requested <code>aud</code>, built for systems that can't terminate mTLS</td></tr>
+          <tr><td>Trust bundle</td><td>The CA certificates for a trust domain; federated bundles hold another domain's CAs, fetched from its bundle endpoint</td></tr>
+          <tr><td>Workload API</td><td>A gRPC service over a local Unix socket (<code>SPIFFE_ENDPOINT_SOCKET</code>); <code>FetchX509SVID</code> streams updates automatically on rotation, with no caller credentials needed because the agent attests the caller</td></tr>
+          <tr><td>Node attestation</td><td>How the agent proves its node identity: <code>k8s_psat</code> (projected SA token) in Kubernetes, plus <code>aws_iid</code>, <code>gcp_iit</code>, <code>azure_msi</code>, <code>join_token</code>, <code>x509pop</code>, <code>tpm_devid</code></td></tr>
+          <tr><td>Workload attestation</td><td>How the agent identifies a calling process; the <code>k8s</code> attestor queries the kubelet to produce selectors like <code>k8s:ns:&lt;ns&gt;</code>, <code>k8s:sa:&lt;sa&gt;</code>, <code>k8s:pod-label:&lt;k&gt;:&lt;v&gt;</code>, and <code>k8s:container-image:...</code></td></tr>
+          <tr><td>Registration entry</td><td><code>spire-server entry create -parentID &lt;agent id&gt; -spiffeID &lt;id&gt; -selector k8s:ns:x -selector k8s:sa:y [-ttl] [-dns] [-federatesWith]</code>; maps selectors to an issued identity</td></tr>
+          <tr><td>ClusterSPIFFEID</td><td>The <code>spire-controller-manager</code> CRD that auto-templates entries using <code>spiffeIDTemplate</code> (<code>spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}</code>), <code>podSelector</code>, <code>namespaceSelector</code>, <code>dnsNameTemplates</code>, <code>ttl</code>, <code>federatesWith</code>, and <code>fallback</code></td></tr>
+          <tr><td>CSI driver</td><td><code>csi.spiffe.io</code> mounts the agent socket as a read-only ephemeral inline volume so workloads don't need <code>hostPath</code> (forbidden under restricted PSS); only the agent DaemonSet itself uses <code>hostPath</code></td></tr>
+          <tr><td>Federation</td><td>Each server exposes a bundle endpoint (<code>federation.bundle_endpoint</code>) and lists trusted foreign domains; entries with <code>-federatesWith</code> receive those bundles so a workload in cluster A can verify one in cluster B</td></tr>
         </tbody>
       </table>
     </div>
-    <p>Upstream authorities (<code>disk</code>, <code>cert-manager</code>, <code>vault</code>, <code>aws_pca</code>, ...) let SPIRE's CA chain into an existing PKI. Neighboring tools: Cilium's mutual authentication (beta) borrows SPIRE for identities and does the handshake out of band while WireGuard or IPsec encrypt the packets, enabled per <code>CiliumNetworkPolicy</code> with <code>authentication.mode: required</code>; cert-manager's trust-manager <code>Bundle</code> distributes CA bundles into a ConfigMap in every namespace, the usual way an application gets a private CA to trust.</p>
+    <p>Upstream authorities (<code>disk</code>, <code>cert-manager</code>, <code>vault</code>, <code>aws_pca</code>, and others) let SPIRE's CA chain directly into your existing PKI. Two adjacent tools worth recognizing: Cilium's mutual authentication (beta) borrows SPIRE identities and performs the auth handshake out of band while WireGuard or IPsec encrypts packets (enabled per <code>CiliumNetworkPolicy</code> via <code>authentication.mode: required</code>), and cert-manager's trust-manager <code>Bundle</code> distributes private CA bundles into ConfigMaps across every namespace so apps trust internal CAs cleanly.</p>
 
-    <div class="callout exam"><span class="tag">How this gets tested</span><p>Istio tasks: "require mTLS for namespace X" (PeerAuthentication STRICT in X), "allow only service A to call B" (AuthorizationPolicy with <code>principals</code>), "allow only GET" (a waypoint plus <code>targetRefs</code> and <code>to.operation.methods</code>), then prove with a call from an unmeshed pod that fails and a meshed one that succeeds. Linkerd tasks: the same three in <code>Server</code>/<code>MeshTLSAuthentication</code>/<code>AuthorizationPolicy</code> words, proven with <code>linkerd viz authz</code>. SPIRE tasks: read an entry or a ClusterSPIFFEID and say which pods get which ID.</p></div>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>Istio tasks follow a clear trio: "require mTLS in namespace X" (<code>PeerAuthentication</code> STRICT in X), "allow only service A to call B" (<code>AuthorizationPolicy</code> with <code>principals</code>), and "allow only GET" (waypoint plus <code>targetRefs</code> and <code>to.operation.methods</code>), always verified with one unmeshed failure and one meshed success. Linkerd tasks test the exact same trio using <code>Server</code>, <code>MeshTLSAuthentication</code>, and <code>AuthorizationPolicy</code>, verified with <code>linkerd viz authz</code>. SPIRE tasks usually ask you to read an entry or <code>ClusterSPIFFEID</code> and trace which pods get which ID.</p></div>
   </div>
 </section>
 
 <section class="panel accent-g" id="exercises">
   <div class="phdr"><h2>Exercises</h2><span class="meta">tick the dot when its check passes</span></div>
   <div class="pbody">
-    <p>All on <code>kind-mesh</code> (<code>kubectx kind-mesh</code>) except the SPIRE ones.</p>
+    <p>Run all of these on <code>kind-mesh</code> (<code>kubectx kind-mesh</code>) except the SPIRE exercises.</p>
 
     <div class="exercise" data-title="See mTLS happen to plaintext apps">
-      <p>Deploy two plain services in <code>default</code> and talk between them:</p>
+      <p>Deploy two ordinary plaintext workloads in <code>default</code> and send a request between them:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl create deploy backend --image=ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine --port=8080
 kubectl expose deploy backend --port=8080
 kubectl run client --image=curlimages/curl:8.11.1 --restart=Never -- sh -c 'sleep 3600'
@@ -206,12 +206,12 @@ deployment.apps/backend condition met
 pod/client condition met
 <b>$ kubectl exec client -- curl -s -o /dev/null -w '%{http_code}\n' http://backend:8080</b>
 200</code></pre></details></div>
-      <p>Verify the encryption claim with evidence: <code>istioctl ztunnel-config workload</code> lists both pods with protocol HBONE, and <code>kubectl -n istio-system logs ds/ztunnel | grep -i backend | tail</code> shows connections with source and destination SPIFFE identities.</p>
-      <div class="verify"><b>verify:</b> HBONE in the ztunnel config and SPIFFE identities in the logs. The app never changed; the platform upgraded it.</div>
+      <p>Now back up the encryption claim with evidence: <code>istioctl ztunnel-config workload</code> lists both pods under protocol <code>HBONE</code>, and <code>kubectl -n istio-system logs ds/ztunnel | grep -i backend | tail</code> shows connections stamped with source and destination SPIFFE identities.</p>
+      <div class="verify"><b>verify:</b> <code>HBONE</code> shows up in ztunnel config and SPIFFE identities appear in the logs. Neither app changed a single line; the platform upgraded the transport transparently.</div>
     </div>
 
     <div class="exercise" data-title="Refuse plaintext">
-      <p>Apply STRICT and attack from outside the mesh:</p>
+      <p>Turn on <code>STRICT</code> mTLS and test it from outside the mesh:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: security.istio.io/v1
 kind: PeerAuthentication
@@ -238,16 +238,16 @@ pod/intruder created
 pod/intruder condition met
 <b>$ kubectl -n outsider logs intruder</b>
 000</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the in-mesh client still gets 200; the outsider's curl fails (its plaintext is refused). Delete the PeerAuthentication and the outsider succeeds again. That triple (before, strict, after) is the demonstration the competency wording asks for. Then put STRICT back on and clean up with <code>kubectl delete ns outsider</code>: a refused intruder pod stays Failed, and <code>make validate</code> counts it.</div>
+      <div class="verify"><b>verify:</b> the in-mesh client still gets 200 while the outsider's plaintext curl gets refused (<code>000</code>). Delete the <code>PeerAuthentication</code> and watch the outsider succeed again; that before/strict/after proof is exactly what this competency asks you to demonstrate. Put STRICT back on and clean up with <code>kubectl delete ns outsider</code> so the Failed intruder pod doesn't trip <code>make validate</code>.</div>
     </div>
 
     <div class="exercise" data-title="Authorize by identity">
-      <p>With STRICT back on, add an AuthorizationPolicy allowing only the <code>client</code> pod's ServiceAccount to reach backend, then test from a second pod running as a different SA.</p>
-      <div class="verify"><b>verify:</b> allowed SA 200, other SA denied (an L4 deny shows as a connection reset/failure, not an HTTP 403; that difference is worth noticing). You have now made a network decision based on <em>who</em>, not <em>where from</em>, which is the sentence to say about zero-trust if asked.</div>
+      <p>With STRICT back in place, add an <code>AuthorizationPolicy</code> permitting only the <code>client</code> pod's ServiceAccount to call <code>backend</code>, then test from a second pod running under a different SA.</p>
+      <div class="verify"><b>verify:</b> the allowed SA gets 200 and the second SA fails (notice that an L4 deny shows up as a connection reset rather than an HTTP 403). You've just enforced network access based on <em>who</em> is calling instead of <em>where</em> they sit, which is the core zero-trust takeaway.</div>
     </div>
 
     <div class="exercise" data-title="Meet your SVIDs (main cluster)">
-      <p><code>kubectx kind-cnpe</code>, then:</p>
+      <p>Switch back with <code>kubectx kind-cnpe</code>, then inspect SPIRE's live entries:</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n spire exec sts/spire-server -c spire-server -- \
   /opt/spire/bin/spire-server entry show
 kubectl get clusterspiffeids</code></pre><details class="out"><summary>output<span class="when">captured 2026-08-26</span></summary><pre><code><b>$ kubectl -n spire exec sts/spire-server -c spire-server -- \</b>
@@ -401,12 +401,12 @@ NAME                                  AGE
 spire-spire-default                   46m
 spire-spire-oidc-discovery-provider   46m
 spire-spire-test-keys                 46m</code></pre></details></div>
-      <p>Then inspect the ClusterSPIFFEID CR and connect its template to the entries it generated. If you want the full loop, mount the CSI socket (<code>csi.spiffe.io</code> driver) in a pod and list the socket file; the identities are delivered as files, no network call, which is the property that makes SPIRE composable with everything.</p>
-      <div class="verify"><b>verify:</b> registration entries exist mapping SPIFFE IDs to Kubernetes selectors, and you can read one entry aloud: this ID is issued to workloads matching this namespace/SA, attested by this parent agent.</div>
+      <p>Inspect the <code>ClusterSPIFFEID</code> CR and map its template straight to the entries it generated. If you want to trace the full loop, mount the CSI socket (<code>csi.spiffe.io</code>) into a pod and check the socket file: identities arrive locally over the filesystem with zero network calls, which is why SPIRE plugs cleanly into almost any stack.</p>
+      <div class="verify"><b>verify:</b> registration entries map SPIFFE IDs to Kubernetes selectors, and you can read one entry aloud: this ID is issued to workloads matching this namespace and ServiceAccount, attested by this parent agent.</div>
     </div>
 
     <div class="exercise" data-title="Put a waypoint in front of the namespace">
-      <p>Ambient mode gives you L4 identity for free and L7 policy only where you put a waypoint. Enrolling a namespace and writing a method-scoped rule is all an L7 authorization task amounts to.</p>
+      <p>Ambient mode gives you L4 identity automatically and adds L7 policy only where you deploy a waypoint. Enrolling a namespace and attaching a method-scoped rule is the whole anatomy of an L7 authorization task.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl --context kind-mesh label ns default istio.io/dataplane-mode=ambient --overwrite
 istioctl --context kind-mesh waypoint apply -n default --enroll-namespace --overwrite --wait
 kubectl --context kind-mesh get gtw waypoint
@@ -486,11 +486,11 @@ authorizationpolicy.security.istio.io/backend-get-only created
 403
 <b>$ kubectl --context kind-mesh -n default exec "$CLIENT" -- curl -s -X POST http://backend/ | head -2</b>
 RBAC: access denied</code></pre></details></div>
-      <div class="verify"><b>verify:</b> GET returns 200 and POST returns 403 with <code>RBAC: access denied</code> in the body.</div>
+      <div class="verify"><b>verify:</b> GET succeeds with 200 while POST gets blocked with 403 and <code>RBAC: access denied</code> in the body.</div>
     </div>
 
     <div class="exercise" data-title="The same rule without a waypoint">
-      <p>An L7 rule attached by selector rather than to a waypoint has nowhere to inspect the method, and Istio fails safe: it denies rather than guessing. Watch where the denial lands. ztunnel works at L4, so it cannot answer with a 403: it refuses the connection outright and curl never gets an HTTP status.</p>
+      <p>An L7 rule attached via <code>selector</code> instead of a waypoint has no HTTP parser to inspect the method, so Istio fails safe and denies everything rather than guessing. Because ztunnel operates at L4, it can't return an HTTP 403; it drops the TCP connection outright and curl never sees a status code.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl --context kind-mesh delete authorizationpolicy backend-get-only -n default --ignore-not-found
 # the previous exercise left the namespace enrolled; take the waypoint away or there is nothing to prove
 kubectl --context kind-mesh label ns default istio.io/use-waypoint- --overwrite
@@ -555,11 +555,11 @@ authorizationpolicy.security.istio.io "selector-l7" deleted from default namespa
 <b>$ kubectl --context kind-mesh get gtw waypoint -n default</b>
 NAME       CLASS            ADDRESS         PROGRAMMED   AGE
 waypoint   istio-waypoint   10.96.191.232   True         8s</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the same GET that returned 200 through the waypoint now returns <code>http_code=000</code> with <code>curl exit 56</code>, a receive failure rather than a 403. That is the tell: a 403 means something read your request and said no, while exit 56 means the connection never carried one. Say which of <code>targetRefs</code> and <code>selector</code> you reach for when the rule mentions paths or methods.</div>
+      <div class="verify"><b>verify:</b> the exact same GET that returned 200 through the waypoint now returns <code>http_code=000</code> and <code>curl exit 56</code> (a receive failure rather than a 403). Keep that tell handy: a 403 means an L7 proxy read your request and said no, while exit 56 means the connection was reset at L4. Make sure you know instinctively whether to reach for <code>targetRefs</code> or <code>selector</code> whenever a rule mentions paths or methods.</div>
     </div>
 
     <div class="exercise" data-title="Allow plaintext on exactly one port">
-      <p>Strict mTLS everywhere is the goal and never the starting point. Port-level exceptions are how you onboard a legacy service without turning the policy off for the namespace, and the exception is visible in one object.</p>
+      <p>Strict mTLS everywhere is the end state, rarely day one. Port-level exceptions let you onboard a legacy service without loosening the entire namespace, and the exception stays visible in a single manifest.</p>
       <div class="cb" data-lang="bash"><pre><code># portLevelMtls is rejected without a selector, so this cannot be the namespace-wide policy
 kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'
 apiVersion: security.istio.io/v1
@@ -635,11 +635,11 @@ curl exit 56
 pod "outsider" deleted from default namespace
 <b>$ kubectl --context kind-mesh delete peerauthentication backend-legacy-port -n default</b>
 peerauthentication.security.istio.io "backend-legacy-port" deleted from default namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the plaintext call reaches the permissive port and would be refused on any other.</div>
+      <div class="verify"><b>verify:</b> plaintext gets through on the permissive port (200) and gets cut off immediately (exit 56) once you patch that port back to STRICT.</div>
     </div>
 
     <div class="exercise" data-title="Require a token, then require a subject">
-      <p>Request authentication and authorization are two objects for a reason: one says the token is valid, the other says who may do what. A policy with only the first accepts anonymous traffic, which is the classic misconfiguration.</p>
+      <p>Request authentication and authorization are split into two objects on purpose: one validates the JWT if present, and the other enforces who can call. Deploying only <code>RequestAuthentication</code> quietly leaves anonymous traffic wide open, which is one of Istio's classic traps.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'
 apiVersion: security.istio.io/v1
 kind: RequestAuthentication
@@ -705,11 +705,11 @@ with token: 200
 authorizationpolicy.security.istio.io "require-jwt" deleted from default namespace
 <b>$ kubectl --context kind-mesh delete requestauthentication jwt-demo -n default</b>
 requestauthentication.security.istio.io "jwt-demo" deleted from default namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the request without a token is refused and the one with the sample token succeeds. Delete the AuthorizationPolicy and leave the RequestAuthentication: the anonymous request is allowed again, which is the misconfiguration to be able to explain.</div>
+      <div class="verify"><b>verify:</b> the tokenless call gets 403 while the call with the sample JWT returns 200. Try deleting only the <code>AuthorizationPolicy</code> while leaving <code>RequestAuthentication</code> in place: anonymous traffic goes right back to 200, which is the exact trap to recognize on sight.</div>
     </div>
 
     <div class="exercise" data-title="Read ztunnel's view of identity">
-      <p>ztunnel holds the certificates and enforces L4 policy, and its config dump is the ground truth about who the mesh thinks each workload is. When a policy does not do what you expect, this is where the argument ends.</p>
+      <p>ztunnel holds the workload certs and enforces L4 policy, making its config dump the ground truth for who the mesh thinks every pod is. Whenever a policy behaves unexpectedly, this is where you settle the debate.</p>
       <div class="cb" data-lang="bash"><pre><code># ztunnel-config needs a specific ztunnel, and the one that logs a connection is the one on the client's node
 CLIENT=$(kubectl --context kind-mesh -n default get pod -l app=client -o jsonpath='{.items[0].metadata.name}')
 NODE=$(kubectl --context kind-mesh -n default get pod "$CLIENT" -o jsonpath='{.spec.nodeName}')
@@ -778,12 +778,12 @@ default            kubernetes                                 172.18.0.9        
 2026-11-18T09:59:35.364359Z	info	access	connection complete	src.addr=10.244.1.34:44972 src.workload="client-65b9d75449-fbtfj" src.namespace="default" src.identity="spiffe://cluster.local/ns/default/sa/default" src.cluster="Kubernetes" dst.addr=10.244.1.35:15008 dst.hbone_addr=10.96.255.23:80 dst.service="backend.default.svc.cluster.local" dst.workload="waypoint-598689dd96-pz7c7" dst.namespace="default" dst.identity="spiffe://cluster.local/ns/default/sa/waypoint" dst.cluster="Kubernetes" direction="outbound" bytes_sent=71 bytes_recv=674 duration="6ms"
 <b>$ kubectl --context kind-mesh delete authorizationpolicy ztunnel-demo -n default</b>
 authorizationpolicy.security.istio.io "ztunnel-demo" deleted from default namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> each workload has a certificate whose identity is <code>cluster.local/ns/&lt;ns&gt;/sa/&lt;sa&gt;</code>, and the log lines name both ends of a connection by identity rather than by IP.</div>
+      <div class="verify"><b>verify:</b> each workload carries a cert with identity <code>cluster.local/ns/&lt;ns&gt;/sa/&lt;sa&gt;</code>, and ztunnel's access logs attribute both ends of every connection by identity rather than just IP.</div>
     </div>
 
     <div class="exercise" data-title="The Linkerd version of the same rule">
-      <p>Linkerd expresses the same idea with different objects: a Server names the port, an AuthorizationPolicy references it, and MeshTLSAuthentication names the identities. Knowing both vocabularies is on the exam's tool list.</p>
-      <p>This block runs only if the mesh cluster was built with <code>MESH=linkerd make mesh</code>; on an Istio mesh the first command tells you so and the rest will not apply.</p>
+      <p>Linkerd models the exact same concept with three resources: a <code>Server</code> selects the port, a <code>MeshTLSAuthentication</code> lists allowed client identities, and an <code>AuthorizationPolicy</code> ties them together. Both Istio and Linkerd sit on the exam's tool list, so know both vocabularies.</p>
+      <p>This block only applies if you built the mesh cluster with <code>MESH=linkerd make mesh</code>; on the default Istio cluster, it detects that and skips cleanly.</p>
       <div class="cb" data-lang="bash"><pre><code># this lab's mesh cluster runs Istio; the Linkerd objects only apply if you rebuilt it with MESH=linkerd make mesh
 if kubectl --context kind-mesh get ns linkerd &gt;/dev/null 2&gt;&amp;1; then
   kubectl --context kind-mesh apply -f - &lt;&lt;'EOF'
@@ -855,11 +855,11 @@ skipped: kind-mesh runs Istio ambient, not Linkerd
 to run this, rebuild the mesh cluster with: MESH=linkerd make mesh
 0
 0 policy.linkerd.io CRDs present</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the block prints <code>skipped: kind-mesh runs Istio ambient, not Linkerd</code> and counts zero <code>policy.linkerd.io</code> CRDs, which is the right answer on this lab. Read the manifest instead and be able to say what each object does: <code>Server</code> names the port and protocol, <code>MeshTLSAuthentication</code> names the client identities, <code>AuthorizationPolicy</code> binds the two. If you rebuild the mesh cluster with <code>MESH=linkerd make mesh</code>, the authorization list is empty before these objects and names your policy after, and the backend's readiness probe fails until the kubelet's unauthenticated probe is allowed as well, which is the classic Linkerd policy mistake.</div>
+      <div class="verify"><b>verify:</b> on the default Istio cluster, the script prints <code>skipped: kind-mesh runs Istio ambient, not Linkerd</code> and counts zero <code>policy.linkerd.io</code> CRDs. Read the YAML carefully anyway so you can explain each object cold: <code>Server</code> targets the port and protocol, <code>MeshTLSAuthentication</code> names allowed client identities, and <code>AuthorizationPolicy</code> connects the two. If you do rebuild with <code>MESH=linkerd make mesh</code>, watch how the backend's readiness probe breaks until you explicitly permit unauthenticated kubelet probes too (the classic Linkerd policy gotcha).</div>
     </div>
 
     <div class="exercise" data-title="Fetch an SVID from inside a pod">
-      <p>SPIRE hands a workload a certificate over a socket, with no secret and no token in the pod spec. Reading the URI SAN out of that certificate is how you prove the identity is real and derived from the ServiceAccount.</p>
+      <p>SPIRE hands a pod its X.509 certificate straight over a local socket, with zero Secrets and zero tokens in the pod spec. Pulling the URI SAN from that live cert proves the identity is real and tied to the ServiceAccount.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n spire exec -i statefulset/spire-server -c spire-server -- /opt/spire/bin/spire-server entry show | head -12
 # entries are registered per pod by the controller manager, so the selector is a pod uid, not a namespace
 kubectl -n spire exec -i statefulset/spire-server -c spire-server -- /opt/spire/bin/spire-server entry show -spiffeID spiffe://lab.local/ns/default/sa/default
@@ -941,7 +941,7 @@ CA #1 Valid After:	2026-09-12 19:26:42 +0000 UTC
 CA #1 Valid Until:	2026-09-13 19:26:52 +0000 UTC
 <b>$ kubectl delete pod svid-reader</b>
 pod "svid-reader" deleted from default namespace</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the fetched certificate's URI SAN is a <code>spiffe://</code> id derived from the namespace and ServiceAccount, with no credential anywhere in the pod spec.</div>
+      <div class="verify"><b>verify:</b> the fetched cert's URI SAN is a <code>spiffe://</code> ID built from the namespace and ServiceAccount, with not a single static credential anywhere in the pod spec.</div>
     </div>
 
   </div>
@@ -951,32 +951,32 @@ pod "svid-reader" deleted from default namespace</code></pre></details></div>
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>"We installed a service mesh, so all traffic is encrypted." Correct?</summary>
-      <div class="answer"><p>No. The default is PERMISSIVE, which accepts plaintext as well as mTLS so migration can be incremental. You need a PeerAuthentication in STRICT mode (mesh-wide, per namespace, or per workload), and you should prove it by watching a non-mesh client get refused.</p></div></details>
+      <div class="answer"><p>Not yet. By default, Istio runs in <code>PERMISSIVE</code> mode so teams can migrate gradually, meaning plaintext still gets accepted alongside mTLS. You need a <code>PeerAuthentication</code> set to <code>STRICT</code> (mesh-wide, per namespace, or per workload), and you prove it by watching an unmeshed plaintext client get rejected.</p></div></details>
 
     <details class="quiz"><summary>Where does a workload's mesh identity come from, and why does that matter to section 5.1?</summary>
-      <div class="answer"><p>From its ServiceAccount: <code>spiffe://cluster.local/ns/&lt;ns&gt;/sa/&lt;sa&gt;</code>. It matters because your RBAC design now doubles as your network authorization design (one identity, two enforcement points), and because sloppy SA reuse silently widens both.</p></div></details>
+      <div class="answer"><p>Straight from its ServiceAccount: <code>spiffe://cluster.local/ns/&lt;ns&gt;/sa/&lt;sa&gt;</code>. That means your RBAC design from 5.1 now doubles as your network authorization boundary (one identity, two enforcement points), and letting unrelated apps share the <code>default</code> SA quietly weakens both.</p></div></details>
 
     <details class="quiz"><summary>You need to allow only POST to <code>/orders</code> from one service. What must exist?</summary>
-      <div class="answer"><p>An AuthorizationPolicy with an L7 <code>to.operation</code> rule <em>and</em> a waypoint proxy for the target, because ztunnel alone enforces L4. Without the waypoint the method/path clauses have nothing to evaluate them.</p></div></details>
+      <div class="answer"><p>An <code>AuthorizationPolicy</code> with an L7 <code>to.operation</code> rule <em>and</em> a waypoint proxy enrolled for the target. ztunnel only speaks L4, so without a waypoint nothing can inspect HTTP methods or paths.</p></div></details>
 
     <details class="quiz"><summary>NetworkPolicy or AuthorizationPolicy: when do you use each?</summary>
-      <div class="answer"><p>Both, at different layers. NetworkPolicy is CNI-enforced, identity-by-label, works for all traffic including non-mesh workloads. AuthorizationPolicy is mesh-enforced, identity-by-certificate, survives IP churn and works across clusters. Defense in depth: the CNI keeps the blast radius small, the mesh makes the caller prove who it is.</p></div></details>
+      <div class="answer"><p>Use both as complementary layers. <code>NetworkPolicy</code> runs in the CNI using pod labels and covers all traffic, including unmeshed workloads. <code>AuthorizationPolicy</code> runs in the mesh using cryptographic certificates, surviving IP churn and crossing cluster boundaries. Together they give you defense in depth: the CNI shrinks the blast radius while the mesh verifies who's actually calling.</p></div></details>
 
     <details class="quiz"><summary>Give a scenario where SPIRE beats a mesh.</summary>
-      <div class="answer"><p>A workload must authenticate to something outside the cluster (a managed database, a partner API, a legacy service) with short-lived credentials and no static secret. SPIRE issues an SVID through the Workload API socket; the mesh only secures traffic between meshed services. Bonus: SPIFFE IDs federate across trust domains, which is how you extend identity beyond one cluster.</p></div></details>
+      <div class="answer"><p>A pod needs to authenticate to something outside the mesh (a managed database, a partner API, or a legacy VM service) with short-lived credentials and no static secrets. SPIRE delivers an SVID over the local Workload API socket, whereas a mesh only governs traffic between meshed workloads. Bonus: SPIFFE trust bundles federate cleanly across trust domains, extending identity beyond a single cluster.</p></div></details>
   
 
     <details class="quiz"><summary>You add <code>to.operation.paths</code> to an existing ambient AuthorizationPolicy that uses <code>selector</code>, and now every request to the workload fails. Why?</summary>
-      <div class="answer"><p>A selector-targeted policy is enforced by ztunnel at L4, which cannot evaluate L7 fields; rather than ignore the rule Istio fails safe and treats the policy as DENY. Move the L7 rule to a policy with <code>targetRefs</code> to the Service or the waypoint Gateway (which requires a waypoint enrolled with <code>istio.io/use-waypoint</code>), and keep an L4 policy for identity checks if you still want ztunnel enforcement.</p></div></details>
+      <div class="answer"><p>A <code>selector</code>-based policy is enforced by ztunnel at L4, which can't parse HTTP paths. Rather than silently ignoring the L7 clause, Istio fails safe and turns it into a DENY. Move the L7 rule into an <code>AuthorizationPolicy</code> using <code>targetRefs</code> aimed at the Service or waypoint Gateway (making sure the target has <code>istio.io/use-waypoint</code> set), and keep any pure L4 identity check in ztunnel if needed.</p></div></details>
 
     <details class="quiz"><summary>A namespace has one ALLOW policy for service A. Service C, with no policy mentioning it, is suddenly refused by every caller. Explain.</summary>
-      <div class="answer"><p>Deny-by-default switches on per workload as soon as at least one ALLOW policy targets it. If the ALLOW policy has no <code>selector</code> or <code>targetRefs</code>, it applies to every workload in the namespace, so C is now covered and only A's allowed callers pass. Scope the policy to A with a selector, or add an ALLOW policy for C's callers.</p></div></details>
+      <div class="answer"><p>Deny-by-default kicks in for a workload the instant any <code>ALLOW</code> policy matches it. If that ALLOW policy omits <code>selector</code> or <code>targetRefs</code>, it applies to <em>every</em> workload in the namespace, unintentionally sweeping up service C and blocking everyone except A's allowed callers. Scope A's policy properly with a selector, or add an explicit ALLOW policy for C.</p></div></details>
 
     <details class="quiz"><summary>In Linkerd you create a <code>Server</code> for port 8080 and an <code>AuthorizationPolicy</code> allowing one client identity. Readiness probes start failing. Why, and what do you add?</summary>
-      <div class="answer"><p>A Server's <code>accessPolicy</code> defaults to <code>deny</code>, and the kubelet is not in the mesh, so probes on that port are now unauthenticated traffic with no matching authorization. Add an <code>HTTPRoute</code> for the probe paths with an <code>AuthorizationPolicy</code> whose <code>requiredAuthenticationRefs</code> is a <code>NetworkAuthentication</code> covering the node CIDRs (or <code>0.0.0.0/0</code>), or set the Server's <code>accessPolicy</code> to <code>all-unauthenticated</code> for probe ports.</p></div></details>
+      <div class="answer"><p>A <code>Server</code> defaults to <code>accessPolicy: deny</code>, and kubelet probes aren't in the mesh, so they're now rejected as unauthenticated traffic. Add an <code>HTTPRoute</code> matching the probe paths backed by an <code>AuthorizationPolicy</code> referencing a <code>NetworkAuthentication</code> for the node CIDRs (or <code>0.0.0.0/0</code>), or set <code>accessPolicy: all-unauthenticated</code> if it's a dedicated probe port.</p></div></details>
 
     <details class="quiz"><summary>Walk the SPIRE chain from "a pod starts" to "it holds a certificate": which component does what, and where do selectors come from?</summary>
-      <div class="answer"><p>The agent on that node has already attested itself to the server (<code>k8s_psat</code>). The pod connects to the Workload API socket (via the <code>csi.spiffe.io</code> volume). The agent's <code>k8s</code> workload attestor asks the kubelet which pod owns the calling process and derives selectors (<code>k8s:ns</code>, <code>k8s:sa</code>, labels). It matches them against registration entries under its own parent ID (created by hand or templated by a ClusterSPIFFEID), asks the server to sign, and streams back an X509-SVID plus the trust bundle, rotating before the 1h TTL expires.</p></div></details>
+      <div class="answer"><p>First, the node's <code>spire-agent</code> has already attested itself to <code>spire-server</code> (via <code>k8s_psat</code>). When the pod connects to the Workload API socket (mounted via <code>csi.spiffe.io</code>), the agent's <code>k8s</code> workload attestor asks the kubelet which pod owns that calling process and builds selectors (<code>k8s:ns</code>, <code>k8s:sa</code>, labels). The agent matches those selectors against registration entries under its parent ID (manual or generated by a <code>ClusterSPIFFEID</code>), gets <code>spire-server</code> to sign the cert, and streams the X509-SVID plus trust bundle back to the pod, automatically rotating before the 1h TTL expires.</p></div></details>
   </div>
 </section>
 
@@ -984,14 +984,14 @@ pod "svid-reader" deleted from default namespace</code></pre></details></div>
   <div class="phdr"><h2>Docs to know your way around</h2><span class="meta">study time, not exam time</span></div>
   <div class="pbody">
     <ul class="docs">
-      <li><b>istio.io</b>: ambient overview, PeerAuthentication and AuthorizationPolicy references, waypoint proxies.</li>
-      <li><b>spiffe.io</b>: the SPIFFE concepts page (ID, SVID, Workload API, trust domain); <code>spire-server entry</code> syntax.</li>
-      <li><b>linkerd.io</b>: the automatic mTLS page, for the compare-and-contrast sentence.</li>
-      <li><b>Offline:</b> <code>istioctl ztunnel-config --help</code>, <code>istioctl analyze</code>, <code>kubectl explain peerauthentication.spec</code>.</li>
+      <li><b>istio.io</b>: ambient mode overview, <code>PeerAuthentication</code> and <code>AuthorizationPolicy</code> references, and waypoint proxies.</li>
+      <li><b>spiffe.io</b>: SPIFFE core concepts (ID, SVID, Workload API, trust domain) and <code>spire-server entry</code> syntax.</li>
+      <li><b>linkerd.io</b>: automatic mTLS overview, handy for quick compare-and-contrast answers.</li>
+      <li><b>Offline:</b> <code>istioctl ztunnel-config --help</code>, <code>istioctl analyze</code>, and <code>kubectl explain peerauthentication.spec</code>.</li>
     
-      <li><b>istio.io/latest/docs/ambient/usage/waypoint</b> (labels, <code>waypoint-for</code>, the bypass caveat) and <b>/docs/ambient/usage/l7-features</b> (targeted vs attached policies, the fail-safe DENY rule); <b>/docs/concepts/security</b> for the CUSTOM, DENY, ALLOW evaluation order.</li>
-      <li><b>linkerd.io/2-edge/reference/authorization-policy</b>: Server, AuthorizationPolicy, MeshTLSAuthentication, NetworkAuthentication fields and the default inbound policy values; <b>/tasks/configuring-per-route-policy</b> for the probe caveat.</li>
-      <li><b>github.com/spiffe/spire/blob/main/doc/spire_server.md</b> and <b>spire_agent.md</b> (plugins, TTLs, federation), <b>github.com/spiffe/spire-controller-manager/blob/main/docs/clusterspiffeid-crd.md</b> for the template fields.</li>
+      <li><b>istio.io/latest/docs/ambient/usage/waypoint</b> (labels, <code>waypoint-for</code>, bypass caveat) and <b>/docs/ambient/usage/l7-features</b> (targeted vs attached policies and fail-safe DENY); <b>/docs/concepts/security</b> for CUSTOM, DENY, ALLOW evaluation order.</li>
+      <li><b>linkerd.io/2-edge/reference/authorization-policy</b>: <code>Server</code>, <code>AuthorizationPolicy</code>, <code>MeshTLSAuthentication</code>, <code>NetworkAuthentication</code>, and default inbound policy values; <b>/tasks/configuring-per-route-policy</b> for the probe caveat.</li>
+      <li><b>github.com/spiffe/spire/blob/main/doc/spire_server.md</b> and <b>spire_agent.md</b> (plugins, TTLs, federation), plus <b>github.com/spiffe/spire-controller-manager/blob/main/docs/clusterspiffeid-crd.md</b> for template fields.</li>
     </ul>
   </div>
 </section>

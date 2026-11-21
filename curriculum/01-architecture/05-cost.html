@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#171c1d" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f5f0" media="(prefers-color-scheme: light)">
-<meta name="description" content="Cost on Kubernetes is an allocation problem, not a billing problem.">
+<meta name="description" content="Kubernetes cost management is an allocation problem: turn Prometheus metrics into OpenCost showback, spot over-requested workloads, and run the right-sizing loop safely.">
 <title>1.5 Cost: OpenCost and right-sizing · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
 <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
@@ -18,7 +18,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum">Cost on Kubernetes is an allocation problem, not a billing problem. The cluster costs what it costs; the question is which namespace, workload or label is responsible for how much of it, and the answer is computed from requests, usage and time, out of the same Prometheus metrics you already collect.</p>
+  <p class="sum">Kubernetes cost management is an allocation problem, not a billing problem. Your cluster costs what it costs; the real question is which namespace, workload, or label owns which slice of the bill - calculated straight from requests, usage, and time out of the Prometheus metrics you already scrape.</p>
 </header>
 
 <div class="stats"></div>
@@ -28,116 +28,116 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 1.2 · cost management for right-sizing and scaling</span></div>
   <div class="pbody">
-    <p class="lede">You already built the measuring half in section 1.2. This section adds the money view and the loop that connects them: measure usage, compare with requests, adjust requests, confirm nothing degraded. That loop <em>is</em> the competency; OpenCost is just the instrument.</p>
+    <p class="lede">Section 1.2 gave you the measurement toolkit. Here we attach dollars to it and close the right-sizing loop: measure real usage, compare it against requests, adjust the numbers, and confirm nothing broke. That loop IS the competency; OpenCost is simply the lens.</p>
     <div class="callout model">
-      <span class="tag">The allocation formula, conceptually</span>
-      <p>For each container, for each time window: <code>cost = max(request, usage) × unit_price × hours</code>, summed over CPU, memory, GPU, storage and network, then attributed to the pod's namespace, labels or owner. Everything OpenCost shows is that expression sliced differently. Once you see it, the "why is my namespace expensive when nothing is running" question answers itself: because <code>request</code> won the <code>max()</code>.</p>
+      <span class="tag">The whole allocation formula in one line</span>
+      <p>For each container over a time window: <code>cost = max(request, usage) × unit_price × hours</code>, summed across CPU, memory, GPU, storage, and network, then rolled up by namespace, label, or controller. Everything in OpenCost is just a different slice of that formula. That's why an idle namespace can still top your cost chart: <code>request</code> won the <code>max()</code>.</p>
     </div>
   </div>
 </section>
 
 <section class="panel accent-c" id="drivers">
-  <div class="phdr"><h2>What drives spend, in the order it matters</h2><span class="meta">requests · idle · sprawl</span></div>
+  <div class="phdr"><h2>What actually drives spend, in priority order</h2><span class="meta">requests · idle · sprawl</span></div>
   <div class="pbody">
     <ol>
-      <li><strong>Requests, not usage.</strong> Capacity planning and most internal pricing allocate by what you reserved. A deployment requesting 4 CPU and using 200m costs 4 CPU. The gap between the two is the "efficiency" number OpenCost reports, and closing it is right-sizing.</li>
-      <li><strong>Idle capacity.</strong> Nodes are bought whole; unrequested space is idle cost. OpenCost can either show it separately or spread it across tenants, and knowing that <em>both accounting choices exist</em> is the exam-relevant fact. Showing idle separately makes the platform team accountable for bin-packing; spreading it makes tenants feel the true cost of the cluster they share. Neither is wrong; they answer different questions.</li>
-      <li><strong>Object sprawl.</strong> LoadBalancers, PVs, snapshots, forgotten namespaces and orphaned PVCs bill whether or not traffic flows. This is why the team-a quota caps <code>services.loadbalancers</code> at 1, and why quota is a cost tool as much as a fairness tool.</li>
-      <li><strong>Node sizing and lifecycle.</strong> The lever above the workload: instance families, spot/preemptible capacity, consolidation (Karpenter-style), and scale-to-zero for dev environments. You cannot demonstrate these in kind, but "right-size the pods, then right-size the nodes" is the correct order to say out loud.</li>
+      <li><strong>Requests, not live usage.</strong> Schedulers and cost tools bill you for what you reserved. A Deployment requesting 4 CPU while burning 200m still locks up and costs 4 CPU. OpenCost expresses that ratio as <em>efficiency</em>, and closing the gap is right-sizing.</li>
+      <li><strong>Idle node capacity.</strong> You buy nodes whole, so unrequested space on a node is idle spend. OpenCost can either break idle out as its own <code>__idle__</code> row or distribute it across tenants. Know both options: separating idle holds the platform team accountable for bin-packing, while sharing idle makes tenants feel the real cost of the cluster they share. Neither is wrong - they answer different organizational questions.</li>
+      <li><strong>Object sprawl.</strong> Cloud LoadBalancers, PVs, snapshots, forgotten namespaces, and orphaned PVCs rack up charges even with zero traffic. That's why <code>team-a</code> caps <code>services.loadbalancers</code> at 1.</li>
+      <li><strong>Node sizing and lifecycle.</strong> One layer above your pods: right-sized instance families, spot/preemptible pools, node consolidation (Karpenter), and scaling dev environments down to zero overnight. We can't demo cloud billing in kind, but always state the order clearly: <em>right-size the pods first, then right-size the nodes</em>.</li>
     </ol>
 
 
-    <p>The same gap, priced. Notional rates, real arithmetic; note how quickly trimming turns risky once usage approaches the request:</p>
+    <p>See that request-vs-usage gap priced out in real time. Drag the sliders and notice how fast trimming turns risky once usage crowds your request:</p>
     <div class="widget" data-widget="efficiency"></div>
     <div class="callout exam">
-      <span class="tag">Vocabulary that shows up in scenario questions</span>
-      <p><strong>Showback</strong> reports cost to teams; <strong>chargeback</strong> actually bills them. <strong>Allocation</strong> is dividing shared cost by a defensible key (namespace, label, owner). <strong>Efficiency</strong> is usage ÷ request. <strong>Unit economics</strong> is cost per business thing (per tenant, per request). A "reduce cost" scenario is usually asking for allocation first: you cannot cut what you cannot attribute.</p>
+      <span class="tag">FinOps vocabulary you'll see in scenarios</span>
+      <p><strong>Showback</strong> shares cost visibility with teams; <strong>chargeback</strong> actually bills their budget. <strong>Allocation</strong> splits shared spend along a defensible key (namespace, label, owner). <strong>Efficiency</strong> is usage ÷ billed allocation. <strong>Unit economics</strong> ties infrastructure spend to a business unit (cost per tenant or per request). Whenever a prompt asks how to cut costs, start with allocation - you can't optimize spend you can't attribute.</p>
     </div>
   
 
-    <h3>The loop as FinOps says it, and the levers by layer</h3>
-    <p>FinOps phrases the loop as <strong>inform</strong> (allocate and show), <strong>optimize</strong> (right-size, commit, clean up) and <strong>operate</strong> (make it routine with budgets and alerts). Map it onto layers and you have a complete answer to "how would you reduce this cluster's cost":</p>
+    <h3>The FinOps loop, mapped to cluster layers</h3>
+    <p>FinOps breaks the cycle into <strong>Inform</strong> (allocate and surface costs), <strong>Optimize</strong> (right-size, commit, clean up), and <strong>Operate</strong> (bake budgets and alerts into daily ops). Map those onto Kubernetes layers and you have a rock-solid answer to any "reduce this cluster's spend" prompt:</p>
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>Layer</th><th>Waste looks like</th><th>Lever</th><th>Where the number is</th></tr></thead>
+        <thead><tr><th>Layer</th><th>Waste looks like</th><th>Lever</th><th>Where to read it</th></tr></thead>
         <tbody>
-          <tr><td>Container</td><td>efficiency far below 1</td><td>VPA recommendation: <code>status.recommendation.containerRecommendations[].target</code> (with <code>lowerBound</code>, <code>upperBound</code>, <code>uncappedTarget</code>); <code>resourcePolicy.containerPolicies</code> to bound it or set <code>mode: Off</code> per container</td><td><code>kubectl cost ... --show-efficiency</code>, VPA status</td></tr>
-          <tr><td>Namespace</td><td>quota far above usage, LoadBalancers, retained PVs</td><td>quota as a budget, <code>services.loadbalancers</code>, per-class storage quota, ttl on Jobs</td><td><code>aggregate=namespace</code>, <code>kubectl get pvc -A</code></td></tr>
-          <tr><td>Node</td><td>high <code>__idle__</code>, nodes below 50% requested</td><td>consolidation (Karpenter <code>WhenEmptyOrUnderutilized</code>, CA scale-down), right-sized instance families, fewer DaemonSets</td><td><code>includeIdle=true</code>, <code>idleByNode=true</code></td></tr>
-          <tr><td>Purchase</td><td>on-demand for interruptible work</td><td>spot/preemptible pools with a taint and a PDB for stateless workers; commitments for the steady base</td><td>spot prices in the price list; cloud billing export</td></tr>
+          <tr><td>Container</td><td>efficiency way below 1</td><td>VPA recommendations: <code>status.recommendation.containerRecommendations[].target</code> (plus <code>lowerBound</code>, <code>upperBound</code>, <code>uncappedTarget</code>); use <code>resourcePolicy.containerPolicies</code> to clamp bounds or set <code>mode: Off</code> per container</td><td><code>kubectl cost ... --show-efficiency</code>, VPA status</td></tr>
+          <tr><td>Namespace</td><td>bloated quotas, idle LoadBalancers, retained PVs</td><td>quotas as spend caps, <code>services.loadbalancers</code>, per-class storage quota, Job TTLs</td><td><code>aggregate=namespace</code>, <code>kubectl get pvc -A</code></td></tr>
+          <tr><td>Node</td><td>high <code>__idle__</code>, nodes below 50% requested</td><td>consolidation (Karpenter <code>WhenEmptyOrUnderutilized</code>, CA scale-down), better instance families, leaner DaemonSets</td><td><code>includeIdle=true</code>, <code>idleByNode=true</code></td></tr>
+          <tr><td>Purchase</td><td>on-demand nodes running interruptible batch work</td><td>tainted spot/preemptible pools with PDBs for stateless apps; savings plans for steady baseline</td><td>spot pricing in price list; cloud billing export</td></tr>
         </tbody>
       </table>
     </div>
-    <p>Showback is the inform phase done for teams; chargeback is the same report wired into budgets. The maturity model (3.1) treats "teams value platform capabilities enough to pay for them, for example via a chargeback system" as a Scalable-level marker, so a scenario that mentions chargeback is asking about organizational maturity as much as about OpenCost.</p>
+    <p>Showback covers the Inform phase for app teams; chargeback plugs those numbers into real budgets. Remember section 3.1's maturity model: teams willingly paying for platform capabilities through chargeback is a Scalable-level signal, so a prompt mentioning chargeback often touches organizational maturity as much as OpenCost itself.</p>
   </div>
 </section>
 
 <section class="panel accent-p" id="opencost">
-  <div class="phdr"><h2>How OpenCost actually works here</h2><span class="meta">metrics in, allocation out</span></div>
+  <div class="phdr"><h2>How OpenCost works under the hood</h2><span class="meta">metrics in, allocation out</span></div>
   <div class="pbody">
-    <p>OpenCost is a small controller plus a query API. It reads pod and node inventory from the API server, joins it with usage series from Prometheus (<code>container_cpu_usage_seconds_total</code>, <code>container_memory_working_set_bytes</code>, <code>kube_pod_container_resource_requests</code>, node capacity) and applies a price list: cloud billing rates in a real cluster, default on-prem rates in this one. The prices in the lab are notional; the <em>ratios and gaps</em> are real, and those are what you are learning to read.</p>
+    <p>OpenCost is a lightweight controller paired with a query API. It pulls pod and node inventory from the API server, joins it against Prometheus usage series (<code>container_cpu_usage_seconds_total</code>, <code>container_memory_working_set_bytes</code>, <code>kube_pod_container_resource_requests</code>, and node capacity), and multiplies by a price sheet (cloud billing rates in production, default on-prem rates in our lab). Don't worry about the lab's synthetic dollar amounts - the <em>ratios and efficiency gaps</em> are completely real.</p>
 
     <pre class="diagram"><b>kube-state-metrics</b> ─┐
 <b>cadvisor / kubelet</b> ─┼─▶ <i>Prometheus</i> ─▶ <b>OpenCost</b> ─▶ allocation API ─▶ <u>kubectl cost</u> / UI / Grafana
 <b>node inventory</b>     ─┘                     ▲
                         price list (cloud rates or defaults)</pre>
 
-    <p>Two consequences worth predicting before you run anything. First, OpenCost is only as good as the metrics under it, so a broken scrape shows up as missing cost, not as an error, and diagnosing "why is this namespace zero" is a Prometheus problem, not a cost problem. Second, allocation windows matter: a 1-hour window over a freshly created workload shows nothing useful, so use <code>--window 1d</code> when you want stable numbers.</p>
+    <p>Two things to keep in mind before running queries. First, OpenCost is only as accurate as its Prometheus scrapes: a broken scrape produces silent zero-dollar rows rather than a loud error, so debugging a missing namespace starts in Prometheus, not OpenCost. Second, pick an appropriate window - a 1-hour lookback over a brand-new workload tells you very little, so default to <code>--window 1d</code> for steadier numbers.</p>
 
     <div class="callout reflex">
-      <span class="tag">One flag to burn in</span>
-      <p><code>kubectl cost</code> assumes a Kubecost install by default. <code>--opencost</code> is what points it at this stack: different service name, port and API path, all bundled in the one flag. Forgetting it produces a connection error that looks like OpenCost is broken when it is not being asked.</p>
+      <span class="tag">One flag to commit to memory</span>
+      <p><code>kubectl cost</code> targets Kubecost by default. Pass <code>--opencost</code> so it switches to OpenCost's service name, port, and API path automatically. Leave it off and you'll get a connection error that makes OpenCost look down when you were just knocking on the wrong door.</p>
     </div>
 
-    <h3>The right-sizing loop, as an exam answer</h3>
+    <h3>The right-sizing loop (exam-ready version)</h3>
     <ol>
-      <li><strong>Measure</strong>: <code>kubectl top</code>, Prometheus, VPA recommendations (1.2).</li>
-      <li><strong>Compare</strong>: requests vs p95-ish usage, per container, not per namespace average.</li>
-      <li><strong>Adjust</strong>: <code>kubectl set resources</code> or the manifest in git; memory to roughly peak plus headroom, CPU to a sane request with a generous or absent limit.</li>
-      <li><strong>Confirm</strong>: nothing throttling, nothing OOMKilled, nothing Pending, and the efficiency number moved.</li>
+      <li><strong>Measure:</strong> pull actual usage from <code>kubectl top</code>, Prometheus, or VPA recommendations (1.2).</li>
+      <li><strong>Compare:</strong> stack requests against ~p95 usage per container - never hide outliers inside a namespace average.</li>
+      <li><strong>Adjust:</strong> update via <code>kubectl set resources</code> or Git manifests (size memory around peak plus headroom; set sensible CPU requests with generous or omitted CPU limits).</li>
+      <li><strong>Verify:</strong> confirm zero CPU throttling spikes, zero OOMKills, zero Pending pods, and a visibly higher efficiency score.</li>
     </ol>
-    <p>Step 4 is where people lose the mark. Right-sizing that breaks scheduling or introduces throttling is worse than the waste it removed, and it is worth saying so unprompted.</p>
+    <p>Step 4 is where candidates earn full credit. Slashing requests until pods throttle or OOM isn't optimization - always include verification in your answer.</p>
   </div>
 </section>
 
 <section class="panel accent-y" id="allocation-api">
-  <div class="phdr"><h2>The allocation API and its knobs</h2><span class="meta">/allocation · aggregate · window · idle · pricing sources · what kubectl cost sends</span></div>
+  <div class="phdr"><h2>The allocation API and its parameters</h2><span class="meta">/allocation · aggregate · window · idle · pricing sources · what kubectl cost sends</span></div>
   <div class="pbody">
-    <p>Everything the UI, Grafana and <code>kubectl cost</code> show is one HTTP query against the OpenCost pod on port 9003 (the UI is a second container in the same pod, on 9090). Knowing the parameters lets you answer a cost question with <code>curl</code> when the plugin is not installed, and lets you read the plugin's flags as what they are: parameter presets.</p>
+    <p>The OpenCost UI, Grafana panels, and <code>kubectl cost</code> all hit the exact same HTTP endpoint on port 9003 (the UI runs as a companion container on port 9090). Knowing the raw query parameters lets you pull answers with <code>curl</code> even when the CLI plugin isn't installed.</p>
 
     <h3>GET /allocation</h3>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Parameter</th><th>Values</th><th>Why it matters</th></tr></thead>
         <tbody>
-          <tr><td class="mono">window</td><td class="mono">today, yesterday, week, lastweek, month, 30m, 12h, 7d, RFC3339 pair, unix pair</td><td>required; a fresh workload needs a window that contains it; a long window smooths the request-vs-usage max()</td></tr>
-          <tr><td class="mono">aggregate</td><td class="mono">cluster, node, namespace, controllerKind, controller, service, pod, container, label:&lt;key&gt;, annotation:&lt;key&gt;; comma lists</td><td>this is "allocation by a defensible key": <code>aggregate=label:team</code> is showback by team without touching namespaces</td></tr>
-          <tr><td class="mono">step</td><td class="mono">1h, 1d, ...</td><td>splits the window into a time series; default is one set for the whole window</td></tr>
-          <tr><td class="mono">resolution</td><td class="mono">1m default, 30m</td><td>Prometheus query step; coarser is faster and less accurate for short-lived pods</td></tr>
-          <tr><td class="mono">includeIdle</td><td class="mono">true/false</td><td>adds an <code>__idle__</code> row: allocated-but-unrequested capacity</td></tr>
-          <tr><td class="mono">shareIdle</td><td class="mono">true/false</td><td>spreads idle across the other rows proportionally to their cost, per resource; the two accounting choices from the panel above, as a flag</td></tr>
-          <tr><td class="mono">idleByNode</td><td class="mono">true/false</td><td>compute idle per node instead of per cluster</td></tr>
+          <tr><td class="mono">window</td><td class="mono">today, yesterday, week, lastweek, month, 30m, 12h, 7d, RFC3339 pair, unix pair</td><td>required; make sure the window covers the workload's lifetime; wider windows smooth out short spikes</td></tr>
+          <tr><td class="mono">aggregate</td><td class="mono">cluster, node, namespace, controllerKind, controller, service, pod, container, label:&lt;key&gt;, annotation:&lt;key&gt;; comma lists</td><td>groups spend by your chosen key - <code>aggregate=label:team</code> delivers team showback even across shared namespaces</td></tr>
+          <tr><td class="mono">step</td><td class="mono">1h, 1d, ...</td><td>breaks the window into a time series instead of one aggregate bucket</td></tr>
+          <tr><td class="mono">resolution</td><td class="mono">1m default, 30m</td><td>Prometheus query step; coarser runs faster but can miss short-lived pods</td></tr>
+          <tr><td class="mono">includeIdle</td><td class="mono">true/false</td><td>adds an <code>__idle__</code> row for unrequested node capacity</td></tr>
+          <tr><td class="mono">shareIdle</td><td class="mono">true/false</td><td>folds idle spend into the remaining rows proportionally per resource</td></tr>
+          <tr><td class="mono">idleByNode</td><td class="mono">true/false</td><td>calculates idle per node rather than cluster-wide</td></tr>
         </tbody>
       </table>
     </div>
-    <p>Each row in the response carries <code>cpuCost</code>, <code>ramCost</code>, <code>gpuCost</code>, <code>pvCost</code>, <code>networkCost</code>, <code>loadBalancerCost</code>, <code>sharedCost</code>, <code>totalCost</code>, plus <code>cpuEfficiency</code>, <code>ramEfficiency</code> and <code>totalEfficiency</code> (usage divided by the max(request, usage) that was billed, so above 1.0 means the workload used more than it requested). <code>kubectl cost namespace --opencost</code> is exactly <code>--service-port 9003 --service-name opencost --kubecost-namespace opencost --allocation-path /allocation/compute</code>; the subcommands (<code>namespace</code>, <code>deployment</code>, <code>controller</code>, <code>label</code>, <code>pod</code>, <code>node</code>) are the <code>aggregate</code> values; the default output is a projected monthly rate and <code>--historical</code> switches to the total for the window.</p>
+    <p>Every returned row carries <code>cpuCost</code>, <code>ramCost</code>, <code>gpuCost</code>, <code>pvCost</code>, <code>networkCost</code>, <code>loadBalancerCost</code>, <code>sharedCost</code>, and <code>totalCost</code>, plus <code>cpuEfficiency</code>, <code>ramEfficiency</code>, and <code>totalEfficiency</code> (usage divided by billed <code>max(request, usage)</code> - so anything over 1.0 means the container is under-requested). Under the hood, <code>kubectl cost namespace --opencost</code> expands to <code>--service-port 9003 --service-name opencost --kubecost-namespace opencost --allocation-path /allocation/compute</code>; subcommands like <code>namespace</code>, <code>deployment</code>, <code>controller</code>, <code>label</code>, <code>pod</code>, and <code>node</code> map straight to <code>aggregate</code>; and output defaults to a projected monthly rate unless you pass <code>--historical</code> for the window total.</p>
 
-    <h3>Where the price comes from</h3>
+    <h3>Where pricing comes from</h3>
     <ul>
-      <li><strong>Cloud</strong>: on-demand list prices from the provider's pricing API, keyed by the node's <code>providerID</code>, instance type and region; spot nodes are priced as spot when the node is labeled as such (Karpenter's <code>karpenter.sh/capacity-type: spot</code>, cloud labels). Actual invoices are reconciled only when a billing export is configured (cloud costs integration).</li>
-      <li><strong>On-prem or kind</strong>: nodes without a cloud <code>providerID</code> fall back to the <code>custom</code> provider and <code>default.json</code>: CPU 0.031611 per core-hour, RAM 0.004237 per GB-hour, GPU 0.95 per hour, storage 0.00005479452 per GB-hour, spot CPU 0.006655, described as "based on GCP us-central1". Override with the custom pricing ConfigMap or the Helm <code>customPricing</code> values when a task says "our CPU costs X"; the ratios between namespaces are unchanged, only the currency figures move.</li>
+      <li><strong>Cloud clusters:</strong> pulls on-demand list prices from the cloud provider's pricing API using each node's <code>providerID</code>, instance type, and region; spot nodes get spot pricing when labeled (such as Karpenter's <code>karpenter.sh/capacity-type: spot</code>). Real negotiated discounts and invoices come in only when you wire up a cloud billing export.</li>
+      <li><strong>On-prem or kind:</strong> nodes without a cloud <code>providerID</code> fall back to the <code>custom</code> provider and <code>default.json</code> (CPU 0.031611/core-hour, RAM 0.004237/GB-hour, GPU 0.95/hour, storage 0.00005479452/GB-hour, spot CPU 0.006655 - modeled on GCP us-central1). Override these via the custom pricing ConfigMap or Helm <code>customPricing</code> values whenever a prompt hands you custom rates; only the currency totals shift, never the relative ratios.</li>
     </ul>
 
-    <h3>The spec's definitions, since scenario text quotes them</h3>
+    <h3>Spec definitions scenarios quote</h3>
     <ul>
-      <li><strong>Total cluster cost</strong> = cluster asset costs (nodes, PVs, attached disks, load balancers, network) + cluster overhead (management fees).</li>
-      <li><strong>Workload cost</strong> = max(request, usage) for allocation-billed resources (CPU, GPU, RAM), PVC capacity for storage, bytes for network; computed per container, then aggregated by any key.</li>
-      <li><strong>Idle cost</strong> = asset cost - workload cost; <strong>idle %</strong> = idle / allocation costs. Idle can be shown as its own line or distributed: uniformly, proportionally to consumption, or by a custom metric.</li>
-      <li><strong>Shared costs</strong>: kube-system, monitoring, the platform team's own namespaces, spread the same three ways. This is the knob that turns showback into a fair chargeback.</li>
-      <li>Pods in <code>ImagePullBackOff</code> are not charged even though they hold a request; a Pending pod holds nothing.</li>
+      <li><strong>Total cluster cost</strong> = cluster asset costs (nodes, PVs, attached disks, load balancers, network) + cluster overhead (control plane management fees).</li>
+      <li><strong>Workload cost</strong> = <code>max(request, usage)</code> for compute (CPU, GPU, RAM), PVC capacity for storage, and bytes for network, computed per container and rolled up by your aggregation key.</li>
+      <li><strong>Idle cost</strong> = asset cost minus workload cost (<strong>idle %</strong> = idle ÷ allocation costs). Show it on its own row or spread it evenly, proportionally to spend, or by custom metric.</li>
+      <li><strong>Shared costs:</strong> platform namespaces like <code>kube-system</code> and <code>monitoring</code>, distributed using the same three options to turn basic showback into fair chargeback.</li>
+      <li>Pods stuck in <code>ImagePullBackOff</code> aren't billed even though they hold requests; <code>Pending</code> pods hold nothing.</li>
     </ul>
 
-    <div class="callout trap"><span class="tag">Zero cost is a scrape problem</span><p>A namespace that shows 0 with running pods means OpenCost could not join its Prometheus series: check <code>PROMETHEUS_SERVER_ENDPOINT</code> on the opencost Deployment, that kube-state-metrics and cAdvisor targets are up, and that the window covers the pods' lifetime. In a sharded Prometheus, point OpenCost at the global query endpoint (Thanos Query, Mimir), not at one replica.</p></div>
+    <div class="callout trap"><span class="tag">Zero cost means a broken scrape</span><p>If a namespace with healthy running pods prints <code>$0</code>, OpenCost couldn't join its Prometheus metrics. Check <code>PROMETHEUS_SERVER_ENDPOINT</code> on the <code>opencost</code> Deployment, verify <code>kube-state-metrics</code> and cAdvisor targets are UP, and widen your query window. On sharded Prometheus setups, point OpenCost at the global query layer (Thanos Query or Mimir), never a single shard.</p></div>
   </div>
 </section>
 
@@ -597,32 +597,32 @@ verticalpodautoscaler.autoscaling.k8s.io "staging-demo" deleted from team-a name
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>A namespace runs almost no traffic and still tops the cost report. Give the two most likely explanations.</summary>
-      <div class="answer"><p>Oversized requests (billed on reservation, not usage), or expensive attached objects: LoadBalancers, provisioned volumes, retained snapshots. Check efficiency first: very low efficiency points at requests; high efficiency with high cost points at the objects.</p></div></details>
+      <div class="answer"><p>Either oversized requests (since you're billed on reservation, not actual traffic) or pricey attached objects like LoadBalancers, large PVs, or retained snapshots. Check efficiency first: rock-bottom efficiency points straight at requests, while high efficiency paired with high cost points at attached objects.</p></div></details>
 
     <details class="quiz"><summary>Why is <code>container!=""</code> in that PromQL query not optional?</summary>
-      <div class="answer"><p>cadvisor emits per-container series plus pod-level and node-level rollups with an empty <code>container</code> label, and often the pause container as <code>container="POD"</code>. Summing everything counts the same CPU two or three times, so every aggregate over cadvisor series needs <code>{container!="",container!="POD"}</code> or an equivalent.</p></div></details>
+      <div class="answer"><p>cAdvisor emits per-container series alongside pod-level and node-level rollups with an empty <code>container</code> label (and often a pause container labeled <code>container="POD"</code>). Without <code>{container!="",container!="POD"}</code>, your sum double- or triple-counts the exact same CPU.</p></div></details>
 
     <details class="quiz"><summary>Should idle cost be spread across tenants or shown separately? Argue both.</summary>
-      <div class="answer"><p>Spread: tenants see the true cost of the cluster they share, which discourages hoarding. Separate: the platform team owns bin-packing and node choice, so making idle visible as <em>their</em> number is what drives consolidation. Mature setups show both: tenant cost at request-level, plus a platform-owned idle line.</p></div></details>
+      <div class="answer"><p>Spread across tenants: teams feel the true cost of the cluster they share, discouraging resource hoarding. Shown separately: bin-packing and node choice belong to the platform team, so keeping an explicit <code>__idle__</code> line drives consolidation. Mature orgs show both: per-tenant request spend plus a platform-owned idle row.</p></div></details>
 
     <details class="quiz"><summary>You cut a deployment's CPU request from 500m to 50m and latency degrades. What happened?</summary>
-      <div class="answer"><p>Requests set the cgroup CPU weight, so under contention the container now gets a much smaller share; and if a limit exists near the old request, throttling is likelier. Right-sizing means matching observed usage with headroom for peaks, not matching the average. Confirm with throttling metrics, not with the cost graph.</p></div></details>
+      <div class="answer"><p>CPU requests set the cgroup weight, so under node contention your container suddenly gets a tiny slice of CPU time - and if you tightened the limit alongside it, CFS throttling kicks in hard. Right-sizing targets observed peak usage with headroom, not the flat average. Always validate changes with throttling metrics, not just the cost chart.</p></div></details>
 
     <details class="quiz"><summary>Give the four-step right-sizing loop in one breath.</summary>
-      <div class="answer"><p>Measure usage → compare with requests → adjust requests → confirm no degradation (no throttling, no OOM, no Pending) and re-measure efficiency. The fourth step is the one that makes it engineering rather than cost-cutting.</p></div></details>
+      <div class="answer"><p>Measure usage → compare against requests → adjust requests → confirm zero degradation (no throttling, OOMs, or Pending pods) and check the new efficiency score. That fourth step is what separates real engineering from blind cost-cutting.</p></div></details>
   
 
     <details class="quiz"><summary>Show cost per team when teams span several namespaces and pods carry a team label. Query?</summary>
-      <div class="answer"><p><code>/allocation?window=7d&amp;aggregate=label:team</code> (or <code>kubectl cost label --opencost -l team</code>). Aggregation keys include <code>label:&lt;key&gt;</code> and <code>annotation:&lt;key&gt;</code>, so allocation follows whatever label discipline you enforce; a Kyverno policy requiring the label is what makes the report complete.</p></div></details>
+      <div class="answer"><p>Hit <code>/allocation?window=7d&amp;aggregate=label:team</code> (or run <code>kubectl cost label --opencost -l team</code>). OpenCost aggregates on any <code>label:&lt;key&gt;</code> or <code>annotation:&lt;key&gt;</code> - and enforcing that label via Kyverno is what keeps your <code>__unallocated__</code> bucket small.</p></div></details>
 
     <details class="quiz"><summary>What does shareIdle=true change in the numbers, and who should want it?</summary>
-      <div class="answer"><p>The <code>__idle__</code> row disappears and its cost is distributed across the other rows in proportion to their own cost, per resource. Tenants who should feel the true cost of the cluster they share want it; a platform team that owns bin-packing wants <code>includeIdle=true</code> without sharing, so idle stays their line.</p></div></details>
+      <div class="answer"><p>It removes the <code>__idle__</code> row and redistributes that idle spend across all other rows proportionally to their cost, per resource. Use it when you want tenants to absorb the full cost of the shared cluster; keep <code>includeIdle=true</code> without sharing when the platform team owns bin-packing accountability.</p></div></details>
 
     <details class="quiz"><summary>Where do on-prem prices come from, and what is the CPU default?</summary>
-      <div class="answer"><p>Nodes with no cloud providerID use the <code>custom</code> provider and OpenCost's <code>default.json</code>: CPU 0.031611 per core-hour, RAM 0.004237 per GB-hour, GPU 0.95 per hour, described as based on GCP us-central1. Override them via the custom pricing ConfigMap or Helm values. The figures are notional; the ratios and efficiency numbers are what you read.</p></div></details>
+      <div class="answer"><p>Nodes without a cloud <code>providerID</code> fall back to the <code>custom</code> provider and OpenCost's <code>default.json</code>: CPU 0.031611/core-hour, RAM 0.004237/GB-hour, GPU 0.95/hour (modeled on GCP us-central1). Override them with a custom pricing ConfigMap or Helm values. Even with notional numbers, the ratios and efficiency scores stay completely valid.</p></div></details>
 
     <details class="quiz"><summary>A workload shows totalEfficiency 1.4. Is that good?</summary>
-      <div class="answer"><p>It means usage exceeded requests by 40%, so the workload is under-requested: it is being billed on usage, cheap on paper, but it is stealing headroom from neighbors and is first in line for eviction under memory pressure. Raise the request toward observed usage; efficiency near but below 1 is the target.</p></div></details>
+      <div class="answer"><p>No - it means actual usage ran 40% above requests. It looks cheap on paper, but the pod is borrowing headroom from neighbors and sits first in line for OOM eviction under memory pressure. Bump requests closer to observed usage; efficiency near (but just under) 1.0 is the sweet spot.</p></div></details>
   </div>
 </section>
 

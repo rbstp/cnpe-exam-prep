@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#171c1d" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f5f0" media="(prefers-color-scheme: light)">
-<meta name="description" content="Tracing answers the one question metrics and logs cannot: where, along a request&#x27;s path through many services, did the time go or the failure start. The vocabulary is small and the exam expects it exact.">
+<meta name="description" content="Master distributed tracing with OpenTelemetry and Jaeger v2: spans, W3C traceparent context propagation, Collector pipelines, tail sampling, and auto-instrumentation.">
 <title>4.4 Distributed tracing: OpenTelemetry and Jaeger · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
 <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
@@ -18,7 +18,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum">Tracing answers the one question metrics and logs cannot: where, along a request's path through many services, did the time go or the failure start. The vocabulary is small and the exam expects it exact.</p>
+  <p class="sum">Distributed tracing answers the one question metrics and logs can't touch: across a chain of microservices, where did the latency go or the failure actually begin? The vocabulary is compact, and the exam expects you to use it precisely.</p>
 </header>
 
 <div class="stats"></div>
@@ -28,10 +28,10 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 4.1 · tracing solutions</span></div>
   <div class="pbody">
-    <p class="lede">Two things make tracing tasks solvable: knowing the exact OTLP address telemetry should go to, and knowing that a trace is only a trace if context propagated. Everything else is UI.</p>
+    <p class="lede">Two habits make tracing tasks straightforward: knowing the exact OTLP address telemetry needs to hit, and remembering that a trace only hangs together if context propagates across every hop. Everything else is just reading the UI.</p>
     <div class="callout lab">
       <span class="tag">Lab topology</span>
-      <p>The OTel operator lives in <code>opentelemetry-operator-system</code>, the collector in <code>tracing</code>, Jaeger alongside it. So the in-cluster OTLP endpoints are <code>otel-collector.tracing.svc:4317</code> (gRPC) and <code>:4318</code> (HTTP). Memorize the form <code>&lt;svc&gt;.&lt;ns&gt;.svc:4317</code>; every tracing task starts by knowing that address.</p>
+      <p>The OpenTelemetry Operator runs in <code>opentelemetry-operator-system</code>, with the Collector and Jaeger side by side in <code>tracing</code>. That gives you in-cluster OTLP endpoints at <code>otel-collector.tracing.svc:4317</code> (gRPC) and <code>:4318</code> (HTTP). Burn the pattern <code>&lt;svc&gt;.&lt;ns&gt;.svc:4317</code> into memory - almost every tracing task starts right there.</p>
     </div>
   </div>
 </section>
@@ -39,13 +39,13 @@
 <section class="panel accent-c" id="vocab">
   <div class="phdr"><h2>Vocabulary and plumbing</h2><span class="meta">spans · context · pipeline</span></div>
   <div class="pbody">
-    <p>A <strong>trace</strong> is one request's journey. A <strong>span</strong> is one named, timed operation within it, carrying a trace ID, its own span ID, a parent span ID, a status, attributes and events. A trace is therefore a tree, and the root span is the entry point.</p>
+    <p>A <strong>trace</strong> captures one request's end-to-end journey. A <strong>span</strong> represents a single timed operation along the way, stamped with a trace ID, its own span ID, its parent span ID, status, attributes, and events. Together they form a tree anchored at the root span.</p>
 
-    <p><strong>Context propagation</strong> is what links spans across service boundaries: the caller injects the trace context into headers, the callee extracts it and continues the trace instead of starting a new one. The standard header is W3C <code>traceparent</code> (plus <code>tracestate</code>, and <code>baggage</code> for user-defined key/values that travel with the request). Older stacks use B3 headers; a mixed fleet needs a propagator configured for both.</p>
+    <p><strong>Context propagation</strong> stitches spans across service boundaries: the caller injects trace context into outbound headers, and the callee extracts it to continue the same trace rather than starting a brand-new one. Modern stacks use W3C <code>traceparent</code> (alongside <code>tracestate</code>, plus <code>baggage</code> for custom key-values traveling with the request). Older services may still speak B3 headers, so mixed fleets configure propagators for both.</p>
 
     <div class="callout trap">
-      <span class="tag">The classic failure, and how it looks</span>
-      <p>Broken propagation: every service reports spans, and every span is its own orphan trace. Symptom in Jaeger: many single-span traces, one per service, none joined. Causes: a proxy or gateway stripping unknown headers, an SDK without the right propagator, a manual HTTP client that never injects, or an async hop (queue, cron) where nobody thought to carry the context. When you see one-span traces from an instrumented system, name that cause immediately.</p>
+      <span class="tag">The classic broken-propagation tell</span>
+      <p>If Jaeger fills up with hundreds of single-span traces - one per service, none stitched together - context propagation is broken. Suspect a proxy stripping unknown headers, a mismatched propagator (W3C vs. B3), a hand-rolled HTTP client skipping header injection, or an uninstrumented async hop like a message queue.</p>
     </div>
 
     <h3>The OpenTelemetry pipeline</h3>
@@ -59,34 +59,34 @@
    ▼
 <b>backend</b>  Jaeger (traces) · Prometheus (metrics) · Loki (logs)</pre>
 
-    <p>The collector is the platform team's control point: <strong>sampling, batching, redaction and fan-out happen there, not in application code</strong>. That is the platform-engineering answer to "how do we control telemetry cost": you change one deployment, not forty services.</p>
+    <p>The Collector is the platform team's control plane for telemetry: <strong>sampling, batching, PII redaction, and routing all belong here instead of inside app code</strong>. That's the platform-engineering answer to controlling observability spend - update one Collector deployment instead of chasing forty application teams.</p>
 
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>Sampling</th><th>Decides</th><th>Trade</th></tr></thead>
+        <thead><tr><th>Sampling</th><th>Decides</th><th>Trade-off</th></tr></thead>
         <tbody>
-          <tr><td>Head-based</td><td>at the start of the trace, usually a fixed probability</td><td>cheap and simple; you may drop the one slow request you needed</td></tr>
-          <tr><td>Tail-based</td><td>after the trace completes, on its properties (errors, latency)</td><td>keeps the interesting traces; the collector must buffer whole traces, so it costs memory and needs all spans of a trace at one collector</td></tr>
+          <tr><td>Head-based</td><td>at trace start, typically a fixed percentage</td><td>cheap and stateless, but can easily drop the one slow or broken request you actually needed</td></tr>
+          <tr><td>Tail-based</td><td>after the trace completes, based on errors or latency</td><td>keeps every interesting trace, at the cost of buffering full traces in memory - and requiring every span of a trace to hit the exact same collector</td></tr>
         </tbody>
       </table>
     </div>
 
     <h3>Kubernetes-side: two CRDs</h3>
     <ul>
-      <li><code>OpenTelemetryCollector</code>: the operator deploys and configures a collector (as a Deployment, DaemonSet, StatefulSet or Sidecar). Read its config to see the receiver/exporter chain.</li>
-      <li><code>Instrumentation</code>: the <strong>zero-code path</strong>. The lab ships one named <code>auto</code> in <code>default</code>; annotating a pod spec with <code>instrumentation.opentelemetry.io/inject-java: "default/auto"</code> (or <code>-python</code>, <code>-nodejs</code>, <code>-dotnet</code>) makes a webhook inject the language agent as an init container at admission.</li>
+      <li><code>OpenTelemetryCollector</code>: lets the operator manage collectors as Deployments, DaemonSets, StatefulSets, or Sidecars. Inspect its spec whenever you need to trace the receiver → processor → exporter chain.</li>
+      <li><code>Instrumentation</code>: your <strong>zero-code auto-instrumentation</strong> path. Our lab ships one named <code>auto</code> in <code>default</code>; add <code>instrumentation.opentelemetry.io/inject-java: "default/auto"</code> (or <code>-python</code>, <code>-nodejs</code>, <code>-dotnet</code>) to a pod template and the admission webhook injects the language agent via an init container automatically.</li>
     </ul>
     <div class="callout exam">
-      <span class="tag">Injection happens at pod creation</span>
-      <p>Annotate an existing Deployment and nothing happens to the running pods; they must restart to pick it up. And the annotation belongs on the <em>pod template</em>, not on the Deployment's own metadata. Those two mistakes account for most "the annotation does nothing" reports, and both are one-line fixes once you know to look.</p>
+      <span class="tag">Injection runs at pod creation only</span>
+      <p>Adding the annotation to a live Deployment won't touch existing pods - you have to trigger a rollout restart. Also make sure the annotation sits on <code>spec.template.metadata</code> (the pod template), not the Deployment's top-level metadata. Those two slip-ups cause 90% of "auto-instrumentation isn't working" headaches.</p>
     </div>
   </div>
 </section>
 
 <section class="panel accent-c" id="collector">
-  <div class="phdr"><h2>The collector, field by field</h2><span class="meta">pipelines, connectors, the processors that decide cost</span></div>
+  <div class="phdr"><h2>The Collector, field by field</h2><span class="meta">pipelines, connectors, the processors that decide cost</span></div>
   <div class="pbody">
-    <p>A collector config has four component sections (<code>receivers</code>, <code>processors</code>, <code>exporters</code>, <code>connectors</code>), an <code>extensions</code> section for things that are not in the data path (<code>health_check</code>, <code>pprof</code>, <code>zpages</code>), and a <code>service</code> block that wires them into named <code>pipelines</code> per signal. Defining a component does nothing until a pipeline lists it. Components can be declared more than once with a suffix (<code>otlp_grpc/2</code>, <code>otlp_http/loki</code>), and a <code>connector</code> is both an exporter of one pipeline and a receiver of another, which is how <code>span_metrics</code> turns traces into RED metrics without touching the application. Collector 0.16x renamed several types (<code>otlp</code> exporter to <code>otlp_grpc</code>, <code>otlphttp</code> to <code>otlp_http</code>, <code>k8sattributes</code> to <code>k8s_attributes</code>, <code>spanmetrics</code> to <code>span_metrics</code>); the old names still load with a deprecation warning, so you will read both.</p>
+    <p>A Collector configuration defines four data-path sections (<code>receivers</code>, <code>processors</code>, <code>exporters</code>, <code>connectors</code>), an <code>extensions</code> block for side capabilities (<code>health_check</code>, <code>pprof</code>, <code>zpages</code>), and a <code>service.pipelines</code> block that wires them together per signal. Declaring a component does nothing until a pipeline activates it. You can instantiate the same type multiple times with suffixes (<code>otlp_grpc/2</code>, <code>otlp_http/loki</code>), and a <code>connector</code> acts as both an exporter on one pipeline and a receiver on another (that's how <code>span_metrics</code> turns traces into RED metrics automatically). Note that Collector 0.16x renamed several components (<code>otlp</code> → <code>otlp_grpc</code>, <code>otlphttp</code> → <code>otlp_http</code>, <code>k8sattributes</code> → <code>k8s_attributes</code>, <code>spanmetrics</code> → <code>span_metrics</code>); older names still load with deprecation warnings, so stay fluent in both.</p>
     <div class="cb" data-lang="yaml"><pre><code>receivers:
   otlp: { protocols: { grpc: { endpoint: 0.0.0.0:4317 }, http: { endpoint: 0.0.0.0:4318 } } }
 processors:
@@ -104,57 +104,57 @@ service:
     metrics: { receivers: [span_metrics], processors: [batch], exporters: [prometheus] }</code></pre></div>
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th class="mono">Processor</th><th>Fields that matter</th><th>Rule</th></tr></thead>
+        <thead><tr><th class="mono">Processor</th><th>Fields that matter</th><th>Rule of thumb</th></tr></thead>
         <tbody>
-          <tr><td class="mono">memory_limiter</td><td><code>check_interval</code>, <code>limit_mib</code> (hard), <code>spike_limit_mib</code> (soft = hard minus spike; start at 20% of hard) or <code>limit_percentage</code></td><td>first in every pipeline so back-pressure reaches the receiver; set <code>GOMEMLIMIT</code> as well</td></tr>
-          <tr><td class="mono">batch</td><td><code>send_batch_size</code> (8192), <code>timeout</code> (200ms), <code>send_batch_max_size</code></td><td>last before the exporters; reduces request count and exporter cost</td></tr>
-          <tr><td class="mono">k8s_attributes</td><td><code>pod_association</code> (match by <code>k8s.pod.ip</code> or <code>k8s.pod.name</code>+<code>k8s.namespace.name</code>), <code>extract.metadata</code>, <code>extract.labels</code></td><td>needs RBAC to list pods, replicasets, namespaces; without it spans carry no <code>k8s.*</code> resource attributes and Loki/Tempo correlation breaks</td></tr>
-          <tr><td class="mono">resource / attributes</td><td><code>actions: [{key, action: insert|upsert|delete|hash}]</code></td><td>redaction (<code>delete</code> on <code>http.request.header.authorization</code>) belongs here, not in forty SDKs</td></tr>
-          <tr><td class="mono">filter</td><td>OTTL conditions, e.g. drop spans where <code>attributes["http.route"] == "/healthz"</code></td><td>dropping individual spans breaks trace trees; prefer sampling whole traces</td></tr>
-          <tr><td class="mono">tail_sampling</td><td><code>decision_wait</code> (30s), <code>num_traces</code> (50000), <code>policies[]</code> of type <code>always_sample</code>, <code>latency</code>, <code>status_code</code>, <code>probabilistic</code>, <code>rate_limiting</code>, <code>string_attribute</code>, <code>ottl_condition</code>, <code>and</code>, <code>composite</code></td><td>every span of a trace must reach the same instance: put a <code>loadbalancing</code> exporter with <code>routing_key: traceID</code> in a first tier, or run one replica</td></tr>
-          <tr><td class="mono">probabilistic_sampler</td><td><code>sampling_percentage</code></td><td>head sampling in the collector; cheap, blind to errors</td></tr>
+          <tr><td class="mono">memory_limiter</td><td><code>check_interval</code>, <code>limit_mib</code> (hard), <code>spike_limit_mib</code> (soft = hard minus spike; start around 20%), or <code>limit_percentage</code></td><td>always put this first so back-pressure hits the receiver before OOM; pair with <code>GOMEMLIMIT</code></td></tr>
+          <tr><td class="mono">batch</td><td><code>send_batch_size</code> (8192), <code>timeout</code> (200ms), <code>send_batch_max_size</code></td><td>place last right before exporters to cut RPC overhead</td></tr>
+          <tr><td class="mono">k8s_attributes</td><td><code>pod_association</code> (<code>k8s.pod.ip</code> or <code>k8s.pod.name</code>+<code>k8s.namespace.name</code>), <code>extract.metadata</code>, <code>extract.labels</code></td><td>needs RBAC to watch pods, replicasets, and namespaces; without it, spans lose <code>k8s.*</code> attributes and log correlation breaks</td></tr>
+          <tr><td class="mono">resource / attributes</td><td><code>actions: [{key, action: insert|upsert|delete|hash}]</code></td><td>handle redaction centrally (like stripping <code>http.request.header.authorization</code>)</td></tr>
+          <tr><td class="mono">filter</td><td>OTTL rules, e.g. dropping spans where <code>attributes["http.route"] == "/healthz"</code></td><td>dropping mid-trace spans breaks parent/child trees - prefer sampling whole traces instead</td></tr>
+          <tr><td class="mono">tail_sampling</td><td><code>decision_wait</code> (30s), <code>num_traces</code> (50000), <code>policies[]</code> (<code>always_sample</code>, <code>latency</code>, <code>status_code</code>, <code>probabilistic</code>, <code>rate_limiting</code>, <code>string_attribute</code>, <code>ottl_condition</code>, <code>and</code>, <code>composite</code>)</td><td>every span of a trace must hit the same collector - put a front-tier <code>loadbalancing</code> exporter (<code>routing_key: traceID</code>) ahead of multi-replica gateways</td></tr>
+          <tr><td class="mono">probabilistic_sampler</td><td><code>sampling_percentage</code></td><td>head sampling in the collector; cheap, but blind to errors</td></tr>
         </tbody>
       </table>
     </div>
-    <p>Two deployment roles: an <em>agent</em> (DaemonSet or sidecar) close to the workload that enriches and batches, and a <em>gateway</em> (Deployment behind a Service) that samples, redacts and fans out. Tail sampling and rate limiting belong in the gateway. The <code>debug</code> exporter (<code>verbosity: detailed</code>) is the fastest way to see whether spans arrive at all; the old <code>logging</code> exporter is gone from current builds, so a config that still names it fails to start with an unknown-exporter error.</p>
-    <div class="callout trap"><span class="tag">Trap</span><p>An exporter's <code>endpoint</code> is a host:port for <code>otlp_grpc</code> and a URL for <code>otlp_http</code>. Sending gRPC to 4318 or HTTP to 4317 produces connection resets or <code>415</code>/<code>unimplemented</code> errors rather than a clear message. The Python auto-instrumentation talks <code>http/protobuf</code> only, so its <code>Instrumentation</code> endpoint must be the 4318 one.</p></div>
+    <p>Most production setups split into two tiers: an <em>agent</em> (DaemonSet or sidecar) sitting right next to workloads to enrich and batch, forwarding to a <em>gateway</em> (Deployment behind a Service) that handles tail sampling, redaction, and fan-out. When verifying whether spans arrive at all, add the <code>debug</code> exporter (<code>verbosity: detailed</code>) - the old <code>logging</code> exporter was removed in current builds and will crash startup.</p>
+    <div class="callout trap"><span class="tag">Port/protocol mismatch trap</span><p><code>otlp_grpc</code> expects <code>host:port</code> on 4317, while <code>otlp_http</code> expects a full URL on 4318. Crossing gRPC and HTTP ports causes cryptic connection resets or HTTP <code>415</code> / <code>unimplemented</code> errors. Note that Python auto-instrumentation speaks <code>http/protobuf</code> only, so always point its <code>Instrumentation</code> CR at port 4318.</p></div>
   </div>
 </section>
 
 <section class="panel accent-y" id="operator-jaeger">
-  <div class="phdr"><h2>Operator CRDs, Jaeger v2 and how traces go wrong</h2><span class="meta">modes, annotations, backends, exemplars, failure modes</span></div>
+  <div class="phdr"><h2>Operator CRDs, Jaeger v2, and tracing failure modes</h2><span class="meta">modes, annotations, backends, exemplars, failure modes</span></div>
   <div class="pbody">
-    <h3>OpenTelemetryCollector and Instrumentation</h3>
+    <h3>OpenTelemetryCollector and Instrumentation details</h3>
     <ul>
-      <li><strong><code>spec.mode</code></strong>: <code>deployment</code> (default), <code>daemonset</code>, <code>statefulset</code> (required for the target allocator and for sharded tail sampling), <code>sidecar</code>. A sidecar collector is injected into pods annotated <code>sidecar.opentelemetry.io/inject: "true"</code> (or the collector's name), an annotation separate from the language injection ones. <code>spec.config</code> is the collector YAML above; the operator renders it into a ConfigMap and a Service whose port names follow the receivers (<code>otlp-grpc</code>, <code>otlp-http</code>). <code>spec.targetAllocator</code> lets a StatefulSet of collectors share Prometheus scrape targets discovered from ServiceMonitors and PodMonitors.</li>
-      <li><strong><code>Instrumentation</code></strong> fields: <code>exporter.endpoint</code>, <code>propagators</code> (<code>tracecontext</code>, <code>baggage</code>, <code>b3</code>), <code>sampler.type</code> (<code>parentbased_traceidratio</code>) and <code>sampler.argument</code> ("0.25"), plus per-language blocks (<code>java.image</code>, <code>python.env</code>, <code>nodejs</code>, <code>dotnet</code>, <code>go</code>) that can pin an agent image or add <code>OTEL_*</code> environment variables.</li>
-      <li><strong>Annotation values</strong> for <code>instrumentation.opentelemetry.io/inject-&lt;lang&gt;</code>: <code>"true"</code> (the single Instrumentation in the pod's namespace; ambiguous if there are two), <code>"name"</code> (same namespace), <code>"namespace/name"</code>, <code>"false"</code>. Multi-container pods need <code>instrumentation.opentelemetry.io/container-names: "app,worker"</code> or the operator instruments only the first container. <code>inject-sdk</code> injects environment variables only, for a language with no agent. Go injection is eBPF: it needs <code>otel-go-auto-target-exe</code> pointing at the binary and a privileged sidecar, which a <code>restricted</code> namespace refuses.</li>
+      <li><strong><code>spec.mode</code>:</strong> <code>deployment</code> (default), <code>daemonset</code>, <code>statefulset</code> (required for the target allocator or sharded tail sampling), and <code>sidecar</code> (injected via <code>sidecar.opentelemetry.io/inject: "true"</code> or a collector name - distinct from language injection annotations). The operator automatically renders <code>spec.config</code> into a ConfigMap and creates a Service matching your receiver ports (<code>otlp-grpc</code>, <code>otlp-http</code>). Enabling <code>spec.targetAllocator</code> lets a Collector StatefulSet shard Prometheus ServiceMonitor/PodMonitor scrapes.</li>
+      <li><strong><code>Instrumentation</code> fields:</strong> <code>exporter.endpoint</code>, <code>propagators</code> (<code>tracecontext</code>, <code>baggage</code>, <code>b3</code>), <code>sampler.type</code> (<code>parentbased_traceidratio</code>) and <code>sampler.argument</code> (<code>"0.25"</code>), plus per-language overrides (<code>java.image</code>, <code>python.env</code>, <code>nodejs</code>, <code>dotnet</code>, <code>go</code>).</li>
+      <li><strong>Annotation values</strong> on <code>instrumentation.opentelemetry.io/inject-&lt;lang&gt;</code>: <code>"true"</code> (only works cleanly if there's one Instrumentation CR in the pod's namespace), <code>"name"</code>, <code>"namespace/name"</code>, or <code>"false"</code>. Multi-container pods need <code>instrumentation.opentelemetry.io/container-names: "app,worker"</code> or only the first container gets instrumented. Use <code>inject-sdk</code> for env vars only, and note that Go auto-instrumentation uses eBPF with a privileged sidecar (pointing <code>otel-go-auto-target-exe</code> at the binary), which a <code>restricted</code> PSS namespace rejects.</li>
     </ul>
 
-    <h3>Jaeger v2</h3>
-    <p>Jaeger v2 is a distribution of the OpenTelemetry Collector: one <code>jaeger</code> binary configured with collector-style YAML, playing the roles <code>collector</code>, <code>query</code>, <code>ingester</code> (reads Kafka) or <code>all-in-one</code>. Its own components are the <code>jaeger_storage</code> extension (backends: in-memory, Badger for single-node persistence, Cassandra, Elasticsearch, OpenSearch, and ClickHouse in newer releases), the <code>jaeger_query</code> extension serving the UI and API on 16686, the <code>remote_sampling</code> extension (serves per-service sampling strategies to SDKs, static or adaptive) and the <code>adaptivesampling</code> processor. Ingest is the standard <code>otlp</code> receiver on 4317/4318; the v1 <code>jaeger-agent</code> and its Thrift ports are gone, and the docs tell you to run an OpenTelemetry Collector where you used to run the agent. The HTTP query API the lab used (<code>/api/traces?service=</code>) is unchanged, so scripted verification still works.</p>
-    <p>Grafana Tempo is the other trace store you will see named: object storage, no index beyond trace ID plus a search over recent blocks, TraceQL for queries, and a <em>metrics-generator</em> that emits span metrics and service graphs into Prometheus, the same job the <code>span_metrics</code> connector does in the collector.</p>
+    <h3>Jaeger v2 and Tempo</h3>
+    <p>Jaeger v2 is built straight on top of the OpenTelemetry Collector: one <code>jaeger</code> binary configured in Collector YAML, running as <code>collector</code>, <code>query</code>, <code>ingester</code> (from Kafka), or <code>all-in-one</code>. Its extensions include <code>jaeger_storage</code> (in-memory, Badger, Cassandra, Elasticsearch, OpenSearch, ClickHouse), <code>jaeger_query</code> (UI and API on port 16686), <code>remote_sampling</code>, and the <code>adaptivesampling</code> processor. Ingest is pure OTLP on 4317/4318 - legacy v1 <code>jaeger-agent</code> and Thrift ports are gone (use an OpenTelemetry Collector instead). The HTTP query API (<code>/api/traces?service=</code>) stays unchanged for scripted checks.</p>
+    <p>You'll also see <strong>Grafana Tempo</strong> named in scenarios: an object-storage trace backend indexed primarily by trace ID, queried with TraceQL, and sporting a <em>metrics-generator</em> that emits span metrics and service graphs to Prometheus just like the Collector's <code>span_metrics</code> connector.</p>
 
     <h3>Exemplars and semantic conventions</h3>
-    <p>An exemplar is a trace ID attached to a histogram bucket sample; the OpenMetrics text form is <code># {trace_id="abc..."}</code> after the sample. Prometheus stores them only with <code>--enable-feature=exemplar-storage</code> (operator: <code>spec.enableFeatures</code>), and Grafana links them to Tempo or Jaeger through the datasource's <code>exemplarTraceIdDestinations</code>. The <code>span_metrics</code> connector produces exemplars by default. Semantic conventions are the attribute names that make correlation possible: <code>service.name</code> (the one every SDK must set, or you get <code>unknown_service</code>), <code>service.namespace</code>, <code>k8s.namespace.name</code>, <code>k8s.pod.name</code>, <code>k8s.deployment.name</code>, <code>http.request.method</code>, <code>http.response.status_code</code>, <code>url.path</code>. A dashboard that groups by <code>k8s_namespace_name</code> is reading these attributes after the Prometheus exporter replaced dots with underscores.</p>
+    <p>An <strong>exemplar</strong> attaches a real <code>trace_id</code> to a Prometheus histogram bucket sample (<code># {trace_id="abc..."}</code> in OpenMetrics text), letting you jump straight from a latency spike on a dashboard into an exact slow trace. Prometheus stores them when <code>--enable-feature=exemplar-storage</code> (<code>spec.enableFeatures</code>) is on, and Grafana wires the jump via <code>exemplarTraceIdDestinations</code>. Consistent <strong>semantic conventions</strong> tie all three signals together: <code>service.name</code> (unset = <code>unknown_service</code>), <code>service.namespace</code>, <code>k8s.namespace.name</code>, <code>k8s.pod.name</code>, <code>k8s.deployment.name</code>, <code>http.request.method</code>, <code>http.response.status_code</code>, and <code>url.path</code> (dots become underscores when exported to Prometheus).</p>
 
-    <h3>Failure modes and their tells</h3>
+    <h3>Tracing failure modes at a glance</h3>
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>Tell</th><th>Cause</th><th>Where to look</th></tr></thead>
+        <thead><tr><th>Symptom</th><th>Cause</th><th>Where to look</th></tr></thead>
         <tbody>
-          <tr><td>hundreds of single-span traces</td><td>propagation broken (proxy strips <code>traceparent</code>, propagator mismatch W3C vs B3, hand-rolled client)</td><td>the caller's outbound headers; <code>propagators</code> in the Instrumentation</td></tr>
-          <tr><td>a child span starts before its parent</td><td>clock skew between nodes</td><td>node NTP; the trace is real</td></tr>
-          <tr><td>a gap in the waterfall with no span</td><td>an uninstrumented hop (queue consumer, cron, a library without instrumentation) or the span was dropped by a <code>filter</code> processor</td><td>the service at the gap; the collector config</td></tr>
-          <tr><td>the slow request is never in the store</td><td>head sampling dropped it</td><td>switch to tail sampling on <code>latency</code>/<code>status_code</code>, or raise the ratio</td></tr>
-          <tr><td>service shows as <code>unknown_service</code></td><td><code>OTEL_SERVICE_NAME</code> / <code>service.name</code> not set</td><td>the Instrumentation <code>resource</code> block or the pod env</td></tr>
-          <tr><td>spans arrive, no <code>k8s.*</code> attributes</td><td><code>k8s_attributes</code> missing, or its RBAC, or the pod IP is hidden behind a gateway so <code>pod_association</code> cannot match</td><td>collector logs; associate on <code>k8s.pod.name</code> instead of IP</td></tr>
-          <tr><td>collector logs <code>data refused due to high memory usage</code></td><td><code>memory_limiter</code> hard limit hit</td><td>raise limits or sample earlier; this is working as designed</td></tr>
-          <tr><td>injected init container present, no spans</td><td>endpoint or protocol wrong in the Instrumentation (gRPC vs HTTP port), or a NetworkPolicy blocking egress to the collector namespace</td><td><code>kubectl exec</code> and read the <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> env; test the port</td></tr>
+          <tr><td>hundreds of single-span traces</td><td>broken propagation (proxy strips <code>traceparent</code>, W3C vs. B3 mismatch, manual client)</td><td>outbound caller headers; <code>propagators</code> in Instrumentation</td></tr>
+          <tr><td>child span starts before its parent</td><td>clock skew across nodes</td><td>node NTP; the trace itself is fine</td></tr>
+          <tr><td>blank gap in the waterfall</td><td>uninstrumented hop (queue consumer, cron) or a <code>filter</code> processor dropped spans</td><td>service at the gap; collector pipeline config</td></tr>
+          <tr><td>slow/errored requests missing</td><td>head sampling dropped them</td><td>move to <code>tail_sampling</code> on <code>latency</code>/<code>status_code</code>, or bump sampling ratio</td></tr>
+          <tr><td>service listed as <code>unknown_service</code></td><td><code>OTEL_SERVICE_NAME</code> / <code>service.name</code> missing</td><td>Instrumentation <code>resource</code> attributes or pod env vars</td></tr>
+          <tr><td>spans arrive without <code>k8s.*</code> attributes</td><td>missing <code>k8s_attributes</code> processor or RBAC, or gateway hides pod IP from <code>pod_association</code></td><td>collector logs; associate via <code>k8s.pod.name</code> instead of IP</td></tr>
+          <tr><td>collector logs <code>data refused due to high memory usage</code></td><td><code>memory_limiter</code> hard cap tripped</td><td>raise memory limits or sample earlier (working as intended to prevent OOM)</td></tr>
+          <tr><td>init container injected, zero spans</td><td>wrong OTLP port/protocol, or NetworkPolicy blocks egress to <code>tracing</code></td><td>check <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> in the pod and test connectivity</td></tr>
         </tbody>
       </table>
     </div>
-    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Deploy a collector that receives OTLP and forwards traces to Jaeger" is an <code>OpenTelemetryCollector</code> with a receiver, a pipeline and an <code>otlp</code> exporter pointed at the Jaeger Service on 4317. "Auto-instrument this Deployment" is an <code>Instrumentation</code> plus one pod-template annotation and a rollout restart. "Keep only traces with errors or over one second" is <code>tail_sampling</code> with <code>status_code</code> and <code>latency</code> policies, and the reminder that it needs all spans on one collector.</p></div>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Deploy a Collector forwarding OTLP traces to Jaeger" → <code>OpenTelemetryCollector</code> with an <code>otlp</code> receiver, pipeline, and exporter pointed at Jaeger on 4317. "Auto-instrument this Deployment" → <code>Instrumentation</code> CR + pod-template annotation + rollout restart. "Keep only errors and requests over 1s" → <code>tail_sampling</code> with <code>status_code</code> and <code>latency</code> policies (plus trace-ID-aware routing if running multiple replicas).</p></div>
   </div>
 </section>
 
@@ -782,32 +782,32 @@ configmap/otel-collector-fa2c2caf
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>Jaeger shows hundreds of one-span traces. Diagnosis?</summary>
-      <div class="answer"><p>Context propagation is broken: each service starts a new trace instead of continuing the caller's. Look for a proxy stripping <code>traceparent</code>, a missing or mismatched propagator (W3C vs B3), a hand-rolled HTTP client that never injects, or an async boundary nobody instrumented.</p></div></details>
+      <div class="answer"><p>Context propagation is broken, so every service starts its own orphan trace. Check for a proxy stripping <code>traceparent</code>, a propagator mismatch (W3C vs. B3), a hand-rolled HTTP client skipping header injection, or an uninstrumented async queue hop.</p></div></details>
 
     <details class="quiz"><summary>Head-based versus tail-based sampling: when does the difference bite?</summary>
-      <div class="answer"><p>When the interesting traces are rare. Head sampling at 1% will usually miss the one 5-second request that mattered; tail sampling keeps traces that contain errors or exceed a latency threshold, at the cost of buffering complete traces in the collector (and needing all spans of a trace to reach the same collector instance).</p></div></details>
+      <div class="answer"><p>Whenever rare failures matter most. Head sampling at 1% usually discards the exact 5-second timeout or 500 error you needed to debug. Tail sampling inspects finished traces so you keep every error and slow request, trading extra collector memory and trace-ID-aware routing across replicas.</p></div></details>
 
     <details class="quiz"><summary>Where should sampling and redaction be configured, and why there?</summary>
-      <div class="answer"><p>In the collector. It is the platform's control point: one config change applies to every service, whereas SDK-side changes need forty teams to redeploy. This is the same "interface owned by the platform" argument as section 3.1, applied to telemetry.</p></div></details>
+      <div class="answer"><p>In the OpenTelemetry Collector. It's the platform's central control plane: one config edit updates sampling and PII redaction across the entire fleet without begging forty app teams to redeploy their SDKs.</p></div></details>
 
     <details class="quiz"><summary>You annotated a Deployment for auto-instrumentation and nothing changed. Two most likely reasons?</summary>
-      <div class="answer"><p>The annotation is on the Deployment's own metadata rather than <code>spec.template.metadata</code>, or the pods have not restarted since (injection happens at admission, at pod creation). Third candidate: the annotation value's <code>&lt;namespace&gt;/&lt;name&gt;</code> does not match an existing Instrumentation CR.</p></div></details>
+      <div class="answer"><p>Either the annotation went on the Deployment's metadata instead of <code>spec.template.metadata</code>, or you haven't restarted the pods yet (webhook injection only fires at pod creation). Third check: verify the <code>&lt;namespace&gt;/&lt;name&gt;</code> value matches a real <code>Instrumentation</code> CR.</p></div></details>
 
     <details class="quiz"><summary>How do traces, metrics and logs tie together in practice?</summary>
-      <div class="answer"><p>Exemplars link metric buckets to sample trace IDs; logs carry the trace ID as a field so you can jump from a slow span to its exact log lines; and the collector can emit all three from the same pipeline with the same resource attributes (namespace, pod, service). "Correlated by trace ID and resource attributes" is the sentence.</p></div></details>
+      <div class="answer"><p>Exemplars link histogram latency spikes straight to sample trace IDs, structured logs include the trace ID so you can pivot directly from a slow span into its exact log lines, and the Collector stamps shared Kubernetes resource attributes across all three signals.</p></div></details>
   
 
     <details class="quiz"><summary>Your tail-sampling collector runs three replicas behind a Service, and the sampling decisions look random. Why, and what fixes it?</summary>
-      <div class="answer"><p>Spans of one trace are spread across replicas, so no single instance sees the whole trace when <code>decision_wait</code> expires. Put a first-tier collector with a <code>loadbalancing</code> exporter using <code>routing_key: traceID</code> in front (or run the sampling tier as one replica, or a StatefulSet the load balancer can address per pod) so every span of a trace lands on the same instance.</p></div></details>
+      <div class="answer"><p>A normal Kubernetes Service spreads spans from the same trace across different replicas, so no collector ever sees the full trace before <code>decision_wait</code> fires. Put a front-tier collector with a <code>loadbalancing</code> exporter (<code>routing_key: traceID</code>) ahead of a StatefulSet sampling tier - or run a single sampling replica.</p></div></details>
 
     <details class="quiz"><summary>What is Jaeger v2 architecturally, and where does the old jaeger-agent go?</summary>
-      <div class="answer"><p>A distribution of the OpenTelemetry Collector: one binary, collector-style YAML, roles collector/query/ingester/all-in-one, with Jaeger-specific extensions for storage, the query UI on 16686 and remote sampling. Ingest is plain OTLP on 4317/4318. The agent role is deprecated; run a standard OpenTelemetry Collector as DaemonSet or sidecar where the agent used to be.</p></div></details>
+      <div class="answer"><p>Jaeger v2 is a distribution of the OpenTelemetry Collector: one binary configured in Collector YAML, running as <code>collector</code>, <code>query</code>, <code>ingester</code>, or <code>all-in-one</code> with Jaeger extensions for storage, query UI (16686), and remote sampling, ingesting standard OTLP on 4317/4318. The legacy <code>jaeger-agent</code> is gone - run a standard OpenTelemetry Collector as a DaemonSet or sidecar instead.</p></div></details>
 
     <details class="quiz"><summary>A pod has the injected init container and the right annotation, yet no spans appear. Two collector-side reasons and one network reason?</summary>
-      <div class="answer"><p>The Instrumentation's <code>exporter.endpoint</code> uses the wrong port for the protocol the agent speaks (Python is HTTP-only, so it must be 4318; Java defaults to gRPC 4317), or the collector pipeline has no <code>traces</code> pipeline wired to that receiver. Network: a default-deny NetworkPolicy in the app namespace blocks egress to the collector's namespace. Read <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> in the pod and test the port from inside it.</p></div></details>
+      <div class="answer"><p>Collector/config: the <code>Instrumentation</code> endpoint uses the wrong port for the language agent's protocol (Python only speaks HTTP on 4318, while Java defaults to gRPC on 4317), or the Collector has no <code>traces</code> pipeline wired to that receiver. Network: a default-deny NetworkPolicy blocks egress to the collector namespace. Inspect <code>OTEL_EXPORTER_OTLP_ENDPOINT</code> inside the pod and test the port directly.</p></div></details>
 
     <details class="quiz"><summary>How does a metric panel jump to a trace, and what has to be enabled at each layer?</summary>
-      <div class="answer"><p>Exemplars: the histogram sample carries a <code>trace_id</code>. The instrumented service or the <code>span_metrics</code> connector emits them, Prometheus keeps them only with <code>--enable-feature=exemplar-storage</code>, and the Grafana datasource maps <code>trace_id</code> to a Tempo or Jaeger datasource via <code>exemplarTraceIdDestinations</code>. Logs join the same picture when the log line carries the trace ID and Loki's <code>derivedFields</code> links it.</p></div></details>
+      <div class="answer"><p>Through exemplars: the app or <code>span_metrics</code> connector attaches <code>trace_id</code> to histogram buckets, Prometheus retains them when <code>--enable-feature=exemplar-storage</code> is enabled, and Grafana maps <code>trace_id</code> to Jaeger or Tempo via <code>exemplarTraceIdDestinations</code>. Logs join the same loop through Loki's <code>derivedFields</code>.</p></div></details>
   </div>
 </section>
 
