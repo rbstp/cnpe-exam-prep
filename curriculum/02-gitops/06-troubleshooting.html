@@ -28,7 +28,7 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">the diagnostic half of every domain 2 competency</span></div>
   <div class="pbody">
-    <p class="lede">Under exam time pressure, the costly mistake isn't picking the wrong fix - it's fixing the wrong <em>layer</em>. Bucket the problem first, then descend. Name the bucket out loud before touching anything: it takes three seconds and keeps you from patching live state when the real bug lives in git.</p>
+    <p class="lede">Under exam time pressure, the costly mistake isn't picking the wrong fix; it's fixing the wrong <em>layer</em>. Bucket the problem first, then descend. Name the bucket out loud before touching anything: it takes three seconds and keeps you from patching live state when the real bug lives in git.</p>
     <div class="callout reflex">
       <span class="tag">The 30-second triage</span>
       <div class="cb" data-lang="bash"><pre><code>argocd app get &lt;app&gt;            # sync status + health + last sync time + conditions
@@ -97,10 +97,10 @@ staging-demo-66955f8974-tzpqx   1/1     Running   0          4m22s
     <p>The sync fails outright. An admission policy blocks the manifest, the API version doesn't exist on this cluster, a field is immutable (Service <code>clusterIP</code>, Deployment selectors, shrinking a PVC), or the CRD isn't installed yet. <strong>Evidence:</strong> the sync operation's error quotes the API server's rejection verbatim. For immutable-field errors, you need delete-and-recreate or <code>Replace=true</code>.</p>
 
     <h3>3 · The controller lacks permission or access</h3>
-    <p>The repo is unreachable, credentials rotated, an Application targets a namespace the controller's RBAC can't touch, or an ApplicationSet token is missing a scope. <strong>Evidence:</strong> the error points at the <em>controller's own identity</em>, lives in controller logs (<code>kubectl -n argocd logs deploy/argocd-repo-server</code> or <code>flux logs</code>), and says nothing about your workload. No pod is ever involved - that absence is the giveaway.</p>
+    <p>The repo is unreachable, credentials rotated, an Application targets a namespace the controller's RBAC can't touch, or an ApplicationSet token is missing a scope. <strong>Evidence:</strong> the error points at the <em>controller's own identity</em>, lives in controller logs (<code>kubectl -n argocd logs deploy/argocd-repo-server</code> or <code>flux logs</code>), and says nothing about your workload. No pod is ever involved, and that absence is the giveaway.</p>
 
     <h3>4 · Nobody is wrong, the state is stale</h3>
-    <p>A dropped webhook, a long poll interval, a forgotten <code>suspend</code>, or a branch that moved while the app is pinned to a tag. <strong>Evidence:</strong> everything looks green, just old. <code>flux get kustomizations</code> shows <code>Suspended: True</code>, or <code>argocd app get</code> shows a last-sync timestamp from an hour ago. Run <code>argocd app get --refresh</code> or <code>flux reconcile … --with-source</code> - and always check for suspension <em>first</em>.</p>
+    <p>A dropped webhook, a long poll interval, a forgotten <code>suspend</code>, or a branch that moved while the app is pinned to a tag. <strong>Evidence:</strong> everything looks green, just old. <code>flux get kustomizations</code> shows <code>Suspended: True</code>, or <code>argocd app get</code> shows a last-sync timestamp from an hour ago. Run <code>argocd app get --refresh</code> or <code>flux reconcile … --with-source</code>, and always check for suspension <em>first</em>.</p>
 
     <div class="tbl-wrap">
       <table>
@@ -116,7 +116,7 @@ staging-demo-66955f8974-tzpqx   1/1     Running   0          4m22s
 
     <div class="callout exam">
       <span class="tag">Drift deserves one more sentence</span>
-      <p>With self-heal turned on, live drift vanishes automatically, flipping the mystery to "what keeps recreating this object I keep deleting?". A controller is doing it, and <code>kubectl get &lt;res&gt; -o jsonpath='{.metadata.ownerReferences}'</code> - or Argo CD's <code>argocd.argoproj.io/tracking-id</code> annotation - proves which one. With self-heal off, <code>argocd app diff</code> shows you line by line what drifted.</p>
+      <p>With self-heal turned on, live drift vanishes automatically, flipping the mystery to "what keeps recreating this object I keep deleting?". A controller is doing it, and <code>kubectl get &lt;res&gt; -o jsonpath='{.metadata.ownerReferences}'</code> (or Argo CD's <code>argocd.argoproj.io/tracking-id</code> annotation) proves which one. With self-heal off, <code>argocd app diff</code> shows you line by line what drifted.</p>
     </div>
   </div>
 </section>
@@ -141,7 +141,7 @@ staging-demo-66955f8974-tzpqx   1/1     Running   0          4m22s
         ▼
 <u>prove recovery with the signal that showed the failure</u></pre>
 
-    <p>Two habits pay off every single time. First, <strong>compare rendered manifests against live objects</strong> instead of squinting at raw source YAML: <code>argocd app manifests &lt;app&gt;</code> prints the exact manifests being applied, catching overlay bugs that source review misses. Second, <strong>don't skip the middle layer</strong>: when a Deployment exists with zero pods, the error is sitting on its <code>ReplicaSet</code> - and skipping straight from Deployment to pods makes people miss it completely.</p>
+    <p>Two habits pay off every single time. First, <strong>compare rendered manifests against live objects</strong> instead of squinting at raw source YAML: <code>argocd app manifests &lt;app&gt;</code> prints the exact manifests being applied, catching overlay bugs that source review misses. Second, <strong>don't skip the middle layer</strong>: when a Deployment exists with zero pods, the error is sitting on its <code>ReplicaSet</code>, and skipping straight from Deployment to pods makes people miss it completely.</p>
   </div>
 </section>
 
@@ -156,10 +156,10 @@ staging-demo-66955f8974-tzpqx   1/1     Running   0          4m22s
         <thead><tr><th>Field</th><th>Value</th><th>Bucket</th></tr></thead>
         <tbody>
           <tr><td class="mono">status.sync.status</td><td class="mono">OutOfSync</td><td>Bucket 1 if auto-sync is off and git moved, or bucket 4 if auto-sync should have acted (check <code>syncPolicy</code> and sync windows)</td></tr>
-          <tr><td class="mono">status.sync.status</td><td class="mono">Unknown</td><td>Bucket 3: comparison itself failed - read <code>conditions</code></td></tr>
+          <tr><td class="mono">status.sync.status</td><td class="mono">Unknown</td><td>Bucket 3: comparison itself failed; read <code>conditions</code></td></tr>
           <tr><td class="mono">status.health.status</td><td class="mono">Degraded · Missing</td><td>Bucket 1: workload can't run, or a desired resource is missing (pruned by another app, or refused by admission in bucket 5)</td></tr>
           <tr><td class="mono">status.health.status</td><td class="mono">Progressing (for long)</td><td>Bucket 1, or a CRD with no custom health check that never settles</td></tr>
-          <tr><td class="mono">status.health.status</td><td class="mono">Suspended</td><td>A paused Deployment, suspended CronJob, or paused Rollout - intentional, not a fault</td></tr>
+          <tr><td class="mono">status.health.status</td><td class="mono">Suspended</td><td>A paused Deployment, suspended CronJob, or paused Rollout (intentional, not a fault)</td></tr>
           <tr><td class="mono">status.operationState.phase</td><td class="mono">Failed</td><td>Bucket 2 or 5: the API server rejected an apply (check <code>syncResult.resources[].message</code>)</td></tr>
           <tr><td class="mono">status.operationState.phase</td><td class="mono">Error</td><td>Bucket 3: Argo CD couldn't even run the operation (render failure, repo error, hook creation)</td></tr>
           <tr><td class="mono">conditions[].type</td><td class="mono">ComparisonError</td><td>Bucket 3: unreachable repo, bad credentials, render error, or unreachable destination cluster</td></tr>
@@ -177,13 +177,13 @@ staging-demo-66955f8974-tzpqx   1/1     Running   0          4m22s
         <thead><tr><th>Object</th><th>Ready reason</th><th>Bucket</th></tr></thead>
         <tbody>
           <tr><td>GitRepository / OCIRepository</td><td class="mono">AuthenticationFailed · GitOperationFailed · OCIArtifactPullFailed · VerificationError</td><td>Bucket 3: credentials, URL, ref, or signature verification</td></tr>
-          <tr><td>Kustomization</td><td class="mono">ArtifactFailed</td><td>Bucket 3 (upstream): the source has no artifact yet - fix the source first</td></tr>
+          <tr><td>Kustomization</td><td class="mono">ArtifactFailed</td><td>Bucket 3 (upstream): the source has no artifact yet; fix the source first</td></tr>
           <tr><td>Kustomization</td><td class="mono">BuildFailed</td><td>Bucket 1: wrong path, invalid kustomization, or missing <code>substituteFrom</code> ConfigMap</td></tr>
           <tr><td>Kustomization</td><td class="mono">DependencyNotReady</td><td>Follow the named dependency down the exact same ladder</td></tr>
           <tr><td>Kustomization</td><td class="mono">ReconciliationFailed</td><td>Bucket 2 or 5: the apply failed, with the API server or webhook rejection right in the message</td></tr>
           <tr><td>Kustomization</td><td class="mono">HealthCheckFailed</td><td>Bucket 1: applied cleanly, but never became healthy before <code>timeout</code></td></tr>
           <tr><td>Kustomization</td><td class="mono">PruneFailed</td><td>Bucket 2: garbage collection blocked by finalizers or a protected resource</td></tr>
-          <tr><td>HelmRelease</td><td class="mono">InstallFailed · UpgradeFailed</td><td>Bucket 1 or 2: Helm error - inspect with <code>kubectl describe hr</code> and <code>flux logs --kind HelmRelease</code></td></tr>
+          <tr><td>HelmRelease</td><td class="mono">InstallFailed · UpgradeFailed</td><td>Bucket 1 or 2: Helm error; inspect with <code>kubectl describe hr</code> and <code>flux logs --kind HelmRelease</code></td></tr>
           <tr><td>HelmRelease</td><td class="mono">TestFailed</td><td>Bucket 1: chart tests failed, triggering remediation unless ignored</td></tr>
           <tr><td>HelmRelease</td><td class="mono">RollbackSucceeded · UninstallSucceeded · RetriesExceeded</td><td>Remediated onto the last good revision; needs a spec change or <code>flux reconcile hr --reset</code> to retry</td></tr>
           <tr><td>any</td><td class="mono">Reconciling=True, reason ProgressingWithRetry</td><td>Last attempt failed and a retry is queued; check the <code>Ready</code> reason for why</td></tr>
@@ -192,29 +192,29 @@ staging-demo-66955f8974-tzpqx   1/1     Running   0          4m22s
       </table>
     </div>
 
-    <div class="callout reflex"><span class="tag">Reflex</span><p>In Argo CD, run <code>argocd app get X</code> then <code>kubectl -n argocd get app X -o jsonpath='{.status.conditions[*].type}'</code>. In Flux, run <code>flux get all -A --status-selector ready=false</code> then <code>kubectl get kustomization X -n flux-system -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'</code>. Let the reason string pick your bucket first - only then dig into the full message.</p></div>
+    <div class="callout reflex"><span class="tag">Reflex</span><p>In Argo CD, run <code>argocd app get X</code> then <code>kubectl -n argocd get app X -o jsonpath='{.status.conditions[*].type}'</code>. In Flux, run <code>flux get all -A --status-selector ready=false</code> then <code>kubectl get kustomization X -n flux-system -o jsonpath='{.status.conditions[?(@.type=="Ready")].reason}'</code>. Let the reason string pick your bucket first; only then dig into the full message.</p></div>
   </div>
 </section>
 
 <section class="panel accent-r" id="bucket-admission">
   <div class="phdr"><h2>Bucket 5: admission refused it</h2><span class="meta">webhooks and policy engines between the controller and etcd</span></div>
   <div class="pbody">
-    <p>The first four buckets assume the API server itself is the final gatekeeper. Once you add Kyverno, Gatekeeper, ValidatingAdmissionPolicy, or operator webhooks, there's a fifth place a manifest can die - and it speaks its own error dialect.</p>
+    <p>The first four buckets assume the API server itself is the final gatekeeper. Once you add Kyverno, Gatekeeper, ValidatingAdmissionPolicy, or operator webhooks, there's a fifth place a manifest can die, and it speaks its own error dialect.</p>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Message fragment</th><th>Who</th><th>Fix lives in</th></tr></thead>
         <tbody>
-          <tr><td class="mono">admission webhook "validate.kyverno.svc-fail" denied the request: ... policy X rule Y</td><td>Kyverno validate in <code>Enforce</code> mode</td><td>The manifest (satisfy the rule) or the policy (exclude or switch to <code>Audit</code>) - never the GitOps controller</td></tr>
+          <tr><td class="mono">admission webhook "validate.kyverno.svc-fail" denied the request: ... policy X rule Y</td><td>Kyverno validate in <code>Enforce</code> mode</td><td>The manifest (satisfy the rule) or the policy (exclude or switch to <code>Audit</code>), never the GitOps controller</td></tr>
           <tr><td class="mono">admission webhook "validation.gatekeeper.sh" denied the request: [constraint-name] ...</td><td>Gatekeeper constraint</td><td>Same choice; <code>enforcementAction: dryrun</code> is the audit equivalent</td></tr>
-          <tr><td class="mono">ValidatingAdmissionPolicy 'x' with binding 'y' denied request: ...</td><td>VAP (GA 1.30), or MutatingAdmissionPolicy (GA 1.36) for mutations</td><td>The policy's CEL expression or binding match - no webhook pod exists here</td></tr>
+          <tr><td class="mono">ValidatingAdmissionPolicy 'x' with binding 'y' denied request: ...</td><td>VAP (GA 1.30), or MutatingAdmissionPolicy (GA 1.36) for mutations</td><td>The policy's CEL expression or binding match (no webhook pod exists here)</td></tr>
           <tr><td class="mono">failed calling webhook "x": ... connection refused / context deadline exceeded / no endpoints available</td><td>A webhook whose backing pod is down with <code>failurePolicy: Fail</code></td><td>The webhook's Deployment or Service; every matching write is frozen until it's back, including the GitOps controller's own</td></tr>
           <tr><td class="mono">dry-run failed ... admission webhook "x" does not support dry run</td><td>Flux's server-side dry-run hitting a webhook without <code>sideEffects: None</code> or <code>NoneOnDryRun</code></td><td>The webhook configuration</td></tr>
           <tr><td class="mono">the server could not find the requested resource</td><td>A CR whose CRD isn't installed yet (Argo CD dry-run)</td><td><code>SkipDryRunOnMissingResource=true</code> or a sync wave; in Flux, <code>dependsOn</code> the CRD Kustomization</td></tr>
         </tbody>
       </table>
     </div>
-    <p>The tell separating bucket 5 from bucket 2 is simple: the error names a webhook or policy rather than a schema field. On the controller side the symptom looks identical (Argo <code>SyncFailed</code>, Flux <code>ReconciliationFailed</code>), and for Deployments a pod-level policy violation can again show up one level down on the ReplicaSet. Meanwhile, a <em>mutating</em> policy that alters manifests after apply (injecting sidecars, labels, or resource requests) shows up as endless <code>OutOfSync</code> in Argo CD and noisy "configured" events every interval in Flux - fix that with <code>ignoreDifferences</code> or <code>kustomize.toolkit.fluxcd.io/ssa: Merge</code> instead of fighting the policy.</p>
-    <div class="callout trap"><span class="tag">The webhook that blocks its own fix</span><p>A dead webhook with <code>failurePolicy: Fail</code> and a broad scope (all pods, all namespaces) can block the GitOps controller from applying the exact manifest that would fix it. Inspect <code>kubectl get validatingwebhookconfiguration,mutatingwebhookconfiguration</code> and the webhook Service's endpoints. The clean fix is getting the webhook pod healthy; the break-glass move is flipping that webhook to <code>Ignore</code> or tightening its <code>namespaceSelector</code> - and then capturing that change in git.</p></div>
+    <p>The tell separating bucket 5 from bucket 2 is simple: the error names a webhook or policy rather than a schema field. On the controller side the symptom looks identical (Argo <code>SyncFailed</code>, Flux <code>ReconciliationFailed</code>), and for Deployments a pod-level policy violation can again show up one level down on the ReplicaSet. Meanwhile, a <em>mutating</em> policy that alters manifests after apply (injecting sidecars, labels, or resource requests) shows up as endless <code>OutOfSync</code> in Argo CD and noisy "configured" events every interval in Flux. Fix that with <code>ignoreDifferences</code> or <code>kustomize.toolkit.fluxcd.io/ssa: Merge</code> instead of fighting the policy.</p>
+    <div class="callout trap"><span class="tag">The webhook that blocks its own fix</span><p>A dead webhook with <code>failurePolicy: Fail</code> and a broad scope (all pods, all namespaces) can block the GitOps controller from applying the exact manifest that would fix it. Inspect <code>kubectl get validatingwebhookconfiguration,mutatingwebhookconfiguration</code> and the webhook Service's endpoints. The clean fix is getting the webhook pod healthy; the break-glass move is flipping that webhook to <code>Ignore</code> or tightening its <code>namespaceSelector</code>, then capturing that change in git.</p></div>
   </div>
 </section>
 
@@ -224,7 +224,7 @@ staging-demo-66955f8974-tzpqx   1/1     Running   0          4m22s
     <p>Always diagnose and name the bucket before touching a fix.</p>
 
     <div class="exercise" data-title="Bad config (bucket 1)">
-      <p>Push <code>newTag: 9.9.9-nope</code> to the staging overlay in the platform repo. Watch <code>demo-staging</code> stay <code>Synced</code> while health moves to <code>Progressing</code> (<code>Degraded</code> waits on the Deployment's 10-minute progress deadline, so don't wait for it - the pod error shows up immediately). Walk down the stack: <code>argocd app get demo-staging</code> → <code>kubectl -n team-a get pods</code> → <code>kubectl describe pod</code> reveals <code>ImagePullBackOff</code>. Fix it in git only.</p>
+      <p>Push <code>newTag: 9.9.9-nope</code> to the staging overlay in the platform repo. Watch <code>demo-staging</code> stay <code>Synced</code> while health moves to <code>Progressing</code> (<code>Degraded</code> waits on the Deployment's 10-minute progress deadline, so don't wait for it; the pod error shows up immediately). Walk down the stack: <code>argocd app get demo-staging</code> → <code>kubectl -n team-a get pods</code> → <code>kubectl describe pod</code> reveals <code>ImagePullBackOff</code>. Fix it in git only.</p>
       <div class="verify"><b>verify:</b> revert commit pushed, app back to Healthy without touching live state via <code>kubectl</code>.</div>
     </div>
 
@@ -261,13 +261,13 @@ ComparisonError  Failed to load target state: failed to generate manifest for so
 GROUP  KIND        NAMESPACE  NAME          STATUS   HEALTH   HOOK  MESSAGE
 apps   Deployment  team-a     staging-demo  Unknown  Healthy        deployment.apps/staging-demo configured
        Service     team-a     staging-demo  Unknown  Healthy        </code></pre></details></div>
-      <p>Notice the error talks about authentication, not manifests. Fix it by re-running <code>make gitops</code> (idempotent) or patching the real password back in - remember the Secret holds <code>GITEA_PASS</code> from <code>lab.env</code>, not the API token in <code>.gitea-token</code>.</p>
+      <p>Notice the error talks about authentication, not manifests. Fix it by re-running <code>make gitops</code> (idempotent) or patching the real password back in; remember the Secret holds <code>GITEA_PASS</code> from <code>lab.env</code>, not the API token in <code>.gitea-token</code>.</p>
       <div class="verify"><b>verify:</b> refresh succeeds again. Notice how clean the bucket-3 signature was: not a single workload pod was ever involved.</div>
     </div>
 
     <div class="exercise" data-title="Silent staleness (bucket 4)">
-      <p>Run <code>flux suspend kustomization demo-flux</code> (from section 2.3), push any small edit to <code>demo-app/base</code> in the platform repo, and watch <code>demo-flux</code>'s target sit completely frozen with zero errors (meanwhile, Argo CD picks up the base edit right away - only the suspended consumer goes quietly stale). That lack of an error <em>is</em> the symptom.</p>
-      <div class="verify"><b>verify:</b> <code>flux get kustomizations</code> flags Suspended True, and resuming lets the change land immediately. Make checking suspension your automatic first move - it takes three seconds.</div>
+      <p>Run <code>flux suspend kustomization demo-flux</code> (from section 2.3), push any small edit to <code>demo-app/base</code> in the platform repo, and watch <code>demo-flux</code>'s target sit completely frozen with zero errors (meanwhile, Argo CD picks up the base edit right away; only the suspended consumer goes quietly stale). That lack of an error <em>is</em> the symptom.</p>
+      <div class="verify"><b>verify:</b> <code>flux get kustomizations</code> flags Suspended True, and resuming lets the change land immediately. Make checking suspension your automatic first move; it takes three seconds.</div>
     </div>
 
     <div class="exercise" data-title="The lab's own drill">
@@ -501,11 +501,11 @@ Message:            successfully synced (all tasks run)
 GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH       HOOK  MESSAGE
        Service     team-a     staging-demo  Synced  Healthy            service/staging-demo unchanged
 apps   Deployment  team-a     staging-demo  Synced  Progressing        deployment.apps/staging-demo created</code></pre></details></div>
-      <div class="verify"><b>verify:</b> Argo CD marks the operation <code>Failed</code> citing the admission webhook by name, and Flux sets <code>Ready=False</code> (<code>ReconciliationFailed</code>) quoting the exact same webhook. Same root cause, two dialects - be able to translate either straight to "a policy rejected the manifest".</div>
+      <div class="verify"><b>verify:</b> Argo CD marks the operation <code>Failed</code> citing the admission webhook by name, and Flux sets <code>Ready=False</code> (<code>ReconciliationFailed</code>) quoting the exact same webhook. Same root cause, two dialects: be able to translate either straight to "a policy rejected the manifest".</div>
     </div>
 
     <div class="exercise" data-title="Take the webhook's backend away">
-      <p>A webhook with <code>failurePolicy: Fail</code> and zero healthy backends doesn't fail open - it blocks every matching write. It's the classic outage that makes the API server look broken, and it's one bad rollout away in any cluster.</p>
+      <p>A webhook with <code>failurePolicy: Fail</code> and zero healthy backends doesn't fail open; it blocks every matching write. It's the classic outage that makes the API server look broken, and it's one bad rollout away in any cluster.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl get validatingwebhookconfiguration -o custom-columns=NAME:.metadata.name,POLICY:.webhooks[*].failurePolicy | grep -i kyverno
 # scaling Kyverno to zero does not reproduce this on this install: its webhooks still admit.
 # own the webhook instead, pointed at a Service with no backend, scoped to team-a.
@@ -687,7 +687,7 @@ apps   Deployment  team-a     staging-demo  Synced  Progressing        deploymen
     </div>
 
     <div class="exercise" data-title="Attach a condition type to each bucket">
-      <p>Every failure on this page leaves a distinct Application condition, and reading the condition <code>type</code> gets you to the right bucket faster than parsing the message. Expect an empty list right now since everything is back to healthy - the real drill is naming the condition types from memory.</p>
+      <p>Every failure on this page leaves a distinct Application condition, and reading the condition <code>type</code> gets you to the right bucket faster than parsing the message. Expect an empty list right now since everything is back to healthy; the real drill is naming the condition types from memory.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl -n argocd get app demo-staging -o jsonpath='{range .status.conditions[*]}{.type}: {.message}{"\n"}{end}'
 kubectl -n argocd get app -o custom-columns=NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status,CONDITIONS:.status.conditions[*].type
 kubectl explain application.status.conditions.type</code></pre><details class="out"><summary>output<span class="when">captured 2026-09-12</span></summary><pre><code><b>$ kubectl -n argocd get app demo-staging -o jsonpath='{range .status.conditions[*]}{.type}: {.message}{"\n"}{end}'</b>
@@ -723,23 +723,23 @@ DESCRIPTION:
       <div class="answer"><p>Bucket 2 (cluster refuses). The API server rejected the patch and the sync operation relayed it verbatim. Either fix the manifest in git or use replace/force semantics if the field genuinely needs to change (accepting the recreation churn).</p></div></details>
 
     <details class="quiz"><summary>"argocd-repo-server logs show <code>authentication required</code>; the workload is untouched and running fine."</summary>
-      <div class="answer"><p>Bucket 3 (access). None of your workload pods are involved - the controller's own repo credentials, token scope, or rotated Secret broke. Existing pods keep humming because reconciliation broke, not the running deployment.</p></div></details>
+      <div class="answer"><p>Bucket 3 (access). None of your workload pods are involved: the controller's own repo credentials, token scope, or rotated Secret broke. Existing pods keep humming because reconciliation broke, not the running deployment.</p></div></details>
 
     <details class="quiz"><summary>"Deployment exists, no pods, no error on the Deployment."</summary>
       <div class="answer"><p>Step one level down to the <code>ReplicaSet</code>: a ResourceQuota, Pod Security Standards, or an admission webhook blocked pod creation (just like sections 1.4 and 5.3). Delivery succeeded; admission stopped the pods.</p></div></details>
 
     <details class="quiz"><summary>"I keep deleting this ConfigMap and it keeps coming back."</summary>
-      <div class="answer"><p>A controller is actively reconciling it - Argo CD self-heal, a Flux Kustomization on its interval, or an operator. Identify the owner via <code>ownerReferences</code>, Argo's <code>argocd.argoproj.io/tracking-id</code> annotation, or <code>flux trace</code>, then fix the source of truth (or suspend reconciliation first if you need a temporary live edit).</p></div></details>
+      <div class="answer"><p>A controller is actively reconciling it: Argo CD self-heal, a Flux Kustomization on its interval, or an operator. Identify the owner via <code>ownerReferences</code>, Argo's <code>argocd.argoproj.io/tracking-id</code> annotation, or <code>flux trace</code>, then fix the source of truth (or suspend reconciliation first if you need a temporary live edit).</p></div></details>
   
 
     <details class="quiz"><summary>"Sync failed: admission webhook "validate.kyverno.svc-fail" denied the request". Which bucket, and where does the fix go?</summary>
-      <div class="answer"><p>Bucket 5 (admission). The manifest reached the API server and Kyverno blocked it. Fix the manifest so it satisfies the rule (usually what the grader expects), or update the policy if the task says the policy itself is wrong. Clicking sync again won't help - Argo CD reports <code>SyncFailed</code> and Flux reports <code>ReconciliationFailed</code> with the same denial text.</p></div></details>
+      <div class="answer"><p>Bucket 5 (admission). The manifest reached the API server and Kyverno blocked it. Fix the manifest so it satisfies the rule (usually what the grader expects), or update the policy if the task says the policy itself is wrong. Clicking sync again won't help: Argo CD reports <code>SyncFailed</code> and Flux reports <code>ReconciliationFailed</code> with the same denial text.</p></div></details>
 
     <details class="quiz"><summary>A Flux Kustomization reports ArtifactFailed. What is broken and where do you look first?</summary>
-      <div class="answer"><p>Its upstream source has no valid artifact - the <code>GitRepository</code> or <code>OCIRepository</code> isn't Ready (<code>AuthenticationFailed</code>, <code>GitOperationFailed</code>, bad ref) or hasn't fetched yet. That's bucket 3 upstream of the Kustomization: run <code>flux get sources all -A</code> and <code>kubectl describe gitrepository</code> first. Once the source publishes, the Kustomization heals on its own.</p></div></details>
+      <div class="answer"><p>Its upstream source has no valid artifact: the <code>GitRepository</code> or <code>OCIRepository</code> isn't Ready (<code>AuthenticationFailed</code>, <code>GitOperationFailed</code>, bad ref) or hasn't fetched yet. That's bucket 3 upstream of the Kustomization: run <code>flux get sources all -A</code> and <code>kubectl describe gitrepository</code> first. Once the source publishes, the Kustomization heals on its own.</p></div></details>
 
     <details class="quiz"><summary>Argo CD shows sync status Unknown with a ComparisonError condition. Bucket?</summary>
-      <div class="answer"><p>Bucket 3 (access/tooling). Comparison itself failed, so Argo CD can't even tell whether live matches git. Common causes are bad repo credentials or URL/revision, a Kustomize/Helm render error in <code>repo-server</code>, or an unreachable target cluster. The condition message names the cause, and the workload stays untouched - the signature of bucket 3.</p></div></details>
+      <div class="answer"><p>Bucket 3 (access/tooling). Comparison itself failed, so Argo CD can't even tell whether live matches git. Common causes are bad repo credentials or URL/revision, a Kustomize/Helm render error in <code>repo-server</code>, or an unreachable target cluster. The condition message names the cause, and the workload stays untouched, the signature of bucket 3.</p></div></details>
   </div>
 </section>
 

@@ -28,7 +28,7 @@
 <section class="panel" id="orientation">
   <div class="phdr"><h2>Orientation</h2><span class="meta">competency 4.3 · diagnosing and remediating incidents</span></div>
   <div class="pbody">
-    <p class="lede">Under a ticking clock, the gap between a 5-minute fix and a 20-minute spiral isn't raw Kubernetes trivia - it's following a calm, repeatable method instead of guessing. Internalize the four steps below, then drill them with <code>make break</code> until they run on autopilot.</p>
+    <p class="lede">Under a ticking clock, the gap between a 5-minute fix and a 20-minute spiral isn't raw Kubernetes trivia: it's following a calm, repeatable method instead of guessing. Internalize the four steps below, then drill them with <code>make break</code> until they run on autopilot.</p>
   </div>
 </section>
 
@@ -39,7 +39,7 @@
       <li><strong>Scope the blast radius first.</strong> Find out what's broken and what's still healthy: <code>kubectl get pods -A | grep -v Running</code>, <code>make status</code>, top-level dashboards. One namespace or the whole cluster? Workloads or control plane? Bounding the problem early keeps you from debugging two layers away from the real cause.</li>
       <li><strong>Check the timeline second.</strong> Ask what just changed: <code>kubectl get events -A --sort-by=.lastTimestamp | tail -30</code>, recent Argo CD syncs, <code>helm list -A</code>, and <code>kubectl rollout history</code>. <em>Most real incidents trace straight back to a recent change.</em></li>
       <li><strong>Descend one layer at a time.</strong> Walk cleanly through <code>describe</code> → events → logs → previous logs (<code>--previous</code> for crash loops) → <code>exec</code> / <code>debug</code>. Resist jumping straight to guesses; skipping steps is where rabbit holes start.</li>
-      <li><strong>Fix the cause, then prove recovery with the exact same check that failed.</strong> If you caught the bug via a failing <code>curl</code>, the incident isn't over until that <code>curl</code> returns 200 - never stop at "the pod says Running."</li>
+      <li><strong>Fix the cause, then prove recovery with the exact same check that failed.</strong> If you caught the bug via a failing <code>curl</code>, the incident isn't over until that <code>curl</code> returns 200; never stop at "the pod says Running."</li>
     </ol>
 
     <div class="callout model">
@@ -60,11 +60,11 @@
           </tbody>
         </table>
       </div>
-      <p>"Running but broken" is the sneakiest row on the board - that's where <code>kubectl get pods</code> stops helping and network, DNS, and RBAC tools take over.</p>
+      <p>"Running but broken" is the sneakiest row on the board: that's where <code>kubectl get pods</code> stops helping and network, DNS, and RBAC tools take over.</p>
     </div>
 
     <h3>Node-level moves</h3>
-    <p>When a node itself is unhealthy: <code>kubectl cordon &lt;node&gt;</code> blocks new pods from landing there, <code>kubectl drain &lt;node&gt; --ignore-daemonsets --delete-emptydir-data</code> evicts running workloads (honoring PDBs - remember section 1.2 if it hangs!), and <code>kubectl uncordon</code> puts it back in rotation. Draining is also the cleanest way to verify whether your workloads genuinely tolerate losing a node.</p>
+    <p>When a node itself is unhealthy: <code>kubectl cordon &lt;node&gt;</code> blocks new pods from landing there, <code>kubectl drain &lt;node&gt; --ignore-daemonsets --delete-emptydir-data</code> evicts running workloads (honoring PDBs; remember section 1.2 if it hangs!), and <code>kubectl uncordon</code> puts it back in rotation. Draining is also the cleanest way to verify whether your workloads genuinely tolerate losing a node.</p>
 
     <h3>Two debugging lifelines people forget</h3>
     <div class="cb" data-lang="bash"><pre><code>kubectl debug -it &lt;pod&gt; --image=busybox:1.37 --target=&lt;container&gt;   # ephemeral container into a distroless pod
@@ -84,7 +84,7 @@ cnpe-worker
 
     <div class="callout reflex">
       <span class="tag">Time-boxing is a real skill</span>
-      <p>Our lab sets a 7-minute target on workload breaks (10 minutes on platform-tool breaks) to mirror exam pacing. If you hit minute 4 without a hypothesis that matches the evidence, step back to Step 1 and widen your view instead of tunnel-visioning deeper. Always write your diagnosis down <em>before</em> touching anything - putting it in writing keeps you honest.</p>
+      <p>Our lab sets a 7-minute target on workload breaks (10 minutes on platform-tool breaks) to mirror exam pacing. If you hit minute 4 without a hypothesis that matches the evidence, step back to Step 1 and widen your view instead of tunnel-visioning deeper. Always write your diagnosis down <em>before</em> touching anything, because putting it in writing keeps you honest.</p>
     </div>
   </div>
 </section>
@@ -113,14 +113,14 @@ cnpe-worker
         </tbody>
       </table>
     </div>
-    <p>Decode exit codes from <code>lastState.terminated.exitCode</code> at a glance: <code>0</code> clean exit (fine for a Job, wrong for a long-running server), <code>1</code> application error (read the logs), <code>2</code> shell misuse, <code>126</code> non-executable command, <code>127</code> command not found (wrong <code>command</code> or image), <code>137</code> SIGKILL (OOM if reason says <code>OOMKilled</code>, otherwise killed past grace period), <code>139</code> segfault, and <code>143</code> SIGTERM (graceful shutdown - if it loops on a clock, a failing liveness probe is killing a healthy pod).</p>
+    <p>Decode exit codes from <code>lastState.terminated.exitCode</code> at a glance: <code>0</code> clean exit (fine for a Job, wrong for a long-running server), <code>1</code> application error (read the logs), <code>2</code> shell misuse, <code>126</code> non-executable command, <code>127</code> command not found (wrong <code>command</code> or image), <code>137</code> SIGKILL (OOM if reason says <code>OOMKilled</code>, otherwise killed past grace period), <code>139</code> segfault, and <code>143</code> SIGTERM (graceful shutdown; if it loops on a clock, a failing liveness probe is killing a healthy pod).</p>
 
     <h3>Cluster-level failure scenarios</h3>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Scenario</th><th>Tells</th><th>Lever</th></tr></thead>
         <tbody>
-          <tr><td>node <code>NotReady</code></td><td><code>Kubelet stopped posting node status</code>; pods flip to <code>Unknown</code> and get evicted after ~5m</td><td><code>kubectl debug node/&lt;n&gt; -it --image=busybox:1.37 -- chroot /host journalctl -u kubelet -n 50</code> (and <code>-u containerd</code>) - disk pressure and expired certs are the top culprits</td></tr>
+          <tr><td>node <code>NotReady</code></td><td><code>Kubelet stopped posting node status</code>; pods flip to <code>Unknown</code> and get evicted after ~5m</td><td><code>kubectl debug node/&lt;n&gt; -it --image=busybox:1.37 -- chroot /host journalctl -u kubelet -n 50</code> (and <code>-u containerd</code>); disk pressure and expired certs are the top culprits</td></tr>
           <tr><td>DNS dead</td><td>pods Running, apps log <code>no such host</code>, <code>nslookup kubernetes.default</code> fails</td><td>inspect CoreDNS pods and ConfigMap, or a NetworkPolicy blocking UDP/TCP 53 egress to <code>kube-system</code></td></tr>
           <tr><td>expired certificates</td><td><code>x509: certificate has expired or is not yet valid</code>, or stale webhook <code>caBundle</code></td><td><code>kubeadm certs check-expiration</code> and <code>kubeadm certs renew</code>; cert-manager for webhooks</td></tr>
           <tr><td>etcd full</td><td>every write fails with <code>etcdserver: mvcc: database space exceeded</code> while reads keep working</td><td><code>etcdctl alarm list</code> → compact → defrag → <code>alarm disarm</code>; bump <code>--quota-backend-bytes</code> and hunt down what filled it</td></tr>
@@ -140,10 +140,10 @@ cnpe-worker
   <div class="pbody">
     <h3><code>kubectl debug</code> flags to keep handy</h3>
     <ul>
-      <li><code>kubectl debug -it pod/x --image=busybox --target=app</code> attaches an ephemeral container sharing <code>app</code>'s process namespace (note: ephemeral containers can't be removed individually - they live until the pod is deleted).</li>
+      <li><code>kubectl debug -it pod/x --image=busybox --target=app</code> attaches an ephemeral container sharing <code>app</code>'s process namespace (note: ephemeral containers can't be removed individually; they live until the pod is deleted).</li>
       <li><code>--copy-to=x-debug --share-processes --set-image=app=busybox</code> clones a crashing pod with a swapped image or entrypoint (pair with <code>--container app -- sh</code>) when the original dies too fast to attach.</li>
       <li><code>kubectl debug node/n -it --image=busybox</code> drops you onto the node with its root filesystem mounted at <code>/host</code>. Profiles control privilege: <code>general</code> (default, unprivileged), <code>baseline</code> / <code>restricted</code> (PSS-friendly), <code>netadmin</code> (<code>NET_ADMIN</code> + <code>NET_RAW</code> for <code>tcpdump</code> and <code>ip</code>), and <code>sysadmin</code> (full root for <code>chroot /host</code>). Remember to delete the <code>node-debugger-*</code> pod afterward.</li>
-      <li>Check API server internals with <code>kubectl get --raw /readyz?verbose</code> and <code>/livez?verbose</code> (lists etcd, informers, and webhooks individually - <code>kubectl get componentstatuses</code> has been deprecated since 1.19).</li>
+      <li>Check API server internals with <code>kubectl get --raw /readyz?verbose</code> and <code>/livez?verbose</code> (lists etcd, informers, and webhooks individually; <code>kubectl get componentstatuses</code> has been deprecated since 1.19).</li>
     </ul>
 
     <h3>Fast rollback commands, layer by layer</h3>
@@ -157,7 +157,7 @@ cnpe-worker
           <tr><td>Helm</td><td><code>helm rollback x &lt;revision&gt;</code></td><td>only works when Helm owns the release directly (not Argo-rendered charts)</td></tr>
           <tr><td>Progressive delivery</td><td><code>kubectl argo rollouts abort x</code> then <code>undo</code>; Flagger rolls back automatically on failed analysis</td><td>an aborted Rollout stays <code>Degraded</code> until promoted or undone</td></tr>
           <tr><td>Policy</td><td>flip <code>validationActions</code> to <code>Audit</code> or <code>enforcementAction</code> to <code>warn</code>, or add a <code>PolicyException</code></td><td>deleting a webhook configuration is emergency-only and must be restored afterward</td></tr>
-          <tr><td>Crossplane / kro</td><td><code>compositionUpdatePolicy: Manual</code> + older <code>compositionRevisionRef</code>; pause with <code>crossplane.io/paused: "true"</code> or <code>kro.run/reconcile: suspended</code></td><td>pausing freezes drift correction too - always log it in the postmortem</td></tr>
+          <tr><td>Crossplane / kro</td><td><code>compositionUpdatePolicy: Manual</code> + older <code>compositionRevisionRef</code>; pause with <code>crossplane.io/paused: "true"</code> or <code>kro.run/reconcile: suspended</code></td><td>pausing freezes drift correction too, so always log it in the postmortem</td></tr>
           <tr><td>Node</td><td><code>kubectl cordon</code>, <code>drain --ignore-daemonsets --delete-emptydir-data</code>, <code>uncordon</code></td><td>drains honor PDBs and hang when <code>disruptionsAllowed</code> is 0</td></tr>
         </tbody>
       </table>
@@ -180,11 +180,11 @@ cnpe-worker
       <li><strong>Fix:</strong> what resolved it (including dead ends worth documenting).</li>
       <li><strong>Proof &amp; prevention:</strong> the verification command that confirmed recovery, plus one concrete follow-up (an alert, policy, or default) so it can't recur.</li>
     </ol>
-    <p>Keep the SRE vocabulary handy too: <em>MTTD</em> (detect), <em>MTTA</em> (acknowledge), <em>MTTR</em> (restore), <em>error budget</em> (allowable unreliability under an SLO), and <em>toil</em> (manual, repetitive operational work that scales with load - exactly what platforms exist to eliminate).</p>
+    <p>Keep the SRE vocabulary handy too: <em>MTTD</em> (detect), <em>MTTA</em> (acknowledge), <em>MTTR</em> (restore), <em>error budget</em> (allowable unreliability under an SLO), and <em>toil</em> (manual, repetitive operational work that scales with load, which is exactly what platforms exist to eliminate).</p>
 
     <div class="callout exam">
       <span class="tag">Remediation ≠ resolution</span>
-      <p>Both on exam day and on call: stabilize users first (rollback, scale, fail over, bypass a broken guardrail), then fix the underlying root cause properly. Two different actions, two different urgencies - always be explicit about which one you've completed.</p>
+      <p>Both on exam day and on call: stabilize users first (rollback, scale, fail over, bypass a broken guardrail), then fix the underlying root cause properly. Two different actions, two different urgencies: always be explicit about which one you've completed.</p>
     </div>
   </div>
 </section>
@@ -651,10 +651,10 @@ etcd-0               Healthy   ok        </code></pre></details></div>
       <div class="answer"><p>Run <code>kubectl logs --previous</code> so you read the container that actually crashed rather than the fresh one still starting. Follow up with <code>kubectl describe pod</code> and <code>lastState.terminated</code> for the exit code and reason (137 + OOMKilled points to memory; 1 with stack trace points to app config).</p></div></details>
 
     <details class="quiz"><summary>Nothing can be created cluster-wide; every apply times out with a webhook error. What happened and what is the lever?</summary>
-      <div class="answer"><p>An admission webhook's backend is down while its <code>failurePolicy</code> is set to <code>Fail</code>, blocking every matching write. Fix the backend Deployment first - or, in a genuine emergency, scope or remove the webhook configuration temporarily (section 5.2).</p></div></details>
+      <div class="answer"><p>An admission webhook's backend is down while its <code>failurePolicy</code> is set to <code>Fail</code>, blocking every matching write. Fix the backend Deployment first, or in a genuine emergency, scope or remove the webhook configuration temporarily (section 5.2).</p></div></details>
 
     <details class="quiz"><summary>You have four minutes left and no theory that fits the evidence. What do you do?</summary>
-      <div class="answer"><p>Pull back to Step 1 and widen: re-check blast radius and recent events instead of digging deeper into the wrong object. Under exam pressure, flag the task and move on - getting stuck on one hard task costs you two easy ones.</p></div></details>
+      <div class="answer"><p>Pull back to Step 1 and widen: re-check blast radius and recent events instead of digging deeper into the wrong object. Under exam pressure, flag the task and move on, because getting stuck on one hard task costs you two easy ones.</p></div></details>
 
     <details class="quiz"><summary>What proves an incident is over?</summary>
       <div class="answer"><p>Re-running the exact check that failed and seeing it pass: the broken <code>curl</code> returns 200, the alert clears, or the validation probe succeeds. A pod saying Running never proves recovery on its own.</p></div></details>
@@ -664,7 +664,7 @@ etcd-0               Healthy   ok        </code></pre></details></div>
       <div class="answer"><p>etcd filled its backend quota (2 GiB default) and tripped the <code>NOSPACE</code> alarm, flipping the store read-only. Run compact → defragment every member → <code>etcdctl alarm disarm</code> (in that exact order), raise <code>--quota-backend-bytes</code> if growth is legitimate, and track down whatever flooded etcd (event storms, giant ConfigMaps, or a looping controller).</p></div></details>
 
     <details class="quiz"><summary>A container exits with code 143 every 30 seconds and the app logs look healthy. Diagnosis?</summary>
-      <div class="answer"><p>Exit code 143 is SIGTERM - Kubernetes is gracefully killing it on a timer, which almost always means a failing liveness probe (wrong port/path, or timeout too short for startup). Check <code>kubectl describe pod</code> for <code>Liveness probe failed</code> events and fix the probe or add a <code>startupProbe</code>.</p></div></details>
+      <div class="answer"><p>Exit code 143 is SIGTERM: Kubernetes is gracefully killing it on a timer, which almost always means a failing liveness probe (wrong port/path, or timeout too short for startup). Check <code>kubectl describe pod</code> for <code>Liveness probe failed</code> events and fix the probe or add a <code>startupProbe</code>.</p></div></details>
 
     <details class="quiz"><summary>You roll a Deployment back with <code>kubectl rollout undo</code> and two minutes later it is broken again. Why, and what should you have done?</summary>
       <div class="answer"><p>Your GitOps controller reconciled Git back onto the cluster. Either pause reconciliation first (<code>argocd app set x --sync-policy none</code> or <code>flux suspend kustomization x</code>) for an emergency undo, or go straight to reverting the Git commit so the controller rolls back cleanly for you.</p></div></details>

@@ -30,8 +30,8 @@
   <div class="pbody">
     <p class="lede">In practice, measuring platform efficiency means wiring your delivery controllers into Prometheus and querying the signals they already emit. Getting the scrape hooked up is half the job; the PromQL itself is just a few lines.</p>
     <div class="callout model">
-      <span class="tag">Two distinct metric families - don't blur them</span>
-      <p><strong>Delivery performance</strong> (the DORA metrics) tells you how smoothly code reaches production. <strong>Platform effectiveness</strong> (fulfillment latency, adoption, time to first change, developer satisfaction) tells you how well the platform actually serves its users. A platform can deploy fast and still feel painful to use, and vice versa - which is why the CNCF Platforms white paper tracks both.</p>
+      <span class="tag">Two distinct metric families: don't blur them</span>
+      <p><strong>Delivery performance</strong> (the DORA metrics) tells you how smoothly code reaches production. <strong>Platform effectiveness</strong> (fulfillment latency, adoption, time to first change, developer satisfaction) tells you how well the platform actually serves its users. A platform can deploy fast and still feel painful to use, and vice versa, which is why the CNCF Platforms white paper tracks both.</p>
     </div>
   </div>
 </section>
@@ -55,11 +55,11 @@
 
     <h3>In an Argo CD shop, the controller already holds your delivery metrics</h3>
     <ul>
-      <li><code>argocd_app_sync_total</code>: per-app counter labeled by <code>phase</code> (<code>Succeeded</code>, <code>Failed</code>, <code>Error</code>) - gives you deployment frequency and change failure rate directly.</li>
-      <li><code>argocd_app_info</code>: one series per Application carrying current <code>sync_status</code> and <code>health_status</code> labels - perfect for "how many apps are degraded right now?"</li>
+      <li><code>argocd_app_sync_total</code>: per-app counter labeled by <code>phase</code> (<code>Succeeded</code>, <code>Failed</code>, <code>Error</code>); gives you deployment frequency and change failure rate directly.</li>
+      <li><code>argocd_app_info</code>: one series per Application carrying current <code>sync_status</code> and <code>health_status</code> labels, perfect for "how many apps are degraded right now?"</li>
       <li><code>argocd_app_reconcile</code> (histogram): controller loop duration, measuring platform health rather than app delivery.</li>
     </ul>
-    <p>Argo CD already exports all three, but Prometheus doesn't scrape them until you drop in a ServiceMonitor - which is exactly how the exercises begin.</p>
+    <p>Argo CD already exports all three, but Prometheus doesn't scrape them until you drop in a ServiceMonitor, which is exactly how the exercises begin.</p>
 
     <h3>The other half: does the platform keep what it shipped running?</h3>
     <p>Pair delivery speed with runtime stability: restart counts (<code>kube_pod_container_status_restarts_total</code>), unavailable replicas (<code>kube_deployment_status_replicas_unavailable</code>), Pending pods, and the request-vs-usage efficiency gap from section 1.5. Delivery metrics prove you ship fast; runtime metrics prove what you ship actually holds up.</p>
@@ -87,26 +87,26 @@
         </tbody>
       </table>
     </div>
-    <p>Operational reliability sits beside these rather than acting as a "fifth key." For reference, the 2024 report's clusters were: <em>Elite</em> (on-demand deploys, lead time &lt; 1 day, recovery &lt; 1 hour, ~5% CFR), <em>High</em> (daily–weekly, 1 day–1 week, &lt; 1 day, ~20%), <em>Medium</em> (weekly–monthly, 1 week–1 month, &lt; 1 day, ~10%), and <em>Low</em> (monthly–biannual, 1–6 months, 1 week–1 month, ~40%). Note that the 2025 DORA report retired those four tiers in favor of team archetypes factoring in burnout and friction - cite them as the 2024 clusters rather than fixed law.</p>
+    <p>Operational reliability sits beside these rather than acting as a "fifth key." For reference, the 2024 report's clusters were: <em>Elite</em> (on-demand deploys, lead time &lt; 1 day, recovery &lt; 1 hour, ~5% CFR), <em>High</em> (daily–weekly, 1 day–1 week, &lt; 1 day, ~20%), <em>Medium</em> (weekly–monthly, 1 week–1 month, &lt; 1 day, ~10%), and <em>Low</em> (monthly–biannual, 1–6 months, 1 week–1 month, ~40%). Note that the 2025 DORA report retired those four tiers in favor of team archetypes factoring in burnout and friction, so cite them as the 2024 clusters rather than fixed law.</p>
 
     <h3>Pulling each DORA metric out of a Kubernetes cluster</h3>
     <ul>
       <li><strong>Deployment frequency:</strong> <code>increase(argocd_app_sync_total{phase="Succeeded"}[7d])</code> per app; for Flux, count changes in the <code>revision</code> label on <code>gotk_resource_info{customresource_kind="Kustomization"}</code>; for Tekton, <code>increase(tekton_pipelines_controller_pipelinerun_total{status="success"}[7d])</code> on your deploy pipeline.</li>
-      <li><strong>Change lead time:</strong> requires joining two timestamps - the Git commit time (<code>git log --format=%cI &lt;sha&gt;</code>) and the deploy timestamp (from <code>argocd app history</code> or Flux Kustomization's <code>status.lastAppliedRevision</code> / condition <code>lastTransitionTime</code>). Because no single exporter owns both, a tiny pipeline step or controller usually joins them and emits a gauge.</li>
+      <li><strong>Change lead time:</strong> requires joining two timestamps: the Git commit time (<code>git log --format=%cI &lt;sha&gt;</code>) and the deploy timestamp (from <code>argocd app history</code> or Flux Kustomization's <code>status.lastAppliedRevision</code> / condition <code>lastTransitionTime</code>). Because no single exporter owns both, a tiny pipeline step or controller usually joins them and emits a gauge.</li>
       <li><strong>Change failure rate:</strong> failed syncs (<code>phase=~"Failed|Error"</code>) plus rollbacks and aborted progressive rollouts (<code>rollout_phase{phase="Degraded"}</code> in Argo Rollouts, or Flagger's <code>flagger_canary_status</code> failures) divided by total deploys.</li>
       <li><strong>Failed deployment recovery time:</strong> time from a deploy-triggered alert firing (<code>ALERTS{alertstate="firing"}</code>) to resolving, or from a broken sync to the next green sync (alongside MTTD, MTTA, and MTTR from your incident tooling).</li>
       <li><strong>Rework rate:</strong> relies on tagging unplanned hotfixes consistently (a commit trailer, PR label, or <code>reason=hotfix</code> annotation) so you can count them cleanly.</li>
     </ul>
 
     <h3>SPACE (why the white paper cites it)</h3>
-    <p>When measuring developer productivity, the white paper points to <strong>SPACE</strong>: <strong>S</strong>atisfaction and well-being, <strong>P</strong>erformance (outcomes, not raw output), <strong>A</strong>ctivity, <strong>C</strong>ommunication and collaboration, and <strong>E</strong>fficiency and flow. Its core rule: always combine metrics from at least three dimensions, including at least one perceptual measure like a developer survey. Judging teams by lines of code alone is pure Activity - exactly what SPACE warns against.</p>
+    <p>When measuring developer productivity, the white paper points to <strong>SPACE</strong>: <strong>S</strong>atisfaction and well-being, <strong>P</strong>erformance (outcomes, not raw output), <strong>A</strong>ctivity, <strong>C</strong>ommunication and collaboration, and <strong>E</strong>fficiency and flow. Its core rule: always combine metrics from at least three dimensions, including at least one perceptual measure like a developer survey. Judging teams by lines of code alone is pure Activity, which is exactly what SPACE warns against.</p>
   </div>
 </section>
 
 <section class="panel accent-p" id="platform-slis">
   <div class="phdr"><h2>Measuring the platform itself</h2><span class="meta">the white paper's list, maturity-model levels, SLIs for a platform API</span></div>
   <div class="pbody">
-    <p>The CNCF Platforms white paper organizes platform success into three buckets. Know these exact terms - scenario marking keys look for them:</p>
+    <p>The CNCF Platforms white paper organizes platform success into three buckets. Know these exact terms, because scenario marking keys look for them:</p>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Group</th><th>Measures named</th><th>Where the data lives</th></tr></thead>
@@ -124,10 +124,10 @@
       <li><strong>Adoption:</strong> count Crossplane XRs or kro instances per team (<code>count by (customresource_kind) (kube_customresource_info)</code> via kube-state-metrics <code>CustomResourceStateMetrics</code>), and compare platform-stamped namespaces against hand-rolled ones.</li>
       <li><strong>Golden path usage:</strong> compare Applications spawned by your ApplicationSet against manually created Applications, or track weekly Backstage scaffolder runs.</li>
       <li><strong>Request-to-fulfillment latency:</strong> subtract <code>creationTimestamp</code> from the <code>Ready</code> condition's <code>lastTransitionTime</code> (via <code>CustomResourceStateMetrics</code> or Crossplane's built-in <code>crossplane_managed_resource_first_time_to_readiness_seconds</code> histogram).</li>
-      <li><strong>Ticket volume:</strong> track manual platform requests that self-service should be absorbing - watch this curve trend down.</li>
-      <li><strong>Platform reliability:</strong> set real SLIs and SLOs for your own control plane - API server 5xx ratio, Argo CD sync success rate, webhook admission latency (<code>apiserver_admission_webhook_admission_duration_seconds</code>), and Crossplane/kro reconcile errors (<code>controller_runtime_reconcile_total{result="error"}</code>) - guarded by the exact same multi-window burn-rate alerts from section 4.2.</li>
+      <li><strong>Ticket volume:</strong> track manual platform requests that self-service should be absorbing; watch this curve trend down.</li>
+      <li><strong>Platform reliability:</strong> set real SLIs and SLOs for your own control plane (API server 5xx ratio, Argo CD sync success rate, webhook admission latency (<code>apiserver_admission_webhook_admission_duration_seconds</code>), and Crossplane/kro reconcile errors (<code>controller_runtime_reconcile_total{result="error"}</code>)), guarded by the exact same multi-window burn-rate alerts from section 4.2.</li>
     </ul>
-    <div class="callout exam"><span class="tag">How this gets tested</span><p>Expect two flavors of question: hands-on ("write a PromQL query for deployment frequency, failed syncs, or unhealthy apps" after scraping the tool), and architectural ("which indicators prove your platform improved developer experience?" - cite fulfillment latency, time to first change, adoption, and surveys alongside DORA, and explain why raw output counts like lines of code don't work).</p></div>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>Expect two flavors of question: hands-on ("write a PromQL query for deployment frequency, failed syncs, or unhealthy apps" after scraping the tool), and architectural ("which indicators prove your platform improved developer experience?": cite fulfillment latency, time to first change, adoption, and surveys alongside DORA, and explain why raw output counts like lines of code don't work).</p></div>
   </div>
 </section>
 
@@ -454,7 +454,7 @@ Handling connection for 9090
       <div class="answer"><p>Deployment frequency: Argo CD sync counters. Lead time: Git commit timestamps joined with CD deploy timestamps. Change failure rate: sync phases and rollout outcomes. Time to restore: alert history (firing to resolved) or incident records. None of them live in one single tool, which is why wiring telemetry together matters.</p></div></details>
 
     <details class="quiz"><summary>Why <code>increase()</code> rather than the raw counter for deployment frequency?</summary>
-      <div class="answer"><p>A raw counter climbs forever from startup and resets whenever the pod restarts. <code>increase(...[24h])</code> gives you the exact count inside your window while handling resets cleanly - far more readable than a tiny per-second <code>rate()</code>.</p></div></details>
+      <div class="answer"><p>A raw counter climbs forever from startup and resets whenever the pod restarts. <code>increase(...[24h])</code> gives you the exact count inside your window while handling resets cleanly, far more readable than a tiny per-second <code>rate()</code>.</p></div></details>
 
     <details class="quiz"><summary>Your new ServiceMonitor for Argo CD produces no target. First two checks?</summary>
       <div class="answer"><p>Verify <code>endpoints[].port</code> matches the Service's exact port <em>name</em> (<code>http-metrics</code>, not <code>metrics</code> or <code>8082</code>) and confirm your label selector matches the Service's real labels. Then check Prometheus's <code>serviceMonitorSelector</code> and the monitor's <code>namespaceSelector</code>.</p></div></details>

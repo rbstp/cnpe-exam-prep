@@ -42,10 +42,10 @@
   <div class="pbody">
     <p>A <code>PrometheusRule</code> CRD bundles groups of alerting and recording rules. Each <strong>alerting rule</strong> pairs a PromQL expression with four key fields:</p>
     <ul>
-      <li><code>for</code>: how long the expression must stay true before <code>Pending</code> promotes to <code>Firing</code>. It's your flap filter - too short wakes people on brief blips, too long lets outages drag on.</li>
+      <li><code>for</code>: how long the expression must stay true before <code>Pending</code> promotes to <code>Firing</code>. It's your flap filter: too short wakes people on brief blips, too long lets outages drag on.</li>
       <li><code>labels</code>: <em>routing keys</em> like <code>severity</code>, <code>team</code>, and <code>service</code>. Whatever Alertmanager routes match on has to be attached here.</li>
       <li><code>annotations</code>: human context like <code>summary</code>, <code>description</code>, and <code>runbook_url</code>, templated with <code>{{ $labels.x }}</code> and <code>{{ $value }}</code>.</li>
-      <li><code>keep_firing_for</code>: the mirror image of <code>for</code> - holds an alert in Firing briefly after the expression clears so flapping symptoms don't spam resolved/firing pairs.</li>
+      <li><code>keep_firing_for</code>: the mirror image of <code>for</code>; holds an alert in Firing briefly after the expression clears so flapping symptoms don't spam resolved/firing pairs.</li>
     </ul>
 
     <p><strong>Recording rules</strong> live in the same CRD and precompute heavy queries into fast series on a schedule (following the <code>level:metric:operation</code> convention, like <code>job:http_errors:rate5m</code>). Whenever a scenario says "this Grafana dashboard takes 30 seconds to render," a recording rule is the answer.</p>
@@ -57,7 +57,7 @@
 
     <div class="callout exam">
       <span class="tag">Alert states, and where each shows up</span>
-      <p>Alerts move from <em>Inactive</em> → <em>Pending</em> (expression true, waiting out <code>for</code>) → <em>Firing</em>. Pending alerts appear in Prometheus's Alerts UI and <strong>nowhere else</strong> - Alertmanager hasn't even heard about them yet. Add evaluation interval + <code>for</code> + <code>group_wait</code> to know how long an alert takes to land; on a stock stack, 2–3 minutes is completely normal.</p>
+      <p>Alerts move from <em>Inactive</em> → <em>Pending</em> (expression true, waiting out <code>for</code>) → <em>Firing</em>. Pending alerts appear in Prometheus's Alerts UI and <strong>nowhere else</strong>; Alertmanager hasn't even heard about them yet. Add evaluation interval + <code>for</code> + <code>group_wait</code> to know how long an alert takes to land; on a stock stack, 2–3 minutes is completely normal.</p>
     </div>
 
 
@@ -93,14 +93,14 @@
       </table>
     </div>
 
-    <p><strong>Silences</strong> temporarily mute matching notifications (created via UI or <code>amtool</code>) without touching config - note that Prometheus still shows the alert firing, because silences mute <em>notifications</em>, never truth. <strong>Inhibition</strong> suppresses lower-priority downstream alerts automatically whenever a bigger related alert is firing (like a node outage silencing pod alerts on that node), wired via <code>source_matchers</code>, <code>target_matchers</code>, and <code>equal</code> labels. Know the crisp distinction: silences are temporary and human-driven; inhibitions are permanent, relationship-based rules.</p>
+    <p><strong>Silences</strong> temporarily mute matching notifications (created via UI or <code>amtool</code>) without touching config (note that Prometheus still shows the alert firing, because silences mute <em>notifications</em>, never truth). <strong>Inhibition</strong> suppresses lower-priority downstream alerts automatically whenever a bigger related alert is firing (like a node outage silencing pod alerts on that node), wired via <code>source_matchers</code>, <code>target_matchers</code>, and <code>equal</code> labels. Know the crisp distinction: silences are temporary and human-driven; inhibitions are permanent, relationship-based rules.</p>
 
     <div class="callout lab">
       <span class="tag">Always inspect the rendered config</span>
       <p>The operator compiles your config and any selected namespaced <code>AlertmanagerConfig</code> CRDs into a single generated Secret, and Alertmanager's Status page shows the exact live YAML. Always verify your route landed in that rendered config rather than stopping at <code>kubectl apply</code>.</p>
     </div>
 
-    <p>One special alert you'll spot immediately: <strong>Watchdog</strong>, which fires 24/7 on purpose. It's a dead-man's switch - an external service listens for its heartbeat and pages you if it <em>stops</em> arriving, proving Prometheus and Alertmanager themselves are still alive.</p>
+    <p>One special alert you'll spot immediately: <strong>Watchdog</strong>, which fires 24/7 on purpose. It's a dead-man's switch: an external service listens for its heartbeat and pages you if it <em>stops</em> arriving, proving Prometheus and Alertmanager themselves are still alive.</p>
   </div>
 </section>
 
@@ -109,14 +109,14 @@
   <div class="pbody">
     <h3>Route fields</h3>
     <ul>
-      <li><strong><code>matchers</code>:</strong> list of Prometheus-style selector strings like <code>severity="critical"</code>, <code>team=~"platform|sre"</code>, or <code>namespace!=""</code> (legacy <code>match</code>/<code>match_re</code> still parse, though deprecated). Watch out for a child route with no matchers - it matches everything and silently swallows alerts meant for later siblings.</li>
+      <li><strong><code>matchers</code>:</strong> list of Prometheus-style selector strings like <code>severity="critical"</code>, <code>team=~"platform|sre"</code>, or <code>namespace!=""</code> (legacy <code>match</code>/<code>match_re</code> still parse, though deprecated). Watch out for a child route with no matchers: it matches everything and silently swallows alerts meant for later siblings.</li>
       <li><strong><code>continue</code></strong> (default <code>false</code>): lets an alert keep evaluating sibling routes after matching. The root route has no matchers and serves as your catch-all receiver.</li>
       <li><strong><code>group_by</code>:</strong> inherits from its parent unless overridden; set <code>['...']</code> to turn off grouping completely (one notification per alert). Defaults: <code>group_wait: 30s</code>, <code>group_interval: 5m</code>, <code>repeat_interval: 4h</code> (keep <code>repeat_interval</code> a multiple of <code>group_interval</code>).</li>
       <li><strong><code>receiver</code>:</strong> points to an entry in <code>receivers[]</code> containing one or more integration blocks (<code>webhook_configs</code>, <code>slack_configs</code>, <code>pagerduty_configs</code>, <code>email_configs</code>, <code>opsgenie_configs</code>, <code>msteams_configs</code>). Set <code>send_resolved: true</code> to receive recovery notices.</li>
     </ul>
 
     <h3>Scheduled muting with time intervals</h3>
-    <p>Define named schedules under top-level <code>time_intervals</code> (replacing the deprecated <code>mute_time_intervals</code> key), specifying <code>times</code> (<code>start_time</code>/<code>end_time</code> in HH:MM, end exclusive, <code>24:00</code> allowed), <code>weekdays</code> (<code>['monday:friday']</code>), <code>days_of_month</code> (<code>['1:7', '-1']</code>), <code>months</code>, <code>years</code>, and an IANA <code>location</code> (defaults to UTC). Attach them to any route with <code>mute_time_intervals: [weekends]</code> (quiet during the window) or <code>active_time_intervals: [business_hours]</code> (quiet outside the window; if both are present, mute wins). Muted alerts still fire in Prometheus and appear active in Alertmanager - only notifications wait until the window lifts.</p>
+    <p>Define named schedules under top-level <code>time_intervals</code> (replacing the deprecated <code>mute_time_intervals</code> key), specifying <code>times</code> (<code>start_time</code>/<code>end_time</code> in HH:MM, end exclusive, <code>24:00</code> allowed), <code>weekdays</code> (<code>['monday:friday']</code>), <code>days_of_month</code> (<code>['1:7', '-1']</code>), <code>months</code>, <code>years</code>, and an IANA <code>location</code> (defaults to UTC). Attach them to any route with <code>mute_time_intervals: [weekends]</code> (quiet during the window) or <code>active_time_intervals: [business_hours]</code> (quiet outside the window; if both are present, mute wins). Muted alerts still fire in Prometheus and appear active in Alertmanager; only notifications wait until the window lifts.</p>
 
     <h3>Inhibition and silences in practice</h3>
     <ul>
@@ -125,9 +125,9 @@
     </ul>
 
     <h3>Operator-managed Alertmanager configs</h3>
-    <p>You can drive Alertmanager three ways: <code>spec.configSecret</code> (a raw config Secret), <code>spec.alertmanagerConfiguration</code> (a single global <code>AlertmanagerConfig</code> in Alertmanager's namespace), or namespaced <code>AlertmanagerConfig</code> CRDs picked up via <code>alertmanagerConfigSelector</code> and <code>alertmanagerConfigNamespaceSelector</code>. For multi-tenant safety, the operator automatically injects <code>namespace="&lt;its namespace&gt;"</code> into every route and inhibition rule from a merged namespaced <code>AlertmanagerConfig</code> - which is why a tenant config can't catch cluster-wide alerts that lack a <code>namespace</code> label. Also note the casing flip: CRD fields are camelCase (<code>groupBy</code>, <code>groupWait</code>, <code>repeatInterval</code>), while the generated Secret (<code>alertmanager-&lt;name&gt;-generated</code>) renders snake_case.</p>
+    <p>You can drive Alertmanager three ways: <code>spec.configSecret</code> (a raw config Secret), <code>spec.alertmanagerConfiguration</code> (a single global <code>AlertmanagerConfig</code> in Alertmanager's namespace), or namespaced <code>AlertmanagerConfig</code> CRDs picked up via <code>alertmanagerConfigSelector</code> and <code>alertmanagerConfigNamespaceSelector</code>. For multi-tenant safety, the operator automatically injects <code>namespace="&lt;its namespace&gt;"</code> into every route and inhibition rule from a merged namespaced <code>AlertmanagerConfig</code>, which is why a tenant config can't catch cluster-wide alerts that lack a <code>namespace</code> label. Also note the casing flip: CRD fields are camelCase (<code>groupBy</code>, <code>groupWait</code>, <code>repeatInterval</code>), while the generated Secret (<code>alertmanager-&lt;name&gt;-generated</code>) renders snake_case.</p>
 
-    <div class="callout trap"><span class="tag">Check the handoff pointer</span><p>If Prometheus shows alerts firing while Alertmanager stays completely empty (and no silence or route explains it), check <code>spec.alerting.alertmanagers[]</code> on the <code>Prometheus</code> CR - a wrong Service name or renamed port silently drops the handoff. Verify discovery under Status → Runtime &amp; Build Information → Alertmanagers in Prometheus.</p></div>
+    <div class="callout trap"><span class="tag">Check the handoff pointer</span><p>If Prometheus shows alerts firing while Alertmanager stays completely empty (and no silence or route explains it), check <code>spec.alerting.alertmanagers[]</code> on the <code>Prometheus</code> CR: a wrong Service name or renamed port silently drops the handoff. Verify discovery under Status → Runtime &amp; Build Information → Alertmanagers in Prometheus.</p></div>
   </div>
 </section>
 
@@ -152,7 +152,7 @@
     <ul>
       <li>Stick to one clean <code>severity</code> taxonomy (<code>critical</code> pages, <code>warning</code> tickets, <code>info</code> dashboards), and never page without a <code>runbook_url</code>.</li>
       <li>Set <code>for</code> to at least two scrape intervals so a single missed scrape can't page; add <code>keep_firing_for</code> on noisy thresholds.</li>
-      <li>Template annotations freely (<code>{{ $labels.namespace }}</code>, <code>{{ $value | humanize }}</code>, <code>{{ $value | humanizePercentage }}</code>, <code>{{ $externalLabels.cluster }}</code>), but avoid putting volatile values like <code>$value</code> inside <em>labels</em> - changing label values mints a fresh alert identity every cycle and breaks grouping.</li>
+      <li>Template annotations freely (<code>{{ $labels.namespace }}</code>, <code>{{ $value | humanize }}</code>, <code>{{ $value | humanizePercentage }}</code>, <code>{{ $externalLabels.cluster }}</code>), but avoid putting volatile values like <code>$value</code> inside <em>labels</em>, because changing label values mints a fresh alert identity every cycle and breaks grouping.</li>
       <li>Audit alert noise with Prometheus's built-in <code>ALERTS{alertname, alertstate="pending|firing"}</code> series: <code>count by (alertname) (changes(ALERTS[7d]))</code>.</li>
       <li>Watch Alertmanager itself via <code>alertmanager_notifications_failed_total</code>, <code>alertmanager_alerts_invalid_total</code>, and your Watchdog heartbeat.</li>
     </ul>
@@ -802,13 +802,13 @@ Handling connection for 9090
       <div class="answer"><p>An active silence matches it, an inhibition rule is suppressing it, or its receiver is failing (check Alertmanager logs and <code>alertmanager_notifications_failed_total</code>). And if it only just flipped to Firing, <code>group_wait</code> might simply still be ticking down.</p></div></details>
 
     <details class="quiz"><summary>Your rule applies cleanly and never evaluates. What did you not check?</summary>
-      <div class="answer"><p>The Prometheus CR's <code>ruleSelector</code> and <code>ruleNamespaceSelector</code>. Unmatched rules are ignored with zero errors, just like ServiceMonitors - always read the selector first.</p></div></details>
+      <div class="answer"><p>The Prometheus CR's <code>ruleSelector</code> and <code>ruleNamespaceSelector</code>. Unmatched rules are ignored with zero errors, just like ServiceMonitors, so always read the selector first.</p></div></details>
 
     <details class="quiz"><summary>Silence versus inhibition: when do you use each?</summary>
       <div class="answer"><p>Use a <strong>silence</strong> for temporary, human-driven muting (like a maintenance window) with an expiry and comment. Use <strong>inhibition</strong> as a standing architectural rule that suppresses noisy downstream symptoms whenever a bigger upstream alarm is already firing.</p></div></details>
 
     <details class="quiz"><summary>How long, roughly, from "condition becomes true" to "notification sent" on a stock stack?</summary>
-      <div class="answer"><p>Up to one evaluation interval (30s) + your <code>for</code> duration (say 1–5m) + <code>group_wait</code> (30s) - easily 2–3 minutes at minimum. That's why you wait before declaring alerting broken, and why <code>for: 15m</code> is usually too sluggish for page-worthy outages.</p></div></details>
+      <div class="answer"><p>Up to one evaluation interval (30s) + your <code>for</code> duration (say 1–5m) + <code>group_wait</code> (30s), easily 2–3 minutes at minimum. That's why you wait before declaring alerting broken, and why <code>for: 15m</code> is usually too sluggish for page-worthy outages.</p></div></details>
 
     <details class="quiz"><summary>What is the Watchdog alert for?</summary>
       <div class="answer"><p>It fires continuously as a dead-man's switch. An external monitor expects to keep receiving it and pages you if it <em>stops</em>, catching the case where Prometheus or Alertmanager itself goes down and can't alert on anything.</p></div></details>

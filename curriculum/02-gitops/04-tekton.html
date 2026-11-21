@@ -18,7 +18,7 @@
 <header class="pagehead">
   <div class="eyebrow"></div>
   <h1></h1>
-  <p class="sum">Tekton's core idea is simple: a pipeline isn't config for a separate CI server, it's Kubernetes resources executed as pods. Everything else is vocabulary, and debugging CI becomes debugging pods - which you already know how to do.</p>
+  <p class="sum">Tekton's core idea is simple: a pipeline isn't config for a separate CI server, it's Kubernetes resources executed as pods. Everything else is vocabulary, and debugging CI becomes debugging pods, which you already know how to do.</p>
 </header>
 
 <div class="stats"></div>
@@ -38,7 +38,7 @@
 
     <div class="callout model">
       <span class="tag">Why "steps share a pod" matters</span>
-      <p>Steps run sequentially inside the same pod, so they share volumes and land on the same node - that's how the clone step's checkout reaches the build step. The catch is that Kubernetes sums container resource requests across all steps even though they run one at a time (task-level <code>computeResources</code> on the TaskRun exists to claw that overhead back). It also means steps can't be scheduled onto different nodes, and everything in a Task lives or dies together. Tasks, by contrast, run in separate pods and can execute in parallel.</p>
+      <p>Steps run sequentially inside the same pod, so they share volumes and land on the same node; that's how the clone step's checkout reaches the build step. The catch is that Kubernetes sums container resource requests across all steps even though they run one at a time (task-level <code>computeResources</code> on the TaskRun exists to claw that overhead back). It also means steps can't be scheduled onto different nodes, and everything in a Task lives or dies together. Tasks, by contrast, run in separate pods and can execute in parallel.</p>
     </div>
   </div>
 </section>
@@ -60,7 +60,7 @@
       </table>
     </div>
 
-    <p>Params support types (<code>string</code>, <code>array</code>, <code>object</code>) and defaults. Results are written by a step to <code>$(results.&lt;name&gt;.path)</code> and are deliberately <em>tiny</em>: because they travel through the TaskRun's status, use them for a digest or a count, never a build log. Workspaces get bound at run time by the PipelineRun to an <code>emptyDir</code> (per-pod, lost between tasks), an existing <code>persistentVolumeClaim</code> (shared, you manage its lifecycle), or a <code>volumeClaimTemplate</code> (shared, created and cleaned up per run - usually the right default). You can also back a workspace with a ConfigMap or Secret, which is a clean way to hand credentials to a step.</p>
+    <p>Params support types (<code>string</code>, <code>array</code>, <code>object</code>) and defaults. Results are written by a step to <code>$(results.&lt;name&gt;.path)</code> and are deliberately <em>tiny</em>: because they travel through the TaskRun's status, use them for a digest or a count, never a build log. Workspaces get bound at run time by the PipelineRun to an <code>emptyDir</code> (per-pod, lost between tasks), an existing <code>persistentVolumeClaim</code> (shared, you manage its lifecycle), or a <code>volumeClaimTemplate</code> (shared, created and cleaned up per run; usually the right default). You can also back a workspace with a ConfigMap or Secret, which is a clean way to hand credentials to a step.</p>
 
     <div class="callout trap">
       <span class="tag">Ordering surprises people exactly once</span>
@@ -72,7 +72,7 @@
 
     <div class="callout lab">
       <span class="tag">One registry, two names</span>
-      <p>The pipeline pushes to <code>kind-registry:5000/demo:v1</code> because it runs <em>inside</em> the cluster, where <code>localhost</code> points back at the pod itself. From your host terminal, that exact same registry answers at <code>localhost:5001</code>. Keep those two names straight - they come right back in section 5.6 when Kyverno verifies a signature from inside the cluster.</p>
+      <p>The pipeline pushes to <code>kind-registry:5000/demo:v1</code> because it runs <em>inside</em> the cluster, where <code>localhost</code> points back at the pod itself. From your host terminal, that exact same registry answers at <code>localhost:5001</code>. Keep those two names straight: they come right back in section 5.6 when Kyverno verifies a signature from inside the cluster.</p>
     </div>
 
     <h3>Where Tasks come from</h3>
@@ -101,7 +101,7 @@
         </tbody>
       </table>
     </div>
-    <p>A <strong>StepAction</strong> is the reusable building block one level below a Task, encapsulating <code>image</code>, <code>command</code> or <code>script</code>, <code>args</code>, <code>env</code>, <code>params</code>, <code>results</code>, <code>workingDir</code>, <code>securityContext</code>, and <code>volumeMounts</code>. A step pulls it in with <code>ref: { name: x }</code> (or <code>ref.resolver</code> for a remote one) and can't set any of those fields itself - doing so triggers a validation error at admission. StepActions are stable (check <code>kubectl api-resources | grep stepaction</code> for the served version on your cluster). For the exam, know why they exist: a platform team ships one vetted <code>kaniko-build</code> StepAction, and app teams compose Tasks from it without copying container boilerplate.</p>
+    <p>A <strong>StepAction</strong> is the reusable building block one level below a Task, encapsulating <code>image</code>, <code>command</code> or <code>script</code>, <code>args</code>, <code>env</code>, <code>params</code>, <code>results</code>, <code>workingDir</code>, <code>securityContext</code>, and <code>volumeMounts</code>. A step pulls it in with <code>ref: { name: x }</code> (or <code>ref.resolver</code> for a remote one) and can't set any of those fields itself; doing so triggers a validation error at admission. StepActions are stable (check <code>kubectl api-resources | grep stepaction</code> for the served version on your cluster). For the exam, know why they exist: a platform team ships one vetted <code>kaniko-build</code> StepAction, and app teams compose Tasks from it without copying container boilerplate.</p>
     <p><strong>Tekton Chains</strong> handles the supply-chain side. It watches completed TaskRuns and PipelineRuns, signs them along with any type-hinted image results (<code>IMAGE_URL</code> and <code>IMAGE_DIGEST</code> results, or <code>artifacts.outputs</code>) using a key from the <code>signing-secrets</code> Secret in <code>tekton-chains</code> (cosign, x509, or KMS), and generates an in-toto attestation in <code>slsa/v1</code> or <code>slsa/v2alpha4</code> format. It stores the signature and attestation in the OCI registry beside the image, in Tekton annotations, or in a bucket, then marks the run <code>chains.tekton.dev/signed: "true"</code>. Formats, storage backends, and signers live in the <code>chains-config</code> ConfigMap (<code>artifacts.taskrun.format</code>, <code>artifacts.oci.storage</code>, <code>transparency.enabled</code>). Section 5.6 verifies those signatures at admission; the key security property to remember here is that the build pod itself never holds the signing key.</p>
   </div>
 </section>
@@ -126,7 +126,7 @@
 
     <div class="callout exam">
       <span class="tag">Tekton vs Argo Workflows</span>
-      <p>Both execute DAGs of containers, and both sit on the exam's tool list. Keep the distinction crisp: Tekton is purpose-built for CI (building, testing, and publishing artifacts from git events with a CI-focused task catalog), whereas Argo Workflows (section 3.4) is general-purpose orchestration (provisioning sequences, scheduled batch jobs, data pipelines). Their capabilities overlap, but their sweet spots differ - and section 3.6 will ask you to defend the choice.</p>
+      <p>Both execute DAGs of containers, and both sit on the exam's tool list. Keep the distinction crisp: Tekton is purpose-built for CI (building, testing, and publishing artifacts from git events with a CI-focused task catalog), whereas Argo Workflows (section 3.4) is general-purpose orchestration (provisioning sequences, scheduled batch jobs, data pipelines). Their capabilities overlap, but their sweet spots differ, and section 3.6 will ask you to defend the choice.</p>
     </div>
   </div>
 </section>
@@ -170,7 +170,7 @@
     <ul>
       <li><code>retries: N</code> on a pipeline task re-runs failed TaskRuns automatically, exposing <code>$(context.pipelineTask.retries)</code> and <code>retry-count</code> inside the task.</li>
       <li><code>onError: continue</code> on a pipeline task lets the pipeline keep going after a failure instead of the default <code>stopAndFail</code>. On an individual step, <code>onError: continue</code> lets subsequent steps run and exposes <code>$(steps.&lt;name&gt;.exitCode.path)</code>.</li>
-      <li><code>when</code> evaluates <code>input</code>, <code>operator: in|notin</code>, and <code>values</code> (plus a CEL form like <code>cel: "'$(params.env)' == 'prod'"</code> behind a feature flag). Watch out: guarding a task doesn't automatically guard its downstream dependents - cascade the <code>when</code> expression or wrap them in a sub-pipeline.</li>
+      <li><code>when</code> evaluates <code>input</code>, <code>operator: in|notin</code>, and <code>values</code> (plus a CEL form like <code>cel: "'$(params.env)' == 'prod'"</code> behind a feature flag). Watch out: guarding a task doesn't automatically guard its downstream dependents. Cascade the <code>when</code> expression or wrap them in a sub-pipeline.</li>
       <li>Inside <code>finally</code>, <code>$(tasks.&lt;name&gt;.status)</code> evaluates to <code>Succeeded</code>, <code>Failed</code>, or <code>None</code> (skipped), and <code>$(tasks.status)</code> rolls up to <code>Succeeded</code>, <code>Completed</code>, <code>Failed</code>, or <code>None</code>. Note that finally tasks run in parallel and can't be ordered with <code>runAfter</code>.</li>
       <li><code>matrix.params</code> fans a single pipeline task out across every parameter combination (capped at 256 by default via <code>default-max-matrix-combinations-count</code>). Child TaskRuns are named <code>&lt;run&gt;-&lt;task&gt;-&lt;n&gt;</code>, and array results from a matrix task are consumed with <code>$(tasks.x.results.y[*])</code>.</li>
       <li>Results travel inside the container termination message, which Kubernetes caps at 4096 bytes per step (including Tekton's metadata). If you hit "Termination message is above max allowed size", either shrink the result or enable the <code>results-from: sidecar-logs</code> feature flag.</li>
@@ -352,8 +352,8 @@ pipelinerun.tekton.dev/build-and-scan-rr7lw created
 [scan : sbom] 2026/11/18 06:16:19 Skipping step because a previous step failed
 
 failed to get logs for task scan : container step-sbom has failed  : [{"key":"StartedAt","value":"2026-11-18T06:16:19.927Z","type":3},{"key":"Reason","value":"Skipped","type":3}]</code></pre></details></div>
-      <p>If the scan step fails instead, that's the CVE gate doing its job against today's base image - inspect the reported CVEs and decide like a platform engineer (bump the base image or pass <code>--ignore-unfixed</code>). You can always kick off a fresh run with <code>tkn pipeline start build-and-scan --last</code>.</p>
-      <div class="verify"><b>verify:</b> the run either Succeeds or halts at the scan gate (just like the capture above). Either way, clone and build ran and the image push was real - check it with <code>skopeo inspect --tls-verify=false docker://localhost:5001/demo:v1 | jq .Digest</code>.</div>
+      <p>If the scan step fails instead, that's the CVE gate doing its job against today's base image. Inspect the reported CVEs and decide like a platform engineer (bump the base image or pass <code>--ignore-unfixed</code>). You can always kick off a fresh run with <code>tkn pipeline start build-and-scan --last</code>.</p>
+      <div class="verify"><b>verify:</b> the run either Succeeds or halts at the scan gate (just like the capture above). Either way, clone and build ran and the image push was real; check it with <code>skopeo inspect --tls-verify=false docker://localhost:5001/demo:v1 | jq .Digest</code>.</div>
     </div>
 
     <div class="exercise" data-title="Author one task from nothing">
@@ -516,7 +516,7 @@ build-and-scan-rr7lw-scan    2 minutes ago   39s        Failed
 <b>$ kubectl get taskrun -o jsonpath='{.items[0].status.conditions[0].message}'</b>
 All Steps have completed executing</code></pre></details></div>
       <p>Now zoom out one level: inside a full Pipeline, a scan failure halts anything chained after it via <code>runAfter</code>. That's the entire supply-chain argument for putting security gates inside the pipeline instead of behind a manual ticket.</p>
-      <div class="verify"><b>verify:</b> the TaskRun ends Failed and its condition message identifies the step that exited non-zero. Pinpointing <em>which</em> task killed a run from <code>kubectl</code> output alone - without opening a dashboard - is the real exam skill.</div>
+      <div class="verify"><b>verify:</b> the TaskRun ends Failed and its condition message identifies the step that exited non-zero. Pinpointing <em>which</em> task killed a run from <code>kubectl</code> output alone, without opening a dashboard, is the real exam skill.</div>
     </div>
 
     <div class="exercise" data-title="Stretch: wire a Gitea webhook to a trigger">
@@ -525,7 +525,7 @@ All Steps have completed executing</code></pre></details></div>
     </div>
 
     <div class="exercise" data-title="Reuse a step with StepAction">
-      <p>A <code>StepAction</code> lets you version and share a single step the same way a Task shares a whole sequence. The rule that trips people up is that a step using <code>ref</code> can't also specify its own <code>image</code> (or command/script/env) - watch how clearly admission calls it out.</p>
+      <p>A <code>StepAction</code> lets you version and share a single step the same way a Task shares a whole sequence. The rule that trips people up is that a step using <code>ref</code> can't also specify its own <code>image</code> (or command/script/env); watch how clearly admission calls it out.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl api-resources | grep -i stepaction
 kubectl apply -f - &lt;&lt;'EOF'
 apiVersion: tekton.dev/v1beta1
@@ -710,7 +710,7 @@ Taskruns
     </div>
 
     <div class="exercise" data-title="Cancel a run and still clean up">
-      <p>Tekton gives you two cancellation modes (plus a third stop mode, <code>StoppedRunFinally</code>, which lets in-flight work finish). Plain <code>Cancelled</code> halts everything on the spot; <code>CancelledRunFinally</code> kills active tasks while still letting <code>finally</code> run - crucial when cleanup releases a lock or posts a status back to git.</p>
+      <p>Tekton gives you two cancellation modes (plus a third stop mode, <code>StoppedRunFinally</code>, which lets in-flight work finish). Plain <code>Cancelled</code> halts everything on the spot; <code>CancelledRunFinally</code> kills active tasks while still letting <code>finally</code> run, which is crucial when cleanup releases a lock or posts a status back to git.</p>
       <div class="cb" data-lang="bash"><pre><code># a fixed name needs a pre-delete or the second run reads a leftover from the first
 kubectl delete pipelinerun cancel-me --ignore-not-found
 kubectl create -f - &lt;&lt;'EOF'
@@ -794,7 +794,7 @@ pipelinerun.tekton.dev "cancel-me" deleted from default namespace</code></pre></
     </div>
 
     <div class="exercise" data-title="Skip a task and prove it">
-      <p>When a <code>when</code> guard evaluates to false, it doesn't fail the pipeline - and it doesn't vanish silently either. The run succeeds and records every skipped task in status, giving you the exact proof when someone asks "why didn't the deploy step run?".</p>
+      <p>When a <code>when</code> guard evaluates to false, it doesn't fail the pipeline, and it doesn't vanish silently either. The run succeeds and records every skipped task in status, giving you the exact proof when someone asks "why didn't the deploy step run?".</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl create -f - &lt;&lt;'EOF'
 apiVersion: tekton.dev/v1
 kind: PipelineRun
@@ -879,7 +879,7 @@ pipelinerun.tekton.dev/skipper-c2xp8 created
     ]
   }
 ]</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the condition is True with reason <code>Completed</code> (not <code>Succeeded</code>), and <code>status.skippedTasks</code> lists <code>prod-only</code> along with the expression that skipped it. A skipped task is still a successful run - be ready to say that without second-guessing.</div>
+      <div class="verify"><b>verify:</b> the condition is True with reason <code>Completed</code> (not <code>Succeeded</code>), and <code>status.skippedTasks</code> lists <code>prod-only</code> along with the expression that skipped it. A skipped task is still a successful run; be ready to say that without second-guessing.</div>
     </div>
 
     <div class="exercise" data-title="Fan out with a matrix">
@@ -945,7 +945,7 @@ pipelinerun.tekton.dev "fanout" deleted from default namespace</code></pre></det
 
     <div class="exercise" data-title="Sign what the pipeline built">
       <p>Tekton Chains isn't bundled into <code>make cicd</code>, so this block installs it and mints a signing key. Tear it down with the cleanup block at the bottom once you're done, or keep it around if you want to explore signing further.</p>
-      <p>The upstream release ships an empty <code>signing-secrets</code> Secret, so we replace it with a real cosign key pair. <code>cosign generate-key-pair</code> prompts interactively unless <code>COSIGN_PASSWORD</code> is set, which is why we pass an empty password here (never do that with real keys). Notice the big takeaway: you don't touch the pipeline YAML at all - Chains watches completed TaskRuns from the outside and signs what they produce.</p>
+      <p>The upstream release ships an empty <code>signing-secrets</code> Secret, so we replace it with a real cosign key pair. <code>cosign generate-key-pair</code> prompts interactively unless <code>COSIGN_PASSWORD</code> is set, which is why we pass an empty password here (never do that with real keys). Notice the big takeaway: you don't touch the pipeline YAML at all. Chains watches completed TaskRuns from the outside and signs what they produce.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl apply -f https://storage.googleapis.com/tekton-releases/chains/latest/release.yaml
 kubectl -n tekton-chains rollout status deploy/tekton-chains-controller --timeout=300s
 kubectl -n tekton-chains get secret signing-secrets -o jsonpath='{.data}{"\n"}'
@@ -1035,7 +1035,7 @@ taskrun.tekton.dev/signed-mzmn4 created
   "chains.tekton.dev/signature-taskrun-cd48c039-4cbb-4ad9-96e2-7bbb44e9d261": "eyJwYXlsb2FkVHlwZSI6ImFwcGxpY2F0aW9uL3ZuZC5pbi10b3RvK2pzb24iLCJwYXlsb2FkIjoiZXlKZmRIbHdaU0k2SW1oMGRIQnpPaTh2YVc0dGRHOTBieTVwYnk5VGRHRjBaVzFsYm5RdmRqQXVNU0lzSUNKd2NtVmthV05oZEdWVWVYQmxJam9pYUhSMGNITTZMeTl6YkhOaExtUmxkaTl3Y205MlpXNWhibU5sTDNZd0xqSWlMQ0FpY0hKbFpHbGpZWFJsSWpwN0ltSjFhV3hrUTI5dVptbG5JanA3SW5OMFpYQnpJanBiZXlKaGJtNXZkR0YwYVc5dWN5STZiblZzYkN3Z0ltRnlaM1Z0Wlc1MGN5STZiblZzYkN3Z0ltVnVkSEo1VUc5cGJuUWlPaUpsWTJodklIQnlaWFJsYm1RZ2RHaHBjeUJpZFdsc2RDQnpiMjFsZEdocGJtZGNiaUlzSUNKbGJuWnBjbTl1YldWdWRDSTZleUpqYjI1MFlXbHVaWElpT2lKaWRXbHNaQ0lzSUNKcGJXRm5aU0k2SW05amFUb3ZMMlJ2WTJ0bGNpNXBieTlzYVdKeVlYSjVMMkoxYzNsaWIzaEFjMmhoTWpVMk9qY3pZV0ZtTURrd1pqTmtPRFZoWVRNMFpXVXhPVGs0TlRkbU1ETm1ZVE5oT1RWak9HVmtaVEptWm1RMFkyTXlZMlJpTldJNU5HVTFOalppTVRFMk5qSWlmWDFkZlN3Z0ltSjFhV3hrVkhsd1pTSTZJblJsYTNSdmJpNWtaWFl2ZGpFdlZHRnphMUoxYmlJc0lDSmlkV2xzWkdWeUlqcDdJbWxrSWpvaWFIUjBjSE02THk5MFpXdDBiMjR1WkdWMkwyTm9ZV2x1Y3k5Mk1pSjlMQ0FpYVc1MmIyTmhkR2x2YmlJNmV5SmpiMjVtYVdkVGIzVnlZMlVpT250OUxDQWlaVzUyYVhKdmJtMWxiblFpT25zaVlXNXViM1JoZEdsdmJuTWlPbnNpY0dsd1pXeHBibVV1ZEdWcmRHOXVMbVJsZGk5eVpXeGxZWE5sSWpvaVptTmlZVFV5TWlKOUxDQWliR0ZpWld4eklqcDdJbUZ3Y0M1cmRXSmxjbTVsZEdWekxtbHZMMjFoYm1GblpXUXRZbmtpT2lKMFpXdDBiMjR0Y0dsd1pXeHBibVZ6SW4xOUxDQWljR0Z5WVcxbGRHVnljeUk2ZTMxOUxDQWliV0YwWlhKcFlXeHpJanBiZXlKa2FXZGxjM1FpT25zaWMyaGhNalUySWpvaU56TmhZV1l3T1RCbU0yUTROV0ZoTXpSbFpURTVPVGcxTjJZd00yWmhNMkU1TldNNFpXUmxNbVptWkRSall6SmpaR0kxWWprMFpUVTJObUl4TVRZMk1pSjlMQ0FpZFhKcElqb2liMk5wT2k4dlpHOWphMlZ5TG1sdkwyeHBZbkpoY25rdlluVnplV0p2ZUNKOVhTd2dJbTFsZEdGa1lYUmhJanA3SW1KMWFXeGtSbWx1YVhOb1pXUlBiaUk2SWpJd01qWXRNVEV0TVRoVU1EazZNakE2TVRaYUlpd2dJbUoxYVd4a1UzUmhjblJsWkU5dUlqb2lNakF5TmkweE1TMHhPRlF3T1RveU1Eb3dOVm9pTENBaVkyOXRjR3hsZEdWdVpYTnpJanA3SW1WdWRtbHliMjV0Wlc1MElqcG1ZV3h6WlN3Z0ltMWhkR1Z5YVdGc2N5STZabUZzYzJVc0lDSndZWEpoYldWMFpYSnpJanBtWVd4elpYMHNJQ0p5WlhCeWIyUjFZMmxpYkdVaU9tWmhiSE5sZlgxOSIsInNpZ25hdHVyZXMiOlt7ImtleWlkIjoiU0hBMjU2OmluRm1BVUlPNDVwcUl0M2R0YjV1bVpSNFZDRDg5QTk5Yk9Ic0w1UnJodVEiLCJzaWciOiJNRVVDSUhzNUZwNDZoMjZPK1oySkZCMkptMlhzMDQzcVBwb2RPOHRZeW8xakNSQmxBaUVBeUZ5SHdPNmpUY2RzL1Fjc0hJQ0ZZdEl4MEorbEF2TUlqQWREa2UwWUN5az0ifV19",
   "chains.tekton.dev/signed": "true"
 }</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the finished TaskRun carries <code>chains.tekton.dev/signed: "true"</code>, written by a controller the TaskRun never even referenced. If it reads <code>failed</code> instead, pull the chains-controller logs - it's almost always the signing key or storage backend config.</div>
+      <div class="verify"><b>verify:</b> the finished TaskRun carries <code>chains.tekton.dev/signed: "true"</code>, written by a controller the TaskRun never even referenced. If it reads <code>failed</code> instead, pull the chains-controller logs; it's almost always the signing key or storage backend config.</div>
       <p>When removing Chains, delete your TaskRuns <em>before</em> uninstalling the controller: Chains attaches a <code>chains.tekton.dev/taskrun</code> finalizer to every TaskRun it touches, and if the controller is gone nothing removes it, leaving TaskRuns and their pods stuck in Terminating.</p>
       <div class="cb" data-lang="bash"><pre><code>kubectl delete taskrun --all -n default
 kubectl delete -f https://storage.googleapis.com/tekton-releases/chains/latest/release.yaml</code></pre></div>
@@ -1048,10 +1048,10 @@ kubectl delete -f https://storage.googleapis.com/tekton-releases/chains/latest/r
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>Two tasks in a pipeline run at the same time and you did not expect it. Why?</summary>
-      <div class="answer"><p>There's no <code>runAfter</code> and no result dependency linking them, so Tekton runs them concurrently by default. Ordering only comes from an explicit <code>runAfter</code> or consuming another task's result - list order in the YAML means nothing.</p></div></details>
+      <div class="answer"><p>There's no <code>runAfter</code> and no result dependency linking them, so Tekton runs them concurrently by default. Ordering only comes from an explicit <code>runAfter</code> or consuming another task's result; list order in the YAML means nothing.</p></div></details>
 
     <details class="quiz"><summary>How do files get from the clone task to the build task, and what happens if you bind the workspace to an emptyDir?</summary>
-      <div class="answer"><p>Through a shared workspace backed by a PVC or <code>volumeClaimTemplate</code> mounted into both tasks. Because an <code>emptyDir</code> lives inside a single pod, each task gets its own brand-new empty directory and the build step sees nothing - a classic "why is my workspace empty?" trap.</p></div></details>
+      <div class="answer"><p>Through a shared workspace backed by a PVC or <code>volumeClaimTemplate</code> mounted into both tasks. Because an <code>emptyDir</code> lives inside a single pod, each task gets its own brand-new empty directory and the build step sees nothing, a classic "why is my workspace empty?" trap.</p></div></details>
 
     <details class="quiz"><summary>Where do you put a step that must run whether the pipeline passed or failed?</summary>
       <div class="answer"><p>In <code>spec.finally</code>. Those tasks run after every main task finishes regardless of outcome, and they can inspect <code>$(tasks.status)</code> to branch. Cleanup, notifications, and teardown belong there rather than as a trailing <code>runAfter</code> task that gets skipped on failure.</p></div></details>
@@ -1064,10 +1064,10 @@ kubectl delete -f https://storage.googleapis.com/tekton-releases/chains/latest/r
   
 
     <details class="quiz"><summary>A PipelineRun shows status True with reason Completed rather than Succeeded. What happened?</summary>
-      <div class="answer"><p>The run passed, but one or more tasks were skipped by a <code>when</code> expression - check <code>status.skippedTasks</code> to see which ones and why. Scripts or graders checking <code>reason == Succeeded</code> will trip on this, so check <code>status == "True"</code> on the <code>Succeeded</code> condition instead.</p></div></details>
+      <div class="answer"><p>The run passed, but one or more tasks were skipped by a <code>when</code> expression; check <code>status.skippedTasks</code> to see which ones and why. Scripts or graders checking <code>reason == Succeeded</code> will trip on this, so check <code>status == "True"</code> on the <code>Succeeded</code> condition instead.</p></div></details>
 
     <details class="quiz"><summary>Which spec.status value stops new tasks, lets running ones finish and still runs finally?</summary>
-      <div class="answer"><p><code>StoppedRunFinally</code>. By comparison, <code>CancelledRunFinally</code> kills in-flight TaskRuns before running finally, and plain <code>Cancelled</code> kills everything and skips finally. <code>PipelineRunPending</code> goes the other way - it creates a run parked until you clear the field.</p></div></details>
+      <div class="answer"><p><code>StoppedRunFinally</code>. By comparison, <code>CancelledRunFinally</code> kills in-flight TaskRuns before running finally, and plain <code>Cancelled</code> kills everything and skips finally. <code>PipelineRunPending</code> goes the other way: it creates a run parked until you clear the field.</p></div></details>
 
     <details class="quiz"><summary>A step referencing a StepAction also sets image. What happens, and why is the design that way?</summary>
       <div class="answer"><p>Admission rejects it with a validation error: a step using <code>ref</code> can't set <code>image</code>, <code>command</code>, <code>args</code>, <code>script</code>, <code>env</code>, or <code>volumeMounts</code>, because the StepAction owns the execution details while the step just wires params and results. That boundary lets a platform team ship one vetted StepAction and let tenants compose Tasks without touching container config.</p></div></details>
