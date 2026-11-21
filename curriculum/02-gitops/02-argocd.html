@@ -85,7 +85,7 @@ spec:
     </div>
     <div class="callout model">
       <span class="tag">Synced and Degraded isn't a contradiction</span>
-      <p>Git told the cluster to run a broken image, and the cluster faithfully ran it broken. Sync is green because there's zero diff between git and live; health is red because the Deployment can't roll out. Clicking <em>Sync</em> again won't fix a thing - you need a git commit. Learn to spot this state on sight; section 2.6 opens with it.</p>
+      <p>Git told the cluster to run a broken image, and the cluster faithfully ran it broken. Sync is green because there's zero diff between git and live; health is red because the Deployment can't roll out. Clicking <em>Sync</em> again won't fix a thing; you need a git commit. Learn to spot this state on sight; section 2.6 opens with it.</p>
     </div>
 
     <p>Every combination tells a different story, and each has one clear first move:</p>
@@ -265,7 +265,7 @@ ID      DATE                           REVISION
     <h3>Defaults that differ from what older tutorials assume</h3>
     <ul>
       <li><strong>Annotation tracking</strong> is now the default (<code>application.resourceTrackingMethod: annotation</code>). Resources get <code>argocd.argoproj.io/tracking-id: &lt;app&gt;:&lt;group&gt;/&lt;kind&gt;:&lt;ns&gt;/&lt;name&gt;</code> instead of the old <code>app.kubernetes.io/instance</code> label (use <code>annotation+label</code> if another tool still expects the label). Because the annotation names the exact object, copied resources like HNC copies stop showing up as false drift.</li>
-      <li><strong>Fine-grained RBAC</strong>: <code>update</code> and <code>delete</code> on <code>applications</code> no longer cover an Application's child resources - those require <code>update/*</code> and <code>delete/*</code> (or a scoped rule like <code>update/apps/Deployment/ns/name</code>). <code>logs, get</code> is also a first-class permission now; without it, the UI logs tab renders blank.</li>
+      <li><strong>Fine-grained RBAC</strong>: <code>update</code> and <code>delete</code> on <code>applications</code> no longer cover an Application's child resources; those require <code>update/*</code> and <code>delete/*</code> (or a scoped rule like <code>update/apps/Deployment/ns/name</code>). <code>logs, get</code> is also a first-class permission now; without it, the UI logs tab renders blank.</li>
       <li><strong>Default <code>resource.exclusions</code></strong> keep high-churn kinds out of the cache: Endpoints, EndpointSlice, Lease, the SubjectAccessReview family, CertificateSigningRequest, Kyverno reports, cert-manager CertificateRequest, and Cilium identities and endpoints. If a question asks why Argo CD "can't see" a Lease, this is why.</li>
       <li><strong>Status ignored in diffs</strong> across all resource kinds (previously CRDs only), so controllers writing to <code>.status</code> never trigger false <code>OutOfSync</code> states.</li>
       <li><strong>Minor-release milestones</strong>: 3.1 added <code>oci://</code> sources and CLI plugins; 3.2 loosened OCI layer rules and unified UI deletion; 3.3 requires server-side apply to install the ApplicationSet CRD (it outgrew the client-side annotation size limit); 3.4 updated the cluster version format and Teams notifications; and 3.5 (August 2026) promoted the Source Hydrator and impersonation to beta while adding internal mTLS, git commit signature verification, ApplicationSets in any namespace, and Helm 4 support.</li>
@@ -276,7 +276,7 @@ ID      DATE                           REVISION
       <table>
         <thead><tr><th>Field</th><th>Values</th><th>Read it when</th></tr></thead>
         <tbody>
-          <tr><td class="mono">status.sync.status</td><td class="mono">Synced · OutOfSync · Unknown</td><td><code>Unknown</code> means comparison itself failed - go straight to <code>conditions</code></td></tr>
+          <tr><td class="mono">status.sync.status</td><td class="mono">Synced · OutOfSync · Unknown</td><td><code>Unknown</code> means comparison itself failed; go straight to <code>conditions</code></td></tr>
           <tr><td class="mono">status.health.status</td><td class="mono">Healthy · Progressing · Degraded · Suspended · Missing · Unknown</td><td>Aggregate health of managed resources; <code>Missing</code> means a desired resource doesn't exist live</td></tr>
           <tr><td class="mono">status.operationState.phase</td><td class="mono">Running · Terminating · Succeeded · Failed · Error</td><td><code>Failed</code> means the API server rejected an apply; <code>Error</code> means Argo itself hit a snag (render, network); <code>Terminating</code> follows <code>argocd app terminate-op</code></td></tr>
           <tr><td class="mono">status.operationState.syncResult.resources[].status</td><td class="mono">Synced · SyncFailed · Pruned · PruneSkipped</td><td>Per-resource result carrying the API server's rejection verbatim</td></tr>
@@ -401,8 +401,8 @@ staging-demo   3/3     3            3           55s
     </div>
 
     <div class="exercise" data-title="Synced but Degraded">
-      <p>Push a bogus image tag (<code>newTag: does-not-exist</code> in the staging kustomization), sync, and check the two axes side by side with <code>argocd app get demo-staging | head -20</code>. Health stays <code>Progressing</code> for up to ten minutes (the Deployment's <code>progressDeadlineSeconds</code>) before flipping to <code>Degraded</code>, but the pod's <code>ImagePullBackOff</code> shows up in events immediately - Progressing-with-a-broken-pod already tells you the whole story.</p>
-      <div class="verify"><b>verify:</b> sync status is <code>Synced</code> while health heads toward <code>Degraded</code>, and you can explain why hitting sync again won't help. Revert the commit - this exact confusion opens section 2.6.</div>
+      <p>Push a bogus image tag (<code>newTag: does-not-exist</code> in the staging kustomization), sync, and check the two axes side by side with <code>argocd app get demo-staging | head -20</code>. Health stays <code>Progressing</code> for up to ten minutes (the Deployment's <code>progressDeadlineSeconds</code>) before flipping to <code>Degraded</code>, but the pod's <code>ImagePullBackOff</code> shows up in events immediately. Progressing-with-a-broken-pod already tells you the whole story.</p>
+      <div class="verify"><b>verify:</b> sync status is <code>Synced</code> while health heads toward <code>Degraded</code>, and you can explain why hitting sync again won't help. Revert the commit; this exact confusion opens section 2.6.</div>
     </div>
 
     <div class="exercise" data-title="Read the operation, not just the health">
@@ -629,11 +629,11 @@ Message:            successfully synced (all tasks run)
 GROUP  KIND        NAMESPACE  NAME          STATUS  HEALTH   HOOK  MESSAGE
        Service     team-a     staging-demo  Synced  Healthy        service/staging-demo unchanged
 apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged</code></pre></details></div>
-      <div class="verify"><b>verify:</b> the clean run ends <code>Succeeded</code> with every resource Synced. Once you break the selector, <code>operationState</code> reports <code>Deployment/staging-demo SyncFailed error when patching ...: spec.selector: Invalid value ...: field is immutable</code> - the exact line you'd paste into an incident channel. Don't be surprised if the manual sync in the middle returns <code>another operation is already in progress</code>: auto-sync is on, so the controller beat you to it.</div>
+      <div class="verify"><b>verify:</b> the clean run ends <code>Succeeded</code> with every resource Synced. Once you break the selector, <code>operationState</code> reports <code>Deployment/staging-demo SyncFailed error when patching ...: spec.selector: Invalid value ...: field is immutable</code>, the exact line you'd paste into an incident channel. Don't be surprised if the manual sync in the middle returns <code>another operation is already in progress</code>: auto-sync is on, so the controller beat you to it.</div>
     </div>
 
     <div class="exercise" data-title="Ask for a repo the project forbids">
-      <p>An <code>AppProject</code> is the fence between what a tenant asks for and what the platform permits. When it says no, the Application doesn't fail to sync - it fails validation, and that distinction tells you immediately where to look.</p>
+      <p>An <code>AppProject</code> is the fence between what a tenant asks for and what the platform permits. When it says no, the Application doesn't fail to sync; it fails validation, and that distinction tells you immediately where to look.</p>
       <div class="cb" data-lang="bash"><pre><code># the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there
 ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
 argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web
@@ -694,7 +694,7 @@ Synced</code></pre></details></div>
     </div>
 
     <div class="exercise" data-title="Delete the Application, keep the workload">
-      <p>Cascade deletion is just a finalizer, not a law of nature. Deleting an Application without cascading leaves every managed object running and unowned - exactly what you want during a migration, and exactly what you never want to trigger by accident.</p>
+      <p>Cascade deletion is just a finalizer, not a law of nature. Deleting an Application without cascading leaves every managed object running and unowned: exactly what you want during a migration, and exactly what you never want to trigger by accident.</p>
       <div class="cb" data-lang="bash"><pre><code># the LoadBalancer IP only exists when cloud-provider-kind runs; the NodePort is always there
 ARGO=$(kubectl get node cnpe-control-plane -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}'):$(kubectl -n argocd get svc argocd-server -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}')
 argocd login "$ARGO" --username admin --password "$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)" --plaintext --grpc-web
@@ -953,7 +953,7 @@ apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.ap
 <b>$ kubectl -n argocd get app demo-staging -o jsonpath='{.spec.syncPolicy.syncOptions}{"\n"}'</b>
 ["CreateNamespace=true"]
 <b>$ rm -rf /tmp/platform-prune</b></code></pre></details></div>
-      <div class="verify"><b>verify:</b> the sync pauses instead of finishing, asks for pruning confirmation, and leaves the Service running until you add the <code>argocd.argoproj.io/deletion-approved</code> annotation. Make sure you patch the ApplicationSet template rather than the generated Application - otherwise the ApplicationSet controller reverts your edit on <code>demo-staging</code> within seconds and prunes unattended, making it look like the confirmation gate failed.</div>
+      <div class="verify"><b>verify:</b> the sync pauses instead of finishing, asks for pruning confirmation, and leaves the Service running until you add the <code>argocd.argoproj.io/deletion-approved</code> annotation. Make sure you patch the ApplicationSet template rather than the generated Application; otherwise the ApplicationSet controller reverts your edit on <code>demo-staging</code> within seconds and prunes unattended, making it look like the confirmation gate failed.</div>
     </div>
 
     <div class="exercise" data-title="Test a project role before you hand it over">
@@ -998,7 +998,7 @@ Server:             https://kubernetes.default.svc
 apps   Deployment  team-a     staging-demo  Synced  Healthy        deployment.apps/staging-demo unchanged
 <b>$ argocd proj role delete default deployer</b>
 Role 'deployer' deleted</code></pre></details></div>
-      <div class="verify"><b>verify:</b> with only the <code>get</code> policy, the token reads the app cleanly but sync fails with <code>permission denied: applications, sync, default/demo-staging, sub: proj:default:deployer</code>. Add the sync policy and the same command succeeds. Notice how the denial hands you the action, the object, and the subject - three of the four pieces you need to write the fix.</div>
+      <div class="verify"><b>verify:</b> with only the <code>get</code> policy, the token reads the app cleanly but sync fails with <code>permission denied: applications, sync, default/demo-staging, sub: proj:default:deployer</code>. Add the sync policy and the same command succeeds. Notice how the denial hands you the action, the object, and the subject: three of the four pieces you need to write the fix.</div>
     </div>
 
   </div>
@@ -1008,19 +1008,19 @@ Role 'deployer' deleted</code></pre></details></div>
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>An app is Synced/Degraded. What are you allowed to conclude, and what is the fix?</summary>
-      <div class="answer"><p>Live matches git, so Argo CD did its job - the desired state itself is broken (bad image, impossible resource request, missing config key). Fix it with a git commit. Re-syncing won't change anything because there's no diff left to apply.</p></div></details>
+      <div class="answer"><p>Live matches git, so Argo CD did its job; the desired state itself is broken (bad image, impossible resource request, missing config key). Fix it with a git commit. Re-syncing won't change anything because there's no diff left to apply.</p></div></details>
 
     <details class="quiz"><summary>A sync fails with "field is immutable". Two ways forward?</summary>
-      <div class="answer"><p>Add <code>Replace=true</code> (app-wide or per resource) so Argo uses <code>kubectl replace</code> instead of apply, or delete the live resource and let Argo recreate it (<code>Force=true</code> automates delete-and-recreate). Pick carefully, though: replace isn't magic - a Service manifest omitting <code>clusterIP</code> will still be rejected as immutable, and neither flag can shrink a PVC.</p></div></details>
+      <div class="answer"><p>Add <code>Replace=true</code> (app-wide or per resource) so Argo uses <code>kubectl replace</code> instead of apply, or delete the live resource and let Argo recreate it (<code>Force=true</code> automates delete-and-recreate). Pick carefully, though: replace isn't magic. A Service manifest omitting <code>clusterIP</code> will still be rejected as immutable, and neither flag can shrink a PVC.</p></div></details>
 
     <details class="quiz"><summary>What is an AppProject for, in one sentence, and name two things it constrains?</summary>
-      <div class="answer"><p>It's the policy guardrail around a group of Applications, constraining permitted source repos and destination cluster/namespace pairs - plus allowed/denied resource kinds, per-project RBAC roles, and sync windows. It's how you give a team self-serve deployments without letting them deploy anything anywhere.</p></div></details>
+      <div class="answer"><p>It's the policy guardrail around a group of Applications, constraining permitted source repos and destination cluster/namespace pairs, plus allowed/denied resource kinds, per-project RBAC roles, and sync windows. It's how you give a team self-serve deployments without letting them deploy anything anywhere.</p></div></details>
 
     <details class="quiz"><summary>You are handed an ApplicationSet with a git directory generator over <code>apps/*/overlays/*</code>. How many Applications will exist?</summary>
       <div class="answer"><p>One per matching directory in the repo at the current revision. Count the directories, then inspect the template's name expression for collisions (two identical names silently overwrite each other). Reading a generator block and predicting the exact output is the exam skill; <code>kubectl -n argocd get applications</code> confirms it.</p></div></details>
 
     <details class="quiz"><summary>An app shows OutOfSync forever on a field no human edits. What is happening and what fixes it?</summary>
-      <div class="answer"><p>Something inside the cluster is mutating the object after apply - a mutating webhook, an HPA updating replicas, or a defaulting controller. Fix it with <code>ignoreDifferences</code> for that path (plus <code>RespectIgnoreDifferences=true</code> if needed), or stop managing that field in git. That's a configuration choice, not a controller bug.</p></div></details>
+      <div class="answer"><p>Something inside the cluster is mutating the object after apply: a mutating webhook, an HPA updating replicas, or a defaulting controller. Fix it with <code>ignoreDifferences</code> for that path (plus <code>RespectIgnoreDifferences=true</code> if needed), or stop managing that field in git. That's a configuration choice, not a controller bug.</p></div></details>
 
     <details class="quiz"><summary>You changed the repo but Argo insists nothing changed. Sequence of moves?</summary>
       <div class="answer"><p>Start with <code>argocd app get --refresh</code> (recompare), then <code>--hard-refresh</code> (drop the manifest cache). Next, verify the app's <code>targetRevision</code> actually points at the branch you pushed to, and finally check <code>repo-server</code> logs for auth or render errors. Always try the cheapest check first.</p></div></details>
@@ -1033,7 +1033,7 @@ Role 'deployer' deleted</code></pre></details></div>
       <div class="answer"><p>Run <code>argocd app delete X --cascade=false</code>, or with <code>kubectl</code> patch <code>metadata.finalizers</code> to strip <code>resources-finalizer.argocd.argoproj.io</code> before deleting the Application. Leaving the finalizer in place triggers a foreground cascade delete that wipes every managed resource. For protecting a single resource rather than the whole app, annotate it with <code>Delete=false</code>.</p></div></details>
 
     <details class="quiz"><summary>An ApplicationSet with a matrix of a git directories generator and a clusters generator: how many Applications, and what breaks if you nest another matrix inside?</summary>
-      <div class="answer"><p><code>directories × clusters</code> - one Application per pair, named by your template (watch out for collisions, which silently merge). A matrix takes exactly two child generators and combination generators only nest one level deep, so nesting a matrix inside a matrix inside a matrix gets rejected at generation time rather than by the API server's schema validation.</p></div></details>
+      <div class="answer"><p><code>directories × clusters</code>: one Application per pair, named by your template (watch out for collisions, which silently merge). A matrix takes exactly two child generators and combination generators only nest one level deep, so nesting a matrix inside a matrix inside a matrix gets rejected at generation time rather than by the API server's schema validation.</p></div></details>
 
     <details class="quiz"><summary>A user can see Applications and sync them but the Logs tab is empty. Which policy line is missing since 3.0?</summary>
       <div class="answer"><p><code>p, role:&lt;their-role&gt;, logs, get, &lt;project&gt;/*, allow</code>. Starting in Argo CD 3.0, logs RBAC is enforced by default and is no longer implied by <code>applications, get</code>. That same 3.0 release split child-resource permissions into <code>update/*</code> and <code>delete/*</code>.</p></div></details>

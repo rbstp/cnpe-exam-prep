@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#171c1d" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#f6f5f0" media="(prefers-color-scheme: light)">
-<meta name="description" content="Master Kubernetes storage mechanics - PVs, PVCs, StorageClasses, binding modes, reclaim policies, expansion, snapshots, and Velero - using kind's built-in local-path provisioner.">
+<meta name="description" content="Master Kubernetes storage mechanics (PVs, PVCs, StorageClasses, binding modes, reclaim policies, expansion, snapshots, and Velero) using kind's built-in local-path provisioner.">
 <title>1.3 Storage: volumes, claims, classes · CNPE</title>
 <link rel="stylesheet" href="../assets/style.css">
 <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
@@ -53,7 +53,7 @@
       <table>
         <thead><tr><th>Field</th><th>Values</th><th>What it changes</th></tr></thead>
         <tbody>
-          <tr><td class="mono">accessModes</td><td class="mono">RWO · ROX · RWX · RWOP</td><td>A PVC only binds to a PV that offers its requested mode. <code>local-path</code> only supports RWO, so an RWX claim sits Pending forever - spotting <em>why</em> immediately is the skill.</td></tr>
+          <tr><td class="mono">accessModes</td><td class="mono">RWO · ROX · RWX · RWOP</td><td>A PVC only binds to a PV that offers its requested mode. <code>local-path</code> only supports RWO, so an RWX claim sits Pending forever. Spotting <em>why</em> immediately is the skill.</td></tr>
           <tr><td class="mono">volumeBindingMode</td><td class="mono">Immediate · WaitForFirstConsumer</td><td><code>WaitForFirstConsumer</code> holds the PVC in Pending until a pod actually mounts it, letting the scheduler pick the right zone first. Our <code>standard</code> class uses it, so you'll see a healthy Pending PVC right away.</td></tr>
           <tr><td class="mono">persistentVolumeReclaimPolicy</td><td class="mono">Delete · Retain</td><td><code>Delete</code> destroys the backing volume when the claim goes away; <code>Retain</code> keeps the data and leaves the PV <em>Released</em> so nothing can rebind to it until an admin clears <code>spec.claimRef</code>.</td></tr>
           <tr><td class="mono">allowVolumeExpansion</td><td class="mono">true · false</td><td>Only classes with this set to <code>true</code> let you grow a PVC by bumping <code>spec.resources.requests.storage</code>. Shrinking is never supported anywhere.</td></tr>
@@ -64,7 +64,7 @@
 
     <div class="callout trap">
       <span class="tag">Access modes are a capability match, not magic</span>
-      <p>Requesting RWX doesn't magically turn a local disk into a shared filesystem - it just asks for a PV whose backing storage already supports multi-node read-write mounts. Likewise, nothing stops two pods on the same node from trampling each other on an RWO volume. <code>RWOP</code> (<code>ReadWriteOncePod</code>) is the strict lock: strictly one pod at a time, enforced by both the scheduler and kubelet, so two database replicas can never corrupt the same volume.</p>
+      <p>Requesting RWX doesn't magically turn a local disk into a shared filesystem; it just asks for a PV whose backing storage already supports multi-node read-write mounts. Likewise, nothing stops two pods on the same node from trampling each other on an RWO volume. <code>RWOP</code> (<code>ReadWriteOncePod</code>) is the strict lock: strictly one pod at a time, enforced by both the scheduler and kubelet, so two database replicas can never corrupt the same volume.</p>
     </div>
   </div>
 </section>
@@ -86,10 +86,10 @@
       </table>
     </div>
 
-    <p>Both protection finalizers look like bugs the first time you hit them, and both are saving you from yourself: <code>pvc-protection</code> blocks deleting a claim while a pod still mounts it, and <code>pv-protection</code> blocks deleting a bound PV. Never start by ripping off the finalizer - remove the pod first and let the controller clean up cleanly. Stripping finalizers blindly is the Kubernetes equivalent of yanking out a live hard drive.</p>
+    <p>Both protection finalizers look like bugs the first time you hit them, and both are saving you from yourself: <code>pvc-protection</code> blocks deleting a claim while a pod still mounts it, and <code>pv-protection</code> blocks deleting a bound PV. Never start by ripping off the finalizer: remove the pod first and let the controller clean up cleanly. Stripping finalizers blindly is the Kubernetes equivalent of yanking out a live hard drive.</p>
 
     <h3>StatefulSets: where storage semantics show up</h3>
-    <p><code>volumeClaimTemplates</code> stamps out a dedicated PVC for each replica, named <code>&lt;template&gt;-&lt;sts&gt;-&lt;ordinal&gt;</code>. Deleting the StatefulSet leaves those PVCs behind by default (unless you opt into <code>persistentVolumeClaimRetentionPolicy</code>), so scaling back up reconnects cleanly to the exact same data. That durability - paired with stable hostnames and ordered rollouts - is the whole point of using a StatefulSet over a Deployment.</p>
+    <p><code>volumeClaimTemplates</code> stamps out a dedicated PVC for each replica, named <code>&lt;template&gt;-&lt;sts&gt;-&lt;ordinal&gt;</code>. Deleting the StatefulSet leaves those PVCs behind by default (unless you opt into <code>persistentVolumeClaimRetentionPolicy</code>), so scaling back up reconnects cleanly to the exact same data. That durability, paired with stable hostnames and ordered rollouts, is the whole point of using a StatefulSet over a Deployment.</p>
     <p>This is also where GitOps hits its boundary: <strong>data</strong>. Deleting a namespace and letting Argo CD or Flux rebuild it brings back your YAML, not the bytes inside a PV. Three mechanisms cover disaster recovery: CSI snapshots for fast in-cluster point-in-time copies, a backup tool like Velero to ship cluster objects and volume backups off-cluster, and operator-native backups for databases. Knowing which of the three protects your state is the complete DR answer.</p>
 
     <p>Snapshots mirror the exact same three-object pattern: <code>VolumeSnapshotClass</code>, <code>VolumeSnapshot</code>, and <code>VolumeSnapshotContent</code>. Since <code>local-path</code> doesn't support snapshots, this lab teaches the Kubernetes snapshot APIs conceptually and lets CloudNativePG show you real database backups.</p>
@@ -102,7 +102,7 @@
     <p>Section 3.1's "platform APIs as products" idea shows up right here: StorageClasses <em>are</em> a user-facing product menu. Each class hides durability, performance, and cost choices that app teams shouldn't have to reinvent.</p>
     <ul>
       <li>Name classes by intent (<code>fast-ssd</code>, <code>cheap-hdd</code>, <code>shared-rwx</code>), not by today's underlying vendor driver.</li>
-      <li>Mark exactly one default class (<code>storageclass.kubernetes.io/is-default-class</code>) and price it deliberately, because every PVC that omits <code>storageClassName</code> buys it automatically. If two classes are marked default, the DefaultStorageClass <em>admission plugin</em> quietly picks the newest one - worse than an error, because behavior silently shifts the next time someone adds a class.</li>
+      <li>Mark exactly one default class (<code>storageclass.kubernetes.io/is-default-class</code>) and price it deliberately, because every PVC that omits <code>storageClassName</code> buys it automatically. If two classes are marked default, the DefaultStorageClass <em>admission plugin</em> quietly picks the newest one. That's worse than an error, because behavior silently shifts the next time someone adds a class.</li>
       <li>Default to <code>WaitForFirstConsumer</code> anywhere zones exist, so volumes aren't created in a zone your pod can't schedule into.</li>
       <li>Use <code>Delete</code> for ephemeral tenant scratch space and <code>Retain</code> for anything whose loss would trigger a postmortem.</li>
       <li>Cap tenant storage with quotas: <code>requests.storage</code> for the total cap, and <code>&lt;class&gt;.storageclass.storage.k8s.io/requests.storage</code> per class so teams don't default everything onto your most expensive NVMe tier (section 1.4).</li>
@@ -114,7 +114,7 @@
   
 
     <h3>Backup and restore as objects: Velero</h3>
-    <p>When an exam scenario reaches for a cluster backup tool, Velero is the standard name, built around four CRDs. A <code>BackupStorageLocation</code> points at your object store (bucket, prefix, provider plugin); a <code>VolumeSnapshotLocation</code> says where disk snapshots land; a <code>Backup</code> picks what to capture (<code>includedNamespaces</code>, <code>includedResources</code>, <code>labelSelector</code>, <code>ttl</code> defaulting to 30 days); and a <code>Schedule</code> wraps a Backup template in a cron expression, emitting backups named <code>&lt;schedule&gt;-&lt;timestamp&gt;</code>. Velero copies volume data either via CSI snapshots (moved/deleted once backed up) or via file-system backup (a node agent reading mounted files - works on any volume type, at the cost of crash-consistency). For application-consistent backups, use <code>pre</code> and <code>post</code> exec hooks (like flushing a database before snapshotting). A <code>Restore</code> replays the backup, optionally remapping namespaces with <code>namespaceMapping: {abc: def}</code>, and stamps restored resources with <code>velero.io/restore-name</code>. In a GitOps cluster, keep the boundary crisp: Git restores manifests, Velero (or your DB operator) restores PV data, and neither replaces the other.</p>
+    <p>When an exam scenario reaches for a cluster backup tool, Velero is the standard name, built around four CRDs. A <code>BackupStorageLocation</code> points at your object store (bucket, prefix, provider plugin); a <code>VolumeSnapshotLocation</code> says where disk snapshots land; a <code>Backup</code> picks what to capture (<code>includedNamespaces</code>, <code>includedResources</code>, <code>labelSelector</code>, <code>ttl</code> defaulting to 30 days); and a <code>Schedule</code> wraps a Backup template in a cron expression, emitting backups named <code>&lt;schedule&gt;-&lt;timestamp&gt;</code>. Velero copies volume data either via CSI snapshots (moved/deleted once backed up) or via file-system backup (a node agent reading mounted files; works on any volume type, at the cost of crash-consistency). For application-consistent backups, use <code>pre</code> and <code>post</code> exec hooks (like flushing a database before snapshotting). A <code>Restore</code> replays the backup, optionally remapping namespaces with <code>namespaceMapping: {abc: def}</code>, and stamps restored resources with <code>velero.io/restore-name</code>. In a GitOps cluster, keep the boundary crisp: Git restores manifests, Velero (or your DB operator) restores PV data, and neither replaces the other.</p>
   </div>
 </section>
 
@@ -124,12 +124,12 @@
     <p>Every item below maps to a concrete field on a PVC, StatefulSet, or StorageClass that a task can ask for, along with the Kubernetes version where it graduated. Our lab runs 1.37, so everything marked GA works out of the box.</p>
 
     <h3>StatefulSet PVC retention (GA since 1.32)</h3>
-    <p><code>spec.persistentVolumeClaimRetentionPolicy</code> gives you two switches, each set to <code>Retain</code> (default) or <code>Delete</code>: <code>whenDeleted</code> governs StatefulSet deletion, and <code>whenScaled</code> governs scale-down. Under the hood, <code>Delete</code> attaches an <code>ownerReference</code> to the PVC so garbage collection removes it once its pod terminates - whereas a pod recreated after a node failure keeps its claim untouched. The go-to production pairing is <code>whenDeleted: Retain, whenScaled: Delete</code>: accidental deletes keep your data safe, while intentional scale-downs don't leak orphaned disks.</p>
+    <p><code>spec.persistentVolumeClaimRetentionPolicy</code> gives you two switches, each set to <code>Retain</code> (default) or <code>Delete</code>: <code>whenDeleted</code> governs StatefulSet deletion, and <code>whenScaled</code> governs scale-down. Under the hood, <code>Delete</code> attaches an <code>ownerReference</code> to the PVC so garbage collection removes it once its pod terminates, whereas a pod recreated after a node failure keeps its claim untouched. The go-to production pairing is <code>whenDeleted: Retain, whenScaled: Delete</code>: accidental deletes keep your data safe, while intentional scale-downs don't leak orphaned disks.</p>
 
     <h3>Expansion and recovering from failed grows</h3>
     <ul>
       <li>Requires <code>allowVolumeExpansion: true</code> on the StorageClass plus CSI driver support. Always edit <code>spec.resources.requests.storage</code> on the PVC, never the PV (editing the PV tricks the controller into thinking the grow already finished).</li>
-      <li>The underlying block device expands first; the filesystem (ext3, ext4, xfs) expands only when a pod mounts the claim (online if the driver supports it). Until a pod mounts it, the PVC shows <code>FileSystemResizePending</code> - totally normal if no consumer is running.</li>
+      <li>The underlying block device expands first; the filesystem (ext3, ext4, xfs) expands only when a pod mounts the claim (online if the driver supports it). Until a pod mounts it, the PVC shows <code>FileSystemResizePending</code>, which is totally normal if no consumer is running.</li>
       <li>You still can't shrink a bound volume, but you <em>can</em> cancel a failed expansion: thanks to <code>RecoverVolumeExpansionFailure</code> (GA since 1.34), you can lower the requested size back down to anything above <code>status.capacity</code>. Track live progress in <code>status.allocatedResources</code> and <code>status.allocatedResourceStatuses</code> (such as <code>ControllerResizeInProgress</code> or <code>NodeResizePending</code>).</li>
     </ul>
 
@@ -149,13 +149,13 @@
 
     <h3>Ephemeral volumes</h3>
     <ul>
-      <li><strong>Generic ephemeral volume</strong> (GA since 1.23): declare <code>volumes[].ephemeral.volumeClaimTemplate</code> right inside the Pod spec. Kubernetes creates a real PVC named <code>&lt;pod&gt;-&lt;volume&gt;</code> owned by the pod, so it vanishes when the pod does - yet while alive, it supports snapshots, clones, and expansion just like any normal PVC. Pair it with <code>WaitForFirstConsumer</code> classes so scheduling chooses the node first.</li>
+      <li><strong>Generic ephemeral volume</strong> (GA since 1.23): declare <code>volumes[].ephemeral.volumeClaimTemplate</code> right inside the Pod spec. Kubernetes creates a real PVC named <code>&lt;pod&gt;-&lt;volume&gt;</code> owned by the pod, so it vanishes when the pod does, yet while alive it supports snapshots, clones, and expansion just like any normal PVC. Pair it with <code>WaitForFirstConsumer</code> classes so scheduling chooses the node first.</li>
       <li><strong>CSI ephemeral volume:</strong> inline <code>volumes[].csi</code> with no PVC object, used by drivers declaring the <code>Ephemeral</code> mode (like secrets-store drivers). Data dies with the pod and bypasses StorageClasses entirely.</li>
       <li><code>emptyDir</code> counts against <code>ephemeral-storage</code> requests and limits; add <code>medium: Memory</code> and it counts against container memory instead (and supports in-place resize on cgroup v2 nodes).</li>
     </ul>
 
     <h3>VolumeAttributesClass (GA since 1.34)</h3>
-    <p>A StorageClass controls how a volume is provisioned; a <code>VolumeAttributesClass</code> (<code>driverName</code> plus performance <code>parameters</code> like IOPS and throughput) controls how it performs afterward. Better yet, <code>pvc.spec.volumeAttributesClassName</code> is mutable - upgrading a volume from <code>silver</code> to <code>gold</code> is a live edit instead of a data migration, and you can quota it per class (<code>&lt;vac&gt;.volumeattributesclass.storage.k8s.io/...</code>). Whenever a scenario asks how to change disk performance tiers without recreating the PVC, this is the answer.</p>
+    <p>A StorageClass controls how a volume is provisioned; a <code>VolumeAttributesClass</code> (<code>driverName</code> plus performance <code>parameters</code> like IOPS and throughput) controls how it performs afterward. Better yet, <code>pvc.spec.volumeAttributesClassName</code> is mutable: upgrading a volume from <code>silver</code> to <code>gold</code> is a live edit instead of a data migration, and you can quota it per class (<code>&lt;vac&gt;.volumeattributesclass.storage.k8s.io/...</code>). Whenever a scenario asks how to change disk performance tiers without recreating the PVC, this is the answer.</p>
 
     <h3>Smaller versioned facts worth remembering</h3>
     <ul>
@@ -165,7 +165,7 @@
       <li><strong>StatefulSet <code>updateStrategy.rollingUpdate.maxUnavailable</code></strong> is beta since 1.35 (on by default in 1.35.0–1.35.3, off in 1.35.4–1.36, back on by default in 1.37), and <code>Recreate</code> is also feature-gated. Don't rely on either unless verified; default updates remain one pod at a time, highest ordinal first.</li>
     </ul>
 
-    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Grow the database volume to 20Gi" is graded against the PVC's <code>status.capacity</code> - editing the spec alone scores nothing. If the StorageClass lacks <code>allowVolumeExpansion</code>, admission rejects the edit immediately ("only dynamically provisioned pvc can be resized and the storageclass that provisions the pvc must support resize"). And if no pod mounts the claim, capacity stays frozen at the old size with <code>FileSystemResizePending</code> until a consumer actually runs.</p></div>
+    <div class="callout exam"><span class="tag">How this gets tested</span><p>"Grow the database volume to 20Gi" is graded against the PVC's <code>status.capacity</code>; editing the spec alone scores nothing. If the StorageClass lacks <code>allowVolumeExpansion</code>, admission rejects the edit immediately ("only dynamically provisioned pvc can be resized and the storageclass that provisions the pvc must support resize"). And if no pod mounts the claim, capacity stays frozen at the old size with <code>FileSystemResizePending</code> until a consumer actually runs.</p></div>
   </div>
 </section>
 
@@ -558,7 +558,7 @@ persistentvolumeclaim "noclass" deleted from default namespace</code></pre></det
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>A PVC has been Pending for ten minutes and <code>describe</code> shows no events at all. Bug or not?</summary>
-      <div class="answer"><p>Not a bug if the StorageClass uses <code>WaitForFirstConsumer</code> and no pod mounts it yet: until a pod is scheduled, Kubernetes won't provision anything or emit events. It turns into a real bug only once a pod references the claim and it <em>still</em> sits Pending - at which point the events appear and tell you why.</p></div></details>
+      <div class="answer"><p>Not a bug if the StorageClass uses <code>WaitForFirstConsumer</code> and no pod mounts it yet: until a pod is scheduled, Kubernetes won't provision anything or emit events. It turns into a real bug only once a pod references the claim and it <em>still</em> sits Pending, at which point the events appear and tell you why.</p></div></details>
 
     <details class="quiz"><summary>A PV sits in Released and your new, identical PVC will not bind to it. Why, and what is the fix?</summary>
       <div class="answer"><p><code>Retain</code> leaves <code>spec.claimRef</code> pointing at the old claim, so Kubernetes treats the PV as still spoken for. Clear it with <code>kubectl patch pv &lt;name&gt; -p '{"spec":{"claimRef":null}}'</code> to flip it back to <code>Available</code>. The real engineering decision is whether you should wipe the leftover data before letting another workload mount it.</p></div></details>
@@ -577,7 +577,7 @@ persistentvolumeclaim "noclass" deleted from default namespace</code></pre></det
       <div class="answer"><p>Set <code>persistentVolumeClaimRetentionPolicy: { whenScaled: Delete, whenDeleted: Retain }</code> (GA since Kubernetes 1.32). Under the hood, <code>Delete</code> adds an <code>ownerReference</code> to the condemned pod so garbage collection cleans up the PVC once the pod exits; node-failure replacements don't count as scale events and keep their claims.</p></div></details>
 
     <details class="quiz"><summary>An expansion to 500Gi failed because the backend has no capacity and the PVC keeps retrying. Can you back out?</summary>
-      <div class="answer"><p>Yes - <code>RecoverVolumeExpansionFailure</code> has been GA since 1.34. Just lower the PVC request back down to anything above <code>status.capacity</code> (you still can't shrink below current size) and watch <code>status.allocatedResourceStatuses</code> and events. Before 1.34, you had to manually flip to Retain, delete the PVC, clear <code>claimRef</code>, and recreate it.</p></div></details>
+      <div class="answer"><p>Yes: <code>RecoverVolumeExpansionFailure</code> has been GA since 1.34. Just lower the PVC request back down to anything above <code>status.capacity</code> (you still can't shrink below current size) and watch <code>status.allocatedResourceStatuses</code> and events. Before 1.34, you had to manually flip to Retain, delete the PVC, clear <code>claimRef</code>, and recreate it.</p></div></details>
 
     <details class="quiz"><summary>Restore a database volume from last night's snapshot into a new PVC. What does the manifest look like and what must be true first?</summary>
       <div class="answer"><p>Create a PVC with <code>dataSource: { kind: VolumeSnapshot, name: &lt;snap&gt;, apiGroup: snapshot.storage.k8s.io }</code> in the same namespace, using a StorageClass from the same CSI driver and a size at least as large as the snapshot's restore size. Make sure the VolumeSnapshot shows <code>status.readyToUse: true</code> first, or the PVC will hang in Pending.</p></div></details>

@@ -47,7 +47,7 @@
   <div class="phdr"><h2>The concepts questions hang off</h2><span class="meta">reconciliation · drift · push vs pull</span></div>
   <div class="pbody">
     <h3>Reconciliation is a loop, not an event</h3>
-    <p>The controller compares live cluster state against git on a timer and whenever a webhook fires. That means a manual <code>kubectl edit</code> doesn't <em>fail</em> - it either gets reverted on the next loop (if self-heal is on) or gets flagged as drift (if it's off). "Why did my manual fix disappear?" is the symptom you'll run into most, and <code>OutOfSync</code> is how the controller tells you about it. The upside of a continuous loop is that recovery comes almost for free: wipe an entire namespace and the next reconcile rebuilds it. That's the disaster-recovery case for GitOps.</p>
+    <p>The controller compares live cluster state against git on a timer and whenever a webhook fires. That means a manual <code>kubectl edit</code> doesn't <em>fail</em>; it either gets reverted on the next loop (if self-heal is on) or gets flagged as drift (if it's off). "Why did my manual fix disappear?" is the symptom you'll run into most, and <code>OutOfSync</code> is how the controller tells you about it. The upside of a continuous loop is that recovery comes almost for free: wipe an entire namespace and the next reconcile rebuilds it. That's the disaster-recovery case for GitOps.</p>
 
     <pre class="diagram">   ┌──────────── git (desired) ────────────┐
    │  demo-app/overlays/staging/…          │
@@ -66,7 +66,7 @@
     <div class="widget" data-widget="gitops"></div>
 
     <h3>Push vs pull</h3>
-    <p>A CI job pushing manifests needs cluster credentials sitting outside the cluster, and it only knows the cluster's state at the moment it deploys. A pull-based agent keeps credentials inside the cluster, never exposes them outward, and never stops comparing. That second part - <em>continuous</em> comparison - is why GitOps isn't just "CI that runs <code>kubectl</code>".</p>
+    <p>A CI job pushing manifests needs cluster credentials sitting outside the cluster, and it only knows the cluster's state at the moment it deploys. A pull-based agent keeps credentials inside the cluster, never exposes them outward, and never stops comparing. That second part, <em>continuous</em> comparison, is why GitOps isn't just "CI that runs <code>kubectl</code>".</p>
 
     <div class="callout exam">
       <span class="tag">Where the boundary actually sits</span>
@@ -98,7 +98,7 @@
     <h3>Templating, both flavors</h3>
     <p><strong>Kustomize</strong> layers patches onto a base without a templating language, using <code>resources</code>, <code>patches</code> (strategic-merge or JSON 6902), <code>images</code>, <code>namePrefix</code>, <code>labels</code> (the v5 replacement for the deprecated <code>commonLabels</code>), and <code>configMapGenerator</code>. It's YAML all the way down, and <code>kustomize build</code> shows you the exact manifests that will land in the cluster. <strong>Helm</strong> renders Go templates from values files, trading away that plain-YAML clarity ("the manifest doesn't exist until something renders it") in exchange for conditionals and loops. Both Argo CD and Flux consume both, and both let you post-render one with the other.</p>
 
-    <p>Helm is also a <em>release manager</em>, not just a template renderer, and an exam task can test that side directly. Keep these commands handy: <code>helm list -A</code> (releases and revisions), <code>helm upgrade --install --atomic --wait</code> (roll back automatically if it never becomes ready), <code>helm history</code> and <code>helm rollback &lt;rel&gt; &lt;rev&gt;</code>, <code>helm get values --revision</code>, and <code>helm diff</code> if the plugin is installed. Release state lives in Secrets of type <code>helm.sh/release.v1</code> in the release namespace. That's how you see what a previous operator deployed - and why a Flux <code>HelmRelease</code> can end up adopting or fighting an existing release.</p>
+    <p>Helm is also a <em>release manager</em>, not just a template renderer, and an exam task can test that side directly. Keep these commands handy: <code>helm list -A</code> (releases and revisions), <code>helm upgrade --install --atomic --wait</code> (roll back automatically if it never becomes ready), <code>helm history</code> and <code>helm rollback &lt;rel&gt; &lt;rev&gt;</code>, <code>helm get values --revision</code>, and <code>helm diff</code> if the plugin is installed. Release state lives in Secrets of type <code>helm.sh/release.v1</code> in the release namespace. That's how you see what a previous operator deployed, and why a Flux <code>HelmRelease</code> can end up adopting or fighting an existing release.</p>
 
     <div class="callout reflex">
       <span class="tag">Command reflex</span>
@@ -106,7 +106,7 @@
     </div>
 
     <h3>Secrets</h3>
-    <p>Plain Secrets don't belong in git - base64 is encoding, not encryption. The three sanctioned patterns are <strong>Sealed Secrets</strong> (encrypt for git so only the in-cluster controller can decrypt), <strong>External Secrets Operator</strong> (git holds references while an external store holds the truth), and <strong>SOPS</strong> (encrypted values in git, decrypted by the agent, with native support in Flux). Section 5.1 covers the mechanics. Here, remember that "how do secrets work in GitOps?" has real architectural answers, and "commit it base64-encoded" isn't one of them.</p>
+    <p>Plain Secrets don't belong in git; base64 is encoding, not encryption. The three sanctioned patterns are <strong>Sealed Secrets</strong> (encrypt for git so only the in-cluster controller can decrypt), <strong>External Secrets Operator</strong> (git holds references while an external store holds the truth), and <strong>SOPS</strong> (encrypted values in git, decrypted by the agent, with native support in Flux). Section 5.1 covers the mechanics. Here, remember that "how do secrets work in GitOps?" has real architectural answers, and "commit it base64-encoded" isn't one of them.</p>
   </div>
 </section>
 
@@ -156,7 +156,7 @@
     <ul>
       <li><strong>Argo CD (3.1+)</strong>: Set <code>repoURL: oci://registry/org/config</code>, <code>targetRevision</code> to a tag or digest, and <code>path: .</code>. Helm charts in OCI registries work the same way, using standard <code>chart</code> fields.</li>
       <li><strong>Flux</strong>: Run <code>flux push artifact oci://registry/org/config:tag --path ./deploy --source ... --revision ...</code> to publish an artifact with Flux media types. An <code>OCIRepository</code> consumes it via <code>ref.tag</code>, <code>ref.semver</code>, or <code>ref.digest</code>, with optional <code>verify.provider: cosign</code> or <code>notation</code> verification, and a Kustomization uses it just like a <code>GitRepository</code>.</li>
-      <li><strong>Why bother?</strong> Your registries already hold container images, so config and images can share signing, retention, and promotion (retagging) - and air-gapped clusters without git access can still pull.</li>
+      <li><strong>Why bother?</strong> Your registries already hold container images, so config and images can share signing, retention, and promotion (retagging), and air-gapped clusters without git access can still pull.</li>
     </ul>
 
     <h3>Kustomize vs Helm, decided</h3>
@@ -210,7 +210,7 @@
         </tbody>
       </table>
     </div>
-    <p>When a task doesn't specify which engine to use, the grader checks the resulting cluster state and git commit - either engine gets you there. Pick whichever CLI you can drive from muscle memory without checking the docs.</p>
+    <p>When a task doesn't specify which engine to use, the grader checks the resulting cluster state and git commit, so either engine gets you there. Pick whichever CLI you can drive from muscle memory without checking the docs.</p>
 
     <h3>Bootstrapping, both ways</h3>
     <ul>
@@ -336,7 +336,7 @@ warning: redirecting to http://gitea.lab:3000/lab/platform.git/
 warning: redirecting to http://gitea.lab:3000/lab/platform.git/
 To http://gitea.lab:3000/lab/platform.git
    0c7031e..55f63ae  main -&gt; main</code></pre></details></div>
-      <div class="verify"><b>verify:</b> nothing deploys yet, and that's the point - a repo only becomes desired state once a controller watches the path. Section 2.2 wires this exact commit to a live Application, so hang on to the clone.</div>
+      <div class="verify"><b>verify:</b> nothing deploys yet, and that's the point: a repo only becomes desired state once a controller watches the path. Section 2.2 wires this exact commit to a live Application, so hang on to the clone.</div>
     </div>
 
     <div class="exercise" data-title="Say what watches what">
@@ -351,7 +351,7 @@ platform	main@sha1:c7cb9a1e	False    	True 	stored artifact for revision 'main@s
     </div>
 
     <div class="exercise" data-title="Drift, the concept">
-      <p>With nothing managing <code>demo-app</code> yet, apply it by hand (run <code>kubectl create ns team-a</code> if needed, then <code>kubectl apply -k examples/demo-app/overlays/staging</code> - the overlay pins its own namespace, so skip <code>-n</code>). Scale it manually. Nobody notices, because nothing is reconciling it yet.</p>
+      <p>With nothing managing <code>demo-app</code> yet, apply it by hand (run <code>kubectl create ns team-a</code> if needed, then <code>kubectl apply -k examples/demo-app/overlays/staging</code>; the overlay pins its own namespace, so skip <code>-n</code>). Scale it manually. Nobody notices, because nothing is reconciling it yet.</p>
       <div class="verify"><b>verify:</b> hold that thought for the drift-revert exercise in 2.2, where that exact same edit gets snapped back within seconds.</div>
     </div>
 
@@ -490,7 +490,7 @@ unset, so the 3.x default is in force
   <div class="phdr"><h2>Self-check</h2><span class="meta">answer before opening</span></div>
   <div class="pbody">
     <details class="quiz"><summary>State the four OpenGitOps principles without looking.</summary>
-      <div class="answer"><p>Declarative, versioned and immutable, pulled automatically by agents, and continuously reconciled. If you blank on one under pressure, it's usually "versioned and immutable" - which also happens to be the one carrying the audit and rollback story.</p></div></details>
+      <div class="answer"><p>Declarative, versioned and immutable, pulled automatically by agents, and continuously reconciled. If you blank on one under pressure, it's usually "versioned and immutable", which also happens to be the one carrying the audit and rollback story.</p></div></details>
 
     <details class="quiz"><summary>Why are environment branches discouraged?</summary>
       <div class="answer"><p>Long-lived branches accumulate divergent changes. Promotion turns into messy merges with conflicts and cherry-picks instead of a clean, reviewable diff, and environments drift apart structurally instead of differing only in the values you intended. Directories keep those differences explicit and diffable.</p></div></details>
@@ -499,10 +499,10 @@ unset, so the 3.x default is in force
       <div class="answer"><p>Self-heal reverts it on the next reconcile (or flags it as drift if self-heal is off). The right move is to suspend or disable reconciliation for that app, apply the emergency change, then land the same fix in git and resume so it sticks and stays in the audit trail.</p></div></details>
 
     <details class="quiz"><summary>What does prune actually change, and what is the failure mode in each setting?</summary>
-      <div class="answer"><p>Prune deletes live resources whose manifests disappear from git. With prune off, renamed or removed resources linger forever as invisible cruft. With prune on, deleting a file deletes the running workload, so a careless refactor can cause a production outage. Neither mode is magically safe - safety comes from knowing which one is on.</p></div></details>
+      <div class="answer"><p>Prune deletes live resources whose manifests disappear from git. With prune off, renamed or removed resources linger forever as invisible cruft. With prune on, deleting a file deletes the running workload, so a careless refactor can cause a production outage. Neither mode is magically safe; safety comes from knowing which one is on.</p></div></details>
 
     <details class="quiz"><summary>Where do secrets live in a GitOps repo?</summary>
-      <div class="answer"><p>Encrypted (Sealed Secrets or SOPS) or by reference (External Secrets Operator pointing at an external store) - never plaintext and never bare base64. The key distinction to state: Sealed Secrets and SOPS keep ciphertext in git, while ESO keeps only a reference and leaves the secret material in the external store.</p></div></details>
+      <div class="answer"><p>Encrypted (Sealed Secrets or SOPS) or by reference (External Secrets Operator pointing at an external store), never plaintext and never bare base64. The key distinction to state: Sealed Secrets and SOPS keep ciphertext in git, while ESO keeps only a reference and leaves the secret material in the external store.</p></div></details>
   
 
     <details class="quiz"><summary>What is the rendered manifests pattern and how does Argo CD 3.5 implement it?</summary>
@@ -512,7 +512,7 @@ unset, so the 3.x default is in force
       <div class="answer"><p>External Secrets Operator. Git holds an <code>ExternalSecret</code> referencing keys in a <code>SecretStore</code> or <code>ClusterSecretStore</code>, and the operator fetches and writes the Kubernetes Secret on a <code>refreshInterval</code>. The trade-off is your dependency on that external store and its credentials: if it goes down, rotation pauses (though existing Secrets keep working). Sealed Secrets and SOPS store ciphertext in git instead.</p></div></details>
 
     <details class="quiz"><summary>What does flux bootstrap actually create, and what is the name of the object that then manages Flux itself?</summary>
-      <div class="answer"><p>It installs the controllers, commits <code>gotk-components.yaml</code> and <code>gotk-sync.yaml</code> under <code>--path</code> in your repo, and creates a <code>GitRepository</code> and a <code>Kustomization</code> both named <code>flux-system</code> in the <code>flux-system</code> namespace. From then on, that Kustomization reconciles the whole cluster directory - Flux included - so upgrading Flux is just another commit.</p></div></details>
+      <div class="answer"><p>It installs the controllers, commits <code>gotk-components.yaml</code> and <code>gotk-sync.yaml</code> under <code>--path</code> in your repo, and creates a <code>GitRepository</code> and a <code>Kustomization</code> both named <code>flux-system</code> in the <code>flux-system</code> namespace. From then on, that Kustomization reconciles the whole cluster directory (Flux included), so upgrading Flux is just another commit.</p></div></details>
 
     <details class="quiz"><summary>Why does helm list show nothing for a chart Argo CD deployed?</summary>
       <div class="answer"><p>Argo CD renders charts using <code>helm template</code> semantics and applies the plain manifests itself, so it never creates Helm release Secrets. Flux's helm-controller runs real Helm install and upgrade actions and keeps full release history, which is why <code>helm list -n &lt;storageNamespace&gt;</code> sees them. Make sure you call out that difference when comparing engines.</p></div></details>
