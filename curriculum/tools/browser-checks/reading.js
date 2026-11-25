@@ -61,6 +61,11 @@ module.exports = async function (h) {
     assert(await page.locator('.reading-size').getAttribute('aria-pressed') === 'true', 'reading size persists across reloads');
     await page.locator('.focusbtn').click();
     assert(!(await page.locator('#toc').isVisible()), 'focus view removes the navigation rail');
+    // the readouts rail is sticky beside the text above 1350px; focus view has to hide it there too
+    for (const width of [1440, 1280]) {
+      await page.setViewportSize({ width, height: 720 });
+      assert(!(await page.locator('article > .stats').isVisible()), 'focus view hides the readouts at ' + width + 'px');
+    }
     await page.locator('.reading-menu').click();
     assert(await page.locator('#toc').isVisible(), 'contents remain reachable in focus view');
     await page.keyboard.press('Escape');
